@@ -1,0 +1,16 @@
+{
+  "name": "family-skills",
+  "owner": {
+    "name": "Boshu Zhang"
+  },
+  "metadata": {
+    "description": "Reusable Agent Skills for in-folder knowledge wikis — shared across Claude Code / Cowork sessions and the family-ai-os pipeline."
+  },
+  "plugins": [
+    {
+      "name": "family-skills",
+      "source": "./",
+      "description": "Reusable Agent Skills (wiki-maintenance, …) for in-folder knowledge wikis."
+    }
+  ]
+}
