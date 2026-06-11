@@ -4,7 +4,8 @@ Reusable [Agent Skills](https://code.claude.com/docs/en/skills) for maintaining 
 
 ## Skills
 
-- **`wiki-maintenance`** — process an inbox item end to end (read → file by confident match → update the pages it touches → surface actions → log), keep a synthesised wiki current over a folder of files, answer queries, and run periodic lint passes. Includes the provenance model, the never-overwrite-a-human-edit guard, and a sensitive-data rule (record identifiers as last-4 only).
+- **`wiki-onboarding`** — bootstrap a wiki for a folder that doesn't have one: scan the folder read-only, propose a structure that mirrors how the owner already organises it, interview them on a few key points, then write the initial **Schema / Index / Log** skeleton. One-time and interactive; hands off to `wiki-maintenance`.
+- **`wiki-maintenance`** — keep a wiki current: process an incoming item end to end (read → file by confident match → update the pages it touches → surface what needs a human → log), answer queries from the wiki, and run periodic lint passes. The method is portable; each wiki's own Schema page is the authority for its exact pages and layout. Includes the provenance model, the never-overwrite-a-human-edit guard, and a sensitive-data rule (identifiers as last-4 only).
 
 ## Install (Claude Code / Cowork)
 
