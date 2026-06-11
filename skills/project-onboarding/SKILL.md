@@ -54,12 +54,20 @@ file-ingest project at all: the archetype fits a folder of accumulating document
 synthesised, queryable wiki. A folder that is pure code, or has no documents to summarise, doesn't
 need it — don't impose the archetype where the material doesn't justify it.
 
-### 2. Create the wiki — hand to wiki-onboarding
+### 2. Ensure a wiki exists — onboard one only if it doesn't
 
-Run **wiki-onboarding**: scan, propose a structure that mirrors the owner's own folders, interview on
-a few key points (what they'll ask the wiki, what's sensitive, per-domain update triggers, cadence),
-and write the **Schema / Index / Log** skeleton. The Schema it produces is the durable artefact every
-later pass follows. Do not proceed to wire jobs until there is a Schema to maintain.
+The jobs need a Schema to maintain, so this step guarantees one exists — **without re-onboarding a
+wiki that's already there** (one of this skill's use cases is adding jobs to a folder that already has
+a wiki):
+
+- **No wiki / Schema yet** → run **wiki-onboarding**: scan, propose a structure that mirrors the
+  owner's own folders, interview on a few key points (what they'll ask the wiki, what's sensitive,
+  per-domain update triggers, cadence), and write the **Schema / Index / Log** skeleton.
+- **A wiki / Schema already exists** → **do not re-onboard.** Read and validate the existing Schema,
+  then go straight to stamping the jobs (step 3).
+
+Either way, do not proceed to wire jobs until there is a Schema to maintain — it is the durable
+artefact every later pass follows.
 
 ### 3. Stamp the file-ingest archetype — the two jobs
 
