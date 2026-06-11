@@ -12,9 +12,21 @@ pinned dependency.
 
 ## The unit of work: a job
 
-A maintained folder runs **jobs**. A job is one pass over the folder that may update its wiki. There
-are two standard kinds — the **file-ingest archetype** (see
-`skills/project-onboarding/archetypes/file-ingest/`):
+A maintained folder runs **jobs**. A job is one pass over the folder: it reads folder state, reasons
+once, and returns a structured result that deterministic guards turn into changes. Updating the wiki
+is the most common thing a job does — but it is one job family, not the definition. A job can
+equally propose a folder re-organisation, clean duplicates, suggest structure improvements, or
+improve the wiki's own Schema. Each such family is its own **archetype** with its own write
+contract, flowing through the same three layers and the same gate described below.
+
+What a job family may *touch* is part of its archetype's contract. File-ingest reads the owner's
+files in place and writes only the wiki (plus filing inbox items into existing folders); a
+folder-hygiene archetype would *propose* moves and deletions for the owner to approve, not execute
+them. Whatever the family: every write goes through the deployment's deterministic guards, and
+anything that touches the owner's own material defaults to propose-only.
+
+The first archetype this repo ships is **file-ingest** (see
+`skills/project-onboarding/archetypes/file-ingest/`), whose two standard jobs are:
 
 - **`ingest`** — incremental and **reactive**. Drain the inbox, update the pages each new or changed
   source touches, append to the log. Cheap; runs often.
