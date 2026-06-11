@@ -3,8 +3,8 @@ name: wiki-maintenance
 description: >-
   How to maintain an in-folder knowledge wiki — a synthesised, always-current layer over a folder of
   real files. Process an incoming item end to end (read, file by confident match, update the pages it
-  touches, surface what needs a human, log it), answer queries from the wiki, and run periodic lint
-  passes. The method is the point; the wiki's own Schema page is the authority for its exact pages and
+  touches, surface what needs a human, log it), answer queries from the wiki, and run periodic
+  reconcile (lint) passes. The method is the point; the wiki's own Schema page is the authority for its exact pages and
   layout. If a wiki doesn't exist yet, use wiki-onboarding first to create the Schema/Index/Log skeleton.
 ---
 
@@ -119,25 +119,32 @@ When asked something, read the Index first, drill into the relevant pages, and s
 citations down to the source. File a genuinely valuable answer (a comparison, an analysis) back as a wiki
 page rather than letting it vanish into chat.
 
-## Lint — the periodic health pass
+## Reconcile — the periodic health pass (the lint)
 
 Reconcile the wiki **to the files** (the golden source): look for contradictions between pages, stale
 claims a newer source supersedes, orphan pages, missing domains and data gaps; refresh the Index
-(most-urgent, open-questions, key-facts); record the pass in the log. The lint **never flags or rewrites
+(most-urgent, open-questions, key-facts); record the pass in the log. Reconcile **never flags or rewrites
 `provenance: manual` content** — that is owner-asserted and authoritative.
 
-## Cadence
+## Cadence — ingest and reconcile
 
-Two passes that differ in **scope**, not just schedule:
+Two passes that differ in **scope**, not just schedule (the file-ingest archetype names them `ingest`
+and `reconcile`):
 
-- **Quick ingest** — drain the inbox, update the pages each new source touches, append to the log. Cheap.
-- **Comprehensive lint** — reconcile the whole wiki to the files: dedupe, sweep orphans, reconcile stale
-  claims, confirm the structure holds.
+- **Ingest** — incremental and **reactive**: drain the inbox, update the pages each new or changed
+  source touches, append to the log. Cheap; run it often.
+- **Reconcile** — comprehensive and **periodic**: reckon the whole wiki to the files — dedupe, sweep
+  orphans, reconcile stale claims, confirm the structure holds.
 
-A low-volume folder is well served by a frequent quick pass and an occasional deep one; scale to the
-folder's traffic. **Who maintains it matters:** when a person (or an interactive session) edits the wiki
-inline as they work, any scheduled automation is a *safety net* behind that; for an unattended folder with
-no inline maintainer, the scheduled pass is the primary path.
+**A deterministic gate runs before either spends model effort.** A cheap check of folder state — new or
+changed sources, items in the inbox, a changed calendar snapshot — decides whether there is anything to
+do, so an unchanged folder costs nothing. This is what lets `ingest` run reactively on a frequent tick:
+it no-ops for free until something actually moves, and only a real change reaches the model.
+
+A low-volume folder is well served by a frequent reactive ingest and an occasional reconcile; scale to
+the folder's traffic. **Who maintains it matters:** when a person (or an interactive session) edits the
+wiki inline as they work, any scheduled automation is a *safety net* behind that; for an unattended folder
+with no inline maintainer, the scheduled passes are the primary path.
 
 ## Rules that keep it safe
 

@@ -4,8 +4,13 @@ Reusable [Agent Skills](https://code.claude.com/docs/en/skills) for maintaining 
 
 ## Skills
 
+- **`project-onboarding`** — stand up a self-maintaining folder end to end: create its wiki (via `wiki-onboarding`) and wire the two standard maintenance jobs — a reactive `ingest` pass and a periodic `reconcile` pass — from the **file-ingest archetype**. The whole-project flow; composes the two skills below.
 - **`wiki-onboarding`** — bootstrap a wiki for a folder that doesn't have one: scan the folder read-only, propose a structure that mirrors how the owner already organises it, interview them on a few key points, then write the initial **Schema / Index / Log** skeleton. One-time and interactive; hands off to `wiki-maintenance`.
-- **`wiki-maintenance`** — keep a wiki current: process an incoming item end to end (read → file by confident match → update the pages it touches → surface what needs a human → log), answer queries from the wiki, and run periodic lint passes. The method is portable; each wiki's own Schema page is the authority for its exact pages and layout. Includes the provenance model, the never-overwrite-a-human-edit guard, and a sensitive-data rule (identifiers as last-4 only).
+- **`wiki-maintenance`** — keep a wiki current: process an incoming item end to end (read → file by confident match → update the pages it touches → surface what needs a human → log), answer queries from the wiki, and run periodic reconcile (lint) passes. The method is portable; each wiki's own Schema page is the authority for its exact pages and layout. Includes the provenance model, the never-overwrite-a-human-edit guard, and a sensitive-data rule (identifiers as last-4 only).
+
+## The framework
+
+[`ARCHITECTURE.md`](ARCHITECTURE.md) describes the design these skills sit inside — the three-layer job model (prompt template · skill · deterministic guards), the determinism boundary, the gate that runs the cheap deterministic check before any model call, and reactive `ingest` vs periodic `reconcile` scheduling. The reference deployment is [`family-ai-os`](https://github.com/boshuthebuilder/family-ai-os), which consumes this repo as a pinned dependency.
 
 ## Install (Claude Code / Cowork)
 
