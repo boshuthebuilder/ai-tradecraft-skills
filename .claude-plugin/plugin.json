@@ -1,6 +1,6 @@
 {
-  "name": "family-skills",
-  "description": "Reusable Agent Skills for maintaining in-folder knowledge wikis — works in any Claude Code or Cowork session, and is consumed by the family-ai-os pipeline from the same source.",
+  "name": "ai-os-skills",
+  "description": "Reusable Agent Skills for maintaining in-folder knowledge wikis — works in any Claude Code or Cowork session, and can be consumed by an automated pipeline from the same source.",
   "version": "1.0.0",
   "author": {
     "name": "Boshu Zhang"
