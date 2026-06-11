@@ -1,0 +1,22 @@
+# file-ingest archetype — the two standard jobs for a document folder kept by a wiki.
+# Copy into a project's job config. A job's `id` equals its `mode`. Field names beyond
+# id/mode/prompt are deployment-specific (model routing, timeouts) — adapt to your config schema.
+
+jobs:
+  - id: ingest
+    mode: ingest
+    prompt: ingest.md          # the reactive incremental pass — drains the inbox
+    schedule: reactive         # run the deterministic gate often; no-op when nothing changed (see scheduler.md)
+    # compatible_models: [...] # optional: which model backends this job may use
+    # timeout_seconds: 600     # optional: per-run cap
+
+  - id: reconcile
+    mode: reconcile
+    prompt: reconcile.md       # the periodic comprehensive pass — reckons the whole wiki to the files
+    schedule: weekly           # a fixed cadence; not triggered by a single change (see scheduler.md)
+    # compatible_models: [...] # a full-wiki reconcile is a large prompt — keep it off vision-only backends
+    # timeout_seconds: 900
+
+# The project must also declare the shared conventions skill as a capability, e.g.:
+# capabilities:
+#   skills: [wiki-maintenance]
