@@ -31,6 +31,11 @@ templates to copy. See [`ARCHITECTURE.md`](../../ARCHITECTURE.md) for the why.
 For just the wiki skeleton, use **wiki-onboarding**. For running an existing wired project, use
 **wiki-maintenance**.
 
+This skill's flow below is for the **file-ingest** archetype (a folder of documents). For giving a
+*person* a cross-project view over the project wikis they can access, stamp the **user-synthesis**
+archetype instead (`archetypes/user-synthesis/`) — it is one gated job per identity, needs no
+wiki-onboarding pass (its vault is fully generated), and its README is self-contained.
+
 ## The shape of an onboarded project
 
 When onboarding is done, the folder has:
