@@ -38,7 +38,7 @@ If a folder is also maintained by a scheduled automation (an unattended safety n
 ## How updates propagate
 
 - **Cowork / interactive** — you get the latest each session (the marketplace tracks this repo).
-- **An unattended automation** — should consume a **pinned** clone, advanced only through a reviewed deploy, never auto-latest.
+- **An unattended automation** — should consume a **pinned** clone at a release tag, advanced only through a reviewed deploy, never auto-latest. Releases are semver tags; what counts as a breaking change is defined in [`AGENTS.md`](AGENTS.md), and each release is recorded in [`CHANGELOG.md`](CHANGELOG.md).
 
 Edit a skill here once → interactive sessions pick it up immediately → a pinned automation picks it up on its next deploy.
 
