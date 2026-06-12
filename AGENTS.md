@@ -9,10 +9,11 @@ this file — one source of truth, two filenames.
 
 ## Binding rules for working here
 
-- **Generic, always.** No real owner, host, machine, or platform names anywhere in skills,
-  archetypes, or docs. Everything must read as method — "the owner", "the deployment", "an
-  always-on machine" — never as one household's configuration. If an example needs a name,
-  invent an obviously fictional one.
+- **Generic, always.** No real owner, host, machine, or platform names in skills, archetypes,
+  or prompt templates — the consumed method must read as method ("the owner", "the deployment",
+  "an always-on machine"), never as one household's configuration. If an example needs a name,
+  invent an obviously fictional one. The one deliberate exception: top-level docs (this file,
+  `README.md`, `ARCHITECTURE.md`) may link the reference deployment by name, as they already do.
 - **Skills are conventions, not code.** Enforcement (write guards, path checks, locks) belongs
   in a deployment's code; a skill *describes* intent. Don't write a rule into a skill that only
   code can hold — point to the three-layer model in `ARCHITECTURE.md` instead.
