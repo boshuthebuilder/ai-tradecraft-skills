@@ -35,6 +35,13 @@ The first archetype this repo ships is **file-ingest** (see
 - **`reconcile`** — comprehensive and **periodic**. Reconcile the whole wiki against the files
   (dedupe, sweep orphans, fix stale claims, confirm the structure holds). Expensive; runs on a clock.
 
+The second is **user-synthesis** (`skills/project-onboarding/archetypes/user-synthesis/`): a single
+gated job that synthesises
+a per-person, cross-project view (see *Tiers and identities*, below). It also shows that an
+archetype's *source* need not be the owner's files at all — its sources are other wikis. Whatever
+the source, the same shape holds: gather presents the model a deterministic, access-scoped view of
+it, and only the reasoning step is a model call.
+
 The names are the same as the modes: a job's `id` equals its `mode`, so there is no third vocabulary.
 
 ## The three layers of a job
@@ -86,6 +93,11 @@ What the gate counts as "something changed", for the file-ingest archetype:
 - the calendar feed's event set has changed since the last successfully-ingested snapshot
   (hash the events, ignoring churn like a regenerated-at timestamp).
 
+For the user-synthesis archetype, the same rule over different inputs: the content of every wiki the
+identity may access, plus the accessible-project set itself. The more expensive the reasoning step,
+the more the gate matters — a full cross-project synthesis is the costliest pass in the system, and
+the gate is what makes running its check every few minutes free.
+
 A change is only **consumed** (recorded as seen) once the run has actually absorbed it — i.e. on a
 successful write, not merely on observing it. A failed or skipped run leaves the change pending, so
 the next gate re-detects it. This is the fail-loud rule applied to the gate itself.
@@ -98,12 +110,36 @@ different. A read that can fail returns a status (`ok | empty | stale | missing 
 `ok` participates in the gate — a stale snapshot must never masquerade as "nothing changed" and
 suppress a real change, nor blank a page it can no longer see.
 
+## Tiers and identities
+
+Two concepts the archetypes above rest on:
+
+- A **project** is a maintained folder. An **identity** is an access principal — a person — that may
+  own projects and receive a synthesis. Access is **one rule** (do the requester's tags intersect the
+  target's?) applied at every boundary: which jobs an identity may trigger, which accounts a service
+  reads, and which wikis a synthesis may see. One rule, single-homed in the deployment, so it can
+  never drift between surfaces.
+- Wikis come in two **tiers**. A **project-tier** wiki is strictly self-contained: it never names or
+  links another project (the `wiki-maintenance` rule). A **user-tier** wiki — one per identity — is
+  the only place cross-project links live: it is *synthesised over* the project wikis that identity
+  may access, reads them, and never writes back into them. Isolation is by construction: the
+  synthesis job's gather only ever presents the wikis the access rule allows, so a cross-tier leak
+  cannot happen downstream of it.
+
+Onboarding an identity (as opposed to a project) is deliberately not a skill yet — today it is just:
+map a vault for the identity and stamp the user-synthesis archetype.
+
 ## Scheduling: reactive vs periodic
 
 - **`ingest` is reactive** — a short-interval poll (or an event wake) that runs the gate; idle ticks
   no-op for free. The deployment supplies the timer.
 - **`reconcile` is periodic** — a fixed cadence (e.g. weekly). It is a whole-wiki pass that isn't
   triggered by a single change, so it stays on a clock.
+- **`synthesise` is reactive with no periodic twin.** The twin rule: a `reconcile`-style periodic
+  pass exists **only** when the maintained artefact is built *incrementally* and can therefore drift
+  from its source. A full-rebuild job regenerates everything from current sources on every run, so
+  there is nothing to drift and one gated job suffices. An archetype that later turns incremental
+  (usually for cost) re-earns its periodic full pass at that moment.
 
 ## Execution context constraints (why the indirection exists)
 

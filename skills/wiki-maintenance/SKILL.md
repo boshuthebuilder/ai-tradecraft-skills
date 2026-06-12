@@ -109,6 +109,14 @@ This is the spine. For **each** item in the inbox / drop folder:
 4. **Surface what needs a human** — precise and quiet (see *Surfacing*, below).
 5. **Log it.** Append one dated line: `## [YYYY-MM-DD] <action> | <short summary>`.
 
+**Authored notes — free text with no source document.** An inbox item that is the owner's own words
+(an idea, a brainstorm, a decision) rather than a document to file is an **authored note**: route it
+to the domain the Schema declares for authored content (e.g. an *Ideas* domain), mark the page or
+block `provenance: manual`, and treat its content as authoritative from then on. Carry the owner's
+text **verbatim** as the note body — synthesis may add a title, date and links around it, never
+replace it: the wiki page becomes the only copy of the owner's words once the inbox item is drained.
+There is nothing to file in step 2 — the note's home *is* the wiki page.
+
 **Fail loud, never silent.** A blocked, locked, unavailable or unreadable source is a *named* state
 (flagged for review with its reason) — never dropped, never defaulted to "nothing to do". A genuinely
 empty inbox and a blocked read must look different.
@@ -124,7 +132,10 @@ page rather than letting it vanish into chat.
 Reconcile the wiki **to the files** (the golden source): look for contradictions between pages, stale
 claims a newer source supersedes, orphan pages, missing domains and data gaps; refresh the Index
 (most-urgent, open-questions, key-facts); record the pass in the log. Reconcile **never flags or rewrites
-`provenance: manual` content** — that is owner-asserted and authoritative.
+`provenance: manual` content** — that is owner-asserted and authoritative. Authored notes (ideas,
+brainstorms) may be *merged or cross-linked* during a reconcile where they clearly belong together, but
+their content and `provenance: manual` marking are preserved — consolidation never deletes or contradicts
+what the owner asserted.
 
 ## Cadence — ingest and reconcile
 

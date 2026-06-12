@@ -5,8 +5,10 @@ description: >-
   set up the two standard maintenance jobs that keep it current — a reactive `ingest` pass that drains
   the inbox and a periodic `reconcile` pass that reckons the whole wiki against the files. Use when
   onboarding a new folder/project into an AI-OS-style setup, or adding scheduled ingest + reconcile to
-  a folder that only has a wiki. This is the whole-project flow; for just the wiki skeleton use
-  wiki-onboarding, and for the ongoing loop use wiki-maintenance.
+  a folder that only has a wiki. Also home to the job archetypes: file-ingest (the pair above) and
+  user-synthesis — use the latter when onboarding a person/identity who wants a synthesised
+  cross-project view (a user-tier wiki / second brain) over the project wikis they can access. For
+  just the wiki skeleton use wiki-onboarding, and for the ongoing loop use wiki-maintenance.
 ---
 
 # project-onboarding
@@ -30,6 +32,11 @@ templates to copy. See [`ARCHITECTURE.md`](../../ARCHITECTURE.md) for the why.
 
 For just the wiki skeleton, use **wiki-onboarding**. For running an existing wired project, use
 **wiki-maintenance**.
+
+This skill's flow below is for the **file-ingest** archetype (a folder of documents). For giving a
+*person* a cross-project view over the project wikis they can access, stamp the **user-synthesis**
+archetype instead (`archetypes/user-synthesis/`) — it is one gated job per identity, needs no
+wiki-onboarding pass (its vault is fully generated), and its README is self-contained.
 
 ## The shape of an onboarded project
 
