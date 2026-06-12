@@ -1,6 +1,6 @@
 {
   "name": "ai-os-skills",
-  "description": "Reusable Agent Skills for maintaining in-folder knowledge wikis — works in any Claude Code or Cowork session, and can be consumed by an automated pipeline from the same source.",
+  "description": "Framework + Agent Skills for a headless AI assisting system over real folders. The knowledge layer ships first (project-onboarding, wiki-onboarding, wiki-maintenance) — works in any Claude Code or Cowork session, and can be consumed by an automated pipeline from the same source.",
   "version": "1.0.0",
   "author": {
     "name": "Boshu Zhang"

@@ -1,16 +1,18 @@
 # ai-os-skills
 
-Reusable [Agent Skills](https://code.claude.com/docs/en/skills) for maintaining **in-folder knowledge wikis** — a synthesised, always-current layer over a folder of real files. They work in any Claude Code or Cowork session, and can also be consumed by an automated pipeline from this same source, so the conventions live in **one home**.
+The reusable framework — and the [Agent Skills](https://code.claude.com/docs/en/skills) that plug into it — for building a **headless AI assisting system**: one that runs unattended over a person's real folders, notices what changed, reasons over it, and keeps a synthesised layer current without being asked. The conventions live in **one home**, so interactive Claude Code / Cowork sessions and automated pipelines share the same logic.
 
-## Skills
+## The framework
+
+[`ARCHITECTURE.md`](ARCHITECTURE.md) is the core of the repo. It defines the **job** as the unit of work (one pass over a maintained folder: read state, reason once, return a structured result that deterministic guards turn into changes), the three layers of a job (prompt template · skill · deterministic guards), the determinism boundary, the gate that runs a cheap deterministic check before any model call, and reactive vs periodic scheduling. Each job family is an **archetype** with its own write contract — knowledge synthesis is the first, but folder hygiene, drafting, or any other family flows through the same layers and the same gate. The reference deployment is [`family-ai-os`](https://github.com/boshuthebuilder/family-ai-os), which consumes this repo as a pinned dependency.
+
+## The knowledge layer — the skills shipped today
+
+The first archetype implements the **in-folder knowledge wiki**: a synthesised, always-current layer over a folder of real files. Three skills cover its lifecycle:
 
 - **`project-onboarding`** — stand up a self-maintaining folder end to end: create its wiki (via `wiki-onboarding`) and wire the two standard maintenance jobs — a reactive `ingest` pass and a periodic `reconcile` pass — from the **file-ingest archetype**. The whole-project flow; composes the two skills below.
 - **`wiki-onboarding`** — bootstrap a wiki for a folder that doesn't have one: scan the folder read-only, propose a structure that mirrors how the owner already organises it, interview them on a few key points, then write the initial **Schema / Index / Log** skeleton. One-time and interactive; hands off to `wiki-maintenance`.
 - **`wiki-maintenance`** — keep a wiki current: process an incoming item end to end (read → file by confident match → update the pages it touches → surface what needs a human → log), answer queries from the wiki, and run periodic reconcile (lint) passes. The method is portable; each wiki's own Schema page is the authority for its exact pages and layout. Includes the provenance model, the never-overwrite-a-human-edit guard, and a sensitive-data rule (identifiers as last-4 only).
-
-## The framework
-
-[`ARCHITECTURE.md`](ARCHITECTURE.md) describes the design these skills sit inside — the three-layer job model (prompt template · skill · deterministic guards), the determinism boundary, the gate that runs the cheap deterministic check before any model call, and reactive `ingest` vs periodic `reconcile` scheduling. The reference deployment is [`family-ai-os`](https://github.com/boshuthebuilder/family-ai-os), which consumes this repo as a pinned dependency.
 
 ## Install (Claude Code / Cowork)
 
@@ -40,6 +42,9 @@ If a folder is also maintained by a scheduled automation (an unattended safety n
 
 Edit a skill here once → interactive sessions pick it up immediately → a pinned automation picks it up on its next deploy.
 
-## Contributing a skill
+## Contributing
 
-Drop a folder under `skills/<name>/` with a `SKILL.md` (YAML frontmatter with at least a `description`). CI (`scripts/lint_skills.py`) lints every skill on push, so a malformed skill never ships. Validate locally with `claude plugin validate .`.
+Two extension points:
+
+- **A skill** — drop a folder under `skills/<name>/` with a `SKILL.md` (YAML frontmatter with at least a `description`). CI (`scripts/lint_skills.py`) lints every skill on push, so a malformed skill never ships. Validate locally with `claude plugin validate .`.
+- **An archetype** — a new job family (its prompt templates, job declarations, and write contract) lives under `skills/project-onboarding/archetypes/<name>/`, following the shape of `file-ingest`. See `ARCHITECTURE.md` for what an archetype must define.

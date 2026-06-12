@@ -4,13 +4,13 @@
     "name": "Boshu Zhang"
   },
   "metadata": {
-    "description": "Reusable Agent Skills for in-folder knowledge wikis — shared across Claude Code / Cowork sessions and any automated pipeline."
+    "description": "Framework + Agent Skills for a headless AI assisting system over real folders — the in-folder knowledge wiki is the first shipped layer. Shared across Claude Code / Cowork sessions and any automated pipeline."
   },
   "plugins": [
     {
       "name": "ai-os-skills",
       "source": "./",
-      "description": "Reusable Agent Skills (wiki-maintenance, …) for in-folder knowledge wikis."
+      "description": "Agent Skills for the AI-OS framework — currently the knowledge layer: project-onboarding, wiki-onboarding, wiki-maintenance."
     }
   ]
 }
