@@ -31,8 +31,10 @@ Reconcile the wiki **to the files**:
    `wiki_pages` with `verdict: apply`. Be confident: change only what the source index clearly
    supports. Where you are **unsure**, leave the page as-is and record the concern in `needs_a_look` —
    do **not** rewrite on a guess.
-2. **Never touch a `provenance: manual` page or block** — those are owner-asserted facts not derived
-   from files; they are authoritative and must never be flagged as inconsistent.
+2. **`provenance: manual` content is owner-asserted and authoritative** — never flag it as
+   inconsistent with the files, never delete it, never contradict it. The one permitted change:
+   authored notes (ideas, brainstorms) that clearly belong together may be **merged or cross-linked**,
+   preserving their content and their `provenance: manual` marking verbatim.
 3. **Calendar reconcile.** The gather report's `calendar` block is the current forward view. **Only
    when `calendar.status` is `ok`**, ensure the Coming Events view matches the event set: drop
    past/cancelled lines, add new ones, keep it chronological. Calendar-derived pages/blocks carry

@@ -35,7 +35,8 @@ The first archetype this repo ships is **file-ingest** (see
 - **`reconcile`** — comprehensive and **periodic**. Reconcile the whole wiki against the files
   (dedupe, sweep orphans, fix stale claims, confirm the structure holds). Expensive; runs on a clock.
 
-The second is **user-synthesis** (`archetypes/user-synthesis/`): a single gated job that synthesises
+The second is **user-synthesis** (`skills/project-onboarding/archetypes/user-synthesis/`): a single
+gated job that synthesises
 a per-person, cross-project view (see *Tiers and identities*, below). It also shows that an
 archetype's *source* need not be the owner's files at all — its sources are other wikis. Whatever
 the source, the same shape holds: gather presents the model a deterministic, access-scoped view of
