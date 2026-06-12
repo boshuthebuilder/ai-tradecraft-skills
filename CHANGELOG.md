@@ -4,7 +4,7 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
-## Unreleased
+## v1.0.0 — 2026-06-12
 
 ### Added
 - **`user-synthesis` archetype** (`skills/project-onboarding/archetypes/user-synthesis/`): a single,
