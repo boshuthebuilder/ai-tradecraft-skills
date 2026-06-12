@@ -1,8 +1,10 @@
 # The AI-OS job framework
 
 The skills in this repo describe *what* to do to a maintained folder (onboard a wiki, ingest an
-item, reconcile the wiki). This document describes the *shape of the system around them* — how an
-automated, self-maintaining knowledge folder is built so it stays robust, cheap, and reproducible.
+item, reconcile the wiki). This document describes the *shape of the system around them* — how a
+headless assisting system is built over a person's real folders so it stays robust, cheap, and
+reproducible. The knowledge wiki is the first job family this repo ships, not the boundary of the
+design.
 
 It is deliberately generic. A concrete deployment (an unattended pipeline on an always-on machine, a
 cron job, a Cowork session a person drives by hand) supplies the timer, the storage, and the model
