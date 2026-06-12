@@ -45,6 +45,10 @@ For each new or changed source, and each item in the inbox:
    `Scanned Document.pdf` to e.g. `Finance/Statements/<provider> 2026-05.pdf`), keeping the original
    extension. File only into an **existing** top-level folder. If you cannot place it confidently —
    or a confident match would cross an identity/ownership boundary — leave it and flag `needs_a_look`.
+   **Exception — authored notes:** an item that is the owner's own free text (an idea, a brainstorm, a
+   decision) rather than a document has **no file destination**: return no `filing` for it; its home is
+   the wiki — write it into the Schema's authored domain (e.g. *Ideas*) as `provenance: manual` in
+   step 3, and the inbox drain disposes of the original.
 3. **Update the wiki page(s) the source touches**, writing into the **existing** sections shown above.
    Give every page you write provenance/freshness frontmatter (`provenance: derived`, the `source:`
    path, `last-updated: {date}`, `status: current`) with provenance links down to the source. **If
