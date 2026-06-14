@@ -34,9 +34,9 @@ For just the wiki skeleton, use **wiki-onboarding**. For running an existing wir
 **wiki-maintenance**.
 
 This skill's flow below is for the **file-ingest** archetype (a folder of documents). For giving a
-*person* a cross-project view over the project wikis they can access, stamp the **user-synthesis**
-archetype instead (`archetypes/user-synthesis/`) — it is one gated job per identity, needs no
-wiki-onboarding pass (its vault is fully generated), and its README is self-contained.
+*person* a cross-project view over the project wikis they can access, use the **`user-onboarding`**
+skill, which stamps the **user-synthesis** archetype (`archetypes/user-synthesis/`) — an incremental
+`synthesise` plus its periodic `reconcile` twin, over a type-1 user vault (no wiki-onboarding pass).
 
 ## The shape of an onboarded project
 

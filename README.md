@@ -8,9 +8,10 @@ The reusable framework — and the [Agent Skills](https://code.claude.com/docs/e
 
 ## The knowledge layer — the skills shipped today
 
-The first archetype implements the **in-folder knowledge wiki**: a synthesised, always-current layer over a folder of real files. Three skills cover its lifecycle:
+The first archetype implements the **in-folder knowledge wiki**: a synthesised, always-current layer over a folder of real files. Four skills cover the lifecycle:
 
 - **`project-onboarding`** — stand up a self-maintaining folder end to end: create its wiki (via `wiki-onboarding`) and wire the two standard maintenance jobs — a reactive `ingest` pass and a periodic `reconcile` pass — from the **file-ingest archetype**. The whole-project flow; composes the two skills below.
+- **`user-onboarding`** — onboard a *person* (an identity) rather than a folder: the storage-ownership handshake (the user owns the folder and shares it into the worker), the **type-1 user vault** ("second brain") skeleton, and stamping the **user-synthesis archetype** (an incremental `synthesise` + its periodic `reconcile` twin) so the person gets a self-maintaining, cross-project view over the wikis they can access.
 - **`wiki-onboarding`** — bootstrap a wiki for a folder that doesn't have one: scan the folder read-only, propose a structure that mirrors how the owner already organises it, interview them on a few key points, then write the initial **Schema / Index / Log** skeleton. One-time and interactive; hands off to `wiki-maintenance`.
 - **`wiki-maintenance`** — keep a wiki current: process an incoming item end to end (read → file by confident match → update the pages it touches → surface what needs a human → log), answer queries from the wiki, and run periodic reconcile (lint) passes. The method is portable; each wiki's own Schema page is the authority for its exact pages and layout. Includes the provenance model, the never-overwrite-a-human-edit guard, and a sensitive-data rule (identifiers as last-4 only).
 

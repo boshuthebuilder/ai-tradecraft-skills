@@ -1,18 +1,26 @@
-# user-synthesis archetype — the single job for an identity's cross-project vault.
+# user-synthesis archetype — the jobs for an identity's cross-project user vault.
 # Copy into the identity's synthesis config. A job's `id` equals its `mode`. Field names beyond
 # id/mode/prompt are deployment-specific (model routing, timeouts) — adapt to your config schema.
+#
+# The user vault's Knowledge area is INCREMENTALLY evolved (not regenerated each run), so it can drift
+# from its sources — and therefore, per the twin rule (ARCHITECTURE.md), the archetype is a PAIR, just
+# like file-ingest: a reactive `synthesise` and a periodic `reconcile`.
 
 jobs:
   - id: synthesise
     mode: synthesise
-    prompt: synthesise.md      # the full re-synthesis pass — gated, reactive (see scheduler.md)
+    prompt: synthesise.md      # incremental: evolve the Knowledge slice a changed source touches
     schedule: reactive         # run the deterministic gate often; no-op when no accessible wiki changed
     # compatible_models: [...] # this is the harmony step — keep it on a strong reasoning backend
     # timeout_seconds: 900     # optional: per-run cap (a synthesis prompt is large)
 
-# No reconcile twin: each run is a full re-synthesis, so there is nothing to drift
-# (see the twin rule in ARCHITECTURE.md).
-#
+  - id: reconcile
+    mode: reconcile
+    prompt: reconcile.md       # periodic whole-vault pass: reckon ALL sources + the WHOLE Knowledge
+    schedule: periodic         # tree, prune cruft, repair cross-refs, confirm 09 Schema still holds
+    # cadence: weekly          # a clock, not the reactive gate (see scheduler.md)
+    # compatible_models: [...] # same strong reasoning backend as synthesise
+
 # The instance must also declare the shared conventions skill as a capability, e.g.:
 # capabilities:
 #   skills: [wiki-maintenance]

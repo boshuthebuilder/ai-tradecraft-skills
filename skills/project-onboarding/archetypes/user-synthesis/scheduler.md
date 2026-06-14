@@ -1,8 +1,8 @@
-# Scheduling the user-synthesis job
+# Scheduling the user-synthesis jobs
 
-How a deployment wires the single `synthesise` job. Platform-agnostic — the concrete timer is yours
-(a launch agent, a cron entry, a systemd timer, a person running a command). The shared design is in
-[`ARCHITECTURE.md`](../../../../ARCHITECTURE.md).
+How a deployment wires the two jobs — a reactive `synthesise` and a periodic `reconcile`.
+Platform-agnostic — the concrete timer is yours (a launch agent, a cron entry, a systemd timer, a
+person running a command). The shared design is in [`ARCHITECTURE.md`](../../../../ARCHITECTURE.md).
 
 ## `synthesise` — reactive, gated on the *source wikis*
 
@@ -22,6 +22,21 @@ reactive `ingest`, but the gate watches different inputs:
   the next tick retries.
 
 One timer **per identity** — each identity's vault gates and synthesises independently.
+
+## `reconcile` — periodic, on a clock
+
+The twin runs on a **fixed cadence** (e.g. weekly), not the reactive gate — it is a whole-vault pass
+that no single source change triggers, so there is nothing to gate on. It is the same shape as the
+file-ingest `reconcile`:
+
+- **No reactive gate.** It does not consult the `synthesise` seen-hash; it simply runs on its clock and
+  reckons the whole vault against all accessible sources.
+- **Deterministic sweeps first.** Before the model call, run the mechanical health sweeps (orphan pages,
+  staleness, log digest) and pass their findings into the prompt as a worklist — the model judges, the
+  sweeps locate.
+- **Same write context + consume-on-success** as `synthesise`.
+
+One periodic timer **per identity**, alongside its reactive `synthesise` timer.
 
 ## The two constraints worth checking
 
