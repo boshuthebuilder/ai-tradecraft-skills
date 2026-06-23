@@ -42,6 +42,13 @@ archetype's *source* need not be the owner's files at all — its sources are ot
 the source, the same shape holds: gather presents the model a deterministic, access-scoped view of
 it, and only the reasoning step is a model call.
 
+The third is **code** (`skills/project-onboarding/archetypes/code/`): a periodic `digest` + a
+`code-review` over a **git clone** the system reads read-only — a third kind of source (a repository,
+not the owner's documents or other wikis). It reaffirms the boundary: gather reads the clone's history
+*deterministically* (`git` is a pure function of clone state), the reasoning summarises or reviews, and
+the only writes are report pages through the deployment's guards — never to the code. A code project
+offers no `ingest`, since its source is a clone, not an inbox of documents.
+
 The names are the same as the modes: a job's `id` equals its `mode`, so there is no third vocabulary.
 
 ## The three layers of a job
