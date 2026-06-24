@@ -1,0 +1,25 @@
+# code archetype — the two jobs for a git-backed project the system reports on.
+# Copy into a project's job config. A job's `id` equals its `mode`. Field names beyond
+# id/mode/prompt are deployment-specific (model routing, timeouts) — adapt to your config schema.
+#
+# A code project declares a git backing (the clone the jobs read) + a reports area (where the
+# report pages are written) — both are deployment-specific; the shape below is illustrative:
+#
+#   backing: { kind: github, repo: <git url>, path: <worker clone path>, home: <artefacts folder> }
+#   reports_dir: Reports        # the home-relative folder the report pages are written to
+
+jobs:
+  - id: digest
+    mode: digest
+    prompt: digest.md          # a plain-language summary of what changed
+    schedule: weekly           # a fixed cadence (see scheduler.md); no inbox to drain, so not reactive
+    # compatible_models: [...] # optional: which model backends this job may use
+
+  - id: review
+    mode: code-review
+    prompt: code-review.md     # a correctness/risk review of the recent changes
+    schedule: weekly           # offset from the digest if you like (e.g. a different weekday)
+    # compatible_models: [...]
+
+# A code project offers NO `ingest`/`reconcile` (file-ingest) job — its source is a git clone, not a
+# folder of documents. It reads the clone read-only and writes only report pages.

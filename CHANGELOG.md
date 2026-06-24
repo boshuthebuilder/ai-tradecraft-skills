@@ -4,6 +4,19 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v1.1.0 — unreleased
+
+### Added
+- **`code` archetype** (`skills/project-onboarding/archetypes/code/`): the job pair for a git-backed
+  project the system reads read-only and reports on — a periodic `digest` (plain-language summary of
+  what changed) and a `code-review` (correctness/risk review). A third kind of source — a git clone,
+  not the owner's documents or other wikis — read **deterministically** (`git` history is a pure
+  function of clone state); the only writes are dated report pages through the deployment's guards,
+  never to the code. No `ingest` (a clone has no inbox). README + `jobs.yaml` + the two prompt
+  templates + `scheduler.md`.
+- `ARCHITECTURE.md`: the `code` archetype as the third shipped family, reaffirming the determinism
+  boundary for a repository source.
+
 ## v1.0.0 — 2026-06-12
 
 ### Added
