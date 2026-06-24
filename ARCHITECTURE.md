@@ -35,12 +35,13 @@ The first archetype this repo ships is **file-ingest** (see
 - **`reconcile`** — comprehensive and **periodic**. Reconcile the whole wiki against the files
   (dedupe, sweep orphans, fix stale claims, confirm the structure holds). Expensive; runs on a clock.
 
-The second is **user-synthesis** (`skills/project-onboarding/archetypes/user-synthesis/`): a single
-gated job that synthesises
-a per-person, cross-project view (see *Tiers and identities*, below). It also shows that an
-archetype's *source* need not be the owner's files at all — its sources are other wikis. Whatever
+The second is **user-synthesis** (`skills/project-onboarding/archetypes/user-synthesis/`): a gated
+synthesis of a per-person, cross-project view (see *Tiers and identities*, below). It also shows that
+an archetype's *source* need not be the owner's files at all — its sources are other wikis. Whatever
 the source, the same shape holds: gather presents the model a deterministic, access-scoped view of
-it, and only the reasoning step is a model call.
+it, and only the reasoning step is a model call. Its user-tier vault is **incrementally evolved**, not
+regenerated, so — like file-ingest — it is a **pair**: an incremental, reactive `synthesise` and a
+periodic `reconcile` twin (see *The type-1 user vault*, below, and the twin rule under *Scheduling*).
 
 The third is **code** (`skills/project-onboarding/archetypes/code/`): a periodic `digest` + a
 `code-review` over a **git clone** the system reads read-only — a third kind of source (a repository,
@@ -133,8 +134,54 @@ Two concepts the archetypes above rest on:
   synthesis job's gather only ever presents the wikis the access rule allows, so a cross-tier leak
   cannot happen downstream of it.
 
-Onboarding an identity (as opposed to a project) is deliberately not a skill yet — today it is just:
-map a vault for the identity and stamp the user-synthesis archetype.
+Onboarding an *identity* (as opposed to a project) is its own skill — **`user-onboarding`** — because
+a user vault is a different shape from a project wiki: its storage is owned differently (see *Storage
+ownership*, below), it is a single self-contained vault rather than a wiki subfolder, and it carries
+distinct content areas. See `skills/user-onboarding` for the flow and *The type-1 user vault* for the
+shape it stamps.
+
+### Storage ownership
+
+A binding prerequisite, because it shapes step one of identity onboarding. **User-tier and project
+folders are created in the *user's own* cloud account and *shared into* the worker** — never created
+on the worker's account. The handshake: the user creates the folder under their own identity, shares
+it to the worker (`<worker-account>`), and the worker accepts the invite; the deployment then maps the
+shared-in path in its per-host path config. This keeps the storage on the user's own plan and the
+ownership with the user (they can revoke access, and their data never sits on the worker's quota). A
+deployment that materialises folders on the worker has inverted the model.
+
+### The type-1 user vault
+
+The user-synthesis archetype writes into a **single self-contained vault** — the *user vault* (a
+"second brain"), one per identity, named distinctly (`<Identity> Second Brain`). Unlike a project,
+**the folder itself is the vault** (no wiki subfolder), and it is organised into a fixed skeleton of
+**numbered areas**, each carrying a same-name *folder-note* (a high-level summary + how-to-read; the
+[Obsidian Folder Notes](https://github.com/LostPaul/obsidian-folder-notes) convention). The skeleton:
+
+```
+<Identity> Second Brain/
+├── <Identity> Second Brain.md   root folder-note: what this is + how to read
+├── 00 Index/                    the map into the areas below (system-maintained)
+├── 01 Knowledge/                DERIVED — synthesise owns it; an emergent, multi-layer, INCREMENTALLY
+│                                evolved cross-project hierarchy (never regenerated wholesale)
+├── 02 Ideas/                    AUTHORED — flat, comprehensive, atomic idea pages captured via the
+│                                interactive surfaces (never hand-edited in the vault, never archived)
+├── 03 Reports/                  AI-generated point-in-time documents, date-binned (03 Reports/YYYY/MM/)
+├── 09 Schema/                   the vault's constitution: organising principles + stability rules
+└── 10 Log/                      append-only run history
+```
+
+Three areas, three determinism stories: **Knowledge** is model-derived but **incrementally evolved**
+(the synthesis reads the current tree and makes minimal stable changes, preserving page paths so links
+survive — it must never rebuild the vault wholesale); **Ideas** are owner-authored, captured through
+the interactive layer as atomic one-idea-per-file pages; **Reports** are AI documents the synthesis
+never touches. The asymmetric-linking rule: Ideas may link Knowledge, but **Knowledge never links
+Ideas** (it stitches consolidated cross-project understanding, not un-incubated ideas). A matured idea
+is **promoted to a project**, which the synthesis then stitches into Knowledge — Ideas are never folded
+directly into Knowledge (Knowledge is derived-only).
+
+Because Knowledge is incrementally evolved, the user vault can **drift** from its sources — so the
+archetype is a `synthesise`/`reconcile` **pair**, not a lone job (the twin rule below).
 
 ## Scheduling: reactive vs periodic
 
@@ -142,11 +189,18 @@ map a vault for the identity and stamp the user-synthesis archetype.
   no-op for free. The deployment supplies the timer.
 - **`reconcile` is periodic** — a fixed cadence (e.g. weekly). It is a whole-wiki pass that isn't
   triggered by a single change, so it stays on a clock.
-- **`synthesise` is reactive with no periodic twin.** The twin rule: a `reconcile`-style periodic
-  pass exists **only** when the maintained artefact is built *incrementally* and can therefore drift
-  from its source. A full-rebuild job regenerates everything from current sources on every run, so
-  there is nothing to drift and one gated job suffices. An archetype that later turns incremental
-  (usually for cost) re-earns its periodic full pass at that moment.
+- **`synthesise` is reactive; `reconcile` is its periodic twin.** The twin rule: a `reconcile`-style
+  periodic pass exists **only** when the maintained artefact is built *incrementally* and can therefore
+  drift from its source. A full-rebuild job regenerates everything from current sources on every run,
+  so there is nothing to drift and one gated job suffices; an archetype that later turns incremental
+  (usually for cost) re-earns its periodic full pass at that moment. **The user-synthesis archetype is
+  the worked example of that rule:** its user vault began as a full rebuild (no twin), then turned
+  incremental so its Knowledge tree would survive across runs (paths stable, links intact) — and at
+  that moment it re-earned its twin. So today it is a pair: a reactive `synthesise` that evolves the
+  Knowledge slice a source change touches, and a periodic `reconcile` that reckons the *whole* vault
+  against *all* accessible sources (prune cruft, repair broken cross-refs, confirm the `09 Schema`
+  stability rules still hold) — the same incremental-write contract, differing only in breadth and
+  cadence. Reconcile runs on a clock, not on the reactive gate.
 
 ## Execution context constraints (why the indirection exists)
 
