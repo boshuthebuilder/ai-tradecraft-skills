@@ -92,7 +92,7 @@ Obsidian Folder Notes convention). There is **no inbox** — a user vault takes 
 
 ### 4. Register the identity + stamp the user-synthesis archetype
 
-- Register a synthesis project for the identity (`brain-<identity>` / `type: user-synthesis`), and map
+- Register a synthesis project for the identity (`<identity>-brain` / `type: user-synthesis`), and map
   its vault path in the per-host path config (the shared-in location from step 1).
 - Stamp the **user-synthesis archetype**: copy `jobs.yaml` (both jobs — `synthesise` + `reconcile`),
   `synthesise.md`, `reconcile.md`, fill the `{placeholders}`, and declare `wiki-maintenance` as the
