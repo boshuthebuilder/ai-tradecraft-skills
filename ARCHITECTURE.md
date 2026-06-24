@@ -43,6 +43,13 @@ it, and only the reasoning step is a model call. Its user-tier vault is **increm
 regenerated, so — like file-ingest — it is a **pair**: an incremental, reactive `synthesise` and a
 periodic `reconcile` twin (see *The type-1 user vault*, below, and the twin rule under *Scheduling*).
 
+The third is **code** (`skills/project-onboarding/archetypes/code/`): a periodic `digest` + a
+`code-review` over a **git clone** the system reads read-only — a third kind of source (a repository,
+not the owner's documents or other wikis). It reaffirms the boundary: gather reads the clone's history
+*deterministically* (`git` is a pure function of clone state), the reasoning summarises or reviews, and
+the only writes are report pages through the deployment's guards — never to the code. A code project
+offers no `ingest`, since its source is a clone, not an inbox of documents.
+
 The names are the same as the modes: a job's `id` equals its `mode`, so there is no third vocabulary.
 
 ## The three layers of a job

@@ -4,10 +4,11 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
-## [Unreleased]
+## v2.0.0 — 2026-06-23
 
-> Draft — not yet tagged. Released once the reference deployment proves the flow end-to-end and the
-> pre-release privacy scrub passes (no real names, project ids, or paths in the public diff).
+**Breaking** — the `user-synthesis` archetype's write contract changes (see *Changed*). The reference
+deployment ran the flow end-to-end before release; the public diff is placeholder-only (no real names,
+project ids, or paths).
 
 ### Added
 - **`user-onboarding` skill** (`skills/user-onboarding/`): onboard a *person* (an identity) — the
@@ -25,7 +26,20 @@ deliberately.
   full-vault pass. Updated `jobs.yaml` (adds `reconcile`), `README.md`, `synthesise.md` (incremental),
   `scheduler.md` (the periodic clock), and added `reconcile.md`. `ARCHITECTURE.md`'s twin rule now uses
   this archetype as its worked example. **Supersedes the v1.0.0 "no reconcile twin / full re-synthesis
-  each run" contract** — a breaking change to the archetype's write contract for the next tag.
+  each run" contract** — a breaking change to the archetype's write contract.
+
+## v1.1.0 — 2026-06-23
+
+### Added
+- **`code` archetype** (`skills/project-onboarding/archetypes/code/`): the job pair for a git-backed
+  project the system reads read-only and reports on — a periodic `digest` (plain-language summary of
+  what changed) and a `code-review` (correctness/risk review). A third kind of source — a git clone,
+  not the owner's documents or other wikis — read **deterministically** (`git` history is a pure
+  function of clone state); the only writes are dated report pages through the deployment's guards,
+  never to the code. No `ingest` (a clone has no inbox). README + `jobs.yaml` + the two prompt
+  templates + `scheduler.md`.
+- `ARCHITECTURE.md`: the `code` archetype as the third shipped family, reaffirming the determinism
+  boundary for a repository source.
 
 ## v1.0.0 — 2026-06-12
 

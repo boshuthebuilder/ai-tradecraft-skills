@@ -5,9 +5,11 @@ description: >-
   set up the two standard maintenance jobs that keep it current — a reactive `ingest` pass that drains
   the inbox and a periodic `reconcile` pass that reckons the whole wiki against the files. Use when
   onboarding a new folder/project into an AI-OS-style setup, or adding scheduled ingest + reconcile to
-  a folder that only has a wiki. Also home to the job archetypes: file-ingest (the pair above) and
-  user-synthesis — use the latter when onboarding a person/identity who wants a synthesised
-  cross-project view (a user-tier wiki / second brain) over the project wikis they can access. For
+  a folder that only has a wiki. Also home to the job archetypes: file-ingest (the pair above),
+  user-synthesis — use this when onboarding a person/identity who wants a synthesised
+  cross-project view (a user-tier wiki / second brain) over the project wikis they can access — and
+  code (a git-backed project the system reads read-only and reports on: a periodic `digest` + a
+  `code-review`, no `ingest`). For
   just the wiki skeleton use wiki-onboarding, and for the ongoing loop use wiki-maintenance.
 ---
 
