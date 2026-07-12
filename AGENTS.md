@@ -34,10 +34,12 @@ The versioned *interface* is everything a consumer may depend on:
   `id == mode` rule;
 - **prompt-template placeholders** — a deployment substitutes these at run time. The **required core**
   every template may use: `{date}`, `{gather_report}`, `{project_name}`, `{project_rulebook}`,
-  `{wiki_dir}`, `{wiki_structure}`. Some archetypes additionally use **optional** placeholders, which a
-  deployment that lacks the feature substitutes with an empty block: `{current_knowledge}` (user-synthesis)
-  and `{reconcile_findings}` (the reconcile templates' pre-computed sweep worklist). Adding an *optional*
-  placeholder is MINOR; making any placeholder *required* is MAJOR;
+  `{wiki_dir}`, `{wiki_structure}`. Individual archetypes carry additional placeholders: the
+  user-synthesis archetype **requires** `{current_knowledge}` (its existing Knowledge tree — required
+  since v2.0.0; an empty substitution means a genuinely empty vault, never "feature absent"), and the
+  reconcile templates use an **optional** `{reconcile_findings}` (a pre-computed sweep worklist that a
+  deployment without it substitutes with an empty block). Adding an *optional* placeholder is MINOR;
+  introducing or making *required* a new placeholder is MAJOR;
 - **the documented method** in `ARCHITECTURE.md` (the gate, the determinism boundary, the
   three layers, fail-loud).
 

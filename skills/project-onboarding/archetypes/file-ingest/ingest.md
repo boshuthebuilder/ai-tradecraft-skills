@@ -77,15 +77,12 @@ For each new or changed source, and each item in the inbox:
 The gather report may include a `calendar` block: `{status, count, window, events:[…]}` — a
 deterministic snapshot of the project's calendar.
 
-5. **`Coming Events` is a system-owned view.** The recommended deployment renders it
-   **deterministically** from the snapshot — the same pattern as the Deadlines roll-up — because a
-   calendar feed is not file-derived and rebuilding it via the model each run is waste and drift. **If
-   your deployment renders it deterministically, do not build, edit, or return a `Coming Events` page**
-   in `wiki_pages`. **Only if it does not** do you maintain it here: when `calendar.status` is `ok`,
-   (re)build a chronological view in the most fitting existing section (else `{wiki_dir}/Coming
-   Events.md`), frontmatter `provenance: calendar`; when the status is `empty`, `stale`, `missing`,
-   `error`, or the block is absent, **leave the prior view untouched** and note the gap — an empty or
-   blocked read must never blank it. Either way, never flag `Coming Events` as file-inconsistent.
+5. **Do not build, edit, or return a `Coming Events` page.** Exactly like the Deadlines roll-up, it is
+   rendered **deterministically by the deployment** from the calendar snapshot (a wired capability — see
+   `rollups.coming_events` in the job config), because a calendar feed is not file-derived and rebuilding
+   it via the model each run is waste and drift. The deployment also owns the blocked/stale cases — an
+   empty or denied read leaves the prior view untouched, never blanks it. Never flag `Coming Events` as
+   file-inconsistent.
 6. The **one** calendar write always left to you: where an event clearly concerns an **existing** entity
    page, you may add a dated `provenance: calendar` bullet there — only a page that already exists, only
    a genuinely relevant event, and never invent an entity from an event title. A calendar event never

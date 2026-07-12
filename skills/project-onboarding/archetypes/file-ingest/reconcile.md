@@ -58,14 +58,11 @@ Reconcile the wiki **to the files**:
    inconsistent with the files, never delete it, never contradict it. The one permitted change:
    authored notes (ideas, brainstorms) that clearly belong together may be **merged or cross-linked**,
    preserving their content and their `provenance: manual` marking verbatim.
-3. **Calendar.** `Coming Events` is a system-owned view. If your deployment renders it
-   **deterministically** from the snapshot (recommended), **never build, edit, or return it** here.
-   Only if it does not: when `calendar.status` is `ok`, ensure the view matches the event set (drop
-   past/cancelled lines, add new ones, keep it chronological, `provenance: calendar`); when it isn't
-   `ok`, leave the view as-is and note the staleness. Either way it is an external feed — **never**
-   reconciled against the files or flagged as file-inconsistent. You may add a dated `provenance:
-   calendar` bullet to an **existing** entity/concept page for a genuinely relevant event; that is the
-   only other calendar write.
+3. **Calendar.** Exactly like the Deadlines roll-up, `Coming Events` is rendered **deterministically by
+   the deployment** from the calendar snapshot (a wired capability — see `rollups.coming_events`) —
+   **never build, edit, or return it** here, and never flag it as file-inconsistent (a calendar feed is
+   not file-derived). You may add a dated `provenance: calendar` bullet to an **existing** entity/concept
+   page for a genuinely relevant event; that is the only calendar write.
 4. Work the **Deterministic findings** block above (when present): fix what you confidently can — drop a
    dead citation, add a missing freshness date — and record the rest in `needs_a_look`. Do **not**
    manufacture a "missing page" item from a capped/partial listing.

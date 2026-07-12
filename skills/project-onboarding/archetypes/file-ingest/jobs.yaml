@@ -38,6 +38,11 @@ jobs:
 rollups:
   deadlines: true                # roll forward-looking `deadline:`/`deadlines:` dates into a Deadlines page.
   open_questions: true           # roll unresolved `needs_a_look` items into an Open Questions view.
+  coming_events: true            # render the calendar snapshot into a Coming Events view (deterministic).
+  #                              # A project whose sources include a calendar MUST wire this: the prompts
+  #                              # never build Coming Events, so if it is unwired NO Coming Events renders
+  #                              # (the promised-but-unwired guard). A deployment with no renderer must
+  #                              # instead specialise the prompt to rebuild the view itself.
 
 # Both jobs depend on the shared conventions skill — declare it explicitly, never implied:
 capabilities:

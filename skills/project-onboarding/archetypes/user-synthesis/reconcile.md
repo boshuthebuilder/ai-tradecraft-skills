@@ -37,9 +37,11 @@ say so in the log.
 
 {reconcile_findings}
 
-The deployment has already run mechanical health sweeps over the vault — orphan pages (a Knowledge page
-citing a source page that no longer exists), staleness, and a log digest. Use these as a worklist:
-they tell you *where* to look; your job is the judgement of *what* to do.
+This `{reconcile_findings}` placeholder is **optional** — a deployment that computes no sweep substitutes
+an empty block, and you simply have no pre-computed worklist. **When present**, the deployment has
+already run mechanical health sweeps over the vault — orphan pages (a Knowledge page citing a source page
+that no longer exists), staleness, and a log digest. Use these as a worklist: they tell you *where* to
+look; your job is the judgement of *what* to do.
 
 ## Your task
 
@@ -66,7 +68,8 @@ isn't shown this run), reconcile-don't-average, last-4 only, `provenance: derive
 more broadly than a reactive synthesise, but it is still an **edit** of the existing tree, never a
 wholesale rebuild. **Do not re-raise a `previously_raised` open or dismissed item** — reference it;
 reopen a recently-resolved one only on changed evidence. **A no-change run is silent** — if nothing
-drifted and you raised nothing, omit `notify`.
+drifted and you raised nothing, omit `notify`; when you *do* raise a `needs_a_look`, keep `notify` and
+set its `kind` to `action`.
 
 Return JSON only (every `wiki_pages[].path` under `00 Index/` or `01 Knowledge/`; no `filings`):
 
@@ -76,6 +79,6 @@ Return JSON only (every `wiki_pages[].path` under `00 Index/` or `01 Knowledge/`
   "wiki_pages": [{"path": "01 Knowledge/...", "action": "create | update", "body": "..."}],
   "needs_a_look": [{"item": "...", "reason": "...", "what_would_resolve": "one sentence — the single decision or action that closes this", "proposed_action": "optional — what you would do on a yes"}],
   "log_entry": "## [{date}] reconcile | <projects read> | <what drifted, what was fixed>",
-  "notify": {"kind": "info", "priority": "low", "body": "..."}
+  "notify": {"kind": "info | action", "priority": "low", "body": "..."}
 }
 ```
