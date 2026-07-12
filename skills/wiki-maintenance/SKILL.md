@@ -168,11 +168,11 @@ with no inline maintainer, the scheduled passes are the primary path.
   - **manual** — a fact the owner asked to record that is **not** from a saved file. It is authoritative:
     the lint never flags or rewrites it.
   - **external feed** (e.g. a calendar's "Coming Events") — a read-only view of an external source, kept
-    **distinct from file-derived deadlines** and never `.proposed.md`-guarded as if human-authored.
-    Prefer to render it **deterministically** from the snapshot (a pure function of feed + clock, like
-    the Deadlines roll-up); where a deployment instead lets a job rebuild it, it is rebuilt wholesale
-    each run. Either way an empty, stale or blocked read must **never blank it** — leave the prior
-    version and note the gap.
+    **distinct from file-derived deadlines** and never `.proposed.md`-guarded as if human-authored. In
+    the automated job framework it is **rendered deterministically** from the snapshot (a pure function
+    of feed + clock, exactly like the Deadlines roll-up) — a scheduled job never rebuilds it; only a
+    hand-kept wiki refreshes it manually. Either way an empty, stale or blocked read must **never blank
+    it** — leave the prior version and note the gap.
 - **Sensitive identifiers, last-4 only.** Record passport / account / licence / card numbers as the last 4
   digits only, never in full — on every page, in every table.
 - **Deadlines are derived, not authored.** Record the date on the page that owns it; build the Deadlines
