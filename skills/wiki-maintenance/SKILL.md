@@ -167,9 +167,12 @@ with no inline maintainer, the scheduled passes are the primary path.
     links down to its source.
   - **manual** — a fact the owner asked to record that is **not** from a saved file. It is authoritative:
     the lint never flags or rewrites it.
-  - **external feed** (e.g. a calendar's "Coming Events") — a read-only feed rebuilt wholesale each run,
-    kept **distinct from file-derived deadlines**, and never `.proposed.md`-guarded as if human-authored.
-    An empty, stale or blocked read must **never blank it** — leave the prior version and note the gap.
+  - **external feed** (e.g. a calendar's "Coming Events") — a read-only view of an external source, kept
+    **distinct from file-derived deadlines** and never `.proposed.md`-guarded as if human-authored. In
+    the automated job framework it is **rendered deterministically** from the snapshot (a pure function
+    of feed + clock, exactly like the Deadlines roll-up) — a scheduled job never rebuilds it; only a
+    hand-kept wiki refreshes it manually. Either way an empty, stale or blocked read must **never blank
+    it** — leave the prior version and note the gap.
 - **Sensitive identifiers, last-4 only.** Record passport / account / licence / card numbers as the last 4
   digits only, never in full — on every page, in every table.
 - **Deadlines are derived, not authored.** Record the date on the page that owns it; build the Deadlines
@@ -177,6 +180,32 @@ with no inline maintainer, the scheduled passes are the primary path.
 - **A wiki is self-contained.** Keep a wiki about *its own folder* — don't name or link another project
   from it. If your setup maintains a separate cross-folder or user-level wiki, that is the only place
   cross-references live, and it only ever reads project wikis — it never writes back into them.
+
+## Canonical frontmatter — the keys the deterministic sweeps read
+
+The deterministic health sweeps (orphans, freshness, the Deadlines roll-up) don't read prose — they key
+on frontmatter fields. A page that spells a field differently is **invisible** to them: a fresh page
+under a mistyped key looks stale forever; a mis-keyed source path never gets orphan-checked. So the keys
+are a contract, not a style choice. The first three are **required on every derived page**; the rest are
+**conditional** on the page's content:
+
+| key | required? | value | read by |
+|---|---|---|---|
+| `provenance` | always | `derived` \| `manual` \| `calendar` | every sweep (skips `manual`/`calendar`) |
+| `last-updated` | always | `YYYY-MM-DD` | the freshness sweep |
+| `status` | always | `current` \| `superseded` | every sweep (skips `superseded`) |
+| `source` *(single)* / `sources` *(list)* | when file-derived | path(s) to the source file(s), or — for a cross-project synthesis — the source **pages** | the orphan sweep |
+| `deadline` *(single)* / `deadlines` *(list)* | when a forward date exists | `YYYY-MM-DD` (or `{date, note}`) | the Deadlines roll-up |
+
+(A cross-project user-tier page is `provenance: derived` with `last-updated`/`status` but need carry no
+`source:` path and no deadline; a `provenance: manual` note carries no `source:` at all.)
+
+**Write the canonical form; accept the legacy alias.** `source` and `sources` are both canonical — use
+the singular for one source, the plural list for several (a reader unions them). The one legacy alias a
+reader must still accept is **`updated:` for `last-updated:`** — older wikis carry it, so the freshness
+sweep reads either, but **every new or rewritten page uses `last-updated:`**. Don't invent further
+spellings (`date:`, `modified:`, `src:`): they are silently invisible to the sweeps. When you touch a
+page carrying a legacy alias, migrate it to the canonical key.
 
 ## Surfacing what needs a human — precise and quiet
 

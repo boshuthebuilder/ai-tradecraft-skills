@@ -30,6 +30,13 @@ route from the section/page names plus the source.)
 
 {wiki_structure}
 
+**These listings can be capped or lag the disk — never infer absence from them.** A section may carry
+an `omitted: N` count and a large page may be shown only in part; the gather report is *what changed*,
+not a full census. Never conclude a page is missing, a file absent, or a summary orphaned on the basis
+of a capped or partial listing alone — a page you cannot see is not a page that is gone. If you
+genuinely need a page that isn't shown, record the gap in `needs_a_look` rather than recreating or
+overwriting it.
+
 ## Your task
 
 For each new or changed source, and each item in the inbox:
@@ -70,15 +77,16 @@ For each new or changed source, and each item in the inbox:
 The gather report may include a `calendar` block: `{status, count, window, events:[…]}` — a
 deterministic snapshot of the project's calendar.
 
-5. **Only when `calendar.status` is `ok`**: maintain a `Coming Events` view in the most fitting
-   existing section (else `{wiki_dir}/Coming Events.md`) — a chronological, week-grouped list of the
-   events in the window. It is **system-owned, rebuilt wholesale each run**, frontmatter
-   `provenance: calendar`. Where an event clearly concerns an **existing** entity page you may add a
-   dated `provenance: calendar` bullet there — touch only pages that already exist; never invent an
-   entity from an event title.
-6. If `calendar.status` is `empty`, `stale`, `missing`, `error`, or the block is absent, **do not
-   touch the Coming Events view or any calendar bullet** — leave the prior version and note the gap in
-   the log. An empty or blocked calendar read must never blank the page.
+5. **Do not build, edit, or return a `Coming Events` page.** Exactly like the Deadlines roll-up, it is
+   rendered **deterministically by the deployment** from the calendar snapshot (a wired capability — see
+   `rollups.coming_events` in the job config), because a calendar feed is not file-derived and rebuilding
+   it via the model each run is waste and drift. The deployment also owns the blocked/stale cases — an
+   empty or denied read leaves the prior view untouched, never blanks it. Never flag `Coming Events` as
+   file-inconsistent.
+6. The **one** calendar write always left to you: where an event clearly concerns an **existing** entity
+   page, you may add a dated `provenance: calendar` bullet there — only a page that already exists, only
+   a genuinely relevant event, and never invent an entity from an event title. A calendar event never
+   supersedes a `provenance: manual` note.
 
 ## Provenance and sensitive data
 
@@ -91,9 +99,24 @@ the files — it is authoritative; a calendar event never supersedes it. Record 
 
 - **State only what the source says, exactly.** Quote the specific figure/status; never round up,
   generalise, or infer beyond the document. If unsure of a detail, leave it out.
+- **Copy quoted figures character-for-character.** When you state a value that comes from a source — a
+  balance, an account/policy number, a date, a status — re-find it in the source excerpt and copy it
+  exactly; never transcribe such a figure from memory, and if it is not shown this run, name the page
+  it lives on rather than quoting a value. (Figures you derive yourself — a count, a total you compute
+  — are fine; this rule is only about not misquoting a source value.)
 - **A true action is rare.** Mark something an action only if it genuinely needs the owner to *do*
   something soon **and** is clearly relevant. A filing summary, an FYI, or a figure from a statement
   is informational — it must not interrupt. When in doubt, inform quietly or say nothing.
+- **Every escalation must be decidable in one step.** Each `needs_a_look` item carries a
+  `what_would_resolve` — one sentence naming the single decision or action that closes it, phrased so a
+  human can act on it immediately — and, where you can name it, a `proposed_action` you would take on a
+  yes. A bare "please check this" is not an escalation.
+- **Do not re-raise a known item.** The gather report's `previously_raised` ledger lists items already
+  surfaced to the human, each with a status: **open** and **dismissed** items you must not repeat —
+  reference them instead; a **recently-resolved** item you may reopen only if its evidence has since
+  changed (then say what changed).
+- **A no-change run is silent.** If this run filed nothing, changed no wiki page, and raised nothing in
+  `needs_a_look`, omit `notify` entirely — never emit a "nothing to do / no changes" note.
 
 Return JSON only, matching this shape (every `wiki_pages[].path` must start with `{wiki_dir}/`):
 
@@ -102,7 +125,7 @@ Return JSON only, matching this shape (every `wiki_pages[].path` must start with
   "verdict": "apply | propose | skip",
   "wiki_pages": [{"path": "{wiki_dir}/...", "action": "create | update", "body": "..."}],
   "filings": [{"item": "<inbox path>", "destination": "...", "confidence": 0.0}],
-  "needs_a_look": [{"item": "...", "reason": "..."}],
+  "needs_a_look": [{"item": "...", "reason": "...", "what_would_resolve": "one sentence — the single decision or action that closes this", "proposed_action": "optional — what you would do on a yes"}],
   "log_entry": "## [{date}] ingest | ...",
   "notify": {"kind": "action | info", "priority": "urgent | normal | low", "body": "..."}
 }

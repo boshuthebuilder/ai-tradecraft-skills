@@ -14,8 +14,13 @@ pinned dependency.
 
 ## The unit of work: a job
 
-A maintained folder runs **jobs**. A job is one pass over the folder: it reads folder state, reasons
-once, and returns a structured result that deterministic guards turn into changes. Updating the wiki
+A maintained folder runs **jobs**. A job is one pass over the folder: it reads folder state, reasons,
+and returns a structured result that deterministic guards turn into changes. The reasoning is usually a
+**single model call** (`single_shot`); a job may instead run a **bounded, read-only agentic loop** that
+investigates before it answers — but it returns the *same* structured contract, is given *read-only*
+tools only, and every write still flows through the deterministic guards (a write tool inside the loop
+would bypass them and is not allowed). One call or a bounded loop, the reasoning stage is the only
+non-deterministic part; the execution mode is a per-job config choice, not a different contract. Updating the wiki
 is the most common thing a job does — but it is one job family, not the definition. A job can
 equally propose a folder re-organisation, clean duplicates, suggest structure improvements, or
 improve the wiki's own Schema. Each such family is its own **archetype** with its own write
@@ -77,9 +82,12 @@ guarantees (layer 3) are code it cannot. Put a rule in the layer that can actual
 > and the clock. Put non-determinism **only** in the reasoning step.
 
 Gathering what changed, hashing files, reading a snapshot, filing under an existing folder, rolling
-frontmatter dates into a Deadlines page, writing the audit log — all deterministic. Only the
-*understanding* (what does this document mean, which page does it touch, what should the summary say)
-is a model call. This is what makes the system testable, reproducible, and cheap: the same folder
+frontmatter dates into a Deadlines page, **rendering a calendar snapshot into a `Coming Events` view**,
+writing the audit log — all deterministic. A calendar feed is an external read, not file-derived, and
+its forward view is a pure function of the snapshot; rebuilding it through the model each run is both
+waste and a source of churn, so it is rolled up deterministically exactly like Deadlines and the
+prompt templates are told not to build it. Only the *understanding* (what does this document mean,
+which page does it touch, what should the summary say) is a model call. This is what makes the system testable, reproducible, and cheap: the same folder
 state yields the same gather and the same writes; only one stage is a fresh sample from a model.
 
 ## The gate before the model
@@ -117,6 +125,48 @@ empty inbox, a denied calendar grant, and a stale snapshot are three different t
 different. A read that can fail returns a status (`ok | empty | stale | missing | error`), and only
 `ok` participates in the gate — a stale snapshot must never masquerade as "nothing changed" and
 suppress a real change, nor blank a page it can no longer see.
+
+The same principle governs any **capped or truncated view** the gather stage hands to a model. A
+listing that was trimmed to fit a context budget is a *partial view*, and it must be **marked as such**
+in the context — a sentinel `omitted: N` **count** on a capped section (and, where the deployment can,
+the `omitted_paths` themselves, kept distinct from the count), a `truncated` flag when a listing didn't
+fit at all, an `excerpt_truncated` marker on a page shown only in part, and a *distinct* list of
+sources known to be deleted/moved (as opposed to merely not-shown). This is a gather-contract
+requirement, not prompt etiquette: without it a prompt cannot tell "this page is gone" from "this page
+wasn't shown this run", and the review found that ambiguity is what makes a model report false
+orphans, false missing-pages, and rewrite pages whose unseen tail it then drops. Mark the partiality
+deterministically at the boundary; the prompt templates are written to trust those markers.
+
+## Surfacing: the raised-item lifecycle
+
+A job that finds something it cannot safely resolve **escalates** it — a `needs_a_look` item. The
+review of the reference deployment found the sharpest, most persistent failure here: a job re-raised
+the *same* items week after week, because nothing it raised ever re-entered the next run. A dashboard
+"Resolve" only marked a notification seen; the job had no memory of what was already open, so it
+rediscovered and re-surfaced it every pass. This is a **framework-level contract**, not a deployment
+detail — any AI-OS deployment reproduces the defect unless the spec requires the lifecycle:
+
+- **Every escalation has a stable key** — a normalised function of the item + its reason class + the
+  source **path/identity** (not its content hash, which changes whenever the evidence does, and would
+  mint a new identity instead of matching the existing concern) — so "the same concern" is recognisable
+  across runs even as wording drifts. The evidence hash is stored *alongside* the key, for
+  change-detection, not folded *into* it.
+- **The deployment persists raised items** with a status (`open | resolved | dismissed`); the human's
+  resolution actions (a dashboard button, a reply) write that state. Escalations are durable records,
+  not fire-and-forget notifications.
+- **The ledger of open, recently-resolved, and dismissed items is injected into every gather context**
+  (as a `previously_raised` list, or whatever the deployment names it), each entry carrying its status
+  and evidence hash. The prompt templates are written against it: **never re-raise an item that is open
+  or dismissed** — reference it — and reopen a *resolved* one only when its evidence hash shows the
+  underlying facts have changed (then say what changed). Dismissed means the human judged it a non-issue;
+  it stays suppressed like an open one.
+- **Escalations are decidable in one step.** Each carries a `what_would_resolve` — one sentence naming
+  the single decision or action that closes it — and, where the job can name it, an optional
+  `proposed_action`. A bare "please check this" is not an escalation; it is noise.
+
+This closes the loop the gate opened: the gate decides whether to spend a model call; the ledger
+decides whether a *finding* is new. Together they are why a healthy folder is both cheap and quiet —
+nothing runs when nothing changed, and nothing is surfaced twice.
 
 ## Tiers and identities
 

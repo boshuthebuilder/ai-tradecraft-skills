@@ -32,9 +32,14 @@ The versioned *interface* is everything a consumer may depend on:
 - **archetype directory layout** under `skills/project-onboarding/archetypes/<archetype>/`
   (the file set: `README.md`, `jobs.yaml`, prompt templates, `scheduler.md`) and the
   `id == mode` rule;
-- **prompt-template placeholders** (currently `{date}`, `{gather_report}`, `{project_name}`,
-  `{project_rulebook}`, `{wiki_dir}`, `{wiki_structure}`) — a deployment substitutes these at
-  run time;
+- **prompt-template placeholders** — a deployment substitutes these at run time. The **required core**
+  every template may use: `{date}`, `{gather_report}`, `{project_name}`, `{project_rulebook}`,
+  `{wiki_dir}`, `{wiki_structure}`. Individual archetypes carry additional placeholders: the
+  user-synthesis archetype **requires** `{current_knowledge}` (its existing Knowledge tree — required
+  since v2.0.0; an empty substitution means a genuinely empty vault, never "feature absent"), and the
+  reconcile templates use an **optional** `{reconcile_findings}` (a pre-computed sweep worklist that a
+  deployment without it substitutes with an empty block). Adding an *optional* placeholder is MINOR;
+  introducing or making *required* a new placeholder is MAJOR;
 - **the documented method** in `ARCHITECTURE.md` (the gate, the determinism boundary, the
   three layers, fail-loud).
 

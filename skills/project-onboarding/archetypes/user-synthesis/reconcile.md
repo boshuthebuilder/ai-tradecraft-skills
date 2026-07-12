@@ -23,8 +23,11 @@ regenerate**. The difference is breadth: you are examining the whole vault for d
 
 {current_knowledge}
 
-These are the existing `01 Knowledge/` pages with their full bodies. **Pages not shown here are
-off-limits** (unreadable this run, or too large to show) — leave them exactly as they are.
+These are the existing `01 Knowledge/` pages with their full bodies. **Pages not shown this run are
+off-limits** — any path the report marks unreadable or omitted (e.g. `current_knowledge_unreadable` /
+`current_knowledge_omitted`) exists but you are not seeing its content: leave it exactly as it is, never
+recreate or overwrite it. When either list is non-empty, treat the shown tree as a **partial view** and
+say so in the log.
 
 ## The vault's current structure
 
@@ -34,9 +37,11 @@ off-limits** (unreadable this run, or too large to show) — leave them exactly 
 
 {reconcile_findings}
 
-The deployment has already run mechanical health sweeps over the vault — orphan pages (a Knowledge page
-citing a source page that no longer exists), staleness, and a log digest. Use these as a worklist:
-they tell you *where* to look; your job is the judgement of *what* to do.
+This `{reconcile_findings}` placeholder is **optional** — a deployment that computes no sweep substitutes
+an empty block, and you simply have no pre-computed worklist. **When present**, the deployment has
+already run mechanical health sweeps over the vault — orphan pages (a Knowledge page citing a source page
+that no longer exists), staleness, and a log digest. Use these as a worklist: they tell you *where* to
+look; your job is the judgement of *what* to do.
 
 ## Your task
 
@@ -57,10 +62,14 @@ Reckon the whole vault and correct drift, making the **minimal stable changes** 
 6. **A dated log line** recording the reconcile.
 
 Rules: identical to `synthesise` — incremental (return only changed pages; un-returned pages are kept),
-traceable to a source, reconcile-don't-average, last-4 only, `provenance: derived` +
+traceable to a source, **figures copied character-for-character from the source** (name the page if it
+isn't shown this run), reconcile-don't-average, last-4 only, `provenance: derived` +
 `last-updated: {date}` + `status:` on every page you write, Knowledge ⊥ Ideas. The reconcile may write
 more broadly than a reactive synthesise, but it is still an **edit** of the existing tree, never a
-wholesale rebuild.
+wholesale rebuild. **Do not re-raise a `previously_raised` open or dismissed item** — reference it;
+reopen a recently-resolved one only on changed evidence. **A no-change run is silent** — if nothing
+drifted and you raised nothing, omit `notify`; when you *do* raise a `needs_a_look`, keep `notify` and
+set its `kind` to `action`.
 
 Return JSON only (every `wiki_pages[].path` under `00 Index/` or `01 Knowledge/`; no `filings`):
 
@@ -68,8 +77,8 @@ Return JSON only (every `wiki_pages[].path` under `00 Index/` or `01 Knowledge/`
 {
   "verdict": "apply | skip",
   "wiki_pages": [{"path": "01 Knowledge/...", "action": "create | update", "body": "..."}],
-  "needs_a_look": [{"item": "...", "reason": "..."}],
+  "needs_a_look": [{"item": "...", "reason": "...", "what_would_resolve": "one sentence — the single decision or action that closes this", "proposed_action": "optional — what you would do on a yes"}],
   "log_entry": "## [{date}] reconcile | <projects read> | <what drifted, what was fixed>",
-  "notify": {"kind": "info", "priority": "low", "body": "..."}
+  "notify": {"kind": "info | action", "priority": "low", "body": "..."}
 }
 ```

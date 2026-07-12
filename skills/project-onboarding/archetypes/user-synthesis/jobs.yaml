@@ -5,22 +5,30 @@
 # The user vault's Knowledge area is INCREMENTALLY evolved (not regenerated each run), so it can drift
 # from its sources — and therefore, per the twin rule (ARCHITECTURE.md), the archetype is a PAIR, just
 # like file-ingest: a reactive `synthesise` and a periodic `reconcile`.
+#
+# Every field a prompt template references must resolve here (the promised-but-unwired lesson from the
+# reference deployment's review) — so the templates below carry the full contract.
 
 jobs:
   - id: synthesise
     mode: synthesise
-    prompt: synthesise.md      # incremental: evolve the Knowledge slice a changed source touches
-    schedule: reactive         # run the deterministic gate often; no-op when no accessible wiki changed
-    # compatible_models: [...] # this is the harmony step — keep it on a strong reasoning backend
-    # timeout_seconds: 900     # optional: per-run cap (a synthesis prompt is large)
+    prompt: synthesise.md        # incremental: evolve the Knowledge slice a changed source touches
+    schedule: reactive           # run the deterministic gate often; no-op when no accessible wiki changed
+    execution_mode: single_shot  # one access-scoped gather → one model call → deterministic apply
+    # max_budget_usd: 1.50       # a cross-project synthesis is the costliest prompt in the system —
+    #                            # measure with dry-runs and budget a clear margin above observed spend.
+    # compatible_models: [...]   # this is the harmony step — keep it on a strong reasoning backend
+    # timeout_seconds: 900       # optional: per-run cap (a synthesis prompt is large)
 
   - id: reconcile
     mode: reconcile
-    prompt: reconcile.md       # periodic whole-vault pass: reckon ALL sources + the WHOLE Knowledge
-    schedule: periodic         # tree, prune cruft, repair cross-refs, confirm 09 Schema still holds
-    # cadence: weekly          # a clock, not the reactive gate (see scheduler.md)
-    # compatible_models: [...] # same strong reasoning backend as synthesise
+    prompt: reconcile.md         # periodic whole-vault pass: reckon ALL sources + the WHOLE Knowledge
+    schedule: periodic           # tree, prune cruft, repair cross-refs, confirm 09 Schema still holds
+    execution_mode: single_shot
+    # cadence: weekly            # a clock, not the reactive gate (see scheduler.md)
+    # max_budget_usd: 2.00       # the whole-vault pass is broader than a reactive synthesise — budget above it.
+    # compatible_models: [...]   # same strong reasoning backend as synthesise
 
-# The instance must also declare the shared conventions skill as a capability, e.g.:
-# capabilities:
-#   skills: [wiki-maintenance]
+# Both jobs depend on the shared conventions skill — declare it explicitly, never implied:
+capabilities:
+  skills: [wiki-maintenance]
