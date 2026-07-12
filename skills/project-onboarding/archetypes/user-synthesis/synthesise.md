@@ -36,9 +36,11 @@ content actually shown above. Never invent a page, an entity, or a connection.
 {current_knowledge}
 
 These are the existing `01 Knowledge/` pages with their full bodies. Treat them as the baseline you are
-editing. **Pages not shown here are off-limits**: any Knowledge page that exists but is absent from the
-list above (unreadable this run, or too large to show) must be **left exactly as it is** — never
-recreate or overwrite it from scratch, because you are not seeing its content.
+editing. **Pages not shown this run are off-limits**: any path the report marks unreadable or omitted
+(e.g. a `current_knowledge_unreadable` / `current_knowledge_omitted` list — unreadable this run, or too
+large to show within budget) exists but you are **not** seeing its content — **leave it exactly as it
+is**; never recreate or overwrite it from scratch. When either list is non-empty, treat the shown
+`current_knowledge` as a **partial view**, and say so in the log line.
 
 ## The vault's current structure
 
@@ -67,6 +69,13 @@ Rules:
   cross-project understanding, not un-incubated ideas. (Ideas may link into Knowledge; not the reverse.)
 - **Traceable, always.** Every claim links to a source page shown in the report. If you cannot point to
   a source, leave the claim out.
+- **Copy quoted figures character-for-character.** When you state a value from a source — a balance, an
+  account/policy number, a date — re-find it on the source page shown in the report and copy it exactly;
+  never transcribe such a figure from memory, and if it isn't shown this run, name the page it lives on
+  rather than quoting a value. (Figures you derive yourself — a count, a total — are fine.)
+- **Do not re-raise a known-open item.** The report's `previously_raised` ledger lists items already
+  surfaced to the human and still open — never repeat one in `needs_a_look`; reference it, and reopen it
+  only if new evidence has changed it (then say what changed).
 - **Reconcile, don't average.** Conflicting claims between projects are surfaced as conflicts.
 - **Sensitive identifiers, last-4 only**, exactly as the source pages already hold them.
 - **Authored notes carry through.** Source material marked `provenance: manual` is owner-asserted and
@@ -81,8 +90,14 @@ Return JSON only, matching this shape (every `wiki_pages[].path` must sit under 
 {
   "verdict": "apply | skip",
   "wiki_pages": [{"path": "01 Knowledge/...", "action": "create | update", "body": "..."}],
-  "needs_a_look": [{"item": "...", "reason": "..."}],
+  "needs_a_look": [{"item": "...", "reason": "...", "what_would_resolve": "one sentence — the single decision or action that closes this", "proposed_action": "optional — what you would do on a yes"}],
   "log_entry": "## [{date}] synthesise | <projects read> | <short summary>",
   "notify": {"kind": "info", "priority": "low", "body": "..."}
 }
 ```
+
+Every `needs_a_look` item must be **decidable in one step** — its `what_would_resolve` names the single
+decision or action that closes it. **Omit `notify` entirely when nothing changed** — `verdict` is
+`skip`, or no pages were written **and** `needs_a_look` is empty: a genuinely no-change synthesis is
+**silent** (never a "sources match / nothing to do" note). Keep the `notify` only when you raised a
+`needs_a_look` item, so it still surfaces as an action.

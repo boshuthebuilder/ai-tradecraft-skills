@@ -1,22 +1,40 @@
 # file-ingest archetype — the two standard jobs for a document folder kept by a wiki.
 # Copy into a project's job config. A job's `id` equals its `mode`. Field names beyond
 # id/mode/prompt are deployment-specific (model routing, timeouts) — adapt to your config schema.
+#
+# Every field a prompt template references must resolve here. The review of the reference deployment
+# found a class of promised-but-unwired contracts — prompts that promise a roll-up or a skill the
+# project metadata never enabled — so the templates below carry the full contract, not just id/mode.
 
 jobs:
   - id: ingest
     mode: ingest
-    prompt: ingest.md          # the reactive incremental pass — drains the inbox
-    schedule: reactive         # run the deterministic gate often; no-op when nothing changed (see scheduler.md)
-    # compatible_models: [...] # optional: which model backends this job may use
-    # timeout_seconds: 600     # optional: per-run cap
+    prompt: ingest.md            # the reactive incremental pass — drains the inbox
+    schedule: reactive           # run the deterministic gate often; no-op when nothing changed (see scheduler.md)
+    execution_mode: single_shot  # one gather → one model call → deterministic apply (the default)
+    # execution_mode: agentic    # ALTERNATIVE: a read-only investigation loop that returns the SAME
+    #                            # structured contract apply expects. An agentic job gets read-only
+    #                            # tools only — every write still goes through the deterministic guards;
+    #                            # a write tool in the loop would bypass them and is not allowed.
+    # max_budget_usd: 0.50       # optional hard per-run cost cap. Measure real cost with dry-runs first,
+    #                            # then set a margin above the observed spend — too tight silently caps
+    #                            # a legitimately large run; absent means the deployment default.
+    ingest:
+      deadlines: true            # roll forward-looking dates from page frontmatter into a Deadlines page.
+      #                          # If the prompt promises the roll-up, this MUST be on — else it's unwired.
+      open_questions: true       # roll unresolved `needs_a_look` items into an Open Questions view.
+    # compatible_models: [...]   # optional: which model backends this job may use
+    # timeout_seconds: 600       # optional: per-run cap
 
   - id: reconcile
     mode: reconcile
-    prompt: reconcile.md       # the periodic comprehensive pass — reckons the whole wiki to the files
-    schedule: weekly           # a fixed cadence; not triggered by a single change (see scheduler.md)
-    # compatible_models: [...] # a full-wiki reconcile is a large prompt — keep it off vision-only backends
+    prompt: reconcile.md         # the periodic comprehensive pass — reckons the whole wiki to the files
+    schedule: weekly             # a fixed cadence; not triggered by a single change (see scheduler.md)
+    execution_mode: single_shot
+    # max_budget_usd: 1.00       # a full-wiki reconcile is a larger prompt than ingest — budget above it.
+    # compatible_models: [...]   # a full-wiki reconcile is a large prompt — keep it off vision-only backends
     # timeout_seconds: 900
 
-# The project must also declare the shared conventions skill as a capability, e.g.:
-# capabilities:
-#   skills: [wiki-maintenance]
+# Both jobs depend on the shared conventions skill — declare it explicitly, never implied:
+capabilities:
+  skills: [wiki-maintenance]

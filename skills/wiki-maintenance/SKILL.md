@@ -178,6 +178,28 @@ with no inline maintainer, the scheduled passes are the primary path.
   from it. If your setup maintains a separate cross-folder or user-level wiki, that is the only place
   cross-references live, and it only ever reads project wikis — it never writes back into them.
 
+## Canonical frontmatter — the keys the deterministic sweeps read
+
+The deterministic health sweeps (orphans, freshness, the Deadlines roll-up) don't read prose — they key
+on frontmatter fields. A page that spells a field differently is **invisible** to them: a fresh page
+under a mistyped key looks stale forever; a mis-keyed source path never gets orphan-checked. So the keys
+are a contract, not a style choice. Every derived page carries:
+
+| key | value | read by |
+|---|---|---|
+| `provenance` | `derived` \| `manual` \| `calendar` | every sweep (skips `manual`/`calendar`) |
+| `source` *(single)* / `sources` *(list)* | wiki-relative or in-folder path(s) to the golden-source file(s) | the orphan sweep |
+| `last-updated` | `YYYY-MM-DD` | the freshness sweep |
+| `status` | `current` \| `superseded` | every sweep (skips `superseded`) |
+| `deadline` *(single)* / `deadlines` *(list)* | `YYYY-MM-DD` (or `{date, note}`) | the Deadlines roll-up |
+
+**Write the canonical form; accept the legacy alias.** `source` and `sources` are both canonical — use
+the singular for one source, the plural list for several (a reader unions them). The one legacy alias a
+reader must still accept is **`updated:` for `last-updated:`** — older wikis carry it, so the freshness
+sweep reads either, but **every new or rewritten page uses `last-updated:`**. Don't invent further
+spellings (`date:`, `modified:`, `src:`): they are silently invisible to the sweeps. When you touch a
+page carrying a legacy alias, migrate it to the canonical key.
+
 ## Surfacing what needs a human — precise and quiet
 
 - **State only what the source says, exactly.** Quote the specific figure/status; never round up,

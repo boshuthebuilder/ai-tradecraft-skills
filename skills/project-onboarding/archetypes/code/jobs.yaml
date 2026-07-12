@@ -11,15 +11,20 @@
 jobs:
   - id: digest
     mode: digest
-    prompt: digest.md          # a plain-language summary of what changed
-    schedule: weekly           # a fixed cadence (see scheduler.md); no inbox to drain, so not reactive
-    # compatible_models: [...] # optional: which model backends this job may use
+    prompt: digest.md            # a plain-language summary of what changed
+    schedule: weekly             # a fixed cadence (see scheduler.md); no inbox to drain, so not reactive
+    execution_mode: single_shot  # gather reads the clone read-only → one model call → a report page
+    # max_budget_usd: 0.50       # measure real cost with dry-runs, then budget a margin above it.
+    # compatible_models: [...]   # optional: which model backends this job may use
 
   - id: review
     mode: code-review
-    prompt: code-review.md     # a correctness/risk review of the recent changes
-    schedule: weekly           # offset from the digest if you like (e.g. a different weekday)
+    prompt: code-review.md       # a correctness/risk review of the recent changes
+    schedule: weekly             # offset from the digest if you like (e.g. a different weekday)
+    execution_mode: single_shot
+    # max_budget_usd: 0.75       # a review reads more of the diff than a digest — budget a little above it.
     # compatible_models: [...]
 
 # A code project offers NO `ingest`/`reconcile` (file-ingest) job — its source is a git clone, not a
-# folder of documents. It reads the clone read-only and writes only report pages.
+# folder of documents. It reads the clone read-only and writes only report pages, and it declares NO
+# `wiki-maintenance` skill (it keeps no wiki). Every write still goes through the deployment's guards.
