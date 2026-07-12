@@ -64,9 +64,9 @@ traceable to a source, **figures copied character-for-character from the source*
 isn't shown this run), reconcile-don't-average, last-4 only, `provenance: derived` +
 `last-updated: {date}` + `status:` on every page you write, Knowledge ⊥ Ideas. The reconcile may write
 more broadly than a reactive synthesise, but it is still an **edit** of the existing tree, never a
-wholesale rebuild. **Do not re-raise a `previously_raised` open item** — reference it, reopen only on
-changed evidence. **A no-change run is silent** — if nothing drifted and you raised nothing, omit
-`notify`.
+wholesale rebuild. **Do not re-raise a `previously_raised` open or dismissed item** — reference it;
+reopen a recently-resolved one only on changed evidence. **A no-change run is silent** — if nothing
+drifted and you raised nothing, omit `notify`.
 
 Return JSON only (every `wiki_pages[].path` under `00 Index/` or `01 Knowledge/`; no `filings`):
 

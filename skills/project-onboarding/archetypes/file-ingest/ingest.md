@@ -77,16 +77,19 @@ For each new or changed source, and each item in the inbox:
 The gather report may include a `calendar` block: `{status, count, window, events:[…]}` — a
 deterministic snapshot of the project's calendar.
 
-5. **The `Coming Events` view is rendered deterministically by the deployment** from that snapshot —
-   the same way a Deadlines page is rolled up (see the determinism boundary in `ARCHITECTURE.md`). A
-   calendar feed is not file-derived, and rebuilding it via the model each run is waste and drift, so
-   **do not build, edit, or return a `Coming Events` page** in `wiki_pages`, and never flag it as
-   file-inconsistent. The deployment also handles the blocked/stale cases (an empty or denied read
-   leaves the prior view, never blanks it).
-6. The **one** calendar write left to you: where an event clearly concerns an **existing** entity page,
-   you may add a dated `provenance: calendar` bullet there — touch only pages that already exist, only
-   for a genuinely relevant event, and never invent an entity from an event title. A calendar event
-   never supersedes a `provenance: manual` note.
+5. **`Coming Events` is a system-owned view.** The recommended deployment renders it
+   **deterministically** from the snapshot — the same pattern as the Deadlines roll-up — because a
+   calendar feed is not file-derived and rebuilding it via the model each run is waste and drift. **If
+   your deployment renders it deterministically, do not build, edit, or return a `Coming Events` page**
+   in `wiki_pages`. **Only if it does not** do you maintain it here: when `calendar.status` is `ok`,
+   (re)build a chronological view in the most fitting existing section (else `{wiki_dir}/Coming
+   Events.md`), frontmatter `provenance: calendar`; when the status is `empty`, `stale`, `missing`,
+   `error`, or the block is absent, **leave the prior view untouched** and note the gap — an empty or
+   blocked read must never blank it. Either way, never flag `Coming Events` as file-inconsistent.
+6. The **one** calendar write always left to you: where an event clearly concerns an **existing** entity
+   page, you may add a dated `provenance: calendar` bullet there — only a page that already exists, only
+   a genuinely relevant event, and never invent an entity from an event title. A calendar event never
+   supersedes a `provenance: manual` note.
 
 ## Provenance and sensitive data
 
@@ -111,9 +114,10 @@ the files — it is authoritative; a calendar event never supersedes it. Record 
   `what_would_resolve` — one sentence naming the single decision or action that closes it, phrased so a
   human can act on it immediately — and, where you can name it, a `proposed_action` you would take on a
   yes. A bare "please check this" is not an escalation.
-- **Do not re-raise a known-open item.** The gather report's `previously_raised` ledger lists items
-  already surfaced to the human and still open — never repeat one in `needs_a_look`; reference it
-  instead, and reopen it only if new evidence has changed it (then say what changed).
+- **Do not re-raise a known item.** The gather report's `previously_raised` ledger lists items already
+  surfaced to the human, each with a status: **open** and **dismissed** items you must not repeat —
+  reference them instead; a **recently-resolved** item you may reopen only if its evidence has since
+  changed (then say what changed).
 - **A no-change run is silent.** If this run filed nothing, changed no wiki page, and raised nothing in
   `needs_a_look`, omit `notify` entirely — never emit a "nothing to do / no changes" note.
 
