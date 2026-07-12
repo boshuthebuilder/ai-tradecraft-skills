@@ -4,6 +4,43 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v2.1.0 — 2026-07-12
+
+Aligns the archetypes with the reference deployment's 2026-07 **System Jobs Review** (a 25-PR
+implementation on family-ai-os). Additive only — new optional fields, new prose, no rename or removal —
+so a **MINOR** release. The archetype prompts here are the templates stamped for every future
+onboarding; this carries the review's corrections to source, so the next project is not born with the
+defects the review fixed.
+
+### Changed
+- **Archetype prompts** (`file-ingest/{ingest,reconcile}`, `user-synthesis/{synthesise,reconcile}`)
+  carry the six review rules: *partial-view honesty* (a capped/truncated listing never reads as
+  "missing/orphaned"); *escalation quality* (`needs_a_look` gains `what_would_resolve` + optional
+  `proposed_action`); *re-raise discipline* (reference a `previously_raised` open/dismissed item, never
+  repeat it; reopen a recently-resolved one only on changed evidence); *deterministic-findings worklist*
+  (reconcile works the pre-computed `{reconcile_findings}` block); *no-change silence* (a run that
+  changed nothing omits `notify`); *figure fidelity* (quoted source values copied character-for-character).
+  The `code/{digest,code-review}` archetypes already embodied these and are unchanged.
+- **Coming Events is deterministic.** Like the Deadlines roll-up, `Coming Events` is now rendered
+  deterministically by the deployment from the calendar snapshot — the prompts never build it. Wired as
+  a project-wide `rollups.coming_events` capability.
+- **`ARCHITECTURE.md`**: adds the **raised-item lifecycle** to the job contract (stable key on source
+  path/identity · `open|resolved|dismissed` persistence · the ledger injected into every gather ·
+  `what_would_resolve`); states **partial-view honesty** as a gather-contract requirement; acknowledges
+  a bounded read-only **agentic** execution mode returning the same contract; adds Coming Events to the
+  determinism boundary.
+- **`wiki-maintenance/SKILL.md`**: pins the **canonical frontmatter keys** the deterministic sweeps read
+  (mandatory `provenance`/`last-updated`/`status`; conditional `source`/`sources`, `deadline`/`deadlines`)
+  and the one legacy alias readers accept (`updated:` → `last-updated:`).
+
+### Added
+- Archetype `jobs.yaml` templates carry the **full job contract**: explicit `execution_mode` (+ a
+  commented agentic option and its read-only constraint), commented `max_budget_usd` guidance (a hit cap
+  is an explicit `budget_exceeded` outcome, never a silent truncation), explicit `capabilities.skills`,
+  and the file-ingest project-wide `rollups` block (`deadlines` / `open_questions` / `coming_events`).
+- `AGENTS.md` documents `{reconcile_findings}` as an **optional** template placeholder (empty default)
+  and `{current_knowledge}` as a **required** user-synthesis placeholder.
+
 ## v2.0.0 — 2026-06-23
 
 **Breaking** — the `user-synthesis` archetype's write contract changes (see *Changed*). The reference
