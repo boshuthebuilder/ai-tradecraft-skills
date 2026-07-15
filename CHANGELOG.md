@@ -4,6 +4,24 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v2.1.1 — 2026-07-15
+
+Wording only, no contract change — a **PATCH**. Closes the last gap the reference deployment's
+notification-hygiene work surfaced: the reason model was *duplicating the deterministic health surface*.
+The reference deployment made its wiki-health needs-a-look self-clearing (a standing, per-project alert
+that resolves when the condition clears), but the model still ALSO flagged the same machine-detectable
+conditions in free text — un-keyed, so those escalations pile up run after run and never clear (a real
+cluster of three near-duplicate "resolve this `.proposed.md`" alerts for one file).
+
+### Changed
+- **Archetype prompts** (`file-ingest/{ingest,reconcile}`): the model now **defers machine-detectable
+  conditions to the deterministic health sweep** — pending `.proposed.md` siblings awaiting review,
+  orphaned pages (citing a vanished source), and unreadable pages are surfaced (and self-cleared) by the
+  deployment's reconcile-health sweep, so the model must not also record them in `needs_a_look`.
+  `needs_a_look` is reserved for judgement calls the harness cannot detect (an ambiguous filing, a
+  real-world inconsistency, an owner-only decision). The reconcile prompt's *deterministic-findings
+  worklist* rule (v2.1.0) is tightened accordingly: fix what you can, but do not re-escalate the residual.
+
 ## v2.1.0 — 2026-07-12
 
 Aligns the archetypes with the reference deployment's 2026-07 **System Jobs Review** (a 25-PR
