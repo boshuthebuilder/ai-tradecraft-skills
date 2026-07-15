@@ -115,6 +115,11 @@ the files — it is authoritative; a calendar event never supersedes it. Record 
   surfaced to the human, each with a status: **open** and **dismissed** items you must not repeat —
   reference them instead; a **recently-resolved** item you may reopen only if its evidence has since
   changed (then say what changed).
+- **Defer machine-detectable conditions.** Do not raise a `needs_a_look` for a `.proposed.md` sibling
+  awaiting review, an orphaned page (one citing a vanished source), or an unreadable wiki page — the
+  reconcile pass's deterministic health sweep surfaces and self-clears those, keyed per project. A
+  duplicate escalation here is un-keyed free text: it never clears and piles up run after run. Escalate
+  only a judgement call the harness cannot detect.
 - **A no-change run is silent.** If this run filed nothing, changed no wiki page, and raised nothing in
   `needs_a_look`, omit `notify` entirely — never emit a "nothing to do / no changes" note.
 

@@ -64,8 +64,14 @@ Reconcile the wiki **to the files**:
    not file-derived). You may add a dated `provenance: calendar` bullet to an **existing** entity/concept
    page for a genuinely relevant event; that is the only calendar write.
 4. Work the **Deterministic findings** block above (when present): fix what you confidently can — drop a
-   dead citation, add a missing freshness date — and record the rest in `needs_a_look`. Do **not**
-   manufacture a "missing page" item from a capped/partial listing.
+   dead citation, add a missing freshness date. **Do not record the residual in `needs_a_look`** — the
+   orphans you could not fix, unreadable pages, and `.proposed.md` siblings awaiting review are surfaced
+   *after* you run by the deployment's own reconcile-health sweep, as ONE standing, self-clearing alert
+   per project. A second, free-text escalation for the same machine-detectable condition is un-keyed: it
+   piles up run after run and never clears the way the sweep's does. Do **not** manufacture a "missing
+   page" item from a capped/partial listing. Reserve `needs_a_look` for a judgement call the harness
+   cannot detect — an ambiguous filing, a real-world inconsistency (a typo'd identifier, a figure that
+   contradicts another source), or a decision only the owner can make.
 5. **Frontmatter upkeep.** Keep each page's `deadline:`/`deadlines:`, `status:` and `last-updated:`
    true to the files: set `status: superseded` on a page the files have clearly obsoleted (it then
    drops out of the derived roll-ups), and correct a `deadline:` the source has moved. Do **not** build
