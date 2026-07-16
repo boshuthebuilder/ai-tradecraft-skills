@@ -4,6 +4,29 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v2.2.0 — 2026-07-16
+
+A new skill — a **MINOR** release. This one is about the process that *builds* the system rather
+than the system itself: the cross-model review gate the reference deployment runs on every complex
+change, packaged so it works for any repo and any coding agent (Claude Code, Codex, or another CLI
+agent driving a shell).
+
+### Added
+- **`adversarial-review` skill** — reviewer ≠ author by model; the fallback chain (Codex → Gemini →
+  independent agent, with "a dead reviewer is a done reviewer"); the auditable PR-comment protocol
+  (verdict + file:line findings on the PR, author replies to every finding, iterate to convergence);
+  the **headless-reviewer contract** distilled from four production silent-failure classes (verify by
+  artifact never exit code; bound + tree-kill; pin commands to permission-matchable forms; name the
+  allowed command set; inline `--body` posting; fetch the reviewer's scratch clone); and the one-time
+  machine setup for headless Gemini (`~/.gemini/config/config.json` `globalPermissionGrants` — the
+  two look-alike settings files are decoys).
+- **`adversarial-review/tools/agy-review`** — the bundled harness for the Gemini leg: repo-agnostic
+  (repo derived from the caller's checkout), pre-flights the silent killers, bounds the run, verifies
+  success by the posted PR comment (count-based, clock-skew-immune), and exits typed
+  (`0 ok · 2 auth-needed · 3 permission-denied · 4 timeout · 5 no-comment · 6 bad-args`). Battle-tested
+  by reviewing its own source through four converging rounds (11 findings → 3 → posting mechanics →
+  APPROVE) in the reference deployment (family-ai-os #559).
+
 ## v2.1.1 — 2026-07-15
 
 Wording only, no contract change — a **PATCH**. Closes the last gap the reference deployment's

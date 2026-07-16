@@ -1,0 +1,167 @@
+#!/bin/bash
+# agy-review — run an adversarial cross-model review of a GitHub PR via the Antigravity
+# CLI (agy), deterministically and fail-loud. The Gemini leg of the adversarial-review
+# skill's fallback chain (Codex → Gemini → independent agent). Repo-agnostic: run it from
+# inside a checkout of the repo under review.
+#
+#   agy-review <pr-number> [--repo owner/name] [--label <text>]
+#
+# --repo defaults to the checkout's GitHub remote (gh repo view). The local checkout is
+# what the reviewer reads files from (git -C), so run from the repo being reviewed.
+#
+# Why this wrapper exists — every failure class below was hit in production and each
+# failed SILENTLY (agy printed nothing, posted nothing, exit 0), which reads as a hang:
+#   1. permission-denied  headless -p mode auto-denies EVERY confirmable tool unless
+#                         ~/.gemini/config/config.json carries
+#                         userSettings.globalPermissionGrants.allow. Two distinct layers:
+#                         "command(git)"-style PREFIX rules for Bash ('git' matches
+#                         'git add', NOT 'github'), and "read_file(*)" for agy's INTERNAL
+#                         read tools (Search/GrepSearch/file viewing) — without the
+#                         latter it dies the moment it greps. The two look-alike files
+#                         (~/.gemini/settings.json — that's gemini-cli's — and
+#                         ~/.gemini/antigravity-cli/settings.json) are NOT consulted.
+#                         See the skill's Machine setup section for the exact block.
+#   2. print-timeout      -p mode's default wait is 5m; a real review runs longer and is
+#                         killed mid-flight with no message. We pass --print-timeout.
+#   3. stale-scratch      agy reviews in its own clone (~/.gemini/antigravity-cli/scratch/
+#                         <repo>), which nobody fetches — a just-merged SHA doesn't exist
+#                         there and every git show fails. We fetch it first.
+#   4. auth-needed        an expired Antigravity login errors only in the debug log.
+# The exit contract is typed-outcome: the ARTIFACT (a PR comment) is the success signal,
+# never the exit code of agy itself.
+#
+#   exit 0  ok                 review comment posted on the PR
+#   exit 2  auth-needed        not signed into Antigravity (run `agy` once interactively)
+#   exit 3  permission-denied  headless grants missing/stripped (fix config.json, above)
+#   exit 4  timeout            killed by the watchdog with no comment posted
+#   exit 5  no-comment         agy exited but never posted (narration tail printed)
+#   exit 6  bad-args / missing prerequisites
+set -u
+
+PR=""
+REPO=""
+LABEL=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --repo)  [ $# -ge 2 ] || { echo "agy-review: --repo needs a value" >&2; exit 6; };  REPO="$2"; shift 2 ;;
+    --label) [ $# -ge 2 ] || { echo "agy-review: --label needs a value" >&2; exit 6; }; LABEL="$2"; shift 2 ;;
+    -*) echo "agy-review: unknown flag $1" >&2; exit 6 ;;
+    *) PR="$1"; shift ;;
+  esac
+done
+# PR must be a bare integer — it is embedded in the prompt and a temp-file path
+[[ "$PR" =~ ^[0-9]+$ ]] || { echo "usage: agy-review <pr-number> [--repo owner/name] [--label text]" >&2; exit 6; }
+for bin in agy gh git python3; do
+  command -v "$bin" >/dev/null || { echo "agy-review: $bin not on PATH" >&2; exit 6; }
+done
+
+# The reviewed repo's checkout = the caller's cwd (NOT this script's location — it lives
+# in the skills clone). The reviewer reads files from here via git -C.
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" \
+  || { echo "agy-review: run from inside a git checkout of the repo under review" >&2; exit 6; }
+if [ -z "$REPO" ]; then
+  REPO="$(cd "$REPO_ROOT" && gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null)"
+  [ -n "$REPO" ] || { echo "agy-review: cannot derive the GitHub repo from this checkout — pass --repo owner/name" >&2; exit 6; }
+fi
+REPO_NAME="${REPO##*/}"
+MARKER="Adversarial review by Gemini (agy)"
+WATCHDOG_SECS=1000          # > --print-timeout so agy's own limit fires first
+PRINT_TIMEOUT="15m"
+
+# ---- pre-flight ----------------------------------------------------------------------
+# grants: the config regression that silently kills every headless run. Checked
+# statically (free) — the run itself confirms dynamically (jetski's own denial message).
+# CONFIG rides an env var into a single-quoted script, so a hostile $HOME can't inject.
+CONFIG="$HOME/.gemini/config/config.json"
+if ! CONFIG="$CONFIG" python3 -c '
+import json, os, sys
+d = json.load(open(os.environ["CONFIG"]))
+rules = d.get("userSettings", {}).get("globalPermissionGrants", {}).get("allow", [])
+ok = any(r.startswith("command(git") for r in rules) and "read_file(*)" in rules
+sys.exit(0 if ok else 1)
+' 2>/dev/null; then
+  echo "agy-review: permission-denied — $CONFIG lacks userSettings.globalPermissionGrants.allow" >&2
+  echo "  (needs \"command(git)\"-style Bash rules AND \"read_file(*)\" for agy's internal Search/read tools;" >&2
+  echo "   headless agy silently auto-denies every confirmable tool without them — see the" >&2
+  echo "   adversarial-review skill's Machine setup section for the exact block)" >&2
+  exit 3
+fi
+
+# scratch: fetch the clone agy actually reviews in, so freshly-merged SHAs exist there.
+SCRATCH="$HOME/.gemini/antigravity-cli/scratch/$REPO_NAME"
+if [ -d "$SCRATCH/.git" ]; then
+  git -C "$SCRATCH" fetch --tags origin >/dev/null 2>&1 \
+    || echo "agy-review: WARN stale-scratch — fetch of $SCRATCH failed; a recent SHA may be invisible to agy" >&2
+fi
+
+# Artifact baseline: verification is COUNT-based (more marker comments after than before),
+# immune to clock skew between this host and GitHub and to a failing `date`.
+count_marker_comments() {
+  gh pr view "$PR" --repo "$REPO" --json comments \
+    --jq "[.comments[] | select((.body // \"\") | startswith(\"$MARKER\"))] | length" 2>/dev/null
+}
+BEFORE="$(count_marker_comments)"
+[[ "$BEFORE" =~ ^[0-9]+$ ]] || { echo "agy-review: cannot read $REPO#$PR comments (gh auth? network?)" >&2; exit 6; }
+
+# temp file created only after pre-flight, so an early exit leaks nothing
+# (macOS mktemp requires the XXXXXX at the END of the template — no suffix after it)
+OUT="$(mktemp "/tmp/agy-review-${PR}.XXXXXX")"
+
+# ---- the review ----------------------------------------------------------------------
+# The prompt pins tool usage to prefix-matchable commands: git -C / gh --repo, no cd,
+# no && chains — a chained command's first word is what the allow-rules match against —
+# and names the exact allowed set: ANY un-granted command the model invents is fatal.
+PROMPT="You are an adversarial code reviewer. Review PR #$PR in $REPO.${LABEL:+ Focus: $LABEL.}
+
+Rules for tools — IMPORTANT, any command outside this list is hard-denied and kills the whole session:
+you may ONLY run git (as 'git -C $REPO_ROOT ...'), gh pr view/diff/comment (with '--repo $REPO'),
+ls, cat, head, tail, grep, rg, find, 'sed -n', wc, 'uv run pytest', and 'bash -n'. Never cd; never
+chain commands with && or ; (the permission gate matches the FIRST word only).
+
+Steps:
+1. Run: gh pr view $PR --repo $REPO   and   gh pr diff $PR --repo $REPO
+2. Review the diff ADVERSARIALLY for correctness and security — real defects, not style. Read any file the diff touches (git -C $REPO_ROOT show, cat, grep) as needed to verify claims against the surrounding code.
+3. Post your findings as a PR comment with ONE direct call: gh pr comment $PR --repo $REPO --body \"...\" — pass the whole body INLINE via --body. Do NOT stage the body in a file first: echo, printf, shell redirection and file-write tools are all denied and will kill the session at this final step. The comment MUST start with '$MARKER:' and give a clear verdict (APPROVE / CHANGES-REQUESTED) plus findings as file:line, severity, and why each is a real defect. If nothing substantive, say so explicitly. Then stop."
+
+# kill the whole descendant tree, depth-first — agy spawns node/language-server children
+# that spawn their own; a one-level pkill -P orphans the grandchildren.
+kill_tree() {
+  local pid="$1" child
+  for child in $(pgrep -P "$pid" 2>/dev/null); do kill_tree "$child"; done
+  kill -KILL "$pid" 2>/dev/null
+}
+
+agy --print-timeout "$PRINT_TIMEOUT" -p "$PROMPT" >"$OUT" 2>&1 &
+AGY_PID=$!
+# the subshell inherits kill_tree, so the timeout path reaps the FULL descendant tree
+( sleep "$WATCHDOG_SECS" & wait $!
+  kill_tree "$AGY_PID" ) &
+WATCHDOG_PID=$!
+disown "$WATCHDOG_PID" 2>/dev/null   # keep its kill out of the shell's job-status noise
+wait "$AGY_PID"
+RC=$?
+kill_tree "$WATCHDOG_PID"            # also reaps the watchdog's sleeping child
+
+# ---- verify by artifact --------------------------------------------------------------
+AFTER="$(count_marker_comments)"
+if [[ "$AFTER" =~ ^[0-9]+$ ]] && [ "$AFTER" -gt "$BEFORE" ]; then
+  echo "agy-review: ok — review comment posted on $REPO#$PR"
+  rm -f "$OUT"
+  exit 0
+fi
+
+# classify the failure — loud, never a bare nonzero. Order matters: the watchdog kill is
+# checked FIRST (a killed run's captured output may echo reviewed content containing the
+# denial phrase); the denial/auth greps then match only jetski's own final stderr line,
+# not review content quoted in the narration.
+echo "agy-review: FAILED — no new review comment on $REPO#$PR. Narration tail:" >&2
+tail -6 "$OUT" >&2
+if [ "$RC" -ge 128 ]; then
+  echo "agy-review: timeout — killed by watchdog after ${WATCHDOG_SECS}s" >&2; exit 4
+elif grep -Eq "^jetski: .*auto-denied" "$OUT"; then
+  echo "agy-review: permission-denied — headless grants rejected mid-run (check $CONFIG)" >&2; exit 3
+elif grep -Eiq "^(jetski|error): .*(not logged in|not signed in|authentication required)" "$OUT"; then
+  echo "agy-review: auth-needed — run 'agy' once interactively to sign in" >&2; exit 2
+else
+  echo "agy-review: no-comment — agy exited rc=$RC without posting; advance the fallback chain (independent agent)" >&2; exit 5
+fi
