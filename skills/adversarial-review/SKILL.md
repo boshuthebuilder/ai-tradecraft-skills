@@ -133,9 +133,12 @@ and are the spec for porting the gate to a new reviewer:
   *absent*, agy bootstraps one itself via commands outside the allow-list and dies silently at
   step 1 — the first review of any repo agy has never seen fails this way. The harness clones or
   fetches it deterministically before the run; do the same when driving agy raw.
-- **Steer review labels to static reading.** An open-ended "verify the shell fixes" label sends the
-  model reaching for un-granted tools (shellcheck); say "by reading the diff" and name any permitted
-  extras (`bash -n`).
+- **Steer review labels to static reading — and steer the opening move.** Every label phrase that
+  implies a tool is a landmine: "verify the shell fixes" sends the model to shellcheck; naming
+  "git-fetch(1)" sends it to `man` — each un-granted, each fatal at step 1 with zero narration.
+  Say "by reading the diff", name any permitted extras (`bash -n`), never cite external
+  references, and when a repo is new to the reviewer, open the label with "START by running
+  'gh pr diff <n> --repo <owner/name>' — no other command first".
 
 ## Bounding a review CLI (Codex or any other)
 

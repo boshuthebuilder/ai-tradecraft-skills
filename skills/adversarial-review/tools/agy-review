@@ -144,7 +144,7 @@ kill_tree() {
   kill -KILL "$pid" 2>/dev/null
 }
 
-agy --print-timeout "$PRINT_TIMEOUT" -p "$PROMPT" >"$OUT" 2>&1 &
+agy --print-timeout "$PRINT_TIMEOUT" --log-file "$OUT.log" -p "$PROMPT" >"$OUT" 2>&1 &
 AGY_PID=$!
 # the subshell inherits kill_tree, so the timeout path reaps the FULL descendant tree
 ( sleep "$WATCHDOG_SECS" & wait $!
@@ -159,7 +159,7 @@ kill_tree "$WATCHDOG_PID"            # also reaps the watchdog's sleeping child
 AFTER="$(count_marker_comments)"
 if [[ "$AFTER" =~ ^[0-9]+$ ]] && [ "$AFTER" -gt "$BEFORE" ]; then
   echo "agy-review: ok — review comment posted on $REPO#$PR"
-  rm -f "$OUT"
+  rm -f "$OUT" "$OUT.log"
   exit 0
 fi
 
@@ -167,7 +167,7 @@ fi
 # checked FIRST (a killed run's captured output may echo reviewed content containing the
 # denial phrase); the denial/auth greps then match only jetski's own final stderr line,
 # not review content quoted in the narration.
-echo "agy-review: FAILED — no new review comment on $REPO#$PR. Narration tail:" >&2
+echo "agy-review: FAILED — no new review comment on $REPO#$PR (debug log kept at $OUT.log). Narration tail:" >&2
 tail -6 "$OUT" >&2
 if [ "$RC" -ge 128 ]; then
   echo "agy-review: timeout — killed by watchdog after ${WATCHDOG_SECS}s" >&2; exit 4
