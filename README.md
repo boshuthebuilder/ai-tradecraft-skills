@@ -15,6 +15,10 @@ The first archetype implements the **in-folder knowledge wiki**: a synthesised, 
 - **`wiki-onboarding`** — bootstrap a wiki for a folder that doesn't have one: scan the folder read-only, propose a structure that mirrors how the owner already organises it, interview them on a few key points, then write the initial **Schema / Index / Log** skeleton. One-time and interactive; hands off to `wiki-maintenance`.
 - **`wiki-maintenance`** — keep a wiki current: process an incoming item end to end (read → file by confident match → update the pages it touches → surface what needs a human → log), answer queries from the wiki, and run periodic reconcile (lint) passes. The method is portable; each wiki's own Schema page is the authority for its exact pages and layout. Includes the provenance model, the never-overwrite-a-human-edit guard, and a sensitive-data rule (identifiers as last-4 only).
 
+## The development process — a skill for building the system itself
+
+- **`adversarial-review`** — the cross-model review gate the reference deployment runs on every complex change: a *different* model from the one that wrote the code reviews the open PR adversarially and posts its findings as PR comments, iterating to convergence. Carries the reviewer fallback chain (Codex → Gemini → independent agent), the auditable PR-comment protocol, a bundled headless-Gemini harness (`tools/agy-review`, typed exits, verify-by-artifact), and the one-time machine setup headless reviewers need. Repo-agnostic and agent-agnostic — the method is markdown any coding agent can follow, and the harness is one dependency-free bash script.
+
 ## Install (Claude Code / Cowork)
 
 ```
