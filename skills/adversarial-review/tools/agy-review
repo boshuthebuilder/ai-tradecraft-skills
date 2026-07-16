@@ -59,9 +59,14 @@ done
 # in the skills clone). The reviewer reads files from here via git -C.
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" \
   || { echo "agy-review: run from inside a git checkout of the repo under review" >&2; exit 6; }
+DERIVED="$(cd "$REPO_ROOT" && gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null)"
 if [ -z "$REPO" ]; then
-  REPO="$(cd "$REPO_ROOT" && gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null)"
+  REPO="$DERIVED"
   [ -n "$REPO" ] || { echo "agy-review: cannot derive the GitHub repo from this checkout — pass --repo owner/name" >&2; exit 6; }
+elif [ -n "$DERIVED" ] && [ "$REPO" != "$DERIVED" ]; then
+  # legitimate for fork workflows (checkout=fork, --repo=upstream) but loud: the reviewer reads
+  # FILES from this checkout — if it doesn't carry the PR's code, git show/cat will read the wrong tree
+  echo "agy-review: WARN repo-mismatch — reviewing $REPO but the checkout here is $DERIVED; file reads come from this checkout" >&2
 fi
 REPO_NAME="${REPO##*/}"
 MARKER="Adversarial review by Gemini (agy)"
@@ -93,9 +98,11 @@ fi
 # git show of a freshly-merged SHA fails. We clone/fetch it from OUR shell, deterministically.
 SCRATCH="$HOME/.gemini/antigravity-cli/scratch/$REPO_NAME"
 if [ -d "$SCRATCH/.git" ]; then
+  # --tags fetches tags IN ADDITION to the default branch refspec (git-fetch(1)), not instead of it
   git -C "$SCRATCH" fetch --tags origin >/dev/null 2>&1 \
     || echo "agy-review: WARN stale-scratch — fetch of $SCRATCH failed; a recent SHA may be invisible to agy" >&2
-elif [ -d "$(dirname "$SCRATCH")" ]; then
+else
+  mkdir -p "$(dirname "$SCRATCH")"   # a clean machine has no scratch dir at all yet
   git clone --quiet "https://github.com/$REPO.git" "$SCRATCH" >/dev/null 2>&1 \
     || echo "agy-review: WARN no-scratch — clone into $SCRATCH failed; agy may die bootstrapping its own" >&2
 fi

@@ -55,7 +55,9 @@ Pick the first *available* reviewer that is a different model from the author:
    in the background (see *Bounding a review CLI* below); expect a subscription rate wall after
    roughly a dozen rounds in a session.
 2. **Gemini** — via the bundled harness: `tools/agy-review <pr> [--repo owner/name] [--label
-   focus]`, run from inside a checkout of the repo under review. It pre-flights the known silent
+   focus]` (path relative to this skill's directory — from a clone of this repo that is
+   `skills/adversarial-review/tools/agy-review`), run from inside a checkout of the repo under
+   review. It pre-flights the known silent
    killers, bounds the run, and verifies success by the *posted PR comment*, never the CLI's exit
    code. Typed exits tell you what happened and what to do:
 
