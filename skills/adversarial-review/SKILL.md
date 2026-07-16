@@ -126,9 +126,11 @@ and are the spec for porting the gate to a new reviewer:
 - **Post with one inline call.** The final `gh pr comment --body "..."` must carry the body inline —
   staging it in a file via echo/printf/redirection/file-write tools is denied and kills the run at
   the last step.
-- **Fetch the reviewer's scratch clone first.** agy reviews in its own clone
-  (`~/.gemini/antigravity-cli/scratch/<repo>`), which nothing else fetches — a just-merged SHA does
-  not exist there. The harness does this; do it manually when driving agy raw.
+- **Ensure the reviewer's scratch clone exists and is fresh.** agy reviews in its own clone
+  (`~/.gemini/antigravity-cli/scratch/<repo>`). Stale, a just-merged SHA does not exist there;
+  *absent*, agy bootstraps one itself via commands outside the allow-list and dies silently at
+  step 1 — the first review of any repo agy has never seen fails this way. The harness clones or
+  fetches it deterministically before the run; do the same when driving agy raw.
 - **Steer review labels to static reading.** An open-ended "verify the shell fixes" label sends the
   model reaching for un-granted tools (shellcheck); say "by reading the diff" and name any permitted
   extras (`bash -n`).

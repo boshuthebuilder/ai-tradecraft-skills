@@ -87,11 +87,17 @@ sys.exit(0 if ok else 1)
   exit 3
 fi
 
-# scratch: fetch the clone agy actually reviews in, so freshly-merged SHAs exist there.
+# scratch: the clone agy actually reviews in. It must EXIST and be FRESH before the run:
+# absent, agy bootstraps one itself via commands outside the allow-list and dies silently
+# at step 1 (hit live on the first review of a repo agy had never seen); stale, every
+# git show of a freshly-merged SHA fails. We clone/fetch it from OUR shell, deterministically.
 SCRATCH="$HOME/.gemini/antigravity-cli/scratch/$REPO_NAME"
 if [ -d "$SCRATCH/.git" ]; then
   git -C "$SCRATCH" fetch --tags origin >/dev/null 2>&1 \
     || echo "agy-review: WARN stale-scratch — fetch of $SCRATCH failed; a recent SHA may be invisible to agy" >&2
+elif [ -d "$(dirname "$SCRATCH")" ]; then
+  git clone --quiet "https://github.com/$REPO.git" "$SCRATCH" >/dev/null 2>&1 \
+    || echo "agy-review: WARN no-scratch — clone into $SCRATCH failed; agy may die bootstrapping its own" >&2
 fi
 
 # Artifact baseline: verification is COUNT-based (more marker comments after than before),
