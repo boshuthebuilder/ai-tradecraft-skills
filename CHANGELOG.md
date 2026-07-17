@@ -4,6 +4,35 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v2.3.0 — 2026-07-16
+
+The adversarial-review skill gains **quota-aware reviewer selection** and **follow-ups** — a MINOR
+release (one new harness flag, two new SKILL.md sections; nothing renamed or removed). Both were
+spiked empirically before building (resume incantation, model labels, denial autopsy).
+
+### Added
+- **`tools/agy-review --model "<label>"`** — run the review on another Antigravity-pool model
+  (Gemini/Claude/GPT families; `agy models` lists the live labels). The pool is a separate
+  subscription budget from the primary Claude/ChatGPT plans, so reviews can run without spending
+  primary authoring headroom. An unknown label fails loud (rc=1, valid labels listed).
+- **Conversation-id surfacing** — every harness result line (success and failure) carries the run's
+  `conversation: <id>`; `agy --conversation <id> -p "…"` (flag before `-p`; plain headless works)
+  reopens that run with full context. Documented as a *diagnostic*, not the round-to-round
+  mechanism: continuity across rounds stays in the PR comment thread, the only session that
+  survives switching reviewer legs. The autopsy pattern — asking a dead run what command it was
+  proposing — is documented; it revealed a denied reviewer had been mid-way to a genuine defect.
+- **SKILL.md: *Quota-aware reviewer selection*** — the chain degrades reactively by typed exits (no
+  quota probe rebuilt inside the gate); the pool as a separate budget; diversity still outranks
+  quota (same-family-via-pool = preserve-quota choice, disclosed like any weaker gate); older pool
+  models are fine for adversarial reading.
+- **SKILL.md: *Follow-ups — interrogating a review***.
+
+### Changed
+- Machine-setup grant `command(uv run pytest)` widened to **`command(uv run)`**: pytest already
+  executes arbitrary repo code via test collection, so the narrow form bought no safety — and it
+  killed a reviewer mid-insight reaching for `uv run python -c` to check packaging metadata, a
+  check that later proved a real defect.
+
 ## v2.2.0 — 2026-07-16
 
 A new skill — a **MINOR** release. This one is about the process that *builds* the system rather

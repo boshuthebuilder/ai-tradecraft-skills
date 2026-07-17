@@ -59,7 +59,9 @@ Pick the first *available* reviewer that is a different model from the author:
    `skills/adversarial-review/tools/agy-review`), run from inside a checkout of the repo under
    review. It pre-flights the known silent
    killers, bounds the run, and verifies success by the *posted PR comment*, never the CLI's exit
-   code. Typed exits tell you what happened and what to do:
+   code. `--model "<label>"` runs the review on another Antigravity-pool model (see *Quota-aware
+   reviewer selection*), and every result line carries the run's `conversation: <id>` for follow-ups
+   (see *Follow-ups*). Typed exits tell you what happened and what to do:
 
    | exit | status | next action |
    |---|---|---|
@@ -93,7 +95,7 @@ belongs to gemini-cli; `~/.gemini/antigravity-cli/settings.json` loads but is no
         "command(gh pr comment)",
         "command(ls)", "command(cat)", "command(head)", "command(tail)",
         "command(grep)", "command(rg)", "command(find)", "command(sed -n)",
-        "command(wc)", "command(uv run pytest)", "command(bash -n)"
+        "command(wc)", "command(uv run)", "command(bash -n)"
       ]
     }
   }
@@ -103,9 +105,51 @@ belongs to gemini-cli; `~/.gemini/antigravity-cli/settings.json` loads but is no
 Two distinct layers, both required: `command(...)` rules are **prefix** matches on the Bash command
 line (`git` matches `git add`, *not* `github`), and `read_file(*)` covers agy's *internal*
 Search/read tools — without it the reviewer dies the moment it greps. Keep the set scoped: do **not**
-grant `command(echo)` or `write_file(*)` (echo + shell redirection is arbitrary file write), and do
-not use `--dangerously-skip-permissions` (it removes the entire approval gate). Sign in once by
-running `agy` interactively.
+grant `command(echo)` or `write_file(*)` (echo + shell redirection is arbitrary file write, and
+keeping them denied forces review comments through the inline `--body` path the artifact contract
+needs), and do not use `--dangerously-skip-permissions` (it removes the entire approval gate).
+`command(uv run)` is deliberately whole: `uv run pytest` already executes arbitrary repo code via
+test collection, so narrowing to it bought no safety — while the narrow form killed a reviewer
+mid-insight when it reached for `uv run python -c` to check packaging metadata (a check that later
+proved to be a real defect). Sign in once by running `agy` interactively.
+
+## Quota-aware reviewer selection
+
+Every reviewer burns a subscription window, and the windows are the real wall — plan spend the way
+you plan the review:
+
+- **The chain degrades reactively by design.** A walled or exhausted reviewer fails *typed*
+  (rate-wall, `timeout`, `no-comment`) and you advance — no pre-flight quota probe is built in, and
+  none is needed at review volumes. If your deployment already tracks provider windows, a glance
+  there before a long review session is cheap; do not rebuild that tracking inside the gate.
+- **The Antigravity pool is a separate budget.** `agy` exposes multiple model families (run
+  `agy models` for the live labels — Gemini, Claude and GPT variants), all billed to the Antigravity
+  subscription rather than the primary Claude/ChatGPT plans. When the primary plans are near their
+  windows — or you simply want to preserve them for authoring — run the review on the pool:
+  `tools/agy-review <pr> --model "<label>"`. An unknown label fails loud with the valid list.
+- **Diversity still outranks quota.** The pool's Claude models let you review Claude-authored code
+  without spending the primary Claude plan — but that is same-family review (weaker diversity, older
+  generation). Prefer a genuinely different family first; reach for same-family-via-pool to preserve
+  quota, and disclose it on the PR like any weaker gate.
+- **Older pool models are fine for this job.** Adversarial review is careful *reading*; a
+  previous-generation model with the diff in front of it catches real defects (the reference
+  deployment's gate history is largely a mid-tier model finding genuine bugs).
+
+## Follow-ups — interrogating a review
+
+Continuity across rounds lives in the **PR comment thread** — the only session that survives
+switching reviewer legs mid-chain — so rounds are deliberately stateless: each re-reads the PR,
+including prior findings and author replies. Native conversation resume is NOT the round-to-round
+mechanism (it cannot cross providers, exactly when the chain switches). It is, however, a superb
+*diagnostic*: every `tools/agy-review` result line carries the run's `conversation: <id>`, and
+
+    agy --conversation <id> -p "your follow-up"      # --conversation BEFORE -p; headless works
+
+reopens that run with full context. Use it to ask a reviewer why it judged a finding as it did — or
+to perform an autopsy on a dead run: a run killed by a denied tool can be *asked what it was trying
+to do* ("what exact command did you propose at the final step, and why?"), which has turned an
+opaque typed failure into the missing grant — and once revealed that the dying reviewer had been
+mid-way to a genuine defect the next leg later confirmed.
 
 ## The headless-reviewer contract
 
@@ -125,9 +169,15 @@ and are the spec for porting the gate to a new reviewer:
 - **Name the exact allowed command set in the prompt.** Any un-granted command the model invents is
   fatal mid-run. One review died deciding to run the test suite; another died staging its comment
   body via a denied write path.
-- **Post with one inline call.** The final `gh pr comment --body "..."` must carry the body inline —
-  staging it in a file via echo/printf/redirection/file-write tools is denied and kills the run at
-  the last step.
+- **Post with one inline call, and no backticks in the body.** The final `gh pr comment --body
+  "..."` must carry the body inline — staging it in a file via echo/printf/redirection/file-write
+  tools is denied and kills the run at the last step. And the permission validator parses
+  **backticks inside the body as command substitutions**, permission-checking their contents as
+  commands: a review comment that backticks any un-granted identifier (which is most of them) dies
+  at the posting step, while one whose snippets happen to start with granted words slips through —
+  the most confusing failure in the whole class. The prompt therefore bans backticks in the body
+  (code identifiers go in single quotes); a run that died here anyway can be salvaged by resuming
+  it and asking it to re-post without backticks (see *Follow-ups*).
 - **Ensure the reviewer's scratch clone exists and is fresh.** agy reviews in its own clone
   (`~/.gemini/antigravity-cli/scratch/<repo>`). Stale, a just-merged SHA does not exist there;
   *absent*, agy bootstraps one itself via commands outside the allow-list and dies silently at
