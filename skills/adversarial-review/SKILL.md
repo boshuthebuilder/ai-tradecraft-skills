@@ -169,9 +169,15 @@ and are the spec for porting the gate to a new reviewer:
 - **Name the exact allowed command set in the prompt.** Any un-granted command the model invents is
   fatal mid-run. One review died deciding to run the test suite; another died staging its comment
   body via a denied write path.
-- **Post with one inline call.** The final `gh pr comment --body "..."` must carry the body inline —
-  staging it in a file via echo/printf/redirection/file-write tools is denied and kills the run at
-  the last step.
+- **Post with one inline call, and no backticks in the body.** The final `gh pr comment --body
+  "..."` must carry the body inline — staging it in a file via echo/printf/redirection/file-write
+  tools is denied and kills the run at the last step. And the permission validator parses
+  **backticks inside the body as command substitutions**, permission-checking their contents as
+  commands: a review comment that backticks any un-granted identifier (which is most of them) dies
+  at the posting step, while one whose snippets happen to start with granted words slips through —
+  the most confusing failure in the whole class. The prompt therefore bans backticks in the body
+  (code identifiers go in single quotes); a run that died here anyway can be salvaged by resuming
+  it and asking it to re-post without backticks (see *Follow-ups*).
 - **Ensure the reviewer's scratch clone exists and is fresh.** agy reviews in its own clone
   (`~/.gemini/antigravity-cli/scratch/<repo>`). Stale, a just-merged SHA does not exist there;
   *absent*, agy bootstraps one itself via commands outside the allow-list and dies silently at
