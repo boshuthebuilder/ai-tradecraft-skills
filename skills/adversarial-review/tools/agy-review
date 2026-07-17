@@ -4,7 +4,14 @@
 # skill's fallback chain (Codex → Gemini → independent agent). Repo-agnostic: run it from
 # inside a checkout of the repo under review.
 #
-#   agy-review <pr-number> [--repo owner/name] [--label <text>]
+#   agy-review <pr-number> [--repo owner/name] [--label <text>] [--model <label>]
+#
+# --model runs the review on another model in the Antigravity pool (see `agy models` for
+# labels — Gemini, Claude and GPT families) — a SEPARATE subscription quota from the
+# primary Claude/ChatGPT plans, so reviews can run without spending primary headroom.
+# agy itself fails loud (rc=1, valid labels listed) on an unknown label. Every result
+# line carries the run's conversation id: interrogate any run afterwards with
+#   agy --conversation <id> -p "your follow-up"     (--conversation BEFORE -p)
 #
 # --repo defaults to the checkout's GitHub remote (gh repo view). The local checkout is
 # what the reviewer reads files from (git -C), so run from the repo being reviewed.
@@ -41,16 +48,18 @@ set -u
 PR=""
 REPO=""
 LABEL=""
+MODEL=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --repo)  [ $# -ge 2 ] || { echo "agy-review: --repo needs a value" >&2; exit 6; };  REPO="$2"; shift 2 ;;
     --label) [ $# -ge 2 ] || { echo "agy-review: --label needs a value" >&2; exit 6; }; LABEL="$2"; shift 2 ;;
+    --model) [ $# -ge 2 ] || { echo "agy-review: --model needs a value (see \`agy models\` for labels)" >&2; exit 6; }; MODEL="$2"; shift 2 ;;
     -*) echo "agy-review: unknown flag $1" >&2; exit 6 ;;
     *) PR="$1"; shift ;;
   esac
 done
 # PR must be a bare integer — it is embedded in the prompt and a temp-file path
-[[ "$PR" =~ ^[0-9]+$ ]] || { echo "usage: agy-review <pr-number> [--repo owner/name] [--label text]" >&2; exit 6; }
+[[ "$PR" =~ ^[0-9]+$ ]] || { echo "usage: agy-review <pr-number> [--repo owner/name] [--label text] [--model label]" >&2; exit 6; }
 for bin in agy gh git python3; do
   command -v "$bin" >/dev/null || { echo "agy-review: $bin not on PATH" >&2; exit 6; }
 done
@@ -128,7 +137,7 @@ PROMPT="You are an adversarial code reviewer. Review PR #$PR in $REPO.${LABEL:+ 
 
 Rules for tools — IMPORTANT, any command outside this list is hard-denied and kills the whole session:
 you may ONLY run git (as 'git -C $REPO_ROOT ...'), gh pr view/diff/comment (with '--repo $REPO'),
-ls, cat, head, tail, grep, rg, find, 'sed -n', wc, 'uv run pytest', and 'bash -n'. Never cd; never
+ls, cat, head, tail, grep, rg, find, 'sed -n', wc, 'uv run', and 'bash -n'. Never cd; never
 chain commands with && or ; (the permission gate matches the FIRST word only).
 
 Steps:
@@ -144,7 +153,7 @@ kill_tree() {
   kill -KILL "$pid" 2>/dev/null
 }
 
-agy --print-timeout "$PRINT_TIMEOUT" --log-file "$OUT.log" -p "$PROMPT" >"$OUT" 2>&1 &
+agy ${MODEL:+--model "$MODEL"} --print-timeout "$PRINT_TIMEOUT" --log-file "$OUT.log" -p "$PROMPT" >"$OUT" 2>&1 &
 AGY_PID=$!
 # the subshell inherits kill_tree, so the timeout path reaps the FULL descendant tree
 ( sleep "$WATCHDOG_SECS" & wait $!
@@ -157,8 +166,11 @@ kill_tree "$WATCHDOG_PID"            # also reaps the watchdog's sleeping child
 
 # ---- verify by artifact --------------------------------------------------------------
 AFTER="$(count_marker_comments)"
+# the conversation id makes any run interrogable after the fact:
+#   agy --conversation <id> -p "your follow-up"   (--conversation BEFORE -p)
+CONV="$(grep -oE "Created conversation [0-9a-f-]{36}" "$OUT.log" 2>/dev/null | head -1 | awk '{print $3}')"
 if [[ "$AFTER" =~ ^[0-9]+$ ]] && [ "$AFTER" -gt "$BEFORE" ]; then
-  echo "agy-review: ok — review comment posted on $REPO#$PR"
+  echo "agy-review: ok — review comment posted on $REPO#$PR${CONV:+ · conversation: $CONV}"
   rm -f "$OUT" "$OUT.log"
   exit 0
 fi
@@ -167,7 +179,7 @@ fi
 # checked FIRST (a killed run's captured output may echo reviewed content containing the
 # denial phrase); the denial/auth greps then match only jetski's own final stderr line,
 # not review content quoted in the narration.
-echo "agy-review: FAILED — no new review comment on $REPO#$PR (debug log kept at $OUT.log). Narration tail:" >&2
+echo "agy-review: FAILED — no new review comment on $REPO#$PR (debug log kept at $OUT.log${CONV:+; interrogate it: agy --conversation $CONV -p \"...\"}). Narration tail:" >&2
 tail -6 "$OUT" >&2
 if [ "$RC" -ge 128 ]; then
   echo "agy-review: timeout — killed by watchdog after ${WATCHDOG_SECS}s" >&2; exit 4
