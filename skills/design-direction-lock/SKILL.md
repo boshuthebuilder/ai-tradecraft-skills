@@ -66,8 +66,10 @@ tree. So **stamp every design-facing issue** with a dated block (template bundle
 - the lock revision and a link to the artifact and normative mockups;
 - **only the rules that apply to this issue's surface** — three to six lines, selected, not the
   whole lock (an agent told everything is told nothing);
-- the deviation protocol: *"deviations need a comment on this issue first"* — the escape valve that
-  keeps the lock from blocking genuinely better ideas while making deviation a decision, not drift.
+- the deviation protocol: propose the deviation in a comment on the issue and **pause that part of
+  the work until the owner answers** — never implement it meanwhile. The escape valve that keeps the
+  lock from blocking genuinely better ideas while making deviation a decision, not drift; waiting is
+  what makes it a decision.
 
 Stamp at lock time (sweep the open design-facing issues once) and at issue-creation time
 thereafter. The stamp is additive — append it dated rather than rewriting the issue body, so the

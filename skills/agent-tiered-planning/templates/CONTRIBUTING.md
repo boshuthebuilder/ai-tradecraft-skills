@@ -22,7 +22,7 @@ needed, which is a different axis: a small task can still be subtle.
 - `agent:standard` — spec-complete and bounded; the issue states exactly what to build and how to
   verify it; existing patterns cover it. Suitable for any competent coding agent.
 - `agent:senior` — requires judgment: cross-module integration, numeric calibration, or a quality
-  bar that a literal reading of the spec will not reach.
+  bar that a literal reading of the spec will not reach. The review gate below applies to its PRs.
 - `agent:frontier` — sets patterns other issues inherit, or contains genuine ambiguity. Strongest
   available agent, and the adversarial review gate below is mandatory, not optional.
 

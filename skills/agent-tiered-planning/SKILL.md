@@ -41,7 +41,7 @@ the character of work does not):
   (e.g. a mid-tier model at medium effort).
 - **`agent:senior`** — requires judgment: cross-module integration, numeric calibration, or a
   quality bar that a literal reading of the spec will not reach. A strong agent, or a mid-tier one
-  at high reasoning effort.
+  at high reasoning effort; the adversarial-review gate applies to its PRs (see below).
 - **`agent:frontier`** — sets patterns other issues will inherit, or contains genuine ambiguity the
   implementer must resolve. The strongest available agent — and the adversarial-review gate is
   mandatory, not optional.

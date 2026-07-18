@@ -78,6 +78,11 @@ Pick the first *available* reviewer that is a different model from the author:
 
 ## Machine setup (one-time, per machine) — headless Gemini
 
+These grants govern the **headless reviewer only** — the sandboxed `agy -p` process the harness
+drives. Authoring agents (the ones picking up issues, editing labels, opening PRs) run under their
+own harnesses' permission systems and are not constrained by this block; do not read it as the
+capability envelope of the whole workflow.
+
 `agy -p` (headless print mode) **auto-denies every confirmable tool** unless grants exist — and it
 denies *silently*: exit 0, no output, no comment, indistinguishable from a hang. The grants live in
 **`~/.gemini/config/config.json`** — the two look-alike files are decoys (`~/.gemini/settings.json`
