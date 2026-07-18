@@ -78,6 +78,11 @@ Pick the first *available* reviewer that is a different model from the author:
 
 ## Machine setup (one-time, per machine) — headless Gemini
 
+These grants govern the **headless reviewer only** — the sandboxed `agy -p` process the harness
+drives. Authoring agents (the ones picking up issues, editing labels, opening PRs) run under their
+own harnesses' permission systems and are not constrained by this block; do not read it as the
+capability envelope of the whole workflow.
+
 `agy -p` (headless print mode) **auto-denies every confirmable tool** unless grants exist — and it
 denies *silently*: exit 0, no output, no comment, indistinguishable from a hang. The grants live in
 **`~/.gemini/config/config.json`** — the two look-alike files are decoys (`~/.gemini/settings.json`
@@ -150,6 +155,15 @@ to perform an autopsy on a dead run: a run killed by a denied tool can be *asked
 to do* ("what exact command did you propose at the final step, and why?"), which has turned an
 opaque typed failure into the missing grant — and once revealed that the dying reviewer had been
 mid-way to a genuine defect the next leg later confirmed.
+
+**The relay salvage.** The posting step is the fragile one: the permission validator shell-parses
+the composed `--body`, so backticks, escape sequences, or nested quoting in an otherwise-legitimate
+comment can kill a run whose review is already complete. When an autopsy shows a finished verdict
+that simply failed to post, first ask the resumed run to re-post with a plainer body; if that is
+denied too, **relay it yourself**: post the reviewer's verdict verbatim with `gh pr comment`,
+naming the reviewer, noting the relay, and including the conversation id — the same pattern the
+Codex leg (which cannot post at all) uses routinely. The gate's requirement is an auditable verdict
+on the PR, not that the reviewer's own process wrote the bytes.
 
 ## The headless-reviewer contract
 
