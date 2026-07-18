@@ -4,6 +4,28 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v2.4.0 — 2026-07-18
+
+Two new skills complete the **development-process trio** (plan → build → gate) alongside
+adversarial-review — practices harvested from a second consumer project (issue #19; a
+parametric-furniture build executed by mixed-capability agents), generalised here. A MINOR release.
+
+### Added
+- **`agent-tiered-planning`** — plan and dispatch a backlog across mixed-capability agents:
+  `agent:standard|senior|frontier` labels as a capability estimate ORTHOGONAL to effort (a small
+  task can still be subtle); tier definitions by work character with a three-question assignment
+  heuristic; the cold-agent pickup protocol in a repo playbook; the escalation rule ("stop, comment,
+  relabel up, leave it" — a wrong-but-merged implementation costs more than a delayed one); coupling
+  to the adversarial-review gate (senior/frontier PRs mandate it); tiers as spend routing (bulk work
+  on cheaper models, frontier headroom preserved). Templates: CONTRIBUTING skeleton + `labels.sh`.
+- **`design-direction-lock`** — freeze a converged design into a one-page normative artifact
+  (references with the feeling named and explicit anti-goals; visual language with accent
+  discipline; motion rules including the invariants a plausible animation silently breaks; product
+  truths; one canonical reference design threaded through every surface), then stamp each
+  design-facing issue with the lock revision and ONLY the rules that apply to that surface, plus the
+  deviation protocol. Versioned: a direction change is a new revision + re-stamp, never silent
+  drift. Templates: one-pager skeleton + issue stamp.
+
 ## v2.3.0 — 2026-07-16
 
 The adversarial-review skill gains **quota-aware reviewer selection** and **follow-ups** — a MINOR
