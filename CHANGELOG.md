@@ -4,6 +4,25 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v2.4.1 — 2026-07-18
+
+The `adversarial-review` harness now runs the headless reviewer in an **isolated worktree** — a
+PATCH hardening (no interface change; same flags, same typed exits). Closes the fifth silent-failure
+class surfaced by the second consumer project (issue #19): a review round's `pr-<n>` checkout in the
+coordinator's *live* tree not only stranded the branch (the existing after-the-fact restore guard
+caught that) but *raced a coordinator editing the same tree* — a mid-round branch switch left a
+concurrent `Edit` pointing at a file the checkout had removed.
+
+### Changed
+- **`tools/agy-review` isolates the review in a detached worktree at the PR head.** Before launching
+  agy the harness fetches `pull/<n>/head`, pins it to a SHA (immune to a concurrent run clobbering
+  the shared `FETCH_HEAD`), and `git worktree add --detach`s a throwaway tree; agy runs with its cwd
+  there, so its branch-switching is confined to the worktree and the caller's checkout is never
+  touched — you can keep editing while a review runs. Falls back (loud `WARN`) to the caller's tree
+  plus the existing before/after branch-restore guard only when a worktree cannot be created. The
+  worktree is removed on every exit path. SKILL.md documents this as the structural fix for the
+  "re-assert your branch" rule.
+
 ## v2.4.0 — 2026-07-18
 
 Two new skills complete the **development-process trio** (plan → build → gate) alongside
