@@ -156,6 +156,15 @@ to do* ("what exact command did you propose at the final step, and why?"), which
 opaque typed failure into the missing grant — and once revealed that the dying reviewer had been
 mid-way to a genuine defect the next leg later confirmed.
 
+**The relay salvage.** The posting step is the fragile one: the permission validator shell-parses
+the composed `--body`, so backticks, escape sequences, or nested quoting in an otherwise-legitimate
+comment can kill a run whose review is already complete. When an autopsy shows a finished verdict
+that simply failed to post, first ask the resumed run to re-post with a plainer body; if that is
+denied too, **relay it yourself**: post the reviewer's verdict verbatim with `gh pr comment`,
+naming the reviewer, noting the relay, and including the conversation id — the same pattern the
+Codex leg (which cannot post at all) uses routinely. The gate's requirement is an auditable verdict
+on the PR, not that the reviewer's own process wrote the bytes.
+
 ## The headless-reviewer contract
 
 These rules are what make *any* headless review CLI reliable — they are baked into `tools/agy-review`
