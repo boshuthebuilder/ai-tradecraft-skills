@@ -153,6 +153,10 @@ kill_tree() {
   kill -KILL "$pid" 2>/dev/null
 }
 
+# agy's workspace layer can check out a pr-<n> branch in this checkout mid-review, stranding
+# the caller's branch (bitten three times). Record and restore it around the run.
+BRANCH_BEFORE="$(git -C "$REPO_ROOT" branch --show-current 2>/dev/null)"
+
 agy ${MODEL:+--model "$MODEL"} --print-timeout "$PRINT_TIMEOUT" --log-file "$OUT.log" -p "$PROMPT" >"$OUT" 2>&1 &
 AGY_PID=$!
 # the subshell inherits kill_tree, so the timeout path reaps the FULL descendant tree
@@ -163,6 +167,16 @@ disown "$WATCHDOG_PID" 2>/dev/null   # keep its kill out of the shell's job-stat
 wait "$AGY_PID"
 RC=$?
 kill_tree "$WATCHDOG_PID"            # also reaps the watchdog's sleeping child
+
+# restore the caller's branch if the review stranded it (only when clean — never discard work)
+BRANCH_AFTER="$(git -C "$REPO_ROOT" branch --show-current 2>/dev/null)"
+if [ -n "$BRANCH_BEFORE" ] && [ "$BRANCH_AFTER" != "$BRANCH_BEFORE" ]; then
+  if [ -z "$(git -C "$REPO_ROOT" status --porcelain 2>/dev/null)" ]; then
+    git -C "$REPO_ROOT" checkout "$BRANCH_BEFORE" >/dev/null 2>&1       && echo "agy-review: restored stranded branch ($BRANCH_AFTER -> $BRANCH_BEFORE)" >&2
+  else
+    echo "agy-review: WARN branch-stranded — review left the checkout on $BRANCH_AFTER (was $BRANCH_BEFORE); dirty tree, not auto-restoring" >&2
+  fi
+fi
 
 # ---- verify by artifact --------------------------------------------------------------
 AFTER="$(count_marker_comments)"
