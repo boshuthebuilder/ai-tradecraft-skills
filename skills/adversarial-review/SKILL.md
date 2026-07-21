@@ -93,10 +93,19 @@ geometry, an absent material limit, and under-specified vectors.
 That hit rate is not luck, and it does not survive prose. It comes from holding *both* sides to
 executable evidence:
 
-- **A finding must carry a counterexample.** Concrete inputs, the wrong value they produce, and the
-  value that is correct — "at L = 2.4 m this yields 3.2 kN·m where dimensional analysis gives kN·mm,
-  a factor of 1000" beats "the units look wrong". A finding without arithmetic is an opinion, and it
-  gets argued with rather than fixed.
+- **A finding must carry a counterexample.** Concrete inputs, the value the change produces, and the
+  value that is correct — "with `F = 4 kN` and `L = 800 mm` this returns `M = 3200 kN·m`; the moment
+  is `4 × 0.8 = 3.2 kN·m`, so the length was never converted from millimetres — a factor of 1000"
+  beats "the units look wrong". Note that the *unit alone proves nothing*: `3.2 kN·m` and
+  `3200 kN·mm` are the same quantity, so a finding has to put two **numbers of the same quantity**
+  side by side, not two spellings of one.
+- **Where the contract is under-specified, demonstrate the divergence instead.** For an omitted
+  support condition, an unstated sign convention or a missing limit there is often no single correct
+  value *yet* — the defect is precisely that several defensible readings give different answers. The
+  evidence is then two readings and their two numbers ("modelled as pinned the reaction is 12.4 kN,
+  as fixed it is 18.1 kN; the spec never says which"), which is as executable as a wrong/right pair
+  and must not be dismissed for lacking one. What makes a finding an opinion is the absence of
+  *concrete numbers*, not the absence of a single right answer.
 - **A fix must carry a recomputation.** The fix commit includes the script or derivation that
   produces the new numbers, and the reply shows before → after. "Fixed" is not evidence: a reviewer
   who cannot see the recomputation has to re-derive it, which is exactly how rounds stop shrinking.
@@ -107,11 +116,25 @@ executable evidence:
   it turns a one-off adversarial exchange into a regression guard, so the same defect cannot return
   silently once the thread is closed.
 
-**Name the defect classes in the review label** — each is invisible to a prose read, and each has
-shipped at least once: units and scale factors; sign and direction conventions left unstated;
-cases that must combine or superpose but do not; boundary, support or initial conditions assumed
-rather than declared; a missing limit (strength, capacity, rate, budget); and the **domain of
-validity** — the range outside which the formula quietly stops being true.
+**Forward this contract in the label — the reviewer never reads this page.** A delegated reviewer
+sees only the harness's fixed prompt plus your `--label` text, so an evidence protocol documented
+here alone is never applied: you get ordinary prose findings and none of the hit rate above. The
+label is the one per-review channel, so it has to carry both the evidence requirement *and* the
+defect classes. Keep it inside the label-hygiene rules (static reading, name only permitted extras,
+never cite an external reference):
+
+```
+tools/agy-review <pr> --label "Numeric contract. For EVERY finding give concrete inputs, the value
+the change produces, and the value that is correct — two numbers of the same quantity, since a unit
+alone proves nothing. Where the spec is under-specified, instead give two defensible readings and
+the different numbers they produce. You may check arithmetic with 'uv run'. Look for: units and
+scale factors; sign and direction conventions left unstated; cases that must combine or superpose
+but do not; boundary, support or initial conditions assumed rather than declared; a missing limit
+(strength, capacity, rate, budget); and the domain of validity — the range outside which the formula
+quietly stops being true."
+```
+
+Each of those classes is invisible to a prose read, and each has shipped at least once.
 
 ## Machine setup (one-time, per machine) — headless Gemini
 
