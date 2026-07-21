@@ -158,8 +158,13 @@ REVIEW_ROOT="$REPO_ROOT"
 # the shared FETCH_HEAD, so we never pass FETCH_HEAD itself to `worktree add`.
 if git -C "$REPO_ROOT" fetch -q "https://github.com/$REPO.git" "pull/$PR/head" 2>/dev/null \
    && PR_HEAD="$(git -C "$REPO_ROOT" rev-parse FETCH_HEAD 2>/dev/null)" && [ -n "$PR_HEAD" ]; then
+  # `git worktree add` requires a NON-existent path on older git ('fatal: <path> already exists',
+  # even for an empty dir; newer git tolerates an empty one). mktemp -d atomically reserves a
+  # unique name — then rmdir it, so the path is free when worktree add runs. This is safer than
+  # mktemp -u, which reserves nothing and races; here a lost race just trips the loud fallback.
   _wt="$(mktemp -d "/tmp/agy-review-wt-${PR}.XXXXXX")"
-  if git -C "$REPO_ROOT" worktree add --detach "$_wt" "$PR_HEAD" >/dev/null 2>&1; then
+  rmdir "$_wt" 2>/dev/null
+  if [ -n "$_wt" ] && git -C "$REPO_ROOT" worktree add --detach "$_wt" "$PR_HEAD" >/dev/null 2>&1; then
     WORKTREE="$_wt"; REVIEW_ROOT="$_wt"
   else
     rmdir "$_wt" 2>/dev/null
