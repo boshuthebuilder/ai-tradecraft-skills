@@ -74,11 +74,24 @@ def check_plugin_manifest(problems: list[str]) -> str | None:
     marketplace = load_json(MARKETPLACE, problems)
     if marketplace is not None:
         entries = marketplace.get("plugins")
-        names = {e.get("name") for e in entries if isinstance(e, dict)} if isinstance(entries, list) else set()
-        if plugin.get("name") not in names:
+        entries = entries if isinstance(entries, list) else []
+        entry = next(
+            (e for e in entries if isinstance(e, dict) and e.get("name") == plugin.get("name")), None
+        )
+        if entry is None:
             problems.append(
                 f".claude-plugin/marketplace.json: no plugin entry named {plugin.get('name')!r}"
             )
+        else:
+            # The entry's `version` is optional, but when it IS declared `claude plugin tag` requires
+            # it to agree with plugin.json — so a disagreement has to fail here, at PR time, rather
+            # than surface as a refused tag once the release is already being cut.
+            entry_version = entry.get("version")
+            if isinstance(entry_version, str) and entry_version.strip() and entry_version != declared:
+                problems.append(
+                    f".claude-plugin/marketplace.json: entry version {entry_version} != "
+                    f".claude-plugin/plugin.json version {declared}"
+                )
     return latest
 
 
