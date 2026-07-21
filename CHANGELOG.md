@@ -4,6 +4,34 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v2.5.1 — 2026-07-21
+
+The `adversarial-review` review prompt now **bans the project's test suite**, and the harness names
+the death it caused. A PATCH hardening in the shape of v2.4.1 — no interface change: same flags, same
+typed exits, one new rule in the headless-reviewer contract.
+
+### Fixed
+- **A reviewer can lose its whole round to a *granted* command.** Sixth silent-failure class from
+  consumer telemetry: a review leg decided to run `uv run pytest` (~7 minutes in that repo) and then
+  spent every remaining turn polling it — "I am waiting for pytest … checking back in 60 seconds",
+  five times over — exiting cleanly having posted nothing, so the leg was lost and the chain had to
+  advance. This is **not** the documented un-granted-command death: `command(uv run)` is deliberately
+  whole (Machine setup explains why) and nothing was denied, so no grant change fixes it. The fix is
+  in the prompt, which now states plainly that the reviewer does not run the suite, and why — the
+  author has already run it and reports the result in the PR description, a full run can outlast the
+  entire review window, and the gate's value is careful reading, not re-running CI. Fast checks stay
+  explicitly allowed, and the rule is stated as a **time budget** (*nothing you cannot expect to
+  return in about 30 seconds*) so it generalises to any slow gate rather than to `pytest` alone,
+  plus an in-flight recovery instruction: if you notice yourself waiting, stop waiting, finish
+  reading, and post.
+- **A window-burn no longer reports as a generic silence.** The harness detects the shape (repeated
+  "waiting…" narration in the tail, nothing posted) and says *the reviewer spent its round waiting on
+  a long-running command* — on exit 4 and exit 5 alike, since either can fire first. The typed exit
+  is unchanged (the leg is done either way); the operator now sees an actionable failure instead of
+  an opaque one, and is pointed at the `--label` when a focus phrase steered the reviewer into it.
+  Same principle the harness already applies elsewhere: verify by artifact, keep a debug log, make
+  failures diagnosable.
+
 ## v2.5.0 — 2026-07-21
 
 `adversarial-review` learns how to review a **numeric or engineering contract**. A MINOR release

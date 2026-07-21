@@ -17,9 +17,10 @@
 # from an ISOLATED detached worktree at the PR head (not the caller's live tree — see class 5),
 # so run from the repo being reviewed but keep editing your own checkout meanwhile.
 #
-# Why this wrapper exists — every failure class below was hit in production and each
-# failed SILENTLY (agy printed nothing, posted nothing, exit 0), which reads as a hang
-# (classes 1-4); class 5 instead corrupted the CALLER's checkout:
+# Why this wrapper exists — every failure class below was hit in production. Classes 1-4
+# failed SILENTLY (agy printed nothing, posted nothing, exit 0), which reads as a hang;
+# class 5 instead corrupted the CALLER's checkout; class 6 is the loud one — it narrates
+# continuously while posting nothing:
 #   1. permission-denied  headless -p mode auto-denies EVERY confirmable tool unless
 #                         ~/.gemini/config/config.json carries
 #                         userSettings.globalPermissionGrants.allow. Two distinct layers:
@@ -46,6 +47,15 @@
 #                         branch-switching is isolated to a throwaway tree and the caller's
 #                         checkout is never touched. Falls back (loud) to the caller's tree
 #                         + a branch-restore guard if the worktree can't be made.
+#   6. window-burn        a GRANTED but SLOW command eats the entire round. A reviewer decided
+#                         to run the project's test suite (~7m in that repo) and then spent
+#                         every remaining turn polling it ("I am waiting for pytest ... checking
+#                         back in 60 seconds", five times over), exiting cleanly having posted
+#                         nothing — the leg was lost. NOT a permissions problem: 'command(uv run)'
+#                         is deliberately granted, nothing was denied, so no grant change fixes
+#                         it. The PROMPT is the fix — it bans the test suite and budgets any
+#                         check at ~30s — and the exit classifier below NAMES this death rather
+#                         than reporting the generic no-comment text.
 # The exit contract is typed-outcome: the ARTIFACT (a PR comment) is the success signal,
 # never the exit code of agy itself.
 #
@@ -205,12 +215,22 @@ PR_HEAD_NOTE=""
 # The prompt pins tool usage to prefix-matchable commands: git -C / gh --repo, no cd,
 # no && chains — a chained command's first word is what the allow-rules match against —
 # and names the exact allowed set: ANY un-granted command the model invents is fatal.
+# It also bans the project's test suite (class 6): a granted-but-slow command burns the
+# whole round, so the budget is stated (~30s) rather than a blacklist of one tool.
 PROMPT="You are an adversarial code reviewer. Review PR #$PR in $REPO.${LABEL:+ Focus: $LABEL.}
 
 Rules for tools — IMPORTANT, any command outside this list is hard-denied and kills the whole session:
 you may ONLY run git (as 'git -C $REVIEW_ROOT ...'), gh pr view/diff/comment (with '--repo $REPO'),
 ls, cat, head, tail, grep, rg, find, 'sed -n', wc, 'uv run', and 'bash -n'. Never cd; never
 chain commands with && or ; (the permission gate matches the FIRST word only).
+
+Do NOT run the project's test suite — not 'uv run pytest', not any equivalent — and do not start any
+other long-running command. The author has already run the suite and reports the result in the PR
+description; a full run can take longer than this entire review, and a review's value is in careful
+reading of the diff, not in re-running CI. Run only checks you can expect to return within about 30
+seconds, such as 'bash -n' on a changed shell script or a quick single-file check. If you ever find
+yourself waiting on a command to finish, you are losing the review: stop waiting, go back to reading,
+and post your findings — a round that spends its turns polling a command posts nothing and is wasted.
 
 Steps:
 1. Run: gh pr view $PR --repo $REPO   and   gh pr diff $PR --repo $REPO
@@ -277,12 +297,31 @@ fi
 # not review content quoted in the narration.
 echo "agy-review: FAILED — no new review comment on $REPO#$PR (debug log kept at $OUT.log${CONV:+; interrogate it: agy --conversation $CONV -p \"...\"}). Narration tail:" >&2
 tail -6 "$OUT" >&2
+
+# Class 6 (window-burn) presents as EITHER exit 4 or exit 5 — whichever fired first, the watchdog or
+# agy's own print-timeout — so detect it once, up front, and annotate whichever typed exit we return.
+# The tell is the narration tail: repeated "waiting for …" / "checking back in …" lines. Scanned over
+# the TAIL only, so a diff quoting those words mid-review can't trip it; ≥3 lines because a run that
+# died this way ends with nothing else. The typed exit is unchanged (the leg is done either way) —
+# this only turns an opaque failure into an actionable one, so a false positive costs only wording.
+WAITS="$(tail -40 "$OUT" 2>/dev/null | grep -Eic 'waiting for|checking back in|still (running|waiting)')"
+note_window_burn() {
+  echo "agy-review:   ^ window-burn — the reviewer spent its round WAITING on a long-running command" >&2
+  echo "agy-review:     ($WAITS 'waiting…' lines in the tail), not reading. The prompt bans the project's" >&2
+  echo "agy-review:     test suite for exactly this reason; if a --label steered it into one, reword the" >&2
+  echo "agy-review:     label before the next leg. Nothing is denied here and no grant change fixes it." >&2
+}
+
 if [ "$RC" -ge 128 ]; then
-  echo "agy-review: timeout — killed by watchdog after ${WATCHDOG_SECS}s" >&2; exit 4
+  echo "agy-review: timeout — killed by watchdog after ${WATCHDOG_SECS}s" >&2
+  [ "${WAITS:-0}" -ge 3 ] && note_window_burn
+  exit 4
 elif grep -Eq "^jetski: .*auto-denied" "$OUT"; then
   echo "agy-review: permission-denied — headless grants rejected mid-run (check $CONFIG)" >&2; exit 3
 elif grep -Eiq "^(jetski|error): .*(not logged in|not signed in|authentication required)" "$OUT"; then
   echo "agy-review: auth-needed — run 'agy' once interactively to sign in" >&2; exit 2
 else
-  echo "agy-review: no-comment — agy exited rc=$RC without posting; advance the fallback chain (independent agent)" >&2; exit 5
+  echo "agy-review: no-comment — agy exited rc=$RC without posting; advance the fallback chain (independent agent)" >&2
+  [ "${WAITS:-0}" -ge 3 ] && note_window_burn
+  exit 5
 fi

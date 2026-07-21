@@ -78,6 +78,12 @@ Pick the first *available* reviewer that is a different model from the author:
    | 3 | permission-denied | restore the grants block (see *Machine setup*), retry |
    | 4 | timeout | treat this leg as done; advance the chain |
    | 5 | no-comment | narration tail is printed for diagnosis; advance the chain |
+
+   Exits 4 and 5 are also where a *window-burn* lands — a run that spent itself waiting on a
+   long-running command. The harness detects that shape (repeated "waiting…" narration, nothing
+   posted) and says so explicitly instead of reporting a generic silence, so you can tell "the
+   reviewer wasted its round" apart from "the reviewer died", and reword an offending `--label`
+   before the next leg.
    | 6 | bad-args / missing prerequisites | fix the invocation |
 
 3. **Independent same-vendor agent** (last resort) — spawn a fresh agent of the author's own vendor
@@ -189,7 +195,10 @@ needs), and do not use `--dangerously-skip-permissions` (it removes the entire a
 `command(uv run)` is deliberately whole: `uv run pytest` already executes arbitrary repo code via
 test collection, so narrowing to it bought no safety — while the narrow form killed a reviewer
 mid-insight when it reached for `uv run python -c` to check packaging metadata (a check that later
-proved to be a real defect). Sign in once by running `agy` interactively.
+proved to be a real defect). Note that this grant is what makes the *prompt-side* ban on running the
+test suite necessary (see *The headless-reviewer contract*): the permission layer decides what is
+allowed, not what is wise, and the suite is now allowed. Sign in once by running `agy`
+interactively.
 
 ## Quota-aware reviewer selection
 
@@ -254,8 +263,23 @@ and are the spec for porting the gate to a new reviewer:
   <root>` and `gh ... --repo <owner/name>` only, never `cd`, never `&&`/`;` chains — prefix matching
   sees only the first word of a chained command.
 - **Name the exact allowed command set in the prompt.** Any un-granted command the model invents is
-  fatal mid-run. One review died deciding to run the test suite; another died staging its comment
-  body via a denied write path.
+  fatal mid-run: one review died staging its comment body via a denied write path, another reaching
+  for a command the grants did not cover. Granting a command does not make it safe to invoke,
+  though — see the next rule.
+- **Ban the long-running command; keep the fast checks.** The mirror-image death: a reviewer decided
+  to run the project's test suite — a *granted* command — and then spent its entire remaining window
+  polling it ("I am waiting for pytest … checking back in 60 seconds", over and over) before exiting
+  cleanly with nothing posted. Nothing was denied, so no grant change fixes this; the leg is lost
+  just as completely, and the typed no-comment looks identical to every other silence. The prompt
+  must therefore say plainly that the reviewer does **not** run the suite, and why: the author has
+  already run it and reports the result in the PR description, a full run can outlast the whole
+  review window, and the gate's value is careful reading, not re-running CI. State a **time budget**
+  rather than a blacklist — *nothing you cannot expect to return in about 30 seconds* — so the rule
+  generalises to any slow gate rather than to `pytest` alone, and name the fast checks that stay
+  allowed (`bash -n`, a linter, a bundle-freshness check). Add the in-flight recovery too: if the
+  reviewer notices itself waiting, it should stop waiting, finish reading, and post. The same care
+  belongs in your `--label`: a focus phrase like "check the tests pass" walks the reviewer straight
+  into this.
 - **Post with one inline call, and no backticks in the body.** The final `gh pr comment --body
   "..."` must carry the body inline — staging it in a file via echo/printf/redirection/file-write
   tools is denied and kills the run at the last step. And the permission validator parses
