@@ -41,11 +41,11 @@
 #                         strands the branch (bitten three times) and RACES a coordinator
 #                         editing the same tree — a concurrent Edit hit a missing file
 #                         because a background round had switched the branch back. We run
-#                         agy in a detached worktree at the PR head (git worktree add
-#                         --detach FETCH_HEAD), so its branch-switching is isolated to a
-#                         throwaway tree and the caller's checkout is never touched. Falls
-#                         back (loud) to the caller's tree + a branch-restore guard if the
-#                         worktree can't be made.
+#                         agy in a detached worktree at the PR head (fetched into a per-run
+#                         ref, checked out inside a private 0700 parent dir), so its
+#                         branch-switching is isolated to a throwaway tree and the caller's
+#                         checkout is never touched. Falls back (loud) to the caller's tree
+#                         + a branch-restore guard if the worktree can't be made.
 # The exit contract is typed-outcome: the ARTIFACT (a PR comment) is the success signal,
 # never the exit code of agy itself.
 #
@@ -144,35 +144,46 @@ OUT="$(mktemp "/tmp/agy-review-${PR}.XXXXXX")"
 # ---- isolate the review in a throwaway worktree --------------------------------------
 # agy's workspace layer checks out a pr-<n> branch in ITS cwd mid-review; when that cwd is the
 # caller's live checkout it both strands the branch AND races a coordinator editing the same tree
-# (linear-shaft telemetry: a concurrent Edit hit a missing file because a background round had
-# switched the branch back). So the reviewer runs in a DETACHED worktree at the PR head: agy's
-# branch-switching is isolated to a throwaway tree, the caller's checkout is never touched, and file
-# reads see the exact PR version regardless of the caller's current branch. Falls back to the
+# (field telemetry from a consumer project: a concurrent Edit hit a missing file because a background
+# round had switched the branch back). So the reviewer runs in a DETACHED worktree at the PR head:
+# agy's branch-switching is isolated to a throwaway tree, the caller's checkout is never touched, and
+# file reads see the exact PR version regardless of the caller's current branch. Falls back to the
 # caller's checkout (loud) if the worktree can't be made — in which case do not edit it mid-review.
-WORKTREE=""
-cleanup_worktree() { [ -n "$WORKTREE" ] && git -C "$REPO_ROOT" worktree remove --force "$WORKTREE" >/dev/null 2>&1; WORKTREE=""; }
+WORKTREE=""; WT_PARENT=""; FETCH_REF="refs/agy-review/pr-$PR-$$"
+cleanup_worktree() {
+  [ -n "$WORKTREE" ]  && git -C "$REPO_ROOT" worktree remove --force "$WORKTREE" >/dev/null 2>&1
+  [ -n "$WT_PARENT" ] && rmdir "$WT_PARENT" >/dev/null 2>&1
+  git -C "$REPO_ROOT" update-ref -d "$FETCH_REF" >/dev/null 2>&1   # the per-run fetch ref
+  WORKTREE=""; WT_PARENT=""
+}
 trap cleanup_worktree EXIT
 REVIEW_ROOT="$REPO_ROOT"
-# fetch from the PR's own repo URL (robust to a fork checkout whose origin isn't $REPO), then
-# PIN the head to a SHA immediately — a concurrent agy-review on the same checkout would clobber
-# the shared FETCH_HEAD, so we never pass FETCH_HEAD itself to `worktree add`.
-if git -C "$REPO_ROOT" fetch -q "https://github.com/$REPO.git" "pull/$PR/head" 2>/dev/null \
-   && PR_HEAD="$(git -C "$REPO_ROOT" rev-parse FETCH_HEAD 2>/dev/null)" && [ -n "$PR_HEAD" ]; then
-  # `git worktree add` requires a NON-existent path on older git ('fatal: <path> already exists',
-  # even for an empty dir; newer git tolerates an empty one). mktemp -d atomically reserves a
-  # unique name — then rmdir it, so the path is free when worktree add runs. This is safer than
-  # mktemp -u, which reserves nothing and races; here a lost race just trips the loud fallback.
-  _wt="$(mktemp -d "/tmp/agy-review-wt-${PR}.XXXXXX")"
-  rmdir "$_wt" 2>/dev/null
-  if [ -n "$_wt" ] && git -C "$REPO_ROOT" worktree add --detach "$_wt" "$PR_HEAD" >/dev/null 2>&1; then
+# Fetch the PR head from the PR's own repo URL (robust to a fork checkout whose origin isn't $REPO)
+# into a PER-RUN ref, never the shared FETCH_HEAD: a concurrent agy-review on the same checkout could
+# overwrite FETCH_HEAD between our fetch and our rev-parse and we would build the worktree from the
+# WRONG PR. $$ makes the ref unique per run; '+' force-updates a stale ref from a crashed prior run.
+if git -C "$REPO_ROOT" fetch -q "https://github.com/$REPO.git" "+pull/$PR/head:$FETCH_REF" 2>/dev/null \
+   && PR_HEAD="$(git -C "$REPO_ROOT" rev-parse "$FETCH_REF" 2>/dev/null)" && [ -n "$PR_HEAD" ]; then
+  # mktemp -d gives a PRIVATE (mode 0700) parent dir atomically; point the worktree at a not-yet-
+  # existing CHILD of it. Two wins: `git worktree add` always accepts a non-existent path (older git
+  # rejects an existing dir, even empty), and the 0700 parent blocks other local users on a shared
+  # host from traversing in to the checked-out PR source (git worktree add itself honours only umask,
+  # typically 0755). No mktemp -u (races) and no rmdir dance (recreates the dir world-readable).
+  WT_PARENT="$(mktemp -d "/tmp/agy-review-wt-${PR}.XXXXXX")"
+  _wt="$WT_PARENT/pr"
+  if [ -n "$WT_PARENT" ] && git -C "$REPO_ROOT" worktree add --detach "$_wt" "$PR_HEAD" >/dev/null 2>&1; then
     WORKTREE="$_wt"; REVIEW_ROOT="$_wt"
   else
-    rmdir "$_wt" 2>/dev/null
     echo "agy-review: WARN no-worktree — could not add a worktree; reviewing in the caller's checkout ($REPO_ROOT). Do NOT edit it while the review runs." >&2
   fi
 else
   echo "agy-review: WARN no-worktree — could not fetch pull/$PR/head; reviewing in the caller's checkout ($REPO_ROOT). Do NOT edit it while the review runs." >&2
 fi
+# Only when the worktree exists is REVIEW_ROOT guaranteed at the PR head; in the fallback it is the
+# caller's checkout on whatever branch they are on, so we must NOT tell the reviewer its files are
+# the PR version (it would review the wrong revision — gh pr diff in step 1 stays authoritative).
+PR_HEAD_NOTE=""
+[ -n "$WORKTREE" ] && PR_HEAD_NOTE=" The checkout at $REVIEW_ROOT is already at this PR's head, so its working files ARE the PR version."
 
 # ---- the review ----------------------------------------------------------------------
 # The prompt pins tool usage to prefix-matchable commands: git -C / gh --repo, no cd,
@@ -187,7 +198,7 @@ chain commands with && or ; (the permission gate matches the FIRST word only).
 
 Steps:
 1. Run: gh pr view $PR --repo $REPO   and   gh pr diff $PR --repo $REPO
-2. Review the diff ADVERSARIALLY for correctness and security — real defects, not style. Read any file the diff touches (git -C $REVIEW_ROOT show, cat, grep) as needed to verify claims against the surrounding code. The checkout at $REVIEW_ROOT is already at this PR's head, so its working files ARE the PR version.
+2. Review the diff ADVERSARIALLY for correctness and security — real defects, not style. Read any file the diff touches (git -C $REVIEW_ROOT show, cat, grep) as needed to verify claims against the surrounding code.$PR_HEAD_NOTE
 3. Post your findings as a PR comment with ONE direct call: gh pr comment $PR --repo $REPO --body \"...\" — pass the whole body INLINE via --body. Do NOT stage the body in a file first: echo, printf, shell redirection and file-write tools are all denied and will kill the session at this final step. CRITICAL: use NO backticks anywhere in the body — the permission validator parses backticks as command substitutions and permission-checks their contents, so a body quoting any identifier in backticks dies here; write code identifiers in 'single quotes' instead. The comment MUST start with '$MARKER:' and give a clear verdict (APPROVE / CHANGES-REQUESTED) plus findings as file:line, severity, and why each is a real defect. If nothing substantive, say so explicitly. Then stop."
 
 # kill the whole descendant tree, depth-first — agy spawns node/language-server children

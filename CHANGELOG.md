@@ -15,13 +15,18 @@ concurrent `Edit` pointing at a file the checkout had removed.
 
 ### Changed
 - **`tools/agy-review` isolates the review in a detached worktree at the PR head.** Before launching
-  agy the harness fetches `pull/<n>/head`, pins it to a SHA (immune to a concurrent run clobbering
-  the shared `FETCH_HEAD`), and `git worktree add --detach`s a throwaway tree; agy runs with its cwd
-  there, so its branch-switching is confined to the worktree and the caller's checkout is never
-  touched — you can keep editing while a review runs. Falls back (loud `WARN`) to the caller's tree
-  plus the existing before/after branch-restore guard only when a worktree cannot be created. The
-  worktree is removed on every exit path. SKILL.md documents this as the structural fix for the
-  "re-assert your branch" rule.
+  agy the harness fetches `pull/<n>/head` into a **per-run ref** (`refs/agy-review/pr-<n>-<pid>`,
+  never the shared `FETCH_HEAD` a concurrent run could clobber between fetch and resolve), then
+  `git worktree add --detach`s a throwaway tree inside a **private 0700 parent dir** (so the
+  checked-out PR source is not world-readable on a shared host, and the not-yet-existing child path
+  is accepted by every git version). agy runs with its cwd there, so its branch-switching is
+  confined to the worktree and the caller's checkout is never touched — you can keep editing while a
+  review runs. Falls back (loud `WARN`) to the caller's tree plus the existing before/after
+  branch-restore guard only when a worktree cannot be created; the "your files are the PR version"
+  hint given to the reviewer is **conditional** on the worktree existing, so the fallback never
+  misleads it into reviewing the caller's current branch. Worktree, parent dir, and ref are all
+  removed on every exit path. SKILL.md documents this as the structural fix for the "re-assert your
+  branch" rule.
 
 ## v2.4.0 — 2026-07-18
 
