@@ -90,7 +90,12 @@ elif [ -n "$DERIVED" ] && [ "$REPO" != "$DERIVED" ]; then
   echo "agy-review: WARN repo-mismatch — reviewing $REPO but the checkout here is $DERIVED; file reads come from this checkout" >&2
 fi
 REPO_NAME="${REPO##*/}"
-MARKER="Adversarial review by Gemini (agy)"
+# A PER-RUN token scopes the count-based verification to THIS run's own comment. Without it, two
+# concurrent reviews of the same PR share one marker: if this run's agy dies without posting while
+# the other posts, our AFTER>BEFORE count would credit us with the OTHER run's comment and return a
+# false `ok` (a silent misattribution — worse than the honest typed no-comment). $$ is unique among
+# concurrent runs; the token is bare digits, so it never trips agy's backtick/quote posting gate.
+MARKER="Adversarial review by Gemini (agy) [run $$]"
 WATCHDOG_SECS=1000          # > --print-timeout so agy's own limit fires first
 PRINT_TIMEOUT="15m"
 
@@ -171,7 +176,9 @@ REVIEW_ROOT="$REPO_ROOT"
 # --no-write-fetch-head keeps this fetch from touching the caller's .git/FETCH_HEAD at all (git still
 # writes it even WITH a destination refspec) — otherwise a caller's concurrent `git pull` mid-review,
 # the very workflow this isolation is meant to keep safe, could merge THIS PR head instead of its own.
-if git -C "$REPO_ROOT" fetch -q --no-write-fetch-head "https://github.com/$REPO.git" "+pull/$PR/head:$FETCH_REF" 2>/dev/null \
+# --no-tags stops tag auto-following: without it, a tag reachable from the PR head lands in the
+# caller's refs/tags/ and outlives cleanup (which only drops FETCH_REF), skewing their `git describe`.
+if git -C "$REPO_ROOT" fetch -q --no-write-fetch-head --no-tags "https://github.com/$REPO.git" "+pull/$PR/head:$FETCH_REF" 2>/dev/null \
    && PR_HEAD="$(git -C "$REPO_ROOT" rev-parse "$FETCH_REF" 2>/dev/null)" && [ -n "$PR_HEAD" ]; then
   # mktemp -d gives a PRIVATE (mode 0700) parent dir atomically; point the worktree at a not-yet-
   # existing CHILD of it. Two wins: `git worktree add` always accepts a non-existent path (older git
