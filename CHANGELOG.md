@@ -4,6 +4,40 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v2.5.1 — 2026-07-21
+
+The `adversarial-review` review prompt now **bans the project's test suite**, and the harness names
+the death it caused. A PATCH hardening in the shape of v2.4.1 — no interface change: same flags, same
+typed exits, one new rule in the headless-reviewer contract.
+
+### Fixed
+- **A reviewer can lose its whole round to a *granted* command.** Sixth silent-failure class from
+  consumer telemetry: a review leg decided to run `uv run pytest` (~7 minutes in that repo) and then
+  spent every remaining turn polling it — "I am waiting for pytest … checking back in 60 seconds",
+  five times over — exiting cleanly having posted nothing, so the leg was lost and the chain had to
+  advance. This is **not** the documented un-granted-command death: `command(uv run)` is deliberately
+  *granted* (Machine setup explains why it is not narrowed) and nothing was denied, so no grant
+  change fixes it. The fix is in the prompt, which now states plainly that the reviewer does not run
+  the suite, and why — running it is CI's job and the author's, a full run can outlast the entire
+  review window, and the gate's value is careful reading, not re-running CI. Two details the review
+  of this very change forced: the operative rule is **never poll** rather than a wall-clock budget (a
+  reviewer cannot predict a command's duration before running it, and a flat "30 seconds" would have
+  disarmed the `uv run` arithmetic check v2.5.0 shipped a day earlier — a cold dependency sync blows
+  any budget), and the short checks that stay welcome are **named individually** rather than as a
+  category, since "a quick single-file check" invites `shellcheck`/`py_compile`/`node --check`, none
+  granted — trading this death for the un-granted-command one. The prompt also no longer justifies
+  the ban by asserting the author already ran the suite: it cannot know that, and telling an
+  adversarial reviewer to trust an author's claim suppresses the finding the gate exists to catch.
+- **A window-burn no longer reports as a generic silence.** The harness flags the shape (repeated
+  "waiting…" narration in the tail, nothing posted) and says *this looks like the reviewer spending
+  its round waiting on a long-running command* — on exit 4 and exit 5 alike, since either can fire
+  first. The typed exit is unchanged (the leg is done either way); the operator now sees an
+  actionable failure instead of an opaque one, and is pointed at the `--label` when a focus phrase
+  steered the reviewer into it. Deliberately worded as a hypothesis, not a ruling — it is a
+  heuristic, and a *wrong* diagnosis is worse than none, so the note hedges and points at the debug
+  log and the conversation autopsy that actually confirm a death. Same principle the harness already
+  applies elsewhere: verify by artifact, keep a debug log, make failures diagnosable.
+
 ## v2.5.0 — 2026-07-21
 
 `adversarial-review` learns how to review a **numeric or engineering contract**. A MINOR release

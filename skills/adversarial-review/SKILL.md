@@ -80,6 +80,13 @@ Pick the first *available* reviewer that is a different model from the author:
    | 5 | no-comment | narration tail is printed for diagnosis; advance the chain |
    | 6 | bad-args / missing prerequisites | fix the invocation |
 
+   Exits 4 and 5 are also where a *window-burn* lands — a run that spent itself waiting on a
+   long-running command. The harness flags that shape (repeated "waiting…" narration, nothing
+   posted) instead of reporting a generic silence, so you can tell "the reviewer wasted its round"
+   apart from "the reviewer died" — and reword an offending `--label` before the next *round*. It
+   is a heuristic, so treat it as the first hypothesis, not a ruling: the debug log and a
+   conversation autopsy (see *Follow-ups*) are what confirm any death.
+
 3. **Independent same-vendor agent** (last resort) — spawn a fresh agent of the author's own vendor
    with *no shared context*: hand it only the PR diff, the PR description, and a mandate to break
    the change. Disclose on the PR that the gate ran same-vendor.
@@ -189,7 +196,10 @@ needs), and do not use `--dangerously-skip-permissions` (it removes the entire a
 `command(uv run)` is deliberately whole: `uv run pytest` already executes arbitrary repo code via
 test collection, so narrowing to it bought no safety — while the narrow form killed a reviewer
 mid-insight when it reached for `uv run python -c` to check packaging metadata (a check that later
-proved to be a real defect). Sign in once by running `agy` interactively.
+proved to be a real defect). Note that this grant is what makes the *prompt-side* ban on running the
+test suite necessary (see *The headless-reviewer contract*): the permission layer decides what is
+allowed, not what is wise, and the suite is now allowed. Sign in once by running `agy`
+interactively.
 
 ## Quota-aware reviewer selection
 
@@ -254,8 +264,25 @@ and are the spec for porting the gate to a new reviewer:
   <root>` and `gh ... --repo <owner/name>` only, never `cd`, never `&&`/`;` chains — prefix matching
   sees only the first word of a chained command.
 - **Name the exact allowed command set in the prompt.** Any un-granted command the model invents is
-  fatal mid-run. One review died deciding to run the test suite; another died staging its comment
-  body via a denied write path.
+  fatal mid-run: one review died staging its comment body via a denied write path, another reaching
+  for a command the grants did not cover. Granting a command does not make it safe to invoke,
+  though — see the next rule.
+- **Ban the long-running command; keep the fast checks.** The mirror-image death: a reviewer decided
+  to run the project's test suite — a *granted* command — and then spent its entire remaining window
+  polling it ("I am waiting for pytest … checking back in 60 seconds", over and over) before exiting
+  cleanly with nothing posted. Nothing was denied, so no grant change fixes this; the leg is lost
+  just as completely, and the typed no-comment looks identical to every other silence. Three rules
+  for the prompt, each guarding a trap a draft of this one fell into. **Ban the suite by name**, and
+  justify it as CI's job and the author's — never by asserting the author already ran it, which the
+  prompt cannot know and which tells an adversarial reviewer to trust the very claim under test.
+  **Make the operative rule *never poll*, not a wall-clock budget**: a reviewer cannot predict a
+  command's duration before running it, but it can always decide not to wait on one — abandon it, go
+  back to reading, post. (A flat budget also disarms the `uv run` arithmetic check *Reviewing a
+  numeric or engineering contract* depends on, whose first run may sync dependencies.) **Name the
+  short checks that stay welcome individually, from your own grants** — `bash -n` and a single
+  `uv run python -c` here — never an open-ended category: "a quick single-file check" invites
+  `shellcheck` or `node --check` and trades this death for the un-granted-command one above. The
+  same care belongs in your `--label`: "check the tests pass" walks the reviewer straight into this.
 - **Post with one inline call, and no backticks in the body.** The final `gh pr comment --body
   "..."` must carry the body inline — staging it in a file via echo/printf/redirection/file-write
   tools is denied and kills the run at the last step. And the permission validator parses
