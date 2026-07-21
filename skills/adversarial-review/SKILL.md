@@ -271,22 +271,18 @@ and are the spec for porting the gate to a new reviewer:
   to run the project's test suite — a *granted* command — and then spent its entire remaining window
   polling it ("I am waiting for pytest … checking back in 60 seconds", over and over) before exiting
   cleanly with nothing posted. Nothing was denied, so no grant change fixes this; the leg is lost
-  just as completely, and the typed no-comment looks identical to every other silence. The prompt
-  must therefore say plainly that the reviewer does **not** run the suite, and why: running it is
-  CI's job and the author's, a full run can outlast the whole review window, and the gate's value is
-  careful reading, not re-running CI. Do not justify it by asserting the author already ran it — the
-  prompt cannot know that, and telling an adversarial reviewer to take an author's claim on trust
-  suppresses exactly the finding you want ("this ships no test and states no verification").
-  Make the operative rule **never poll**, not a wall-clock budget: a reviewer cannot predict how long
-  a command will take *before* running it, but it can always decide not to wait on one — abandon it,
-  go back to reading, post. A flat "30 seconds" reads well and fails in practice, because a first
-  `uv run` that syncs dependencies blows any budget and would silently disarm the arithmetic check
-  *Reviewing a numeric or engineering contract* depends on. Then **name the short checks that stay
-  welcome individually** — from your own grants, so `bash -n` and a single `uv run python -c` here —
-  never an open-ended category: "a quick single-file check" invites `shellcheck`, `py_compile` or
-  `node --check`, none of them granted, trading this death for the un-granted-command one above. The
-  same care belongs in your `--label`: a focus phrase like "check the tests pass" walks the reviewer
-  straight into this.
+  just as completely, and the typed no-comment looks identical to every other silence. Three rules
+  for the prompt, each guarding a trap a draft of this one fell into. **Ban the suite by name**, and
+  justify it as CI's job and the author's — never by asserting the author already ran it, which the
+  prompt cannot know and which tells an adversarial reviewer to trust the very claim under test.
+  **Make the operative rule *never poll*, not a wall-clock budget**: a reviewer cannot predict a
+  command's duration before running it, but it can always decide not to wait on one — abandon it, go
+  back to reading, post. (A flat budget also disarms the `uv run` arithmetic check *Reviewing a
+  numeric or engineering contract* depends on, whose first run may sync dependencies.) **Name the
+  short checks that stay welcome individually, from your own grants** — `bash -n` and a single
+  `uv run python -c` here — never an open-ended category: "a quick single-file check" invites
+  `shellcheck` or `node --check` and trades this death for the un-granted-command one above. The
+  same care belongs in your `--label`: "check the tests pass" walks the reviewer straight into this.
 - **Post with one inline call, and no backticks in the body.** The final `gh pr comment --body
   "..."` must carry the body inline — staging it in a file via echo/printf/redirection/file-write
   tools is denied and kills the run at the last step. And the permission validator parses

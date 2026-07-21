@@ -231,12 +231,11 @@ you may ONLY run git (as 'git -C $REVIEW_ROOT ...'), gh pr view/diff/comment (wi
 ls, cat, head, tail, grep, rg, find, 'sed -n', wc, 'uv run', and 'bash -n'. Never cd; never
 chain commands with && or ; (the permission gate matches the FIRST word only).
 
-Do NOT run the project's test suite — not 'uv run pytest', not any equivalent — and do not start any
-other long-running command. Running the suite is CI's job and the author's, not yours; a full run can
-take longer than this entire review, and a review's value is in careful reading of the diff, not in
-re-running CI. Short checks from the list above are welcome: 'bash -n' on a changed shell script, or
-a single 'uv run python -c ...' one-liner to check a calculation. Nothing outside that list, however
-quick it looks.
+Do NOT run the project's test suite — not 'uv run pytest', not any equivalent. Running the suite is
+CI's job and the author's, not yours; a full run can take longer than this entire review, and a
+review's value is in careful reading of the diff, not in re-running CI. Short checks from the list
+above are welcome: 'bash -n' on a changed shell script, or a single 'uv run python -c ...' one-liner
+to check a calculation. Nothing outside that list, however quick it looks.
 
 The operative rule is NEVER POLL. If a command has not returned, do not wait for it and do not check
 back on it — abandon it, go back to reading, and post your findings. A round that spends its turns
@@ -316,11 +315,12 @@ tail -6 "$OUT" >&2
 # this only turns an opaque failure into an actionable one. It stays a HYPOTHESIS in the wording: a
 # wrong diagnosis is worse than none (it would send the operator away from the grants), so the note
 # hedges and points at the log and the autopsy rather than ruling the cause out.
-WAITS="$(tail -40 "$OUT" 2>/dev/null | grep -Eic 'waiting for|checking back in|still (running|waiting)')"
+SCAN_LINES=40               # interpolated into the note too, so the window can't drift from the claim
+WAITS="$(tail -"$SCAN_LINES" "$OUT" 2>/dev/null | grep -Eic 'waiting for|checking back in|still (running|waiting)')"
 note_window_burn() {
   echo "agy-review:   ^ looks like a WINDOW-BURN — the reviewer appears to have spent its round waiting on" >&2
-  echo "agy-review:     a long-running command rather than reading ($WAITS 'waiting…' lines in its last 40" >&2
-  echo "agy-review:     narration lines; the tail above shows 6). The prompt bans the project's test suite for" >&2
+  echo "agy-review:     a long-running command rather than reading ($WAITS 'waiting…' lines in its last" >&2
+  echo "agy-review:     $SCAN_LINES; the tail above shows only the end). The prompt bans the test suite for" >&2
   echo "agy-review:     exactly this reason — if a --label steered it into one, reword the label before the" >&2
   echo "agy-review:     next ROUND (never re-run this leg). Confirm against $OUT.log or a conversation autopsy." >&2
 }
