@@ -4,13 +4,13 @@
     "name": "Boshu Zhang"
   },
   "metadata": {
-    "description": "Framework + Agent Skills for a headless AI assisting system over real folders — the in-folder knowledge wiki is the first shipped layer. Shared across Claude Code / Cowork sessions and any automated pipeline."
+    "description": "Framework + Agent Skills for a headless AI assisting system over real folders — an in-folder knowledge wiki, plus the development process that builds it. Shared across Claude Code / Cowork sessions and any automated pipeline."
   },
   "plugins": [
     {
       "name": "ai-os-skills",
       "source": "./",
-      "description": "Agent Skills for the AI-OS framework — currently the knowledge layer: project-onboarding, wiki-onboarding, wiki-maintenance."
+      "description": "Agent Skills for the AI-OS framework: the knowledge layer (project-onboarding, wiki-onboarding, wiki-maintenance, user-onboarding) and the development-process trio (agent-tiered-planning, design-direction-lock, adversarial-review)."
     }
   ]
 }

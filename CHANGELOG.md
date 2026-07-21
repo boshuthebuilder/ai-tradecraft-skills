@@ -4,6 +4,26 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v2.4.2 — 2026-07-21
+
+The published **plugin manifest** catches up with the repo, and a lint guard stops it drifting again.
+A PATCH release: no skill content changes.
+
+### Fixed
+- **`.claude-plugin/plugin.json` was frozen at `1.0.0`** while the repo shipped through v2.4.1 — four
+  releases. Claude Code compares that `version` to decide whether an update exists, so every plugin
+  consumer stayed pinned to the June knowledge-layer snapshot: three skills, no `user-onboarding`, no
+  `adversarial-review`, none of the development-process trio. Bumped to the real release version.
+- **Both manifest descriptions were stale**, still advertising "currently the knowledge layer:
+  project-onboarding, wiki-onboarding, wiki-maintenance". They now name all seven skills across the
+  two layers that actually ship.
+
+### Added
+- **`scripts/lint_skills.py` now lints the plugin manifest** (CI already runs it): `plugin.json`'s
+  `version` must equal the newest `## vX.Y.Z` heading in `CHANGELOG.md`, and `marketplace.json` must
+  list the plugin — the same pair `claude plugin tag` refuses to tag when they disagree. Version
+  drift is now a loud CI failure at PR time instead of a silent stale install.
+
 ## v2.4.1 — 2026-07-21
 
 The `adversarial-review` harness now runs the headless reviewer in an **isolated worktree** — a
