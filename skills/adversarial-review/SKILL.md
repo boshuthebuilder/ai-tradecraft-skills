@@ -56,6 +56,9 @@ When in doubt, it applies.
 Pick the first *available* reviewer that is a different model from the author:
 
 1. **Codex** (primary when Claude authored) — `codex review --base <main>` reviews the branch diff.
+   Note it takes **no** custom prompt (`--base` and `[PROMPT]` are mutually exclusive), so when you
+   need to forward instructions to the reviewer — a focus, or the evidence contract in *Reviewing a
+   numeric or engineering contract* — use the `codex exec` form in *Bounding a review CLI* instead.
    Codex doesn't post to the PR itself: relay its findings with `gh pr comment`. Run it bounded and
    in the background (see *Bounding a review CLI* below); expect a subscription rate wall after
    roughly a dozen rounds in a session.
@@ -135,7 +138,7 @@ value that is correct — two numbers of the same quantity, since a unit alone p
 the spec is under-specified, instead give two defensible readings and the different numbers they
 produce. You may check arithmetic with 'uv run'. On a follow-up round, also check the fix side: each
 correction must ship a recomputation showing before and after, and the counterexample must have been
-added to the artefact's permanent checks — flag any correction carrying neither. Look for: units and
+added to the artefact's permanent checks — flag any correction missing either. Look for: units and
 scale factors; sign and direction conventions left unstated; cases that must combine or superpose
 but do not; boundary, support or initial conditions assumed rather than declared; a missing limit
 (strength, capacity, rate, budget); and the domain of validity — the range outside which the formula
