@@ -149,6 +149,12 @@ OUT="$(mktemp "/tmp/agy-review-${PR}.XXXXXX")"
 # agy's branch-switching is isolated to a throwaway tree, the caller's checkout is never touched, and
 # file reads see the exact PR version regardless of the caller's current branch. Falls back to the
 # caller's checkout (loud) if the worktree can't be made — in which case do not edit it mid-review.
+# KNOWN LIMITATION: a linked worktree shares REPO_ROOT's refs, so if agy's pr-<n> branch is ALREADY
+# checked out elsewhere (the caller sitting on a leftover pr-<n>, or a second review of the SAME PR
+# racing this one), agy's own checkout can hit git's "already checked out" guard and exit with no
+# comment. That degrades safely — a typed no-comment advances the fallback chain, nothing corrupts —
+# so it is accepted rather than fixed with a heavier full-clone-per-run; same-PR concurrent reviews
+# are uncommon and this patch stops the future stranding that creates the leftover-pr-<n> case.
 WORKTREE=""; WT_PARENT=""; FETCH_REF="refs/agy-review/pr-$PR-$$"
 cleanup_worktree() {
   [ -n "$WORKTREE" ]  && git -C "$REPO_ROOT" worktree remove --force "$WORKTREE" >/dev/null 2>&1
@@ -162,7 +168,10 @@ REVIEW_ROOT="$REPO_ROOT"
 # into a PER-RUN ref, never the shared FETCH_HEAD: a concurrent agy-review on the same checkout could
 # overwrite FETCH_HEAD between our fetch and our rev-parse and we would build the worktree from the
 # WRONG PR. $$ makes the ref unique per run; '+' force-updates a stale ref from a crashed prior run.
-if git -C "$REPO_ROOT" fetch -q "https://github.com/$REPO.git" "+pull/$PR/head:$FETCH_REF" 2>/dev/null \
+# --no-write-fetch-head keeps this fetch from touching the caller's .git/FETCH_HEAD at all (git still
+# writes it even WITH a destination refspec) — otherwise a caller's concurrent `git pull` mid-review,
+# the very workflow this isolation is meant to keep safe, could merge THIS PR head instead of its own.
+if git -C "$REPO_ROOT" fetch -q --no-write-fetch-head "https://github.com/$REPO.git" "+pull/$PR/head:$FETCH_REF" 2>/dev/null \
    && PR_HEAD="$(git -C "$REPO_ROOT" rev-parse "$FETCH_REF" 2>/dev/null)" && [ -n "$PR_HEAD" ]; then
   # mktemp -d gives a PRIVATE (mode 0700) parent dir atomically; point the worktree at a not-yet-
   # existing CHILD of it. Two wins: `git worktree add` always accepts a non-existent path (older git
@@ -209,12 +218,14 @@ kill_tree() {
   kill -KILL "$pid" 2>/dev/null
 }
 
-# Second line of defence for the FALLBACK path only: when the worktree could not be made and
-# agy runs in the caller's checkout, its workspace layer can check out a pr-<n> branch here
-# mid-review and strand the branch (bitten three times). In the worktree path REVIEW_ROOT is a
-# throwaway tree, so agy's branch-switching lands there and REPO_ROOT is never touched. Record
-# and restore REPO_ROOT's branch around the run regardless — a no-op unless the fallback fired.
-BRANCH_BEFORE="$(git -C "$REPO_ROOT" branch --show-current 2>/dev/null)"
+# Second line of defence for the FALLBACK path ONLY: when the worktree could not be made and agy
+# runs in the caller's checkout, its workspace layer can check out a pr-<n> branch here mid-review
+# and strand the branch (bitten three times). In the worktree path REVIEW_ROOT is a throwaway tree,
+# so agy never touches REPO_ROOT's branch — and any branch change there is then the CALLER's own
+# (they were told they may keep editing), which we must NOT revert. So record+restore only in the
+# fallback: gating both on an empty WORKTREE keeps this guard from fighting the caller.
+BRANCH_BEFORE=""
+[ -z "$WORKTREE" ] && BRANCH_BEFORE="$(git -C "$REPO_ROOT" branch --show-current 2>/dev/null)"
 
 # Launch agy with its cwd set to REVIEW_ROOT so ALL of its own git operations (workspace checkout,
 # branch switches) act on the throwaway worktree, not the caller's tree. exec makes the backgrounded
@@ -230,9 +241,11 @@ wait "$AGY_PID"
 RC=$?
 kill_tree "$WATCHDOG_PID"            # also reaps the watchdog's sleeping child
 
-# restore the caller's branch if the review stranded it (only when clean — never discard work)
+# restore the caller's branch if the FALLBACK review stranded it (only when clean — never discard
+# work). Skipped entirely in the worktree path (BRANCH_BEFORE empty), where a branch change is the
+# caller's own; the explicit WORKTREE guard states that intent rather than leaning on the empty var.
 BRANCH_AFTER="$(git -C "$REPO_ROOT" branch --show-current 2>/dev/null)"
-if [ -n "$BRANCH_BEFORE" ] && [ "$BRANCH_AFTER" != "$BRANCH_BEFORE" ]; then
+if [ -z "$WORKTREE" ] && [ -n "$BRANCH_BEFORE" ] && [ "$BRANCH_AFTER" != "$BRANCH_BEFORE" ]; then
   if [ -z "$(git -C "$REPO_ROOT" status --porcelain 2>/dev/null)" ]; then
     git -C "$REPO_ROOT" checkout "$BRANCH_BEFORE" >/dev/null 2>&1       && echo "agy-review: restored stranded branch ($BRANCH_AFTER -> $BRANCH_BEFORE)" >&2
   else
