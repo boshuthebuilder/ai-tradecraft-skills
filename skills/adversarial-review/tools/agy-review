@@ -53,9 +53,11 @@
 #                         back in 60 seconds", five times over), exiting cleanly having posted
 #                         nothing — the leg was lost. NOT a permissions problem: 'command(uv run)'
 #                         is deliberately granted, nothing was denied, so no grant change fixes
-#                         it. The PROMPT is the fix — it bans the test suite and budgets any
-#                         check at ~30s — and the exit classifier below NAMES this death rather
-#                         than reporting the generic no-comment text.
+#                         it. The PROMPT is the fix — it bans the test suite and makes the rule
+#                         NEVER POLL (not a wall-clock budget: a reviewer can't predict a
+#                         command's duration, and a flat 30s would disarm the 'uv run' arithmetic
+#                         check the numeric-contract label needs) — and the exit classifier below
+#                         FLAGS this death rather than reporting the generic no-comment text.
 # The exit contract is typed-outcome: the ARTIFACT (a PR comment) is the success signal,
 # never the exit code of agy itself.
 #
@@ -215,8 +217,13 @@ PR_HEAD_NOTE=""
 # The prompt pins tool usage to prefix-matchable commands: git -C / gh --repo, no cd,
 # no && chains — a chained command's first word is what the allow-rules match against —
 # and names the exact allowed set: ANY un-granted command the model invents is fatal.
-# It also bans the project's test suite (class 6): a granted-but-slow command burns the
-# whole round, so the budget is stated (~30s) rather than a blacklist of one tool.
+# It also bans the project's test suite (class 6). The operative rule is NEVER POLL, not a
+# wall-clock budget: a reviewer cannot predict a command's duration before running it, but it
+# can always decide not to wait on one — and a flat "30 seconds" would have disarmed the
+# 'uv run' arithmetic check the numeric-contract label depends on (a cold dependency sync
+# blows any budget). The short checks that stay welcome are named individually, because an
+# open-ended category ("a quick single-file check") invites shellcheck/py_compile/node --check,
+# none of them granted — which would trade this class-6 death for a class-1 one.
 PROMPT="You are an adversarial code reviewer. Review PR #$PR in $REPO.${LABEL:+ Focus: $LABEL.}
 
 Rules for tools — IMPORTANT, any command outside this list is hard-denied and kills the whole session:
@@ -225,12 +232,15 @@ ls, cat, head, tail, grep, rg, find, 'sed -n', wc, 'uv run', and 'bash -n'. Neve
 chain commands with && or ; (the permission gate matches the FIRST word only).
 
 Do NOT run the project's test suite — not 'uv run pytest', not any equivalent — and do not start any
-other long-running command. The author has already run the suite and reports the result in the PR
-description; a full run can take longer than this entire review, and a review's value is in careful
-reading of the diff, not in re-running CI. Run only checks you can expect to return within about 30
-seconds, such as 'bash -n' on a changed shell script or a quick single-file check. If you ever find
-yourself waiting on a command to finish, you are losing the review: stop waiting, go back to reading,
-and post your findings — a round that spends its turns polling a command posts nothing and is wasted.
+other long-running command. Running the suite is CI's job and the author's, not yours; a full run can
+take longer than this entire review, and a review's value is in careful reading of the diff, not in
+re-running CI. Short checks from the list above are welcome: 'bash -n' on a changed shell script, or
+a single 'uv run python -c ...' one-liner to check a calculation. Nothing outside that list, however
+quick it looks.
+
+The operative rule is NEVER POLL. If a command has not returned, do not wait for it and do not check
+back on it — abandon it, go back to reading, and post your findings. A round that spends its turns
+waiting on a command posts nothing at all and is wasted, which is worse than any check is worth.
 
 Steps:
 1. Run: gh pr view $PR --repo $REPO   and   gh pr diff $PR --repo $REPO
@@ -303,13 +313,16 @@ tail -6 "$OUT" >&2
 # The tell is the narration tail: repeated "waiting for …" / "checking back in …" lines. Scanned over
 # the TAIL only, so a diff quoting those words mid-review can't trip it; ≥3 lines because a run that
 # died this way ends with nothing else. The typed exit is unchanged (the leg is done either way) —
-# this only turns an opaque failure into an actionable one, so a false positive costs only wording.
+# this only turns an opaque failure into an actionable one. It stays a HYPOTHESIS in the wording: a
+# wrong diagnosis is worse than none (it would send the operator away from the grants), so the note
+# hedges and points at the log and the autopsy rather than ruling the cause out.
 WAITS="$(tail -40 "$OUT" 2>/dev/null | grep -Eic 'waiting for|checking back in|still (running|waiting)')"
 note_window_burn() {
-  echo "agy-review:   ^ window-burn — the reviewer spent its round WAITING on a long-running command" >&2
-  echo "agy-review:     ($WAITS 'waiting…' lines in the tail), not reading. The prompt bans the project's" >&2
-  echo "agy-review:     test suite for exactly this reason; if a --label steered it into one, reword the" >&2
-  echo "agy-review:     label before the next leg. Nothing is denied here and no grant change fixes it." >&2
+  echo "agy-review:   ^ looks like a WINDOW-BURN — the reviewer appears to have spent its round waiting on" >&2
+  echo "agy-review:     a long-running command rather than reading ($WAITS 'waiting…' lines in its last 40" >&2
+  echo "agy-review:     narration lines; the tail above shows 6). The prompt bans the project's test suite for" >&2
+  echo "agy-review:     exactly this reason — if a --label steered it into one, reword the label before the" >&2
+  echo "agy-review:     next ROUND (never re-run this leg). Confirm against $OUT.log or a conversation autopsy." >&2
 }
 
 if [ "$RC" -ge 128 ]; then

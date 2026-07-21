@@ -78,13 +78,14 @@ Pick the first *available* reviewer that is a different model from the author:
    | 3 | permission-denied | restore the grants block (see *Machine setup*), retry |
    | 4 | timeout | treat this leg as done; advance the chain |
    | 5 | no-comment | narration tail is printed for diagnosis; advance the chain |
+   | 6 | bad-args / missing prerequisites | fix the invocation |
 
    Exits 4 and 5 are also where a *window-burn* lands — a run that spent itself waiting on a
-   long-running command. The harness detects that shape (repeated "waiting…" narration, nothing
-   posted) and says so explicitly instead of reporting a generic silence, so you can tell "the
-   reviewer wasted its round" apart from "the reviewer died", and reword an offending `--label`
-   before the next leg.
-   | 6 | bad-args / missing prerequisites | fix the invocation |
+   long-running command. The harness flags that shape (repeated "waiting…" narration, nothing
+   posted) instead of reporting a generic silence, so you can tell "the reviewer wasted its round"
+   apart from "the reviewer died" — and reword an offending `--label` before the next *round*. It
+   is a heuristic, so treat it as the first hypothesis, not a ruling: the debug log and a
+   conversation autopsy (see *Follow-ups*) are what confirm any death.
 
 3. **Independent same-vendor agent** (last resort) — spawn a fresh agent of the author's own vendor
    with *no shared context*: hand it only the PR diff, the PR description, and a mandate to break
@@ -271,15 +272,21 @@ and are the spec for porting the gate to a new reviewer:
   polling it ("I am waiting for pytest … checking back in 60 seconds", over and over) before exiting
   cleanly with nothing posted. Nothing was denied, so no grant change fixes this; the leg is lost
   just as completely, and the typed no-comment looks identical to every other silence. The prompt
-  must therefore say plainly that the reviewer does **not** run the suite, and why: the author has
-  already run it and reports the result in the PR description, a full run can outlast the whole
-  review window, and the gate's value is careful reading, not re-running CI. State a **time budget**
-  rather than a blacklist — *nothing you cannot expect to return in about 30 seconds* — so the rule
-  generalises to any slow gate rather than to `pytest` alone, and name the fast checks that stay
-  allowed (`bash -n`, a linter, a bundle-freshness check). Add the in-flight recovery too: if the
-  reviewer notices itself waiting, it should stop waiting, finish reading, and post. The same care
-  belongs in your `--label`: a focus phrase like "check the tests pass" walks the reviewer straight
-  into this.
+  must therefore say plainly that the reviewer does **not** run the suite, and why: running it is
+  CI's job and the author's, a full run can outlast the whole review window, and the gate's value is
+  careful reading, not re-running CI. Do not justify it by asserting the author already ran it — the
+  prompt cannot know that, and telling an adversarial reviewer to take an author's claim on trust
+  suppresses exactly the finding you want ("this ships no test and states no verification").
+  Make the operative rule **never poll**, not a wall-clock budget: a reviewer cannot predict how long
+  a command will take *before* running it, but it can always decide not to wait on one — abandon it,
+  go back to reading, post. A flat "30 seconds" reads well and fails in practice, because a first
+  `uv run` that syncs dependencies blows any budget and would silently disarm the arithmetic check
+  *Reviewing a numeric or engineering contract* depends on. Then **name the short checks that stay
+  welcome individually** — from your own grants, so `bash -n` and a single `uv run python -c` here —
+  never an open-ended category: "a quick single-file check" invites `shellcheck`, `py_compile` or
+  `node --check`, none of them granted, trading this death for the un-granted-command one above. The
+  same care belongs in your `--label`: a focus phrase like "check the tests pass" walks the reviewer
+  straight into this.
 - **Post with one inline call, and no backticks in the body.** The final `gh pr comment --body
   "..."` must carry the body inline — staging it in a file via echo/printf/redirection/file-write
   tools is denied and kills the run at the last step. And the permission validator parses
