@@ -1,7 +1,7 @@
 {
   "name": "ai-os-skills",
-  "description": "Framework + Agent Skills for a headless AI assisting system over real folders. The knowledge layer ships first (project-onboarding, wiki-onboarding, wiki-maintenance) — works in any Claude Code or Cowork session, and can be consumed by an automated pipeline from the same source.",
-  "version": "1.0.0",
+  "description": "Framework + Agent Skills for a headless AI assisting system over real folders. Two layers ship today: the knowledge layer (project-onboarding, wiki-onboarding, wiki-maintenance, user-onboarding) and the development-process trio (agent-tiered-planning, design-direction-lock, adversarial-review). Works in any Claude Code or Cowork session, and can be consumed by an automated pipeline from the same source.",
+  "version": "2.4.2",
   "author": {
     "name": "Boshu Zhang"
   }
