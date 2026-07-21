@@ -5,7 +5,10 @@ description: >-
   that wrote the code reviews the open PR adversarially and posts its findings as PR comments, before
   the change is declared done. Covers reviewer selection (the fallback chain), the auditable
   PR-comment protocol, the bundled headless-Gemini harness (`tools/agy-review`, typed exits), and the
-  one-time machine setup headless reviewers need. Use for any complex change — more than one layer
+  one-time machine setup headless reviewers need. Also covers reviewing a numeric or engineering
+  contract (a physical model, sizing or pricing calculation, tolerance table — anything whose units
+  mean something), where findings carry counterexamples, fixes carry recomputations, and each
+  counterexample becomes a permanent test vector. Use for any complex change — more than one layer
   touched, a new pattern introduced, or unattended/production consequences — in any repo, driven by
   any coding agent (Claude Code, Codex, or another CLI agent).
 ---
@@ -53,6 +56,9 @@ When in doubt, it applies.
 Pick the first *available* reviewer that is a different model from the author:
 
 1. **Codex** (primary when Claude authored) — `codex review --base <main>` reviews the branch diff.
+   Note it takes **no** custom prompt (`--base` and `[PROMPT]` are mutually exclusive), so when you
+   need to forward instructions to the reviewer — a focus, or the evidence contract in *Reviewing a
+   numeric or engineering contract* — use the `codex exec` form in *Bounding a review CLI* instead.
    Codex doesn't post to the PR itself: relay its findings with `gh pr comment`. Run it bounded and
    in the background (see *Bounding a review CLI* below); expect a subscription rate wall after
    roughly a dozen rounds in a session.
@@ -77,6 +83,71 @@ Pick the first *available* reviewer that is a different model from the author:
 3. **Independent same-vendor agent** (last resort) — spawn a fresh agent of the author's own vendor
    with *no shared context*: hand it only the PR diff, the PR description, and a mandate to break
    the change. Disclose on the PR that the gate ran same-vendor.
+
+## Reviewing a numeric or engineering contract
+
+Some changes carry numbers the world will hold you to: a structural or physical model, a sizing or
+capacity calculation, a pricing or rate formula, a tolerance table — any spec whose units mean
+something. This class reviews *differently*, and unusually well. Truth conditions are crisp, so
+neither side can hand-wave: one gate run over an engineering document returned thirteen findings and
+**every one was real** — a units trap, load cases that failed to superpose, an unstated support
+geometry, an absent material limit, and under-specified vectors.
+
+That hit rate is not luck, and it does not survive prose. It comes from holding *both* sides to
+executable evidence:
+
+- **A finding must carry a counterexample.** Concrete inputs, the value the change produces, and the
+  value that is correct — "with `F = 4 kN` and `L = 800 mm` this returns `M = 3200 kN·m`; the moment
+  is `4 × 0.8 = 3.2 kN·m`, so the length was never converted from millimetres — a factor of 1000"
+  beats "the units look wrong". Note that the *unit alone proves nothing*: `3.2 kN·m` and
+  `3200 kN·mm` are the same quantity, so a finding has to put two **numbers of the same quantity**
+  side by side, not two spellings of one.
+- **Where the contract is under-specified, demonstrate the divergence instead.** For an omitted
+  support condition, an unstated sign convention or a missing limit there is often no single correct
+  value *yet* — the defect is precisely that several defensible readings give different answers. The
+  evidence is then two readings and their two numbers ("modelled as pinned the reaction is 12.4 kN,
+  as fixed it is 18.1 kN; the spec never says which"), which is as executable as a wrong/right pair
+  and must not be dismissed for lacking one. What makes a finding an opinion is the absence of
+  *concrete numbers*, not the absence of a single right answer.
+- **A fix must carry a recomputation.** The fix commit includes the script or derivation that
+  produces the new numbers, and the reply shows before → after. "Fixed" is not evidence: a reviewer
+  who cannot see the recomputation has to re-derive it, which is exactly how rounds stop shrinking.
+  The headless grants already allow `uv run`, so the reviewer can *execute* the check rather than
+  trust it.
+- **The counterexample becomes a test vector.** Fold the reviewer's own numbers into the artefact's
+  permanent checks — a test, an assertion, a worked-example row. This is the step that pays forward:
+  it turns a one-off adversarial exchange into a regression guard, so the same defect cannot return
+  silently once the thread is closed.
+
+**Forward this contract — no leg of the chain reads this page.** Every reviewer sees only what you
+hand it, so a protocol documented here alone is never applied: you get ordinary prose findings and
+none of the hit rate above. Forward the block below on whichever leg you use, keeping it inside the
+label-hygiene rules (static reading, name only permitted extras, never cite an external reference):
+
+- **Gemini** — pass it as `tools/agy-review <pr> --label "…"`.
+- **Codex** — pass it in the prompt to `codex exec` (see *Bounding a review CLI*). Note that
+  `codex review --base <branch>` takes **no** custom prompt: the two are mutually exclusive
+  (`the argument '--base <BRANCH>' cannot be used with '[PROMPT]'`), so `exec` is the form that can
+  carry this contract. Forwarding matters most here — Codex is the primary leg for Claude-authored
+  code, so it is the leg most numeric reviews actually run on.
+- **Independent agent** — include it in the brief, alongside the diff and PR description.
+
+```
+Numeric contract. For EVERY finding give concrete inputs, the value the change produces, and the
+value that is correct — two numbers of the same quantity, since a unit alone proves nothing. Where
+the spec is under-specified, instead give two defensible readings and the different numbers they
+produce. You may check arithmetic with 'uv run'. On a follow-up round, also check the fix side: each
+correction must ship a recomputation showing before and after, and the counterexample must have been
+added to the artefact's permanent checks — flag any correction missing either. Look for: units and
+scale factors; sign and direction conventions left unstated; cases that must combine or superpose
+but do not; boundary, support or initial conditions assumed rather than declared; a missing limit
+(strength, capacity, rate, budget); and the domain of validity — the range outside which the formula
+quietly stops being true.
+```
+
+The fix-side clause matters because follow-up rounds are exactly when the recomputation and the test
+vector are due, and a reviewer holding only the finding rules will approve a correction that ships
+neither. Each defect class above is invisible to a prose read, and each has shipped at least once.
 
 ## Machine setup (one-time, per machine) — headless Gemini
 

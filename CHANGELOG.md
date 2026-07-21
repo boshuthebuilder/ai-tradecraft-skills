@@ -4,6 +4,31 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v2.5.0 — 2026-07-21
+
+`adversarial-review` learns how to review a **numeric or engineering contract**. A MINOR release
+(one new SKILL.md section, frontmatter description extended; nothing renamed or removed).
+
+### Added
+- **Reviewing a numeric or engineering contract** — the second harvest from the same consumer-project
+  telemetry that produced the worktree hardening (issue #19). When the artefact carries numbers with
+  real-world consequences (a physical model, a sizing or capacity calculation, a pricing or rate
+  formula, a tolerance table), truth conditions are crisp and the gate performs unusually well — one
+  run returned thirteen findings, all real. That hit rate comes from holding *both* sides to
+  executable evidence, so the section states the rules that produce it: a **finding must carry a
+  counterexample** (concrete inputs, the produced value and the correct one — two numbers of the
+  *same quantity*, since a unit alone proves nothing: `3.2 kN·m` and `3200 kN·mm` are equal); where
+  the spec is **under-specified**, the evidence is instead a **divergence** (two defensible readings
+  and their two different numbers — the defect is that the contract does not choose, so demanding a
+  single right answer would suppress the finding); a **fix must carry a recomputation** (the commit
+  ships the script/derivation and the reply shows before → after — the granted `uv run` means the
+  reviewer can execute the check rather than trust it); and **the counterexample becomes a test
+  vector** (folded into the artefact's permanent checks, turning a one-off exchange into a regression
+  guard). Because a delegated reviewer reads only the harness prompt plus `--label` and never this
+  page, the section ships a **ready-made label** carrying both the evidence contract and the defect
+  classes — units and scale, unstated sign/direction conventions, cases that fail to superpose,
+  assumed boundary/support conditions, missing limits, and the domain of validity.
+
 ## v2.4.2 — 2026-07-21
 
 The published **plugin manifest** catches up with the repo, and a lint guard stops it drifting again.
