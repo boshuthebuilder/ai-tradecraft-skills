@@ -5,7 +5,10 @@ description: >-
   that wrote the code reviews the open PR adversarially and posts its findings as PR comments, before
   the change is declared done. Covers reviewer selection (the fallback chain), the auditable
   PR-comment protocol, the bundled headless-Gemini harness (`tools/agy-review`, typed exits), and the
-  one-time machine setup headless reviewers need. Use for any complex change — more than one layer
+  one-time machine setup headless reviewers need. Also covers reviewing a numeric or engineering
+  contract (a physical model, sizing or pricing calculation, tolerance table — anything whose units
+  mean something), where findings carry counterexamples, fixes carry recomputations, and each
+  counterexample becomes a permanent test vector. Use for any complex change — more than one layer
   touched, a new pattern introduced, or unattended/production consequences — in any repo, driven by
   any coding agent (Claude Code, Codex, or another CLI agent).
 ---
@@ -77,6 +80,38 @@ Pick the first *available* reviewer that is a different model from the author:
 3. **Independent same-vendor agent** (last resort) — spawn a fresh agent of the author's own vendor
    with *no shared context*: hand it only the PR diff, the PR description, and a mandate to break
    the change. Disclose on the PR that the gate ran same-vendor.
+
+## Reviewing a numeric or engineering contract
+
+Some changes carry numbers the world will hold you to: a structural or physical model, a sizing or
+capacity calculation, a pricing or rate formula, a tolerance table — any spec whose units mean
+something. This class reviews *differently*, and unusually well. Truth conditions are crisp, so
+neither side can hand-wave: one gate run over an engineering document returned thirteen findings and
+**every one was real** — a units trap, load cases that failed to superpose, an unstated support
+geometry, an absent material limit, and under-specified vectors.
+
+That hit rate is not luck, and it does not survive prose. It comes from holding *both* sides to
+executable evidence:
+
+- **A finding must carry a counterexample.** Concrete inputs, the wrong value they produce, and the
+  value that is correct — "at L = 2.4 m this yields 3.2 kN·m where dimensional analysis gives kN·mm,
+  a factor of 1000" beats "the units look wrong". A finding without arithmetic is an opinion, and it
+  gets argued with rather than fixed.
+- **A fix must carry a recomputation.** The fix commit includes the script or derivation that
+  produces the new numbers, and the reply shows before → after. "Fixed" is not evidence: a reviewer
+  who cannot see the recomputation has to re-derive it, which is exactly how rounds stop shrinking.
+  The headless grants already allow `uv run`, so the reviewer can *execute* the check rather than
+  trust it.
+- **The counterexample becomes a test vector.** Fold the reviewer's own numbers into the artefact's
+  permanent checks — a test, an assertion, a worked-example row. This is the step that pays forward:
+  it turns a one-off adversarial exchange into a regression guard, so the same defect cannot return
+  silently once the thread is closed.
+
+**Name the defect classes in the review label** — each is invisible to a prose read, and each has
+shipped at least once: units and scale factors; sign and direction conventions left unstated;
+cases that must combine or superpose but do not; boundary, support or initial conditions assumed
+rather than declared; a missing limit (strength, capacity, rate, budget); and the **domain of
+validity** — the range outside which the formula quietly stops being true.
 
 ## Machine setup (one-time, per machine) — headless Gemini
 

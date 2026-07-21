@@ -4,6 +4,26 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v2.5.0 — 2026-07-21
+
+`adversarial-review` learns how to review a **numeric or engineering contract**. A MINOR release
+(one new SKILL.md section, frontmatter description extended; nothing renamed or removed).
+
+### Added
+- **Reviewing a numeric or engineering contract** — the second harvest from the same consumer-project
+  telemetry that produced the worktree hardening (issue #19). When the artefact carries numbers with
+  real-world consequences (a physical model, a sizing or capacity calculation, a pricing or rate
+  formula, a tolerance table), truth conditions are crisp and the gate performs unusually well — one
+  run returned thirteen findings, all real. That hit rate comes from holding *both* sides to
+  executable evidence, so the section states three rules: a **finding must carry a counterexample**
+  (concrete inputs → the wrong value and the right one; arithmetic, not "the units look wrong"), a
+  **fix must carry a recomputation** (the commit ships the script/derivation and the reply shows
+  before → after — the granted `uv run` means the reviewer can execute the check rather than trust
+  it), and **the counterexample becomes a test vector** (folded into the artefact's permanent checks,
+  turning a one-off exchange into a regression guard). Closes with the defect classes worth naming in
+  the review label: units and scale, unstated sign/direction conventions, cases that fail to
+  superpose, assumed boundary/support conditions, missing limits, and the domain of validity.
+
 ## v2.4.2 — 2026-07-21
 
 The published **plugin manifest** catches up with the repo, and a lint guard stops it drifting again.
