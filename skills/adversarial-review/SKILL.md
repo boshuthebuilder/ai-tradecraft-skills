@@ -44,7 +44,9 @@ When in doubt, it applies.
    leg of the chain is finished for this round: advance to the next reviewer. Never retry in place,
    and never skip the gate because a tool misbehaved.
 6. **Re-assert your working branch** after any review tool runs — review CLIs can check out or
-   strand the branch under you.
+   strand the branch under you. The bundled `agy-review` harness removes this hazard at source by
+   running the reviewer in an isolated worktree (see *The headless-reviewer contract*), but the rule
+   still holds for the Codex leg and any CLI you drive raw in the live tree.
 
 ## The fallback chain
 
@@ -197,6 +199,19 @@ and are the spec for porting the gate to a new reviewer:
   *absent*, agy bootstraps one itself via commands outside the allow-list and dies silently at
   step 1 — the first review of any repo agy has never seen fails this way. The harness clones or
   fetches it deterministically before the run; do the same when driving agy raw.
+- **Run the reviewer in an isolated worktree, never your live tree.** A headless review CLI's
+  workspace layer checks out a `pr-<n>` branch in its own working directory mid-review. When that
+  directory is the coordinator's live checkout, two things break: the branch is *stranded* (the
+  caller's `HEAD` moves under them — commits then land on the wrong branch, the push reports
+  up-to-date, and the tell is only spotted later), and worse, a coordinator editing files while a
+  background round runs hits a *contested tree* — an edit lands against the wrong branch's contents
+  or a file the round's checkout has removed (an `Edit` hit a missing file exactly this way). The
+  harness fetches the PR head and runs agy in a **detached worktree** at that SHA (`git worktree add
+  --detach`), so the reviewer's branch-switching is confined to a throwaway tree and the caller's
+  checkout is never touched — you can keep editing while a review runs. It falls back (loud) to the
+  caller's tree plus a before/after branch-restore guard only when a worktree cannot be made. This
+  is the structural fix for rule 6: prefer worktree isolation over re-asserting the branch after the
+  fact.
 - **Steer review labels to static reading — and steer the opening move.** Every label phrase that
   implies a tool is a landmine: "verify the shell fixes" sends the model to shellcheck; naming
   "git-fetch(1)" sends it to `man` — each un-granted, each fatal at step 1 with zero narration.
