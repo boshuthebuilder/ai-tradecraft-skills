@@ -4,7 +4,7 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
-## v2.4.1 — 2026-07-18
+## v2.4.1 — 2026-07-21
 
 The `adversarial-review` harness now runs the headless reviewer in an **isolated worktree** — a
 PATCH hardening (no interface change; same flags, same typed exits). Closes the fifth silent-failure
