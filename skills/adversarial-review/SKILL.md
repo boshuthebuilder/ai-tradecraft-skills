@@ -116,25 +116,35 @@ executable evidence:
   it turns a one-off adversarial exchange into a regression guard, so the same defect cannot return
   silently once the thread is closed.
 
-**Forward this contract in the label — the reviewer never reads this page.** A delegated reviewer
-sees only the harness's fixed prompt plus your `--label` text, so an evidence protocol documented
-here alone is never applied: you get ordinary prose findings and none of the hit rate above. The
-label is the one per-review channel, so it has to carry both the evidence requirement *and* the
-defect classes. Keep it inside the label-hygiene rules (static reading, name only permitted extras,
-never cite an external reference):
+**Forward this contract — no leg of the chain reads this page.** Every reviewer sees only what you
+hand it, so a protocol documented here alone is never applied: you get ordinary prose findings and
+none of the hit rate above. Forward the block below on whichever leg you use, keeping it inside the
+label-hygiene rules (static reading, name only permitted extras, never cite an external reference):
+
+- **Gemini** — pass it as `tools/agy-review <pr> --label "…"`.
+- **Codex** — pass it in the prompt to `codex exec` (see *Bounding a review CLI*). Note that
+  `codex review --base <branch>` takes **no** custom prompt: the two are mutually exclusive
+  (`the argument '--base <BRANCH>' cannot be used with '[PROMPT]'`), so `exec` is the form that can
+  carry this contract. Forwarding matters most here — Codex is the primary leg for Claude-authored
+  code, so it is the leg most numeric reviews actually run on.
+- **Independent agent** — include it in the brief, alongside the diff and PR description.
 
 ```
-tools/agy-review <pr> --label "Numeric contract. For EVERY finding give concrete inputs, the value
-the change produces, and the value that is correct — two numbers of the same quantity, since a unit
-alone proves nothing. Where the spec is under-specified, instead give two defensible readings and
-the different numbers they produce. You may check arithmetic with 'uv run'. Look for: units and
+Numeric contract. For EVERY finding give concrete inputs, the value the change produces, and the
+value that is correct — two numbers of the same quantity, since a unit alone proves nothing. Where
+the spec is under-specified, instead give two defensible readings and the different numbers they
+produce. You may check arithmetic with 'uv run'. On a follow-up round, also check the fix side: each
+correction must ship a recomputation showing before and after, and the counterexample must have been
+added to the artefact's permanent checks — flag any correction carrying neither. Look for: units and
 scale factors; sign and direction conventions left unstated; cases that must combine or superpose
 but do not; boundary, support or initial conditions assumed rather than declared; a missing limit
 (strength, capacity, rate, budget); and the domain of validity — the range outside which the formula
-quietly stops being true."
+quietly stops being true.
 ```
 
-Each of those classes is invisible to a prose read, and each has shipped at least once.
+The fix-side clause matters because follow-up rounds are exactly when the recomputation and the test
+vector are due, and a reviewer holding only the finding rules will approve a correction that ships
+neither. Each defect class above is invisible to a prose read, and each has shipped at least once.
 
 ## Machine setup (one-time, per machine) — headless Gemini
 
