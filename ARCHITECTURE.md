@@ -137,6 +137,46 @@ wasn't shown this run", and the review found that ambiguity is what makes a mode
 orphans, false missing-pages, and rewrite pages whose unseen tail it then drops. Mark the partiality
 deterministically at the boundary; the prompt templates are written to trust those markers.
 
+## Consuming a pinned release
+
+A deployment resolves its skills from a **clone of this repo checked out at a release tag**, named in
+its own config. That pin is the deployment's promise to itself: unattended jobs run a reviewed version
+of the method rather than whatever is newest. Two failures make the promise hollow, and both are
+silent — which is why the consumer side needs its own rules rather than trusting the tag.
+
+**A pin nothing enforces is documentation.** If the deploy does not check the named ref out, advancing
+the pin edits a file and changes nothing: the clone stays where it last was, the pinned tier still
+*resolves*, and jobs keep running an old method with nothing failing. Only a deep health probe notices,
+and its natural advice ("redeploy") is exactly what does not help. So the deploy must materialise the
+pin **as a hard gate** — a release that cannot obtain its skills does not activate, because activating
+it runs new code against old method with nothing saying so. Fetch the tag without `--force`: a released
+tag that moved upstream must fail loudly rather than substitute a commit nobody reviewed.
+
+**Verify before the switch, not after.** The directory jobs read is live: on an always-on machine a
+scheduled job can start at any moment, so checking the candidate out and *then* verifying leaves a
+window in which production runs an unverified tree. Materialise the candidate somewhere throwaway
+(a detached worktree), verify it there, and only then move what jobs read. A first-ever clone is the
+same hazard — populate it only with a verified commit.
+
+**Verify against what the deployment actually consumes**, which is narrower and more specific than
+"the release looks fine": the skills its jobs declare, the archetype paths its prompt templates derive
+from, and — the one that matters most — the **placeholders those templates use**. Placeholder
+substitution typically replaces the fields it is given and leaves unknown tokens verbatim, so an
+archetype that grows a field the deployment does not supply ships `{like_this}` into a live prompt with
+no exception and no log line. A deployment that renders an upstream field under a different local name
+should *declare* that translation, so a genuinely new upstream field is a finding rather than silent
+corruption. Run the check where a bad pin can still be stopped — on the change that advances it, and
+again on the machine, since the first can be bypassed and a tag can move between them.
+
+**Judge drift on content, not the tag.** A release whose changes never touch the archetypes a
+deployment mirrors is not drift for that deployment, and flagging it trains an operator to re-stamp
+without looking; a real upstream edit must not be able to hide behind a mechanical tag bump.
+
+**Keep the fallback visible.** A deployment that falls back to a bundled copy when the pinned clone is
+unavailable is running a method version nothing verified. That may be the right trade for availability,
+but per *Fail loud, never silent* it is a named state, never a green one — and a host that genuinely
+expects the pinned tier is entitled to refuse to run at all rather than substitute silently.
+
 ## Surfacing: the raised-item lifecycle
 
 A job that finds something it cannot safely resolve **escalates** it — a `needs_a_look` item. The
