@@ -84,7 +84,7 @@ Pick the first *available* reviewer that is a different model from the author:
    |---|---|---|
    | 0 | ok | comment is on the PR — read it, address it |
    | 2 | auth-needed | run `agy` once interactively to sign in, retry |
-   | 3 | permission-denied | restore the grants block (see *Machine setup*), retry |
+   | 3 | permission-denied | grants intact → autopsy for the invented command (below); grants missing a rule → restore (*Machine setup*), retry |
    | 4 | timeout | treat this leg as done; advance the chain |
    | 5 | no-comment | narration tail is printed for diagnosis; advance the chain |
    | 6 | bad-args / missing prerequisites | fix the invocation |
@@ -95,6 +95,13 @@ Pick the first *available* reviewer that is a different model from the author:
    apart from "the reviewer died" — and reword an offending `--label` before the next *round*. It
    is a heuristic, so treat it as the first hypothesis, not a ruling: the debug log and a
    conversation autopsy (see *Follow-ups*) are what confirm any death.
+
+   And exit 3 is not always a missing grant. An **intact** grants block — every documented rule
+   present — with a permission-denied exit means the reviewer invented an un-granted command mid-run,
+   not that a rule fell out of `config.json`; editing config is the wrong lead. Go straight to the
+   conversation autopsy (see *Follow-ups*) to recover the exact command it proposed. When the diff
+   under review is shell, that command is often `bash -c` reaching to test a shell semantic
+   empirically (see *The headless-reviewer contract*).
 
 3. **Independent same-vendor agent** (last resort) — spawn a fresh agent of the author's own vendor
    with *no shared context*: hand it only the PR diff, the PR description, and a mandate to break
@@ -324,7 +331,21 @@ and are the spec for porting the gate to a new reviewer:
   "git-fetch(1)" sends it to `man` — each un-granted, each fatal at step 1 with zero narration.
   Say "by reading the diff", name any permitted extras (`bash -n`), never cite external
   references, and when a repo is new to the reviewer, open the label with "START by running
-  'gh pr diff <n> --repo <owner/name>' — no other command first".
+  'gh pr diff <n> --repo <owner/name>' — no other command first". When the diff under review is
+  *itself shell*, the subject matter is a landmine no label phrasing avoids: a reviewer auditing a
+  bash hook's error handling reaches for shell *execution* to settle a semantic question
+  empirically, so reviewing shell makes this death likely rather than incidental. One review of a
+  deployment-critical hook died exit-3 with the grants block fully intact, proposing
+  `bash -c 'set -e; ( false; echo "still ran" ) || true'` to check whether `set -e` survives inside
+  a subshell. `command(bash -n)` is granted; `bash -c` is not — prefix matching does not cover it —
+  and it stays un-granted, being arbitrary code execution refused for the same reason as
+  `command(echo)` and `write_file(*)` (see *Machine setup*). A bare "do not run `bash -c`" only
+  moves the wall, because the reviewer still needs the answer. So the shell-diff label must do both:
+  forbid executing shell snippets (and `bash -c` by name), **and pre-answer the semantic question**
+  the reviewer would otherwise test — e.g. that bash suppresses `set -e` inside a compound command
+  used as the left operand of `||`, so the code under review must give every fallible command an
+  explicit `|| { …; exit 1; }` rather than rely on `set -e` to abort. The pre-answer is the actual
+  fix; the prohibition alone just relocates the death.
 
 ## Bounding a review CLI (Codex or any other)
 

@@ -4,6 +4,38 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v2.6.2 — 2026-07-22
+
+The `adversarial-review` shell-diff label now **pre-answers the semantics a reviewer would otherwise
+execute to check**, and the exit-3 guidance separates an invented command from a missing grant. A
+PATCH hardening in the shape of v2.5.1 — no interface change: same grants (`bash -c` stays
+un-granted), same typed exits, one sharpened label rule.
+
+### Fixed
+- **Reviewing shell makes the reviewer reach for shell *execution*.** Eighth silent-failure class,
+  observed reviewing a deployment-critical bash hook (family-ai-os #592): the Gemini leg died typed
+  exit 3 (permission-denied) having posted nothing, with the grants block *fully intact* — all
+  sixteen documented rules present — so the existing "restore the grants block" remediation was the
+  wrong lead. A conversation autopsy (the technique the skill already documents) showed the reviewer
+  had proposed `bash -c 'set -e; ( false; echo "still ran" ) || true'` to empirically verify `set
+  -e` semantics inside a subshell while auditing the hook's error handling. `command(bash -n)` is
+  granted; `bash -c` is not, and prefix matching does not cover it. This is **distinct** from the
+  two documented execution-reach deaths (an un-granted command invented mid-run; a granted
+  long-running command burning the window): here the reviewer reaches for execution *because the
+  artefact under review is shell*, so reviewing bash code makes this death likely rather than
+  incidental. `command(bash -c)` is deliberately **not** granted — it is arbitrary code execution,
+  refused for the same reason the set already refuses `command(echo)` and `write_file(*)`. The fix
+  is in the **label**: when the diff is shell it must forbid executing shell snippets (and `bash -c`
+  by name) *and* pre-answer the semantic question the reviewer would otherwise test — e.g. that bash
+  suppresses `set -e` inside a compound command used as the left operand of `||`, so the code gives
+  every fallible command an explicit `|| { …; exit 1; }` instead of relying on it. Pre-answering is
+  what stops the reviewer needing the command at all; a bare prohibition only moves the wall.
+  Documented in the *Steer review labels to static reading* bullet.
+- **Exit 3 with an intact grants block points at the autopsy, not `config.json`.** The typed-exit
+  table and a note beneath it now split exit 3: a grants block *missing a rule* → restore it
+  (*Machine setup*); an *intact* block → the reviewer invented an un-granted command, so go straight
+  to the conversation autopsy to recover it rather than editing config.
+
 ## v2.6.1 — 2026-07-22
 
 The `adversarial-review` bounding example now **closes stdin explicitly**, and the section names
