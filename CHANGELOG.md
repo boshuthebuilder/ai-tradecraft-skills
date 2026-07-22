@@ -18,9 +18,11 @@ watchdog, same treat-a-hang-as-done rule, one redirection added to the example i
   pipe to close — which a coordinator holding it open never does. The watchdog then kills the
   child tree with nothing reviewed, and because the skill rightly treats a hang as that reviewer
   being done, the round is indistinguishable from a subscription rate wall: the chain advances
-  and a one-character omission silently costs the leg. The *Bounding a review CLI* example now
+  and an omitted redirection silently costs the leg. The *Bounding a review CLI* example now
   redirects `< /dev/null`, and a sentence beside it names the failure so an operator seeing the
   tell knows to suspect the launcher's stdin, not the reviewer's quota.
+
+## v2.6.0 — 2026-07-22
 
 A fourth development-process skill: **`implementation-discipline`** — how a coding agent conducts
 itself while writing a change. The trio becomes a quartet, spanning plan (tier the work), build
