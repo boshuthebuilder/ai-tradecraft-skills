@@ -333,10 +333,14 @@ self-terminating watchdog that kills the child **tree**, and treat a hang or wal
 being done:
 
 ```bash
-codex exec "review ..." & p=$!
+codex exec "review ..." < /dev/null & p=$!
 ( sleep 600; pkill -KILL -P "$p" 2>/dev/null; kill -KILL "$p" 2>/dev/null ) & w=$!
 wait "$p"; kill "$w" 2>/dev/null
 ```
+
+Close stdin explicitly (`< /dev/null`): backgrounded with stdin left as an open non-TTY pipe,
+`codex exec` prints "Reading additional input from stdin..." and waits on that pipe forever — the
+watchdog kills it with nothing reviewed, indistinguishable from a rate wall.
 
 Point `CODEX_HOME` at a lean home with no MCP servers configured — MCP loading is the commonest
 Codex hang.

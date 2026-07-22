@@ -4,6 +4,24 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v2.6.1 — 2026-07-22
+
+The `adversarial-review` bounding example now **closes stdin explicitly**, and the section names
+the death it prevents. A PATCH hardening in the shape of v2.5.1 — no interface change: same
+watchdog, same treat-a-hang-as-done rule, one redirection added to the example invocation.
+
+### Fixed
+- **A backgrounded `codex exec` can spend its whole round waiting on stdin.** Seventh
+  silent-failure class, this time observed first-hand (codex-cli 0.144.1, during the round-1
+  review of this repo's own PR #30): launched in the background with stdin left as an open
+  non-TTY pipe, `codex exec` prints "Reading additional input from stdin..." and waits for that
+  pipe to close — which a coordinator holding it open never does. The watchdog then kills the
+  child tree with nothing reviewed, and because the skill rightly treats a hang as that reviewer
+  being done, the round is indistinguishable from a subscription rate wall: the chain advances
+  and an omitted redirection silently costs the leg. The *Bounding a review CLI* example now
+  redirects `< /dev/null`, and a sentence beside it names the failure so an operator seeing the
+  tell knows to suspect the launcher's stdin, not the reviewer's quota.
+
 ## v2.6.0 — 2026-07-22
 
 A fourth development-process skill: **`implementation-discipline`** — how a coding agent conducts
