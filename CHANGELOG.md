@@ -20,7 +20,8 @@ plus cross-references in existing skills; nothing renamed, removed, or semantica
   silently resolved — and each kind of surfaced problem routes to its existing channel: the
   escalation rule, the deviation protocol, or a comment on the underspecified issue); **the
   minimum that solves it** (no speculative abstraction or configurability, no handling for
-  scenarios that cannot occur — fail-loud is the minimal form, per `ARCHITECTURE.md`); **every
+  scenarios that cannot occur — an assertion that fails loudly, echoing the method's fail-loud
+  rule, beats a defensive branch); **every
   line traces to the task** (no drive-by improvements — an unrequested improvement becomes an
   issue the planner can tier, never a diff hunk; orphans your own change created are yours to
   remove); **criteria before execution** ("fix the bug" becomes "write the failing test, then make

@@ -37,8 +37,11 @@ merges. Before implementing:
 
 - State your assumptions where the work is recorded — the issue or the PR, not your own context.
   An assumption nobody can read is an assumption nobody can correct.
-- If the task supports more than one interpretation, present the interpretations and stop.
-  Picking one is the planner's decision to make, not yours to bury in an implementation.
+- If the task supports more than one interpretation, present the interpretations and stop —
+  unless resolving that ambiguity is explicitly the task's remit, as it is for a frontier-tier
+  issue (see agent-tiered-planning). Then the rule becomes: resolve it **on the record** — state
+  the reading you chose and why, where a reviewer will see it. What is never yours is the silent
+  resolution, buried in an implementation.
 - Push back when the request itself looks wrong. A cold reader disagreeing with the spec is
   signal, not insubordination — say what looks wrong and why, then wait.
 
@@ -61,10 +64,11 @@ nobody requested. Speculative structure is a bet the backlog has not placed — 
 attention now and carrying weight forever, against a payoff nobody has scheduled.
 
 No error handling for scenarios that cannot occur, either — and this is not licence to swallow
-errors. **Fail-loud is the minimal form** (see `ARCHITECTURE.md`): for a state that genuinely
-cannot happen, an assertion that crashes beats a defensive branch that handles-and-continues,
-because the crash surfaces the impossible state and the branch hides it. The overbuild is the
-recovery path, not the check.
+errors. For a state that genuinely cannot happen, an assertion that fails loudly beats a
+defensive branch that handles-and-continues: the assertion surfaces the impossible state, the
+branch hides it. That is the conduct-level echo of the method's fail-loud rule (`ARCHITECTURE.md`:
+a failure is a named, visible state, never a benign default). The overbuild is the recovery path,
+not the check.
 
 The self-test, before pushing: would a senior engineer reading this diff call it overcomplicated?
 If a 200-line change could be 50, the 50 is the deliverable.
