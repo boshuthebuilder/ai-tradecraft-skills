@@ -50,6 +50,15 @@ When in doubt, it applies.
    strand the branch under you. The bundled `agy-review` harness removes this hazard at source by
    running the reviewer in an isolated worktree (see *The headless-reviewer contract*), but the rule
    still holds for the Codex leg and any CLI you drive raw in the live tree.
+7. **Scope and shape are findings.** The PR description is the stated intent (rule 2), and the diff
+   is checked against it in both directions: a hunk that does not trace to the intent — a drive-by
+   improvement, a reformat of passing lines — is a finding, and so is structure the change does not
+   need — speculative abstraction, configurability without a second caller, handling for scenarios
+   that cannot occur. The authoring-side rules live in implementation-discipline; this is the gate
+   holding a diff to them, where they are defects to name, not taste differences. And since no leg
+   of the chain reads this page, name the lens when you delegate — a label/prompt line such as:
+   "also flag, by reading the diff, any hunk that does not trace to the PR's stated intent, and any
+   abstraction or error handling the change does not need".
 
 ## The fallback chain
 

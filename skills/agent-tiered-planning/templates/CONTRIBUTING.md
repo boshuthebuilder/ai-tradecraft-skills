@@ -14,6 +14,12 @@ comment on the issue describing what is underspecified instead of guessing.
 4. <If the repo has a design lock:> Match the design direction: `docs/design-direction.md` and the
    normative mockups are authoritative for anything user-visible — implement what they show.
 
+## Conduct while building
+
+While implementing, the `implementation-discipline` skill is the rulebook: assumptions surfaced
+before coding, the minimum the issue asks for, every changed line traceable to the issue,
+acceptance criteria as your step-then-verify plan.
+
 ## Agent tiers
 
 Effort labels (`effort:XS` … `effort:XL`) estimate size. `agent:*` labels estimate the capability
