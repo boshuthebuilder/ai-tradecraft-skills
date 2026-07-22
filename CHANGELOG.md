@@ -4,6 +4,25 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v2.8.0 — 2026-07-22
+
+`adversarial-review`: the fallback chain flips to **Gemini-first** (harness leg 1, Codex leg 2) for
+Claude-authored code. A policy change on window economics, not review quality: the Antigravity
+subscription is a budget separate from both the author's Claude plan and Codex's single shared
+ChatGPT-Plus bucket, which rate-walls for *days* at a time and is the capability fit for coding
+work — the reference deployment's routing now reserves it the same way (its 2026-07-22 rebalance,
+family-ai-os v1.31.0). Decided the day Codex hard-walled to the 28th mid-review while the
+Antigravity pools sat at 2–6% weekly. Every harness rule, typed exit, and grant is unchanged; the
+Codex leg keeps its full instructions as the fallback (its review record — including a
+data-loss-class catch the author's tests missed — is called out so nobody reads "fallback" as
+"worse"). The numeric-contract forwarding note is rephrased for the new order: `codex review` still
+cannot carry the contract, so the warning against reaching for it out of habit stays load-bearing.
+A MINOR release: reviewer-selection *policy* changed; no interface, grant, or exit-code change.
+
+### Changed
+- `skills/adversarial-review/SKILL.md`: chain legs 1↔2 with the window-economics rationale inline;
+  Codex leg annotated as fallback with its wall behaviour; numeric-contract forwarding note updated.
+
 ## v2.7.0 — 2026-07-22
 
 `ARCHITECTURE.md` gains **Consuming a pinned release** — the consumer-side half of the pin contract.

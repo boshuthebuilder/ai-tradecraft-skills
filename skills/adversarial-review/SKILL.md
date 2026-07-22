@@ -64,21 +64,19 @@ When in doubt, it applies.
 
 Pick the first *available* reviewer that is a different model from the author:
 
-1. **Codex** (primary when Claude authored) — `codex review --base <main>` reviews the branch diff.
-   Note it takes **no** custom prompt (`--base` and `[PROMPT]` are mutually exclusive), so when you
-   need to forward instructions to the reviewer — a focus, or the evidence contract in *Reviewing a
-   numeric or engineering contract* — use the `codex exec` form in *Bounding a review CLI* instead.
-   Codex doesn't post to the PR itself: relay its findings with `gh pr comment`. Run it bounded and
-   in the background (see *Bounding a review CLI* below); expect a subscription rate wall after
-   roughly a dozen rounds in a session.
-2. **Gemini** — via the bundled harness: `tools/agy-review <pr> [--repo owner/name] [--label
-   focus]` (path relative to this skill's directory — from a clone of this repo that is
-   `skills/adversarial-review/tools/agy-review`), run from inside a checkout of the repo under
-   review. It pre-flights the known silent
+1. **Gemini** (primary when Claude authored) — via the bundled harness: `tools/agy-review <pr>
+   [--repo owner/name] [--label focus]` (path relative to this skill's directory — from a clone of
+   this repo that is `skills/adversarial-review/tools/agy-review`), run from inside a checkout of
+   the repo under review. It pre-flights the known silent
    killers, bounds the run, and verifies success by the *posted PR comment*, never the CLI's exit
    code. `--model "<label>"` runs the review on another Antigravity-pool model (see *Quota-aware
    reviewer selection*), and every result line carries the run's `conversation: <id>` for follow-ups
-   (see *Follow-ups*). Typed exits tell you what happened and what to do:
+   (see *Follow-ups*). Gemini leads on **window economics, not review quality**: the Antigravity
+   subscription is a budget separate from both the author's Claude plan and Codex's single shared
+   ChatGPT-Plus bucket — which rate-walls for *days* and is better saved for the coding work it is
+   the capability fit for. (Flipped from Codex-first 2026-07-22, the day Codex hard-walled to the
+   28th mid-review while the Antigravity pools sat at 2–6% weekly.) Typed exits tell you what
+   happened and what to do:
 
    | exit | status | next action |
    |---|---|---|
@@ -102,6 +100,17 @@ Pick the first *available* reviewer that is a different model from the author:
    conversation autopsy (see *Follow-ups*) to recover the exact command it proposed. When the diff
    under review is shell, that command is often `bash -c` reaching to test a shell semantic
    empirically (see *The headless-reviewer contract*).
+
+2. **Codex** (fallback) — `codex review --base <main>` reviews the branch diff. Note it takes **no**
+   custom prompt (`--base` and `[PROMPT]` are mutually exclusive), so when you need to forward
+   instructions to the reviewer — a focus, or the evidence contract in *Reviewing a numeric or
+   engineering contract* — use the `codex exec` form in *Bounding a review CLI* instead. Codex
+   doesn't post to the PR itself: relay its findings with `gh pr comment`. Run it bounded and in
+   the background (see *Bounding a review CLI* below); expect a subscription rate wall after
+   roughly a dozen rounds in a session — the wall locks the shared bucket for days, which is why
+   this leg is the fallback rather than the lead. Its review quality has earned its place in the
+   chain (it has caught data-loss-class bugs the author's own tests missed); reach for it when the
+   Gemini leg dies typed or when a second independent model is worth the window.
 
 3. **Independent same-vendor agent** (last resort) — spawn a fresh agent of the author's own vendor
    with *no shared context*: hand it only the PR diff, the PR description, and a mandate to break
@@ -151,8 +160,9 @@ label-hygiene rules (static reading, name only permitted extras, never cite an e
 - **Codex** — pass it in the prompt to `codex exec` (see *Bounding a review CLI*). Note that
   `codex review --base <branch>` takes **no** custom prompt: the two are mutually exclusive
   (`the argument '--base <BRANCH>' cannot be used with '[PROMPT]'`), so `exec` is the form that can
-  carry this contract. Forwarding matters most here — Codex is the primary leg for Claude-authored
-  code, so it is the leg most numeric reviews actually run on.
+  carry this contract. On the Gemini-first chain most numeric reviews run through the harness's
+  `--label`, but forwarding still matters most on this leg: `codex review` is the form that CANNOT
+  carry the contract, so reaching for it out of habit silently drops the whole protocol.
 - **Independent agent** — include it in the brief, alongside the diff and PR description.
 
 ```

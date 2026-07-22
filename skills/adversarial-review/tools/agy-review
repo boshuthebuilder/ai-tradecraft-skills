@@ -1,8 +1,8 @@
 #!/bin/bash
 # agy-review — run an adversarial cross-model review of a GitHub PR via the Antigravity
-# CLI (agy), deterministically and fail-loud. The Gemini leg of the adversarial-review
-# skill's fallback chain (Codex → Gemini → independent agent). Repo-agnostic: run it from
-# inside a checkout of the repo under review.
+# CLI (agy), deterministically and fail-loud. The PRIMARY leg of the adversarial-review
+# skill's fallback chain (Gemini → Codex → independent agent, v2.8.0). Repo-agnostic: run
+# it from inside a checkout of the repo under review.
 #
 #   agy-review <pr-number> [--repo owner/name] [--label <text>] [--model <label>]
 #
@@ -334,7 +334,7 @@ elif grep -Eq "^jetski: .*auto-denied" "$OUT"; then
 elif grep -Eiq "^(jetski|error): .*(not logged in|not signed in|authentication required)" "$OUT"; then
   echo "agy-review: auth-needed — run 'agy' once interactively to sign in" >&2; exit 2
 else
-  echo "agy-review: no-comment — agy exited rc=$RC without posting; advance the fallback chain (independent agent)" >&2
+  echo "agy-review: no-comment — agy exited rc=$RC without posting; advance the fallback chain (Codex, then independent agent)" >&2
   [ "${WAITS:-0}" -ge 3 ] && note_window_burn
   exit 5
 fi
