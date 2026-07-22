@@ -10,7 +10,7 @@
     {
       "name": "ai-os-skills",
       "source": "./",
-      "description": "Agent Skills for the AI-OS framework: the knowledge layer (project-onboarding, wiki-onboarding, wiki-maintenance, user-onboarding) and the development-process trio (agent-tiered-planning, design-direction-lock, adversarial-review)."
+      "description": "Agent Skills for the AI-OS framework: the knowledge layer (project-onboarding, wiki-onboarding, wiki-maintenance, user-onboarding) and the development-process quartet (agent-tiered-planning, design-direction-lock, implementation-discipline, adversarial-review)."
     }
   ]
 }

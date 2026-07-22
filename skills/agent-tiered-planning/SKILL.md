@@ -7,7 +7,8 @@ description: >-
   escalation rule when an issue exceeds its tier. Use when a repo's backlog is executed by more than
   one class of agent — at planning time (assign tiers as issues are written) and at pickup time (the
   protocol any cold agent follows). Pairs with design-direction-lock (how standard-tier agents safely
-  take design-facing work) and adversarial-review (the gate the upper tiers mandate).
+  take design-facing work), implementation-discipline (how any tier conducts itself inside an
+  issue), and adversarial-review (the gate the upper tiers mandate).
 ---
 
 # agent-tiered-planning
@@ -60,8 +61,9 @@ the character of work does not):
 
 The rules live in the repo, not in anyone's head: a short `CONTRIBUTING.md` (template bundled) that
 every cold agent reads before picking up work. It carries the pickup protocol, the tier
-definitions, the escalation rule, and the review-gate coupling — so an agent with no conversation
-history can act correctly from the issue text alone. This presumes the repo's issues are themselves
+definitions, the escalation rule, the review-gate coupling, and a pointer to the authoring
+conduct rules (see implementation-discipline) — so an agent with no conversation history can act
+correctly from the issue text alone. This presumes the repo's issues are themselves
 written for cold readers (acceptance criteria, explicit dependencies); tiering does not rescue an
 underspecified backlog.
 
@@ -108,7 +110,7 @@ where that decision is recorded.
 ## Templates
 
 - `templates/CONTRIBUTING.md` — the playbook skeleton: pickup protocol, tier definitions,
-  escalation rule, review-gate coupling. Adapt names and conventions; keep the escalation economics
-  sentence.
+  escalation rule, review-gate coupling, conduct pointer. Adapt names and conventions; keep the
+  escalation economics sentence.
 - `templates/labels.sh` — `gh label create` commands for the `agent:*` scheme (and the `effort:*`
   scheme where the repo lacks one).

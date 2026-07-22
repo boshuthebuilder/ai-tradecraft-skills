@@ -4,6 +4,39 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v2.6.0 — 2026-07-22
+
+A fourth development-process skill: **`implementation-discipline`** — how a coding agent conducts
+itself while writing a change. The trio becomes a quartet, spanning plan (tier the work), build
+(lock the design, discipline the change), gate (review the change). A MINOR release: a new skill
+plus cross-references in existing skills; nothing renamed, removed, or semantically changed.
+
+### Added
+- **`implementation-discipline`** — the authoring-conduct convention, distilled from
+  widely-observed LLM coding failure modes ([Karpathy's January 2026
+  post](https://x.com/karpathy/status/2015883857489522876) and [the community skill that grew from
+  it](https://github.com/multica-ai/andrej-karpathy-skills)) and rehomed in this repo's method.
+  Four disciplines: **assumptions before code** (competing interpretations are presented, not
+  silently resolved — and each kind of surfaced problem routes to its existing channel: the
+  escalation rule, the deviation protocol, or a comment on the underspecified issue); **the
+  minimum that solves it** (no speculative abstraction or configurability, no handling for
+  scenarios that cannot occur — fail-loud is the minimal form, per `ARCHITECTURE.md`); **every
+  line traces to the task** (no drive-by improvements — an unrequested improvement becomes an
+  issue the planner can tier, never a diff hunk; orphans your own change created are yours to
+  remove); **criteria before execution** ("fix the bug" becomes "write the failing test, then make
+  it pass" — the implementer-side mirror of the standard-tier spec-completeness rule). The skill
+  is the single home of the conduct rules; existing skills reference it rather than restate it.
+
+### Changed
+- **`adversarial-review`** — a seventh rule: **scope and shape are findings**. A hunk that does
+  not trace to the PR's stated intent, and structure the change does not need, are defects to
+  name — with a forwardable lens phrase for delegated reviewers, who never read the skill page.
+- **`agent-tiered-planning`** — the playbook template gains a short *Conduct while building*
+  section, so cold agents meet the conduct rules at pickup; the SKILL.md's template enumeration
+  and frontmatter pairing note updated to match.
+- **README + plugin manifests** — the development-process trio is now a quartet; descriptions
+  updated accordingly.
+
 ## v2.5.1 — 2026-07-21
 
 The `adversarial-review` review prompt now **bans the project's test suite**, and the harness names
