@@ -334,7 +334,7 @@ elif grep -Eq "^jetski: .*auto-denied" "$OUT"; then
 elif grep -Eiq "^(jetski|error): .*(not logged in|not signed in|authentication required)" "$OUT"; then
   echo "agy-review: auth-needed — run 'agy' once interactively to sign in" >&2; exit 2
 else
-  echo "agy-review: no-comment — agy exited rc=$RC without posting; advance the fallback chain (independent agent)" >&2
+  echo "agy-review: no-comment — agy exited rc=$RC without posting; advance the fallback chain (Codex, then independent agent)" >&2
   [ "${WAITS:-0}" -ge 3 ] && note_window_burn
   exit 5
 fi
