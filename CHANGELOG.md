@@ -4,6 +4,32 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v2.7.0 — 2026-07-22
+
+`ARCHITECTURE.md` gains **Consuming a pinned release** — the consumer-side half of the pin contract.
+The repo already told a deployment to pin a tag and advance it deliberately; it never said what
+enforcing that requires, and the reference deployment proved the gap the expensive way. A MINOR
+release (a new section; nothing renamed, removed, or semantically changed).
+
+### Added
+- **`ARCHITECTURE.md` → *Consuming a pinned release***, harvested from a production regression in the
+  reference deployment: its deploy hook once checked the pinned ref out, the step was dropped by an
+  unrelated rewrite, and for weeks advancing the pin changed a file that nothing read — the pinned
+  tier still *resolved* from a stale clone, so unattended jobs ran an old method with nothing failing,
+  and the health row's own remediation ("redeploy") was exactly what did not help. The section states
+  what a consumer owes the pin: **enforce it as a deploy gate** (a release that cannot obtain its
+  skills must not activate; fetch tags without `--force` so a moved tag fails loudly rather than
+  substituting unreviewed code); **verify before the switch** (materialise the candidate in a
+  throwaway worktree — checking out first and verifying second leaves a window in which a scheduled
+  job reads an unverified tree); **verify against what the deployment actually consumes** — declared
+  skills, the archetype paths its templates derive from, and above all the **placeholders** those
+  templates use, since substitution leaves unknown tokens verbatim and an archetype that grows a field
+  the deployment does not supply ships `{like_this}` into a live prompt with no error anywhere;
+  **judge drift on content, not the tag**; and **keep the fallback visible**, since a bundled-copy
+  fallback is a method version nothing verified.
+- **`AGENTS.md`** — the consumer-contract paragraph now points at that section for what
+  "deliberately" requires, rather than leaving it to each deployment to discover.
+
 ## v2.6.2 — 2026-07-22
 
 The `adversarial-review` shell-diff label now **pre-answers the semantics a reviewer would otherwise

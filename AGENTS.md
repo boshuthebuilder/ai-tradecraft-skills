@@ -57,4 +57,7 @@ contract change.
 
 Consumers pin a **tag**, never track `main`. A deployment advances its pin deliberately (in its
 own config, with its own review), so `main` here may move freely between releases — breaking
-changes cost a MAJOR bump, not a coordinated migration.
+changes cost a MAJOR bump, not a coordinated migration. What "deliberately" requires of the
+*consumer* — enforce the pin as a deploy gate, verify a candidate before the switch and against what
+the deployment actually consumes, judge drift on content — is
+[*Consuming a pinned release*](ARCHITECTURE.md#consuming-a-pinned-release).
