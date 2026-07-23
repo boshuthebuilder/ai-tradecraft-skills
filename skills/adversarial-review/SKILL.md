@@ -62,9 +62,16 @@ When in doubt, it applies.
 
 ## The fallback chain
 
-Pick the first *available* reviewer that is a different model from the author:
+Pick the first *available* reviewer whose model differs from the author's. Three concrete legs — Gemini,
+Claude, Codex — each eligible whenever the author is **not** that model; order the eligible ones by
+diversity first, then window economics (lead with the idle Antigravity pool; conserve the walled Codex
+bucket and the Max window Claude shares with interactive work). The recurring case is a **Claude-authored**
+change, whose order is therefore Gemini → Codex (Claude itself is ineligible). A **Codex-** or
+**Gemini-authored** change has Claude as a first-class leg, not the last resort — do not reach past it to a
+same-model reviewer.
 
-1. **Gemini** (primary when Claude authored) — via the bundled harness: `tools/agy-review <pr>
+1. **Gemini** — the idle-pool lead; ineligible only when Gemini authored the change. Via the bundled
+   harness: `tools/agy-review <pr>
    [--repo owner/name] [--label focus]` (path relative to this skill's directory — from a clone of
    this repo that is `skills/adversarial-review/tools/agy-review`), run from inside a checkout of
    the repo under review. It pre-flights the known silent
@@ -101,20 +108,56 @@ Pick the first *available* reviewer that is a different model from the author:
    under review is shell, that command is often `bash -c` reaching to test a shell semantic
    empirically (see *The headless-reviewer contract*).
 
-2. **Codex** (fallback) — `codex review --base <main>` reviews the branch diff. Note it takes **no**
-   custom prompt (`--base` and `[PROMPT]` are mutually exclusive), so when you need to forward
-   instructions to the reviewer — a focus, or the evidence contract in *Reviewing a numeric or
-   engineering contract* — use the `codex exec` form in *Bounding a review CLI* instead. Codex
-   doesn't post to the PR itself: relay its findings with `gh pr comment`. Run it bounded and in
+2. **Claude** — ineligible only when Claude authored the change; for a Codex- or Gemini-authored change
+   this is a first-class leg. There is **no bundled harness** — none is needed, because Claude does not
+   share the hostile silent-failure modes that forced the Gemini harness into being: print mode returns
+   findings on stdout and a **non-zero exit on hard failure**, so success is directly observable. Drive
+   it like the Codex leg below. Two forms: when your driver is **Claude Code**, spawn a fresh subagent
+   (the Task tool) with *no shared context*; otherwise run **`claude -p`** headless. Either way hand it
+   ONLY the PR diff, the PR description, and a mandate to break the change — plus the scope-and-shape lens
+   (rule 7), which no reviewer reads off this page. Claude posts nothing itself: relay its findings with
+   `gh pr comment`, naming the reviewer. Bound a `claude -p` run like any review CLI (see *Bounding a
+   review CLI*). (If you ever drive this leg headlessly often enough to feel the hand-rolling, that pain —
+   not symmetry with `agy-review` — is the trigger to build a `tools/claude-review` harness; until then a
+   speculative one is exactly the structure rule 7 says not to add.)
+
+3. **Codex** — ineligible only when Codex authored the change. `codex review --base <main>` reviews the
+   branch diff. Note it takes **no** custom prompt (`--base` and `[PROMPT]` are mutually exclusive), so
+   when you need to forward instructions to the reviewer — a focus, or the evidence contract in *Reviewing
+   a numeric or engineering contract* — use the `codex exec` form in *Bounding a review CLI* instead.
+   Codex doesn't post to the PR itself: relay its findings with `gh pr comment`. Run it bounded and in
    the background (see *Bounding a review CLI* below); expect a subscription rate wall after
    roughly a dozen rounds in a session — the wall locks the shared bucket for days, which is why
-   this leg is the fallback rather than the lead. Its review quality has earned its place in the
+   it sits last among the different-model legs. Its review quality has earned its place in the
    chain (it has caught data-loss-class bugs the author's own tests missed); reach for it when the
-   Gemini leg dies typed or when a second independent model is worth the window.
+   Gemini or Claude leg dies typed or when a second independent model is worth the window.
 
-3. **Independent same-vendor agent** (last resort) — spawn a fresh agent of the author's own vendor
-   with *no shared context*: hand it only the PR diff, the PR description, and a mandate to break
-   the change. Disclose on the PR that the gate ran same-vendor.
+**Last resort — same-model, disclosed.** When *no* different-model reviewer is available (every other
+model's CLI missing or walled), run a same-model reviewer: a fresh agent of the author's own model with
+*no shared context*, handed only the PR diff, the PR description, and a mandate to break the change.
+Disclose on the PR that the gate ran same-model, so the weaker diversity is visible. This is the floor,
+never a substitute for an available different-model leg.
+
+## Prerequisites — what each leg needs before you pick it
+
+The **Gemini** leg self-enforces: `tools/agy-review` pre-flights its prerequisites at runtime and fails
+with a typed exit — `6` if `agy`/`gh`/`git`/`python3` is off PATH or you are not inside the repo's
+checkout, `2` if `agy` is not signed in, `3` if a grant is missing (*Machine setup*). You need not check
+by hand before that leg.
+
+The **Claude** and **Codex** legs have **no wrapper** — nothing pre-flights them, so a missing CLI or a
+dead login surfaces only as a failed run mid-review. Confirm them yourself first. Every leg also needs
+`gh` authenticated and a git checkout of the repo under review; findings post as PR comments.
+
+| leg | CLIs | auth / setup | one-line check |
+|---|---|---|---|
+| Gemini | `agy` `gh` `git` `python3` | signed into Antigravity + one-time grants (*Machine setup*) | `agy models` lists models (the harness checks the rest) |
+| Claude | `claude` `gh` | signed into Claude | `claude -p "reply with ok"` returns `ok` |
+| Codex | `codex` `gh` | signed into ChatGPT (Codex) | `codex --version`, and `codex exec "say ok"` answers |
+| all | `gh` | `gh auth login` | `gh auth status` is green, run from inside the repo checkout |
+
+A cold machine typically fails on auth (a CLI installed but not signed in) or, for Gemini, the one-time
+grants — both are `agy models` / `claude -p` / `codex exec` away from a clear answer.
 
 ## Reviewing a numeric or engineering contract
 
@@ -157,13 +200,15 @@ none of the hit rate above. Forward the block below on whichever leg you use, ke
 label-hygiene rules (static reading, name only permitted extras, never cite an external reference):
 
 - **Gemini** — pass it as `tools/agy-review <pr> --label "…"`.
+- **Claude** — include it in the subagent brief or the `claude -p` prompt, alongside the diff and PR
+  description.
 - **Codex** — pass it in the prompt to `codex exec` (see *Bounding a review CLI*). Note that
   `codex review --base <branch>` takes **no** custom prompt: the two are mutually exclusive
   (`the argument '--base <BRANCH>' cannot be used with '[PROMPT]'`), so `exec` is the form that can
-  carry this contract. On the Gemini-first chain most numeric reviews run through the harness's
-  `--label`, but forwarding still matters most on this leg: `codex review` is the form that CANNOT
-  carry the contract, so reaching for it out of habit silently drops the whole protocol.
-- **Independent agent** — include it in the brief, alongside the diff and PR description.
+  carry this contract. When the Gemini leg runs, a numeric review rides the harness's `--label`, but
+  forwarding matters most on THIS leg: `codex review` is the form that CANNOT carry the contract, so
+  reaching for it out of habit silently drops the whole protocol.
+- **Same-model last resort** — include it in the brief, alongside the diff and PR description.
 
 ```
 Numeric contract. For EVERY finding give concrete inputs, the value the change produces, and the
@@ -271,8 +316,8 @@ comment can kill a run whose review is already complete. When an autopsy shows a
 that simply failed to post, first ask the resumed run to re-post with a plainer body; if that is
 denied too, **relay it yourself**: post the reviewer's verdict verbatim with `gh pr comment`,
 naming the reviewer, noting the relay, and including the conversation id — the same pattern the
-Codex leg (which cannot post at all) uses routinely. The gate's requirement is an auditable verdict
-on the PR, not that the reviewer's own process wrote the bytes.
+Claude and Codex legs (which post nothing themselves) use routinely. The gate's requirement is an
+auditable verdict on the PR, not that the reviewer's own process wrote the bytes.
 
 ## The headless-reviewer contract
 
