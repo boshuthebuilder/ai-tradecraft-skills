@@ -4,6 +4,18 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v3.1.1 — 2026-07-23
+
+A **PATCH** to `adversarial-review`: no contract change, one gap closed in the exit-3 triage. The
+exit-code table and the prose beneath it now split the *intact-grants* permission-denied case by its
+**narration tail** — a tail that died mid-read reaching for a command routes to the invented-command
+autopsy (as before), while a tail showing a *finished verdict whose only denial was the posting step*
+(the print-mode soft-deny) routes first to **the relay salvage**, not the command hunt. "The relay
+salvage" is generalised to match: its cause was stated narrowly as backticks in the `--body`, and now
+covers any command the config denies at the posting step, cross-linked to the fallback chain. Harvested
+from the v3.0.0 release review (#42). All three plugin manifests bump to 3.1.1 per the single-version-
+stream rule.
+
 ## v3.1.0 — 2026-07-23
 
 A **third direction, `productivity`** (displayName "AI Productivity"), created together with its first

@@ -89,7 +89,7 @@ same-model reviewer.
    |---|---|---|
    | 0 | ok | comment is on the PR — read it, address it |
    | 2 | auth-needed | run `agy` once interactively to sign in, retry |
-   | 3 | permission-denied | grants intact → autopsy for the invented command (below); grants missing a rule → restore (*Machine setup*), retry |
+   | 3 | permission-denied | grants missing a rule → restore (*Machine setup*), retry; grants intact → read the narration tail: a posting-step denial → relay salvage (*Follow-ups*), else autopsy for the invented command (below) |
    | 4 | timeout | treat this leg as done; advance the chain |
    | 5 | no-comment | narration tail is printed for diagnosis; advance the chain |
    | 6 | bad-args / missing prerequisites | fix the invocation |
@@ -102,11 +102,17 @@ same-model reviewer.
    conversation autopsy (see *Follow-ups*) are what confirm any death.
 
    And exit 3 is not always a missing grant. An **intact** grants block — every documented rule
-   present — with a permission-denied exit means the reviewer invented an un-granted command mid-run,
-   not that a rule fell out of `config.json`; editing config is the wrong lead. Go straight to the
-   conversation autopsy (see *Follow-ups*) to recover the exact command it proposed. When the diff
-   under review is shell, that command is often `bash -c` reaching to test a shell semantic
-   empirically (see *The headless-reviewer contract*).
+   present — with a permission-denied exit is not a `config.json` regression; editing config is the
+   wrong lead. Which recovery to reach for is settled by the **narration tail**, and its two shapes
+   want opposite responses. A tail that dies *mid-read*, reaching for a command, is the reviewer
+   inventing an un-granted command: go straight to the conversation autopsy (see *Follow-ups*) to
+   recover the exact command it proposed — when the diff under review is shell, that command is often
+   `bash -c` reaching to test a shell semantic empirically (see *The headless-reviewer contract*). A
+   tail that instead shows a **finished verdict whose only denial was the posting step** — the review
+   is composed, and a command the config does not allow was soft-denied as it tried to post (the
+   print-mode shape) — is not an invented-command death at all: the first response is the **relay
+   salvage** (see *Follow-ups*), recovering the composed review from the kept conversation and
+   relaying it, before you treat the leg as spent.
 
 2. **Claude** — ineligible only when Claude authored the change; for a Codex- or Gemini-authored change
    this is a first-class leg. There is **no bundled harness** — none is needed, because Claude does not
@@ -310,9 +316,12 @@ to do* ("what exact command did you propose at the final step, and why?"), which
 opaque typed failure into the missing grant — and once revealed that the dying reviewer had been
 mid-way to a genuine defect the next leg later confirmed.
 
-**The relay salvage.** The posting step is the fragile one: the permission validator shell-parses
-the composed `--body`, so backticks, escape sequences, or nested quoting in an otherwise-legitimate
-comment can kill a run whose review is already complete. When an autopsy shows a finished verdict
+**The relay salvage.** The posting step is the fragile one, and it fails in more than one way. The
+permission validator shell-parses the composed `--body`, so backticks, escape sequences, or nested
+quoting in an otherwise-legitimate comment can kill a run whose review is already complete; and more
+broadly, *any* command the config does not allow at the posting step — soft-denied in print mode
+rather than refused loudly — ends the run the same way, the exit-3-with-intact-grants shape whose
+narration tail shows a finished verdict (see *The fallback chain*). When an autopsy shows a finished verdict
 that simply failed to post, first ask the resumed run to re-post with a plainer body; if that is
 denied too, **relay it yourself**: post the reviewer's verdict verbatim with `gh pr comment`,
 naming the reviewer, noting the relay, and including the conversation id — the same pattern the
