@@ -16,7 +16,12 @@ own:
 The conventions live in **one home**, so interactive Claude Code / Cowork sessions and automated
 pipelines share the same logic.
 
-## Install (Claude Code / Cowork)
+## Install
+
+The skills are self-contained method prose in the open [`SKILL.md`](https://code.claude.com/docs/en/skills)
+format, so they work in any agent that reads it — install only the direction you need.
+
+### Claude Code / Cowork
 
 ```
 /plugin marketplace add boshuthebuilder/ai-tradecraft-skills
@@ -24,8 +29,23 @@ pipelines share the same logic.
 /plugin install ai-os@ai-tradecraft-skills
 ```
 
-You don't need any particular system to use these — they're self-contained method prose, no
-private data. Install only the direction you need.
+### ChatGPT (Codex CLI)
+
+Codex reads the same `SKILL.md` format but has no marketplace — you place skill folders where it
+looks for them ([OpenAI: *Build skills*](https://learn.chatgpt.com/docs/build-skills)). Clone
+the repo and symlink the directions you want into your user-level skills directory, then start a new
+Codex session:
+
+```bash
+git clone https://github.com/boshuthebuilder/ai-tradecraft-skills.git
+mkdir -p ~/.agents/skills
+ln -s "$PWD"/ai-tradecraft-skills/plugins/coding/skills/* ~/.agents/skills/
+ln -s "$PWD"/ai-tradecraft-skills/plugins/ai-os/skills/*   ~/.agents/skills/
+```
+
+Invoke a skill with `$<name>` (e.g. `$adversarial-review`), or let Codex select one automatically.
+Symlinks keep them current — `git pull` in the clone updates every linked skill. (The same folders
+work in any other agent that reads `.agents/skills`, e.g. Cursor or Gemini CLI.)
 
 ## The `coding` direction
 
