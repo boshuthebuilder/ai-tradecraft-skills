@@ -1,16 +1,24 @@
 {
-  "name": "ai-os-skills",
+  "name": "ai-tradecraft-skills",
   "owner": {
     "name": "Boshu Zhang"
   },
   "metadata": {
-    "description": "Framework + Agent Skills for a headless AI assisting system over real folders — an in-folder knowledge wiki, plus the development process that builds it. Shared across Claude Code / Cowork sessions and any automated pipeline."
+    "description": "A method library of Agent Skills for AI-agent-driven work, organised by direction: coding (development-process discipline for coding agents — plan, build, gate) and ai-os (the headless AI assisting system — job archetypes, wiki onboarding and maintenance). Shared by interactive Claude Code / Cowork sessions and automated pipelines."
   },
   "plugins": [
     {
-      "name": "ai-os-skills",
-      "source": "./",
-      "description": "Agent Skills for the AI-OS framework: the knowledge layer (project-onboarding, wiki-onboarding, wiki-maintenance, user-onboarding) and the development-process quartet (agent-tiered-planning, design-direction-lock, implementation-discipline, adversarial-review)."
+      "name": "coding",
+      "source": "./plugins/coding",
+      "description": "Development-process skills for coding agents: agent-tiered-planning, design-direction-lock, implementation-discipline, adversarial-review — plan, build, and gate a change across a mixed-capability agent pool."
+    },
+    {
+      "name": "ai-os",
+      "source": "./plugins/ai-os",
+      "description": "Framework + Agent Skills for a headless AI assisting system over real folders: project-onboarding, wiki-onboarding, wiki-maintenance, user-onboarding."
     }
-  ]
+  ],
+  "renames": {
+    "ai-os-skills": null
+  }
 }

@@ -1,0 +1,8 @@
+{
+  "name": "coding",
+  "description": "Development-process skills for coding agents: plan (agent-tiered-planning), build (design-direction-lock, implementation-discipline), gate (adversarial-review) — practices that move judgment upstream into artifacts so cheaper agents stay safe to use. Works in any Claude Code or Cowork session, and can be consumed by an automated pipeline from the same source.",
+  "version": "3.0.0",
+  "author": {
+    "name": "Boshu Zhang"
+  }
+}
