@@ -4,6 +4,32 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v2.9.0 — 2026-07-23
+
+`adversarial-review`: the fallback chain becomes **author-agnostic**, and **Claude joins as a first-class
+reviewer leg**. Rule 1 already said "if Codex wrote it, Gemini or Claude reviews it" and the skill's own
+scope claims "any coding agent," but the concrete chain didn't deliver it: Gemini was "primary when Claude
+authored," Codex was the fallback, and Claude appeared only as the same-vendor *last resort* — so a Codex-
+or Gemini-authored change had no documented way to run its most diverse reviewer (Claude), and mislabelled
+it as the weak floor. Now the three legs (Gemini · Claude · Codex) are each eligible whenever the author is
+a different model, ordered diversity-first then window-economics; same-**model** review is the disclosed
+last resort. The Claude leg is documented, not scripted — `claude -p` headless or a fresh no-context
+subagent, relayed via `gh pr comment`, driven like the Codex leg — because Claude lacks the silent-failure
+modes that forced the Gemini harness (print mode exits non-zero on hard failure), and a speculative
+`tools/claude-review` would be the very structure rule 7 forbids until a real driver feels the pain.
+
+Also adds a **Prerequisites** section: the CLI + auth each leg needs and a one-line check, stating plainly
+that the `agy-review` harness self-enforces its prerequisites (typed exits) while the Codex and Claude legs
+have no wrapper and must be checked by hand. A MINOR release: a new reviewer leg + a new doc section; no
+grant, exit-code, or harness-behaviour change, and the numeric-contract forwarding block gains a Claude
+line.
+
+### Changed
+- `skills/adversarial-review/SKILL.md`: author-agnostic chain intro; Claude leg added, Codex renumbered,
+  same-model last resort generalised; `Prerequisites` section; Claude added to the numeric-contract
+  forwarding bullets.
+- `README.md`: chain description updated to the author-agnostic three-leg form.
+
 ## v2.8.0 — 2026-07-22
 
 `adversarial-review`: the fallback chain flips to **Gemini-first** (harness leg 1, Codex leg 2) for
