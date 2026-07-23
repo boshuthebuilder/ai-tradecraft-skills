@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Pre-push guardrail: run the skills linter before anything leaves the machine.
+#
+# scripts/lint_skills.py already enforces that every plugin manifest's version
+# equals the newest CHANGELOG release (and that the version stream is in sync).
+# CI runs it on push and PR, but that is *after* the push — including after a tag
+# push. This hook runs the same check locally first, so a manifest/CHANGELOG
+# version drift is caught before a branch or tag ever leaves the machine.
+#
+# Enable once per clone:  git config core.hooksPath .githooks
+set -euo pipefail
+
+root="$(git rev-parse --show-toplevel)"
+linter="$root/scripts/lint_skills.py"
+
+# Tooling-only clones may not carry the linter; do not block those.
+[ -f "$linter" ] || exit 0
+
+if ! python3 "$linter"; then
+  echo "" >&2
+  echo "pre-push: lint_skills.py failed — push aborted." >&2
+  echo "  Most often this is a manifest/CHANGELOG version mismatch: every" >&2
+  echo "  plugins/*/.claude-plugin/plugin.json 'version' must equal the newest" >&2
+  echo "  '## vX.Y.Z' heading in CHANGELOG.md. Fix the reported issue and retry." >&2
+  exit 1
+fi

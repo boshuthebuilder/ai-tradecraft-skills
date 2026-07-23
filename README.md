@@ -178,3 +178,13 @@ Three extension points:
   the shape of `file-ingest`. See
   [`plugins/ai-os/ARCHITECTURE.md`](plugins/ai-os/ARCHITECTURE.md) for what an archetype must
   define.
+
+### Local checks
+
+CI runs `scripts/lint_skills.py` on every push and PR. To catch the same failures *before* a push
+leaves your machine — most usefully a manifest/`CHANGELOG.md` version mismatch, before a release
+tag goes out — enable the bundled pre-push hook once per clone:
+
+```
+git config core.hooksPath .githooks
+```
