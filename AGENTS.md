@@ -2,8 +2,9 @@
 
 This repo is the **method**: a library of Agent Skills for AI-agent-driven work, organised by
 **direction** — each direction a real Claude Code plugin under `plugins/<direction>/`. Today:
-`coding` (the development-process discipline for coding agents) and `ai-os` (skills and job
-archetypes for a headless AI assisting system over a person's real folders). Deployments consume
+`coding` (the development-process discipline for coding agents), `ai-os` (skills and job
+archetypes for a headless AI assisting system over a person's real folders), and `productivity`
+(skills for individual AI-assisted work, starting with the `ai-writing-audit` check). Deployments consume
 the repo as a **pinned dependency** — they resolve skills from a clone checked out at a release
 tag and advance that pin deliberately. The ai-os direction's design is
 [`plugins/ai-os/ARCHITECTURE.md`](plugins/ai-os/ARCHITECTURE.md); the reference deployment is
@@ -32,7 +33,7 @@ Releases are **semver tags** `vMAJOR.MINOR.PATCH`, recorded in [`CHANGELOG.md`](
 The versioned *interface* is everything a consumer may depend on:
 
 - **skill names and their frontmatter contracts** (`wiki-onboarding`, `wiki-maintenance`,
-  `project-onboarding`) and the `plugins/<direction>/skills/<name>/SKILL.md` layout;
+  `project-onboarding`, `ai-writing-audit`) and the `plugins/<direction>/skills/<name>/SKILL.md` layout;
 - **archetype directory layout** under
   `plugins/ai-os/skills/project-onboarding/archetypes/<archetype>/`
   (the file set: `README.md`, `jobs.yaml`, prompt templates, `scheduler.md`) and the

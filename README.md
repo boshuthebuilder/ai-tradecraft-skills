@@ -9,9 +9,8 @@ own:
 - **`ai-os`** — the framework and skills for a **headless AI assisting system**: one that runs
   unattended over a person's real folders, notices what changed, reasons over it, and keeps a
   synthesised layer current without being asked.
-- **`productivity`** *(planned)* — skills for individual AI-assisted work; the first candidate is
-  an AI-writing check. The direction is created together with its first skill, never as an empty
-  placeholder.
+- **`productivity`** — skills for individual AI-assisted work. The first is `ai-writing-audit`:
+  check a draft for the signs of AI authorship and rewrite so it reads as human.
 
 The conventions live in **one home**, so interactive Claude Code / Cowork sessions and automated
 pipelines share the same logic.
@@ -27,6 +26,7 @@ format, so they work in any agent that reads it — install only the direction y
 /plugin marketplace add boshuthebuilder/ai-tradecraft-skills
 /plugin install coding@ai-tradecraft-skills
 /plugin install ai-os@ai-tradecraft-skills
+/plugin install productivity@ai-tradecraft-skills
 ```
 
 ### ChatGPT (Codex CLI)
@@ -38,6 +38,7 @@ no cloning or symlinking:
 codex plugin marketplace add boshuthebuilder/ai-tradecraft-skills
 codex plugin add coding@ai-tradecraft-skills
 codex plugin add ai-os@ai-tradecraft-skills
+codex plugin add productivity@ai-tradecraft-skills
 ```
 
 Start a new Codex session; each plugin's bundled skills load on demand — invoke one with `$<name>`
@@ -46,7 +47,8 @@ support (`codex plugin --help`); verified against `codex-cli 0.144.1`.
 
 Any other agent that reads the open [`SKILL.md`](https://learn.chatgpt.com/docs/build-skills) format
 from a skills directory (Cursor, Gemini CLI, …) can instead symlink the skill folders it wants —
-`plugins/coding/skills/*` and `plugins/ai-os/skills/*` — into that agent's skills path.
+`plugins/coding/skills/*`, `plugins/ai-os/skills/*`, and `plugins/productivity/skills/*` — into
+that agent's skills path.
 
 ## The `coding` direction
 
@@ -135,6 +137,18 @@ If a folder is also maintained by a scheduled automation (an unattended safety n
 edits are never clobbered: a well-behaved system hashes every file it writes, so when it sees a
 page you changed it proposes a `.proposed.md` sibling instead of overwriting. Inline maintenance
 is first-class; the scheduled pass is the backstop.
+
+## The `productivity` direction
+
+Skills for individual AI-assisted knowledge work — the prose and craft an agent produces on your
+behalf, rather than the code or the folder.
+
+- **`ai-writing-audit`** — audit a draft for the signs of AI authorship and rewrite to remove them.
+  It judges by clusters and structure, not a single banned word: leaked citation markup and low
+  sentence-length variance are near-decisive, while vocabulary and em-dashes only contribute to a
+  score. Carries the pattern catalogue (`REFERENCE.md`, sourced and era-tagged, verified against the
+  2026 landscape) and a triage scanner (`tools/audit.py`) that grades hits into evidence bands. Use
+  it on any prose you are about to share so it reads as a person wrote it.
 
 ## How updates propagate
 
