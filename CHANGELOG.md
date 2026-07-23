@@ -4,6 +4,70 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v3.0.0 — 2026-07-23
+
+**Breaking** — the repo repurposes from "the headless-AI-OS method" into a **method library of
+Agent Skills for AI-agent-driven work, organised by direction**, and restructures from a single
+flat plugin into a multi-plugin marketplace: one real Claude Code plugin per direction. The two
+families the flat layout already kept strictly separate — zero cross-references between them,
+skill by skill — become two independently installable plugins: **`coding`**
+(agent-tiered-planning, design-direction-lock, implementation-discipline, adversarial-review) and
+**`ai-os`** (project-onboarding, user-onboarding, wiki-onboarding, wiki-maintenance, plus
+`ARCHITECTURE.md`, which is that direction's own design doc and never mentioned the coding
+family). A third direction, `productivity`, follows in a later MINOR together with its first
+skill — never as an empty placeholder. The marketplace is named **`ai-tradecraft-skills`** (the
+`agent-skills` candidate is a reserved Anthropic marketplace name, re-checked on every load), and
+the GitHub repository is renamed `ai-os-skills` → `ai-tradecraft-skills` to match. A MAJOR
+release: the versioned interface's own layout changes — every `skills/<name>/SKILL.md` and
+archetype path a consumer resolves moves under `plugins/<direction>/`. Prompt-template
+placeholders are unchanged.
+
+### Changed
+- **Repository layout**: `skills/<name>/` → `plugins/coding/skills/<name>/` (four skills) or
+  `plugins/ai-os/skills/<name>/` (four skills); `ARCHITECTURE.md` → `plugins/ai-os/ARCHITECTURE.md`.
+  Full map under *Migration* below.
+- **`.claude-plugin/plugin.json`** (root) removed — the repo root is no longer itself a plugin.
+  Each direction carries its own manifest at `plugins/<direction>/.claude-plugin/plugin.json`,
+  version synced to this release per the single-version-stream rule.
+- **`.claude-plugin/marketplace.json`**: renamed to `ai-tradecraft-skills`; two plugin entries
+  (`coding`, `ai-os`) with relative sources; `renames` retires the old `ai-os-skills` plugin name
+  to `null` — its content maps to *two* successors, and a single-successor mapping would silently
+  migrate half the skills and drop the other half, which *Fail loud, never silent* forbids.
+- **`scripts/lint_skills.py`**: discovery moves to `plugins/*/skills/*/SKILL.md`; per-plugin
+  manifest validation (name matches directory, marketplace entry exists, entry version — when
+  declared — agrees); every plugin's version must equal every other's and the newest CHANGELOG
+  heading; loud failures on a plugin with zero skills and on any `SKILL.md` outside
+  `plugins/*/skills/*/` (the partial-move signature the old glob would have linted past).
+- **`README.md`**: rewritten around the directions, with per-plugin install commands.
+- **`AGENTS.md`**: intro reframed to the direction library; versioned-interface layout strings
+  updated; the `ARCHITECTURE.md` link points at its new home, and that path is called out as part
+  of the documented interface.
+- **`implementation-discipline`** (now under `plugins/coding/`): the fail-loud citation no longer
+  names `ARCHITECTURE.md` by file, since that document ships in a different, independently
+  installable plugin — the rule is restated inline, unchanged in substance.
+
+### Migration (for the pinned consumer)
+
+| Old path (≤ v2.9.1) | New path (v3.0.0) |
+|---|---|
+| `skills/adversarial-review/` | `plugins/coding/skills/adversarial-review/` |
+| `skills/agent-tiered-planning/` | `plugins/coding/skills/agent-tiered-planning/` |
+| `skills/design-direction-lock/` | `plugins/coding/skills/design-direction-lock/` |
+| `skills/implementation-discipline/` | `plugins/coding/skills/implementation-discipline/` |
+| `skills/project-onboarding/` (+ `archetypes/`) | `plugins/ai-os/skills/project-onboarding/` (+ `archetypes/`) |
+| `skills/user-onboarding/` | `plugins/ai-os/skills/user-onboarding/` |
+| `skills/wiki-maintenance/` | `plugins/ai-os/skills/wiki-maintenance/` |
+| `skills/wiki-onboarding/` | `plugins/ai-os/skills/wiki-onboarding/` |
+| `ARCHITECTURE.md` | `plugins/ai-os/ARCHITECTURE.md` |
+| `github.com/boshuthebuilder/ai-os-skills` | `github.com/boshuthebuilder/ai-tradecraft-skills` |
+
+A pinned consumer updates every resolved path above and its remote URL in the same deploy that
+advances the pin — see *Consuming a pinned release* in
+[`plugins/ai-os/ARCHITECTURE.md`](plugins/ai-os/ARCHITECTURE.md). A marketplace-installed
+consumer gets no automatic migration (`renames` → `null` is a removal notice, not a redirect):
+remove the old marketplace, re-add `boshuthebuilder/ai-tradecraft-skills`, and install `coding`
+and `ai-os` explicitly.
+
 ## v2.9.1 — 2026-07-23
 
 `adversarial-review`'s headless-reviewer contract gains one bullet, sibling to *verify by artifact,
