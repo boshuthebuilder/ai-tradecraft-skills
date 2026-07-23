@@ -4,7 +4,7 @@
     "name": "Boshu Zhang"
   },
   "metadata": {
-    "description": "A method library of Agent Skills for AI-agent-driven work, organised by direction: coding (development-process discipline for coding agents — plan, build, gate) and ai-os (the headless AI assisting system — job archetypes, wiki onboarding and maintenance). Shared by interactive Claude Code / Cowork sessions and automated pipelines."
+    "description": "A method library of Agent Skills for AI-agent-driven work, organised by direction: coding (development-process discipline for coding agents — plan, build, gate), ai-os (the headless AI assisting system — job archetypes, wiki onboarding and maintenance), and productivity (individual AI-assisted work — starting with an AI-writing audit). Shared by interactive Claude Code / Cowork sessions and automated pipelines."
   },
   "plugins": [
     {
@@ -18,6 +18,12 @@
       "displayName": "Headless AI OS",
       "source": "./plugins/ai-os",
       "description": "Framework + Agent Skills for a headless AI assisting system over real folders: project-onboarding, wiki-onboarding, wiki-maintenance, user-onboarding."
+    },
+    {
+      "name": "productivity",
+      "displayName": "AI Productivity",
+      "source": "./plugins/productivity",
+      "description": "Skills for individual AI-assisted knowledge work. First skill: ai-writing-audit — check a draft for the signs of AI authorship (clustered tells, monotone rhythm, leaked citation markup) and rewrite so it reads as human."
     }
   ],
   "renames": {

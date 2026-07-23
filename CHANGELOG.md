@@ -4,6 +4,51 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v3.1.0 — 2026-07-23
+
+A **third direction, `productivity`** (displayName "AI Productivity"), created together with its first
+skill — the standing rule that a direction never ships as an empty placeholder. A MINOR release: a new
+plugin plus a new skill, both additive; nothing renamed, removed, or semantically changed. Per the
+single-version-stream rule the version lint enforces, all three plugin manifests bump to 3.1.0.
+
+The skill is **`ai-writing-audit`** — audit a draft for the signs of AI authorship and rewrite to remove
+them. It is dissolved in from a loose, unversioned copy and rebuilt on this repo's conventions (generic
+prose, UK English, skill-relative tool paths, `SKILL.md` + `REFERENCE.md` + `tools/`), then brought up to
+date against the 2026 landscape before shipping. The 2024-era version was a flat word-list anchored on
+"delve" and the em-dash; both have since been trained or instructed away (frontier models dialled back
+"delve" through 2025; OpenAI shipped an em-dash-suppression setting in November 2025), so a word-list is
+now weak and perishable evidence. The rebuild reframes the method around **evidence bands and cluster
+density**, matching the move Wikipedia's own "Signs of AI writing" essay made:
+
+- **Band 1 (near-decisive):** a new top category for **leaked citation/tool markup** (`oaicite`,
+  `[cite: 1]`, `turn0search0`, `grok_card`, `ppl-ai-file-upload`), and **sentence-length variance**
+  (burstiness) as the primary structural metric, quantified from a 2025 stylometry study.
+- **Band 2 (fires in clusters):** negative parallelism (now the most common single tell), formatting
+  overkill, the rule of three, compulsive summaries, trailing "-ing" analysis, false ranges, and a new
+  **sycophancy-opener** item ("Great question", "Let's break this down").
+- **Band 3 (contributory only):** vocabulary is **era-tagged** by model generation (with "delve" marked
+  as fading and the annotator-dialect origin story flagged as unverified folklore), alongside hedging
+  clichés, stock transitions, flattery, and em-dash *density* (not presence).
+
+Also adds a **model-fingerprint** note (Grok, ChatGPT, Gemini, Claude tendencies) and a provenance stamp
+("last verified 2026-07") declaring the vocabulary layer the most perishable part. The bundled
+`tools/audit.py` scanner is rewritten to grade hits into the three bands, detect the artifact tokens and
+the double-hyphen dash, compute burstiness, and print a cluster verdict rather than a raw tally.
+
+### Added
+- **`productivity` direction** (`plugins/productivity/`): `.claude-plugin/plugin.json` +
+  `skills/ai-writing-audit/{SKILL.md, REFERENCE.md, tools/audit.py}`, and its `marketplace.json` entry.
+- `README.md` — a `productivity` direction section; install lines for both Claude Code and Codex; the
+  bullet flipped from *(planned)* to shipped.
+
+### Changed
+- `plugins/coding/.claude-plugin/plugin.json`, `plugins/ai-os/.claude-plugin/plugin.json`: `version`
+  bumped to 3.1.0 (single-version-stream).
+- `.claude-plugin/marketplace.json`: `productivity` entry added; `metadata.description` names the third
+  direction.
+- `AGENTS.md` (+ `CLAUDE.md` symlink): the "Today" direction list and the versioned-interface skill-name
+  examples include `productivity` / `ai-writing-audit`.
+
 ## v3.0.3 — 2026-07-23
 
 Adds a **`displayName`** to each plugin so the `/plugin` picker reads `Coding Discipline` and
