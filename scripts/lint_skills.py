@@ -105,7 +105,6 @@ def check_plugin(
                 # The entry's `version` is optional, but when it IS declared `claude plugin tag`
                 # requires it to agree with plugin.json — fail at PR time, not at the refused tag.
                 entry_version = entry.get("version")
-                declared = manifest.get("version")
                 if (
                     isinstance(entry_version, str)
                     and entry_version.strip()

@@ -59,7 +59,8 @@ change), **gate** (review the change):
   as PR comments, iterating to convergence. Carries the author-agnostic reviewer chain
   (Gemini · Claude · Codex — each a leg whenever the author is a different model, diversity-first;
   same-model disclosed as the last resort), each leg's prerequisites, the auditable PR-comment
-  protocol, a bundled headless-Gemini harness (`tools/agy-review`, typed exits,
+  protocol, a bundled headless-Gemini harness
+  (`plugins/coding/skills/adversarial-review/tools/agy-review` — typed exits,
   verify-by-artifact), and the one-time machine setup headless reviewers need. Repo-agnostic and
   agent-agnostic — the method is markdown any coding agent can follow, and the harness is one
   dependency-free bash script.
