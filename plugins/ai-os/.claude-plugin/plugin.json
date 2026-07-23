@@ -1,7 +1,8 @@
 {
   "name": "ai-os",
+  "displayName": "Headless AI OS",
   "description": "Framework + Agent Skills for a headless AI assisting system over real folders: the knowledge layer (project-onboarding, wiki-onboarding, wiki-maintenance, user-onboarding) and the job-archetype framework (file-ingest, user-synthesis, code). Works in any Claude Code or Cowork session, and can be consumed by an automated pipeline from the same source.",
-  "version": "3.0.2",
+  "version": "3.0.3",
   "author": {
     "name": "Boshu Zhang"
   }

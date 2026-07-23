@@ -4,6 +4,21 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v3.0.3 — 2026-07-23
+
+Adds a **`displayName`** to each plugin so the `/plugin` picker reads `Coding Discipline` and
+`Headless AI OS` instead of the auto-title-cased `Coding` / `Ai Os` (the latter mis-cased). The `name`
+identifiers stay `coding` / `ai-os`, so install commands (`coding@ai-tradecraft-skills`) and skill
+invocation prefixes (`coding:adversarial-review`) are unchanged — `displayName` is UI-only, "not used
+for namespacing or lookup" (Claude Code ≥ v2.1.143; older clients fall back to `name`). Set in both the
+plugin manifests and the marketplace entries so the browse and installed views agree. A PATCH: no skill,
+archetype, placeholder, or documented-method change — nothing in the versioned interface moves; the
+manifests bump to 3.0.3 for the version lint.
+
+### Changed
+- `plugins/coding/.claude-plugin/plugin.json`, `plugins/ai-os/.claude-plugin/plugin.json`,
+  `.claude-plugin/marketplace.json`: add `displayName` (`Coding Discipline` / `Headless AI OS`).
+
 ## v3.0.2 — 2026-07-23
 
 Docs only. Corrects the **ChatGPT (Codex CLI)** install to the real, cleaner path: Codex CLI reads
