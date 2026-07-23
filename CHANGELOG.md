@@ -4,6 +4,19 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v3.0.1 — 2026-07-23
+
+Docs only. The README `Install` section gains a **ChatGPT (Codex CLI)** subsection alongside the
+Claude Code / Cowork one: Codex reads the same open `SKILL.md` format but has no marketplace, so the
+instructions clone the repo and symlink each direction's skill folders into the user-level
+`~/.agents/skills` directory (with `$<name>` invocation and the note that the same folders work in
+any `.agents/skills`-reading agent). No skill, archetype, placeholder, or manifest-contract change —
+a PATCH; the plugin manifests bump to 3.0.1 only to satisfy the single-version-stream lint.
+
+### Changed
+- `README.md`: `Install` restructured into `Claude Code / Cowork` and `ChatGPT (Codex CLI)`
+  subsections.
+
 ## v3.0.0 — 2026-07-23
 
 **Breaking** — the repo repurposes from "the headless-AI-OS method" into a **method library of
