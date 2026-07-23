@@ -31,21 +31,22 @@ format, so they work in any agent that reads it — install only the direction y
 
 ### ChatGPT (Codex CLI)
 
-Codex reads the same `SKILL.md` format but has no marketplace — you place skill folders where it
-looks for them ([OpenAI: *Build skills*](https://learn.chatgpt.com/docs/build-skills)). Clone
-the repo and symlink the directions you want into your user-level skills directory, then start a new
-Codex session:
+Codex CLI reads the Claude Code marketplace format, so the same repo installs as a Codex plugin —
+no cloning or symlinking:
 
-```bash
-git clone https://github.com/boshuthebuilder/ai-tradecraft-skills.git
-mkdir -p ~/.agents/skills
-ln -s "$PWD"/ai-tradecraft-skills/plugins/coding/skills/* ~/.agents/skills/
-ln -s "$PWD"/ai-tradecraft-skills/plugins/ai-os/skills/*   ~/.agents/skills/
+```
+codex plugin marketplace add boshuthebuilder/ai-tradecraft-skills
+codex plugin add coding@ai-tradecraft-skills
+codex plugin add ai-os@ai-tradecraft-skills
 ```
 
-Invoke a skill with `$<name>` (e.g. `$adversarial-review`), or let Codex select one automatically.
-Symlinks keep them current — `git pull` in the clone updates every linked skill. (The same folders
-work in any other agent that reads `.agents/skills`, e.g. Cursor or Gemini CLI.)
+Start a new Codex session; each plugin's bundled skills load on demand — invoke one with `$<name>`
+(e.g. `$adversarial-review`), or let Codex select automatically. Needs a Codex CLI with plugin
+support (`codex plugin --help`); verified against `codex-cli 0.144.1`.
+
+Any other agent that reads the open [`SKILL.md`](https://learn.chatgpt.com/docs/build-skills) format
+from a skills directory (Cursor, Gemini CLI, …) can instead symlink the skill folders it wants —
+`plugins/coding/skills/*` and `plugins/ai-os/skills/*` — into that agent's skills path.
 
 ## The `coding` direction
 
