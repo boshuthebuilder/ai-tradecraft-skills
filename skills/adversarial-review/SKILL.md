@@ -327,6 +327,12 @@ and are the spec for porting the gate to a new reviewer:
 - **Verify by artifact, never by exit code.** The success signal is the posted PR comment (the
   harness counts marker comments before and after — immune to clock skew and old comments). Headless
   CLIs exit 0 on every failure mode above.
+- **A reviewer's read of the code can't see a validator/reader disagreement.** Two components meant
+  to agree — a schema and the field it silently rejects, a writer and the reader downstream — can
+  diverge at run time with nothing visible in either one alone, and neither a review that reads the
+  diff nor a test that mocks the load path will catch it: the defect only exists once the real path
+  executes. A config or deploy change is verified by exercising the *real, unmocked* path — write the
+  actual file, run the actual resolver — never by a green test suite or an approving read alone.
 - **Bound the run and kill the tree.** Set the CLI's own timeout above the review's real duration
   (agy's default print-timeout is 5m — too short; pass 15m), wrap it in a watchdog that kills the
   full descendant tree depth-first (review CLIs spawn node/language-server grandchildren a PID-only

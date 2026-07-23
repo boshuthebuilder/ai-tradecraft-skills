@@ -4,6 +4,16 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v2.9.1 — 2026-07-23
+
+`adversarial-review`'s headless-reviewer contract gains one bullet, sibling to *verify by artifact,
+never by exit code*: a reviewer's read of the code cannot see a validator and its reader disagreeing
+at run time, and neither can a test that mocks the load path. Harvested from a production incident in
+a consumer deployment — a config flag's reader was written and tested, every test mocked the config
+loader, the real validator silently rejected the new key, and the feature was inert until someone
+actually armed it on the real host. A PATCH — wording under an existing bullet, no section added, no
+rule renamed or changed.
+
 ## v2.9.0 — 2026-07-23
 
 `adversarial-review`: the fallback chain becomes **author-agnostic**, and **Claude joins as a first-class
