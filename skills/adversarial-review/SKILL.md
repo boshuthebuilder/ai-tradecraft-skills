@@ -205,9 +205,9 @@ label-hygiene rules (static reading, name only permitted extras, never cite an e
 - **Codex** — pass it in the prompt to `codex exec` (see *Bounding a review CLI*). Note that
   `codex review --base <branch>` takes **no** custom prompt: the two are mutually exclusive
   (`the argument '--base <BRANCH>' cannot be used with '[PROMPT]'`), so `exec` is the form that can
-  carry this contract. On the Gemini-first chain most numeric reviews run through the harness's
-  `--label`, but forwarding still matters most on this leg: `codex review` is the form that CANNOT
-  carry the contract, so reaching for it out of habit silently drops the whole protocol.
+  carry this contract. When the Gemini leg runs, a numeric review rides the harness's `--label`, but
+  forwarding matters most on THIS leg: `codex review` is the form that CANNOT carry the contract, so
+  reaching for it out of habit silently drops the whole protocol.
 - **Same-model last resort** — include it in the brief, alongside the diff and PR description.
 
 ```
@@ -316,8 +316,8 @@ comment can kill a run whose review is already complete. When an autopsy shows a
 that simply failed to post, first ask the resumed run to re-post with a plainer body; if that is
 denied too, **relay it yourself**: post the reviewer's verdict verbatim with `gh pr comment`,
 naming the reviewer, noting the relay, and including the conversation id — the same pattern the
-Codex leg (which cannot post at all) uses routinely. The gate's requirement is an auditable verdict
-on the PR, not that the reviewer's own process wrote the bytes.
+Claude and Codex legs (which post nothing themselves) use routinely. The gate's requirement is an
+auditable verdict on the PR, not that the reviewer's own process wrote the bytes.
 
 ## The headless-reviewer contract
 
