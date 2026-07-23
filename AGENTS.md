@@ -1,9 +1,12 @@
-# AGENTS.md — ai-os-skills
+# AGENTS.md — ai-tradecraft-skills
 
-This repo is the **method**: skills and job archetypes for building a headless AI assisting
-system over a person's real folders. Deployments consume it as a **pinned dependency** — they
-resolve skills from a clone checked out at a release tag and advance that pin deliberately. The
-design is [`ARCHITECTURE.md`](ARCHITECTURE.md); the reference deployment is
+This repo is the **method**: a library of Agent Skills for AI-agent-driven work, organised by
+**direction** — each direction a real Claude Code plugin under `plugins/<direction>/`. Today:
+`coding` (the development-process discipline for coding agents) and `ai-os` (skills and job
+archetypes for a headless AI assisting system over a person's real folders). Deployments consume
+the repo as a **pinned dependency** — they resolve skills from a clone checked out at a release
+tag and advance that pin deliberately. The ai-os direction's design is
+[`plugins/ai-os/ARCHITECTURE.md`](plugins/ai-os/ARCHITECTURE.md); the reference deployment is
 [`family-ai-os`](https://github.com/boshuthebuilder/family-ai-os). `CLAUDE.md` is a symlink to
 this file — one source of truth, two filenames.
 
@@ -12,14 +15,15 @@ this file — one source of truth, two filenames.
 - **Generic, always.** No real owner, host, machine, or platform names in skills, archetypes,
   or prompt templates — the consumed method must read as method ("the owner", "the deployment",
   "an always-on machine"), never as one household's configuration. If an example needs a name,
-  invent an obviously fictional one. The one deliberate exception: top-level docs (this file,
-  `README.md`, `ARCHITECTURE.md`) may link the reference deployment by name, as they already do.
+  invent an obviously fictional one. The one deliberate exception: repo-level docs (this file,
+  `README.md`, `plugins/ai-os/ARCHITECTURE.md`) may link the reference deployment by name, as
+  they already do.
 - **Skills are conventions, not code.** Enforcement (write guards, path checks, locks) belongs
   in a deployment's code; a skill *describes* intent. Don't write a rule into a skill that only
-  code can hold — point to the three-layer model in `ARCHITECTURE.md` instead.
+  code can hold — point to the three-layer model in `plugins/ai-os/ARCHITECTURE.md` instead.
 - **One home per convention.** `wiki-maintenance` owns how a wiki is kept; archetypes own job
-  shapes; `ARCHITECTURE.md` owns the system design. Don't restate a convention in a second
-  place — reference it.
+  shapes; `plugins/ai-os/ARCHITECTURE.md` owns the ai-os system design. Don't restate a
+  convention in a second place — reference it.
 - UK English in prose. Prefer editing existing files to adding new ones.
 
 ## Versioning — the consumer contract
@@ -28,8 +32,9 @@ Releases are **semver tags** `vMAJOR.MINOR.PATCH`, recorded in [`CHANGELOG.md`](
 The versioned *interface* is everything a consumer may depend on:
 
 - **skill names and their frontmatter contracts** (`wiki-onboarding`, `wiki-maintenance`,
-  `project-onboarding`) and the `skills/<name>/SKILL.md` layout;
-- **archetype directory layout** under `skills/project-onboarding/archetypes/<archetype>/`
+  `project-onboarding`) and the `plugins/<direction>/skills/<name>/SKILL.md` layout;
+- **archetype directory layout** under
+  `plugins/ai-os/skills/project-onboarding/archetypes/<archetype>/`
   (the file set: `README.md`, `jobs.yaml`, prompt templates, `scheduler.md`) and the
   `id == mode` rule;
 - **prompt-template placeholders** — a deployment substitutes these at run time. The **required core**
@@ -40,8 +45,9 @@ The versioned *interface* is everything a consumer may depend on:
   reconcile templates use an **optional** `{reconcile_findings}` (a pre-computed sweep worklist that a
   deployment without it substitutes with an empty block). Adding an *optional* placeholder is MINOR;
   introducing or making *required* a new placeholder is MAJOR;
-- **the documented method** in `ARCHITECTURE.md` (the gate, the determinism boundary, the
-  three layers, fail-loud).
+- **the documented method** in [`plugins/ai-os/ARCHITECTURE.md`](plugins/ai-os/ARCHITECTURE.md)
+  (the gate, the determinism boundary, the three layers, fail-loud) — the path is itself part of
+  the versioned interface: a consumer resolves it there, not at the old root location.
 
 **MAJOR** — any breaking change to the above: a rename, a removal, a placeholder a template now
 requires, a semantic change to a documented rule. **MINOR** — additive: a new skill, a new
@@ -60,4 +66,4 @@ own config, with its own review), so `main` here may move freely between release
 changes cost a MAJOR bump, not a coordinated migration. What "deliberately" requires of the
 *consumer* — enforce the pin as a deploy gate, verify a candidate before the switch and against what
 the deployment actually consumes, judge drift on content — is
-[*Consuming a pinned release*](ARCHITECTURE.md#consuming-a-pinned-release).
+[*Consuming a pinned release*](plugins/ai-os/ARCHITECTURE.md#consuming-a-pinned-release).
