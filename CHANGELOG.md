@@ -4,6 +4,21 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v3.0.2 — 2026-07-23
+
+Docs only. Corrects the **ChatGPT (Codex CLI)** install to the real, cleaner path: Codex CLI reads
+the Claude Code marketplace format, so the repo installs as a first-class Codex plugin —
+`codex plugin marketplace add boshuthebuilder/ai-tradecraft-skills` then `codex plugin add
+coding@ai-tradecraft-skills` / `ai-os@ai-tradecraft-skills` — rather than the clone-and-symlink v3.0.1
+documented. Verified end to end against `codex-cli 0.144.1`: both plugins install `enabled` at 3.0.1
+with all eight skills materialised in the plugin cache. The manual skills-directory symlink is kept as
+a one-line note for other `SKILL.md`-reading agents (Cursor, Gemini CLI). A PATCH; manifests bump to
+3.0.2 for the version lint.
+
+### Changed
+- `README.md`: `ChatGPT (Codex CLI)` install switched from clone-and-symlink to
+  `codex plugin marketplace add` + `codex plugin add`.
+
 ## v3.0.1 — 2026-07-23
 
 Docs only. The README `Install` section gains a **ChatGPT (Codex CLI)** subsection alongside the
