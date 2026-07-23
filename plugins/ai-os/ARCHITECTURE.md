@@ -33,14 +33,14 @@ them. Whatever the family: every write goes through the deployment's determinist
 anything that touches the owner's own material defaults to propose-only.
 
 The first archetype this repo ships is **file-ingest** (see
-`skills/project-onboarding/archetypes/file-ingest/`), whose two standard jobs are:
+`plugins/ai-os/skills/project-onboarding/archetypes/file-ingest/`), whose two standard jobs are:
 
 - **`ingest`** — incremental and **reactive**. Drain the inbox, update the pages each new or changed
   source touches, append to the log. Cheap; runs often.
 - **`reconcile`** — comprehensive and **periodic**. Reconcile the whole wiki against the files
   (dedupe, sweep orphans, fix stale claims, confirm the structure holds). Expensive; runs on a clock.
 
-The second is **user-synthesis** (`skills/project-onboarding/archetypes/user-synthesis/`): a gated
+The second is **user-synthesis** (`plugins/ai-os/skills/project-onboarding/archetypes/user-synthesis/`): a gated
 synthesis of a per-person, cross-project view (see *Tiers and identities*, below). It also shows that
 an archetype's *source* need not be the owner's files at all — its sources are other wikis. Whatever
 the source, the same shape holds: gather presents the model a deterministic, access-scoped view of
@@ -48,7 +48,7 @@ it, and only the reasoning step is a model call. Its user-tier vault is **increm
 regenerated, so — like file-ingest — it is a **pair**: an incremental, reactive `synthesise` and a
 periodic `reconcile` twin (see *The type-1 user vault*, below, and the twin rule under *Scheduling*).
 
-The third is **code** (`skills/project-onboarding/archetypes/code/`): a periodic `digest` + a
+The third is **code** (`plugins/ai-os/skills/project-onboarding/archetypes/code/`): a periodic `digest` + a
 `code-review` over a **git clone** the system reads read-only — a third kind of source (a repository,
 not the owner's documents or other wikis). It reaffirms the boundary: gather reads the clone's history
 *deterministically* (`git` is a pure function of clone state), the reasoning summarises or reviews, and
@@ -227,7 +227,7 @@ Two concepts the archetypes above rest on:
 Onboarding an *identity* (as opposed to a project) is its own skill — **`user-onboarding`** — because
 a user vault is a different shape from a project wiki: its storage is owned differently (see *Storage
 ownership*, below), it is a single self-contained vault rather than a wiki subfolder, and it carries
-distinct content areas. See `skills/user-onboarding` for the flow and *The type-1 user vault* for the
+distinct content areas. See `plugins/ai-os/skills/user-onboarding` for the flow and *The type-1 user vault* for the
 shape it stamps.
 
 ### Storage ownership
@@ -312,4 +312,4 @@ A folder that maintains itself: drop a document in, and within one gate interval
 change nothing and nothing runs. The conventions live in one public home (the skills); the design
 lives here; a deployment is just an instance that supplies a timer, storage, and a model runner and
 follows this shape. Onboard a new folder by stamping the file-ingest archetype — see
-`skills/project-onboarding`.
+`plugins/ai-os/skills/project-onboarding`.

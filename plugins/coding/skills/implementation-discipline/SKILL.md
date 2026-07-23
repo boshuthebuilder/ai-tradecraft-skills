@@ -66,8 +66,8 @@ attention now and carrying weight forever, against a payoff nobody has scheduled
 No error handling for scenarios that cannot occur, either — and this is not licence to swallow
 errors. For a state that genuinely cannot happen, an assertion that fails loudly beats a
 defensive branch that handles-and-continues: the assertion surfaces the impossible state, the
-branch hides it. That is the conduct-level echo of the method's fail-loud rule (`ARCHITECTURE.md`:
-a failure is a named, visible state, never a benign default). The overbuild is the recovery path,
+branch hides it. That is the conduct-level echo of this repo's fail-loud rule: a failure is a
+named, visible state, never a benign default. The overbuild is the recovery path,
 not the check.
 
 The self-test, before pushing: would a senior engineer reading this diff call it overcomplicated?

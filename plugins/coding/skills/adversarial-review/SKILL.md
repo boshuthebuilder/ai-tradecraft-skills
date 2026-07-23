@@ -73,7 +73,7 @@ same-model reviewer.
 1. **Gemini** — the idle-pool lead; ineligible only when Gemini authored the change. Via the bundled
    harness: `tools/agy-review <pr>
    [--repo owner/name] [--label focus]` (path relative to this skill's directory — from a clone of
-   this repo that is `skills/adversarial-review/tools/agy-review`), run from inside a checkout of
+   this repo that is `plugins/coding/skills/adversarial-review/tools/agy-review`), run from inside a checkout of
    the repo under review. It pre-flights the known silent
    killers, bounds the run, and verifies success by the *posted PR comment*, never the CLI's exit
    code. `--model "<label>"` runs the review on another Antigravity-pool model (see *Quota-aware
