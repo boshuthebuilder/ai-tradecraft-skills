@@ -70,8 +70,10 @@ The recurring case is a **Claude-authored** change, whose order is therefore Gem
 (Claude itself is ineligible): the two idle separate budgets spend first, Codex — which walls for days —
 last. A **Codex-** or **Gemini-authored** change has Claude as a first-class leg, not the last resort — do
 not reach past it to a same-model reviewer. MiniMax adds a genuinely different model family (a fourth
-vendor, separately trained), so it is the most diverse reviewer on the bench and never the *only* thing
-standing between an author and a same-model gate.
+vendor, separately trained): it differs from *any* author, so it is eligible on every review and is never
+the *only* thing between an author and a same-model gate. Diversity here is the eligibility gate — a
+reviewer must differ from the author — while the *order* among the eligible legs is window economics,
+which is why the idle Antigravity pool still leads and MiniMax follows it rather than jumping the queue.
 
 1. **Gemini** — the idle-pool lead; ineligible only when Gemini authored the change. Via the bundled
    harness: `tools/agy-review <pr>
@@ -149,15 +151,18 @@ standing between an author and a same-model gate.
    hand-rolling is felt (rule 7); drive it like the Codex leg. The catch that shapes the prompt: `mmx text
    chat` is a **pure chat completion — no repo, `gh`, or tool access** — so, unlike agy/codex, it can fetch
    nothing itself. Hand it the whole change *inline*: run `gh pr diff <n> --repo owner/name` and `gh pr
-   view <n>` yourself and paste both (the diff + the stated intent) INTO the prompt, alongside the break-it
-   mandate and the scope-and-shape lens (rule 7). Send the prompt on stdin as a JSON messages array
+   view <n> --repo owner/name` yourself and paste both (the diff + the stated intent) INTO the prompt,
+   alongside the break-it mandate and the scope-and-shape lens (rule 7) — name `--repo` on both so a
+   multi-checkout session diffs the right repo. Send the prompt on stdin as a JSON messages array
    (`echo '[{"role":"user","content":"…"}]' | mmx text chat --messages-file - --output json`), and bound
    the run (`--timeout <secs>`, wrapped in the watchdog of *Bounding a review CLI*). It posts nothing
    itself: relay its findings with `gh pr comment`, naming the reviewer (`MiniMax (mmx)`) and its verdict.
-   It walls *typed* like the others — an exhausted/rate-limited window returns a MiniMax error code
-   (1002/2045 rate · 1008/2056 quota), so treat a walled run as a done leg and advance. Note that mmx
-   **silently substitutes its default model for an unknown `--model`**, so pin a model you have confirmed
-   (`mmx quota show` lists what the plan serves) rather than trusting a silent fallback.
+   It walls *typed* like the others — an exhausted/rate-limited window returns a documented MiniMax error
+   code (1002/2045 rate · 1008/2056 quota), so treat a walled run as a done leg and advance. Note that mmx
+   **silently substitutes its default model for an unknown `--model`** rather than erroring, and there is no
+   `mmx models` catalogue to check against — so pin a model your plan documents (e.g. `MiniMax-M3`) and
+   confirm it by the **served model in the response** (the envelope's `model` field must equal your pin),
+   never by trusting the call to have run what you asked for.
 
 **Last resort — same-model, disclosed.** When *no* different-model reviewer is available (every other
 model's CLI missing or walled), run a same-model reviewer: a fresh agent of the author's own model with
