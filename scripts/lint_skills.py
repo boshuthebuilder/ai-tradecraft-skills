@@ -153,7 +153,10 @@ def main() -> int:
 
     accounted_for = set(all_skill_files)
     for stray in sorted(ROOT.rglob("SKILL.md")):
-        if ".git" in stray.parts or stray in accounted_for:
+        # `.git` internals, and the gitignored `.claude/` tree (git worktrees under
+        # `.claude/worktrees/`, the plugin cache) are never real skill sources — skipping them keeps the
+        # stray-file check from failing on a concurrent session's worktree (which is absent in a clean clone).
+        if ".git" in stray.parts or ".claude" in stray.parts or stray in accounted_for:
             continue
         problems.append(
             f"{stray.relative_to(ROOT)}: SKILL.md outside plugins/*/skills/*/ — stray file or "
