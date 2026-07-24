@@ -29,9 +29,9 @@ When in doubt, it applies.
 ## The rules
 
 1. **Reviewer ≠ author, by model.** Select by model *diversity* first, availability second. If
-   Claude wrote the code, Codex or Gemini reviews it; if Codex wrote it, Gemini or Claude reviews
-   it. Same-model review is a genuine last resort — and must be disclosed on the PR so the weaker
-   gate is visible.
+   Claude wrote the code, Gemini, Codex or MiniMax reviews it; if Codex wrote it, Gemini, Claude or
+   MiniMax reviews it. Same-model review is a genuine last resort — and must be disclosed on the PR so
+   the weaker gate is visible.
 2. **PR-anchored.** Review the *open PR*, not a local diff: the merge-base diff (`main...HEAD`) is
    exactly the author's change, and the PR description is the stated intent the reviewer can check
    it against. (A quick local-diff pass is fine while iterating pre-push; the auditable gate before
@@ -62,13 +62,16 @@ When in doubt, it applies.
 
 ## The fallback chain
 
-Pick the first *available* reviewer whose model differs from the author's. Three concrete legs — Gemini,
-Claude, Codex — each eligible whenever the author is **not** that model; order the eligible ones by
-diversity first, then window economics (lead with the idle Antigravity pool; conserve the walled Codex
-bucket and the Max window Claude shares with interactive work). The recurring case is a **Claude-authored**
-change, whose order is therefore Gemini → Codex (Claude itself is ineligible). A **Codex-** or
-**Gemini-authored** change has Claude as a first-class leg, not the last resort — do not reach past it to a
-same-model reviewer.
+Pick the first *available* reviewer whose model differs from the author's. Four concrete legs — Gemini,
+Claude, Codex, MiniMax — each eligible whenever the author is **not** that model; order the eligible ones
+by diversity first, then window economics (lead with the idle separate-subscription pools — Antigravity,
+then MiniMax; conserve the walled Codex bucket and the Max window Claude shares with interactive work).
+The recurring case is a **Claude-authored** change, whose order is therefore Gemini → MiniMax → Codex
+(Claude itself is ineligible): the two idle separate budgets spend first, Codex — which walls for days —
+last. A **Codex-** or **Gemini-authored** change has Claude as a first-class leg, not the last resort — do
+not reach past it to a same-model reviewer. MiniMax adds a genuinely different model family (a fourth
+vendor, separately trained), so it is the most diverse reviewer on the bench and never the *only* thing
+standing between an author and a same-model gate.
 
 1. **Gemini** — the idle-pool lead; ineligible only when Gemini authored the change. Via the bundled
    harness: `tools/agy-review <pr>
@@ -138,6 +141,24 @@ same-model reviewer.
    chain (it has caught data-loss-class bugs the author's own tests missed); reach for it when the
    Gemini or Claude leg dies typed or when a second independent model is worth the window.
 
+4. **MiniMax** — ineligible only when MiniMax authored the change (i.e. never, for a repo whose agents are
+   Claude/Codex/Gemini), so it is an eligible different-model leg on *every* review, and the most diverse
+   one — a fourth vendor's model, separately trained. It draws its own **MiniMax subscription** (a
+   Token/Coding plan), a budget independent of the Claude, ChatGPT and Antigravity plans, so it spends
+   nothing the author or the other legs need. There is **no bundled harness** — build one only when the
+   hand-rolling is felt (rule 7); drive it like the Codex leg. The catch that shapes the prompt: `mmx text
+   chat` is a **pure chat completion — no repo, `gh`, or tool access** — so, unlike agy/codex, it can fetch
+   nothing itself. Hand it the whole change *inline*: run `gh pr diff <n> --repo owner/name` and `gh pr
+   view <n>` yourself and paste both (the diff + the stated intent) INTO the prompt, alongside the break-it
+   mandate and the scope-and-shape lens (rule 7). Send the prompt on stdin as a JSON messages array
+   (`echo '[{"role":"user","content":"…"}]' | mmx text chat --messages-file - --output json`), and bound
+   the run (`--timeout <secs>`, wrapped in the watchdog of *Bounding a review CLI*). It posts nothing
+   itself: relay its findings with `gh pr comment`, naming the reviewer (`MiniMax (mmx)`) and its verdict.
+   It walls *typed* like the others — an exhausted/rate-limited window returns a MiniMax error code
+   (1002/2045 rate · 1008/2056 quota), so treat a walled run as a done leg and advance. Note that mmx
+   **silently substitutes its default model for an unknown `--model`**, so pin a model you have confirmed
+   (`mmx quota show` lists what the plan serves) rather than trusting a silent fallback.
+
 **Last resort — same-model, disclosed.** When *no* different-model reviewer is available (every other
 model's CLI missing or walled), run a same-model reviewer: a fresh agent of the author's own model with
 *no shared context*, handed only the PR diff, the PR description, and a mandate to break the change.
@@ -151,15 +172,16 @@ with a typed exit — `6` if `agy`/`gh`/`git`/`python3` is off PATH or you are n
 checkout, `2` if `agy` is not signed in, `3` if a grant is missing (*Machine setup*). You need not check
 by hand before that leg.
 
-The **Claude** and **Codex** legs have **no wrapper** — nothing pre-flights them, so a missing CLI or a
-dead login surfaces only as a failed run mid-review. Confirm them yourself first. Every leg also needs
-`gh` authenticated and a git checkout of the repo under review; findings post as PR comments.
+The **Claude**, **Codex**, and **MiniMax** legs have **no wrapper** — nothing pre-flights them, so a
+missing CLI or a dead login surfaces only as a failed run mid-review. Confirm them yourself first. Every
+leg also needs `gh` authenticated and a git checkout of the repo under review; findings post as PR comments.
 
 | leg | CLIs | auth / setup | one-line check |
 |---|---|---|---|
 | Gemini | `agy` `gh` `git` `python3` | signed into Antigravity + one-time grants (*Machine setup*) | `agy models` lists models (the harness checks the rest) |
 | Claude | `claude` `gh` | signed into Claude | `claude -p "reply with ok"` returns `ok` |
 | Codex | `codex` `gh` | signed into ChatGPT (Codex) | `codex --version`, and `codex exec "say ok"` answers |
+| MiniMax | `mmx` `gh` | subscription key in `~/.mmx/config.json` (a Token/Coding plan) | `mmx quota show` returns windows, and `mmx text chat --message "say ok"` answers |
 | all | `gh` | `gh auth login` | `gh auth status` is green, run from inside the repo checkout |
 
 A cold machine typically fails on auth (a CLI installed but not signed in) or, for Gemini, the one-time
@@ -292,6 +314,11 @@ you plan the review:
   subscription rather than the primary Claude/ChatGPT plans. When the primary plans are near their
   windows — or you simply want to preserve them for authoring — run the review on the pool:
   `tools/agy-review <pr> --model "<label>"`. An unknown label fails loud with the valid list.
+- **The MiniMax plan is another separate budget.** MiniMax's Token/Coding subscription is billed apart
+  from the Claude, ChatGPT and Antigravity plans and metered in its own 5-hour + weekly windows — so the
+  MiniMax leg is the one to reach for when those three are near their walls: a fresh, cheap, maximally
+  diverse reviewer that costs the primary plans nothing. It degrades reactively like the rest (a walled
+  window returns a MiniMax quota error, so you advance).
 - **Diversity still outranks quota.** The pool's Claude models let you review Claude-authored code
   without spending the primary Claude plan — but that is same-family review (weaker diversity, older
   generation). Prefer a genuinely different family first; reach for same-family-via-pool to preserve

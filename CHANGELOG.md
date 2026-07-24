@@ -4,6 +4,21 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v3.2.0 — 2026-07-23
+
+A **MINOR** to `adversarial-review`: a fourth reviewer leg, **MiniMax** (`mmx`). The fallback chain is now
+four legs — Gemini, Claude, Codex, MiniMax — each eligible when it is not the author's model. MiniMax is a
+fourth-vendor model on its own **subscription** budget (independent of the Claude, ChatGPT and Antigravity
+plans), so it is the most diverse reviewer on the bench and the one to reach for when the other three are
+near their walls; a Claude-authored change now runs Gemini → MiniMax → Codex (the two idle separate budgets
+before the days-walling Codex bucket). Like the Claude and Codex legs it has **no bundled harness**, and the
+leg documents its one wrinkle: `mmx text chat` is a pure chat completion with **no repo/`gh`/tool access**,
+so the driver pastes the `gh pr diff` + PR intent INTO the prompt (the reviewer can fetch nothing itself)
+and relays findings with `gh pr comment`. It also carries a prerequisites row, a place in quota-aware
+selection, and the silent-default-substitution trap (mmx swaps its default for an unknown `--model`, so pin
+a confirmed one). Reviewer-selection rule 1 lists MiniMax among the eligible reviewers. All three plugin
+manifests bump to 3.2.0 per the single-version-stream rule.
+
 ## v3.1.1 — 2026-07-23
 
 A **PATCH** to `adversarial-review`: no contract change, one gap closed in the exit-3 triage. The
