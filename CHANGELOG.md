@@ -4,6 +4,13 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v6.7.1 — 2026-09-15
+
+A **PATCH** correcting the contract-driven wiki guidance after independent review.
+
+- Name hub/facet index generation as the consumer of `entities` frontmatter, make the reader-acceptance
+  hand-off sequence explicit and repair two awkward prose wraps.
+
 ## v6.7.0 — 2026-09-15
 
 A **MINOR** introducing an opt-in contract-driven document-wiki profile. Existing body-based wikis,

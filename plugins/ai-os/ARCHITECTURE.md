@@ -263,8 +263,9 @@ page's model, even if the destination permits more. A restricted source cannot b
 because a hub links to it. Tool reads need the same restriction; filtering the prompt while leaving
 raw restricted pages available to the model is not enforcement.
 
-For deployments adopting evidence-bearing enrichment, a deterministic transform that **adds** information (identifier completion, alias resolution,
-abbreviation expansion) also needs typed targets and evidence. Record each decision's page, token,
+For deployments adopting evidence-bearing enrichment, a deterministic transform that **adds**
+information (identifier completion, alias resolution, abbreviation expansion) also needs typed targets
+and evidence. Record each decision's page, token,
 chosen value, kind, source and resolution tier. Prefer evidence on the page, linked subjects and cited
 sources; a wider search needs matching kind or institution, and ambiguity remains unresolved. Never
 complete from suffix coincidence alone. Apply the destination's identifier policy after enrichment.
