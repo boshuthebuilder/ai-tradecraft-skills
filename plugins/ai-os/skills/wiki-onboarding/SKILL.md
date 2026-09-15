@@ -133,7 +133,7 @@ wiki-maintenance's human-edit guard). Add provenance/freshness frontmatter to ea
 
 Point the owner at **wiki-maintenance**: from here, each new source is filed and the pages it touches
 are updated, all against the Schema you just wrote. Onboarding is one-time; maintenance is the ongoing
-loop.
+loop. For contract-driven pages, complete step 6 before handing the pages to the owner.
 
 ### 6. Reader acceptance
 
