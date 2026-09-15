@@ -202,6 +202,10 @@ Show the audit, then ask, in this order, and record every answer in the rulebook
    rulebook carries that alias list, and `file-preprocessing` is handed it in in-place mode, so a
    folder that has answered "who is this" once is not asked again per file.
 
+If several agent filenames are needed, choose one rulebook source and generate byte-identical copies
+(or supported links) for the others. Edit the authority, refresh copies in the same change, and have
+reconcile check agreement. Do not create multiple independently maintained rulebooks.
+
 ### 3. Propose (the only model step)
 
 From the audit and the answers, emit a **move-plan** (schema:
@@ -246,6 +250,10 @@ op log so an interrupted round is resolved by content, an undo entry per row). A
 complete only when the converted file is verified (page or sheet count against the original) and
 the original rests under the archive area the plan names. A failed row stops its domain and is
 reported with its reason; the rest of the plan is not attempted "to finish the job".
+
+On a case-insensitive filesystem, execute a case-only rename via an unused temporary name and
+verify against filesystem identity as well as spelling; a case-sensitive comparison alone reports
+phantom moves. Preserve the existing file on any failed rename.
 
 ### 6. Verify by re-audit
 

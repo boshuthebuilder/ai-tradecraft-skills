@@ -42,7 +42,7 @@ The versioned *interface* is everything a consumer may depend on:
   every template may use: `{date}`, `{gather_report}`, `{project_name}`, `{project_rulebook}`,
   `{wiki_dir}`, `{wiki_structure}`. Individual archetypes carry additional placeholders: the
   user-synthesis archetype **requires** `{current_knowledge}` (its existing Knowledge tree — required
-  since v2.0.0; an empty substitution means a genuinely empty vault, never "feature absent"), and the
+  since v2.0.0; an empty substitution means a genuinely empty vault, never "feature absent"), and file-ingest templates accept optional `{page_contracts}` (empty retains legacy body output); the
   reconcile templates use an **optional** `{reconcile_findings}` (a pre-computed sweep worklist that a
   deployment without it substitutes with an empty block). Adding an *optional* placeholder is MINOR;
   introducing or making *required* a new placeholder is MAJOR;

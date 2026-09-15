@@ -22,6 +22,17 @@ cross-project connections belong solely in a separate user-level wiki, never her
 
 {project_rulebook}
 
+## Optional page contracts
+
+{page_contracts}
+
+An empty block retains the ordinary `body` output below. When this block explicitly advertises a
+structured renderer, follow its per-type contract for assigned pages and return `page_facts` in the
+advertised schema, with `page_type`, instead of `body` for those pages. Do not invent a generic
+contract or write raw prose over a contract-driven page. Other pages keep their existing shape.
+Owner overlays are read-only evidence. Follow `wiki-maintenance` for anatomy and typed facts; the
+deployment validates and renders them. Unknown placeholders must be resolved before a job runs.
+
 ## The wiki's existing structure (write into the right existing section — do not invent a parallel layout)
 
 The wiki lives under `{wiki_dir}/`. Match each source to the right **existing** section/page shown
@@ -92,8 +103,8 @@ deterministic snapshot of the project's calendar.
 
 A wiki claim the owner asked to record that is **not** derived from a saved file is a **manual note**:
 give that page/block `provenance: manual`. Never flag a `provenance: manual` note as inconsistent with
-the files — it is authoritative; a calendar event never supersedes it. Record sensitive identifiers
-(account / document / licence / card numbers) as the **last 4 digits only**, never in full — a
+the files — it is authoritative; a calendar event never supersedes it. Honour an explicitly advertised, owner-approved identifier policy. Without one, record sensitive
+identifiers (account / document / licence / card numbers) as the **last 4 digits only**, never in full — a
 deterministic guard checks every field you return before any of it is written, so a slip is caught
 and counted, not shipped.
 

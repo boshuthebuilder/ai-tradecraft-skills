@@ -389,6 +389,16 @@ and **Reduce**; every other step is deterministic.
    "No longer present"), the run folder's manifest+audit slice, and `NEEDS A LOOK.md` when — and
    only when — the run's look folder is non-empty.
 
+## Purpose-specific rereads and restart safety
+
+Choose the read rung per **purpose**, not just per file: figures need layout-preserving columns and
+sufficient text for the table, whereas understanding may need less. Declare truncation and read status
+for each purpose; never reuse a summary as if it were a complete figures extraction. For targeted
+rereads, worker restart joins, cache versioning and per-answer model provenance, follow
+[the architecture's durable extract rules](../../ARCHITECTURE.md#durable-extracts-for-rendered-wikis-opt-in).
+When degenerate-answer detection is enabled, that outcome stops the backend for the run rather than spending the chunk retry
+budget on repeated non-answers.
+
 ## Interop
 
 Because entries are keyed by content hash and every mutation is guarded and recorded, runs are

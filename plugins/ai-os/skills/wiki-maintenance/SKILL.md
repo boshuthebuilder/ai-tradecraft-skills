@@ -85,6 +85,80 @@ from the wiki without opening the source. When you route an incoming source, mat
 existing section/page using the Schema's trigger table; if you can't see the Schema body, route from the
 section/page names you do have plus the source itself.
 
+## Contract-driven pages (optional profile)
+
+For a wiki that adopts deterministic rendering, extend its Schema with **one contract per page type**:
+who reads it, the questions they need answered in priority order, the professional perspective that
+frames the answer, required lookup fields and their evidence sources, derived sections, history rules,
+and permitted action kinds. Assign each rendered page a declared type. Keep a machine-readable twin
+in the project's audit/config tier, with its Schema revision recorded; jobs consume that twin and
+report drift. The Schema remains the authority. Unknown types or missing contracts fail for opted-in
+pages, never fall back to generic prose. Legacy pages retain the existing body contract.
+
+The reasoning step returns structured `page_facts` when the deployment advertises this capability;
+the deployment validates, stores and renders them. The optional field does not replace `body` for a
+consumer that has not adopted it: templates request ordinary `body` in that case. A deployment must
+implement the alternate path before enabling it. Durable extraction and cache rules live in
+[the architecture](../../ARCHITECTURE.md#durable-extracts-for-rendered-wikis-opt-in).
+
+### Page anatomy and evidence
+
+A useful briefing begins with identity, status and next action in its first five body lines. Then
+render required key facts, dated events, records on file, actions, record gaps and coming dates, with
+an optional reader-specific assessment. The Schema chooses applicable sections and labels; it need
+not impose one generic checklist on every subject. Show missing required rows as **not on file**.
+Derive Next from live actions and dates; do not print "nothing outstanding" above an open action.
+Warning callouts are for evidenced overdue, lapsed or expired states.
+
+- **History records events**, changes of state or decisions. Repeated statements, payslips or bills
+  that only evidence continuity belong in records-on-file with cadence and coverage.
+- **Actions are typed** (for example pay, decide, chase, renew, file, book), with owner, evidence,
+  amount and due date where known. A missing receipt is a record gap, not a payment action without
+  evidence of money due. Keep gaps separate from the owner's to-do list.
+- **Lookup rows come from extracts** for identifiers, figures, dates and statuses; owner assertions
+  and deterministic calendars take their declared precedence. Narrative cannot override those rows.
+- **Owner overlays** are separate dated records: page, asserted fields/status, note, date and speaker.
+  They do not add a new page-provenance enum. Render their authority visibly, preserve them across
+  rebuilds, and supply them to permitted context. Suppress only actions explicitly settled by the
+  assertion. Retire an overlay only when a later source confirms it; record contradictions for the
+  owner under the existing manual-provenance rule. Model jobs cannot author owner overlays.
+
+### Identifiers, series and derived views
+
+An owner override chooses a named identifier policy: `last-four` (default), `home-only` (full at the
+subject's home), or `stated` (full wherever supported by evidence). Store typed identifiers with
+holder, kind, home page, source and document status/dates. Masked source values are unresolved suffixes,
+not full identifiers. A structural derivation needs a declared validator and the original source;
+never guess from a suffix. Current, superseded and expired documents remain distinct, so an old
+passport does not create a new expiry action. Enrichment evidence and guards follow the architecture;
+test dates, decimal amounts, year prefixes, chart data and cited filenames as exclusions.
+
+A Schema may declare a **series** field: subject, metric, unit, observation date, value and source.
+Keep distinct periods or components from one document distinct; deduplicate the same observation.
+Extract stated values faithfully; label computations separately with their input evidence and policy.
+Reject impossible readings with a recorded reason rather than allowing them into totals. Every
+cross-page row carries its date and freshness status, using Schema thresholds. Never combine dates,
+currencies or units without an explicit policy; show a missing policy instead of assuming one. Chart
+only series declared live. Assessments may follow the reader's perspective, but parent summaries must
+agree with children or identify the conflicting evidence, and are generated after the children.
+
+Citation-derived hubs (people, counterparties or another facet) are valid cross-cutting indexes, not
+new filing homes. The Schema sets their inclusion threshold. Optional `entities` frontmatter may hold
+facets deterministically derived from validated links and parties. Layout below a domain, folder-note
+conventions and ordering are Schema choices. Qualify ambiguous links by path; follow portable-markdown
+for table escaping and the target editor's link conventions.
+
+Index and deadline roll-ups exclude closed subjects, superseded documents and facts belonging to third
+parties unless explicitly in scope. Deduplicate by fact identity, not by the number of pages citing it.
+
+### Additional depth: measurements-only
+
+An opted-in contract may permit `measurements-only`: typed metric, value, unit, date and printed
+reference range on explicitly authorised subject pages, without diagnoses, treatment, clinical
+opinions or imaging findings. Restrict both the extraction/context shape and the rendered fields;
+a lexical check is supplementary evidence, never the sole privacy boundary. Unrecognised depth
+values must fail validation. Cross-page contributions obey the architecture's context-crossing rule.
+
 ## The Index page — the dashboard
 
 The Index is read first when answering anything. It carries, in order:
@@ -183,6 +257,19 @@ brainstorms) may be *merged or cross-linked* during a reconcile where they clear
 their content and `provenance: manual` marking are preserved — consolidation never deletes or contradicts
 what the owner asserted.
 
+### Render verification for contract-driven pages
+
+For an opted-in wiki, every render and reconcile publishes a dated verification artefact (for example
+`_Audit/wiki-verify.json`) with page count, checked scope and counts including zero: missing mandatory
+rows or undeclared types, stale/missing extracts, source citations, broken links, malformed tables,
+identifier/depth violations and sync conflict copies. Missing or unreadable inputs are findings, not
+clean checks; an absent report is **not verified**. Record checks not performed explicitly rather than
+reporting zero. Use `productivity:portable-markdown` for table and link mechanics. Visual outputs need
+an editor/theme check when introduced or changed; text lint cannot establish chart legibility.
+
+Before first hand-off or after changing page anatomy, use the reader-review acceptance step in
+`wiki-onboarding`. Keep its findings and the builder's responses beside the verification artefact.
+
 ## Cadence — ingest and reconcile
 
 Two passes that differ in **scope**, not just schedule (the file-ingest archetype names them `ingest`
@@ -261,6 +348,9 @@ with no inline maintainer, the scheduled passes are the primary path.
   from it. If your setup maintains a separate cross-folder or user-level wiki, that is the only place
   cross-references live, and it only ever reads project wikis — it never writes back into them.
 
+Synced-folder write safety follows
+[the architecture's write contract](../../ARCHITECTURE.md#writes-into-synced-folders).
+
 ## Renaming a page or folder — the rename protocol
 
 The Schema is the single home for layout, so a layout *change* is a Schema change plus a sweep:
@@ -289,6 +379,7 @@ are a contract, not a style choice. The first three are **required on every deri
 | `provenance` | always | `derived` \| `manual` \| `calendar` | every sweep (skips `manual`/`calendar`) |
 | `last-updated` | always | `YYYY-MM-DD` | the freshness sweep |
 | `status` | always | `current` \| `superseded` | every sweep (skips `superseded`) |
+| `entities` | optional | Schema-defined facet lists | derive from validated links/parties |
 | `source` *(single)* / `sources` *(list)* | when file-derived | **project-root-relative** path(s) to the source file(s) — never absolute, so a folder rename or machine move is a no-op — or, for a cross-project synthesis, the source **pages** | the orphan sweep |
 | `deadline` *(single)* / `deadlines` *(list)* | when a forward date exists | `YYYY-MM-DD` (or `{date, note}`) | the Deadlines roll-up |
 

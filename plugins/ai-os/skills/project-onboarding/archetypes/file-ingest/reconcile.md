@@ -14,6 +14,17 @@ You are the periodic consistency pass for the **{project_name}** wiki at `{wiki_
 
 {project_rulebook}
 
+## Optional page contracts
+
+{page_contracts}
+
+An empty block retains the ordinary `body` output below. When this block explicitly advertises a
+structured renderer, follow its per-type contract for assigned pages and return `page_facts` in the
+advertised schema, with `page_type`, instead of `body` for those pages. Do not invent a generic
+contract or write raw prose over a contract-driven page. Other pages keep their existing shape.
+Owner overlays are read-only evidence. Follow `wiki-maintenance` for anatomy and typed facts; the
+deployment validates and renders them. Unknown placeholders must be resolved before a job runs.
+
 ## The wiki + source index to reconcile
 
 {gather_report}

@@ -129,6 +129,32 @@ everything at once and is the one that needs the strongest reasoning. A deployme
 route per job resolves the whole job at the stronger tier and pays the per-item volume at that price;
 say which stage needs what, so the choice is visible rather than accidental.
 
+## Durable extracts for rendered wikis (opt-in)
+
+A deployment may adopt **contract-driven rendering** for a document wiki. This is an additional
+profile, not a replacement for body-based wikis or incrementally evolved user-tier Knowledge.
+The Schema declares which pages use it. For those pages, durable structured extracts, dated owner
+assertions, the page-type contract and the clock are the renderer's inputs; page prose is an output,
+never the editable source of a figure. The deployment owns the renderer and its write guards.
+
+Store validated answers in the audit tier with source content hashes, extraction purpose and schema /
+prompt version, the producing model and tier, and validation status. A source hash alone cannot
+invalidate an extraction made under an obsolete question or schema. Understanding, identifiers,
+dated figures and page answers are useful extract kinds, not a mandatory four-file layout. Resolve
+answers by engine-issued source ids. A restarted worker merges only complete, validated answers with
+the same cache identity; retain the first such answer, report conflicting answers, and replace it only
+through an explicit versioned reread. This does not relax the whole-chunk reconciliation rule above.
+
+An incremental ingest replaces changed extracts and renders affected pages. A full regeneration
+renders the complete validated set; neither operation may discard owner assertions or manual pages.
+A deterministic rebuild needs no second model pass just to repeat its render, but still needs source,
+contract, link, stale-page and privacy verification. The existing ingest/reconcile pair remains valid.
+
+**Use the consumer's gaps to choose the next reasoning pass.** Join unresolved fields or identifier
+suffixes to per-source names, references and summaries; reread the matching sources with explicit
+per-item hints. Record the attempted hint and remaining gap. A hint is a search instruction, never
+evidence that the missing fact exists; do not invent a completion to make the counter reach zero.
+
 ## The gate before the model
 
 The single most important cost-and-robustness property:
@@ -176,6 +202,18 @@ wasn't shown this run", and the review found that ambiguity is what makes a mode
 orphans, false missing-pages, and rewrite pages whose unseen tail it then drops. Mark the partiality
 deterministically at the boundary; the prompt templates are written to trust those markers.
 
+### Backend answers that are not answers (optional capability)
+
+Deployments adopting degenerate-answer detection use the following contract; existing retry policies
+remain valid until this capability is enabled.
+
+An empty final answer, an explicit zero-output-token final result, or a known continuation/echo
+placeholder is a named **degenerate** backend outcome. Stop retrying that backend for this run; record
+the evidence and route outstanding items to another eligible backend or leave them pending. Missing
+usage metadata is not a zero-token result, and intermediate tool turns are not final answers. A valid
+empty structured result may mean no work; validate it against the requested contract. Record the model
+and tier per accepted answer, so weak-tier items can later be selected without rereading everything.
+
 ## Redaction is a guard, not an instruction
 
 Two contracts in this framework are stated to the model as instructions — *record identifiers as the
@@ -216,6 +254,31 @@ The chain is one line, from decision to enforcement: the interview's sensitivity
 folder's rulebook, the rulebook's exclusions and per-domain depths are compiled into the job config,
 and the guard applies the depths at the crossing. A depth recorded in prose and nowhere else is a
 preference, not a control.
+
+### Context crossings and evidence-bearing enrichment
+
+Depth applies whenever information crosses a boundary, including page-to-page and project-to-user-tier
+context. Cut a source page's contribution to its own allowed depth **before** handing it to another
+page's model, even if the destination permits more. A restricted source cannot become full-depth
+because a hub links to it. Tool reads need the same restriction; filtering the prompt while leaving
+raw restricted pages available to the model is not enforcement.
+
+For deployments adopting evidence-bearing enrichment, a deterministic transform that **adds** information (identifier completion, alias resolution,
+abbreviation expansion) also needs typed targets and evidence. Record each decision's page, token,
+chosen value, kind, source and resolution tier. Prefer evidence on the page, linked subjects and cited
+sources; a wider search needs matching kind or institution, and ambiguity remains unresolved. Never
+complete from suffix coincidence alone. Apply the destination's identifier policy after enrichment.
+The policy must survive filenames, free text, audit views and roll-ups, not just identifier tables.
+
+### Writes into synced folders
+
+Deployments adopting sync-safe publication use this write contract. Publish page updates in place;
+never delete and recreate a wiki tree. Remove only stale pages the
+system owns and can prove are obsolete, preserving manual content, backups required by the deployment
+and editor state. A case-only rename is a rename: use an intermediate name where the filesystem needs
+it, and compare identities according to that filesystem. Count sync conflict copies during reconcile,
+including zero; report uncertain matches rather than deleting anything with a numeric suffix.
+These protections belong in deployment code under the three-layer model, not in model instructions.
 
 ## Consuming a pinned release
 
