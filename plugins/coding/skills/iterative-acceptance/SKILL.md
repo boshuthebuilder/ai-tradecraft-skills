@@ -58,6 +58,14 @@ attention queue went from 88 of 132 files to 2, none of them wrong.
    the queue of things needing a human holds only items a human genuinely must decide, each with
    a stated reason. Then the next batch of real input starts the loop again, cheaper.
 
+For a synthesis, the attention surface includes unresolved citations and links, malformed tables,
+missing contract fields, undated roll-up rows, policy-inconsistent identifiers, depth violations and
+independent reader findings. Record the same scoped counters in each build's verification artefact;
+a policy-permitted mask is not a defect, and zero findings from an unperformed check is not success.
+A formatting miss may become a deterministic renderer; an incorrect identifier completion may become
+a typed, evidence-logged resolver. Recheck the capability on new fixtures, not only the page that
+exposed the miss.
+
 ## Costs and honesty
 
 - Every run's cost/wall-clock is part of the scored table — regressions are findings.

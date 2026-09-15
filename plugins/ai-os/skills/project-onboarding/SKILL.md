@@ -111,6 +111,11 @@ Copy the archetype from `archetypes/file-ingest/` and fill in the project's spec
 On a curated folder also stamp the folder-curation archetype's `audit` (deterministic, periodic) so
 drift stays visible; see `archetypes/folder-curation/`.
 
+For a project adopting page contracts, version its compiled contracts and renderer configuration
+beside its stamped templates. The project's renderer is maintained code, not a script left in one
+session. Templates carry the optional `{page_contracts}` context described by the file-ingest
+archetype; deployments without the profile supply an empty block and retain `body` output.
+
 ### 4. Register and declare
 
 - Register the project in your deployment's index so the orchestrator iterates it.
@@ -127,6 +132,11 @@ drift stays visible; see `archetypes/folder-curation/`.
   `provenance: manual` content.
 - **Fail-loud holds.** A blocked/unreadable source is surfaced for review with its reason, never
   dropped; a stale calendar snapshot does not blank the upcoming view.
+
+For an opted-in project, the wiring check also verifies a synthetic item through ingest and reconcile:
+the touched page is rendered under its declared contract, its evidence is retained, and the next job
+uses the same configuration. Test unknown types and malformed contracts fail visibly. A synthetic
+fixture can verify the runtime without migrating a live wiki.
 
 ### 6. Hand off
 

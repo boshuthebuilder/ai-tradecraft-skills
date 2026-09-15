@@ -97,6 +97,15 @@ Four more the scan cannot guess, so they replace guesses rather than lengthening
 
 Propose, take their answers, and only then write. Never write the skeleton without the owner's nod.
 
+### 3a. Page contracts, when adopting structured rendering
+
+Ask who will read the wiki and what they need to decide. Record the identifier-policy rung and any
+policy for combining currencies, dates or units; record an absent policy explicitly. For each page
+type justified by the material, agree the reader's questions, professional perspective and evidence
+fields with the owner, following `wiki-maintenance`'s contract profile. Put the contracts in the Schema
+before writing those pages, and compile the machine-readable twin through the deployment's tooling.
+Do not silently opt an existing wiki into a new renderer or impose case-specific fields.
+
 ### 4. Write the skeleton
 
 Create the meta pages and the agreed domain pages:
@@ -125,6 +134,15 @@ wiki-maintenance's human-edit guard). Add provenance/freshness frontmatter to ea
 Point the owner at **wiki-maintenance**: from here, each new source is filed and the pages it touches
 are updated, all against the Schema you just wrote. Onboarding is one-time; maintenance is the ongoing
 loop.
+
+### 6. Reader acceptance
+
+Before first hand-off of contract-driven pages, and after a regeneration changes their anatomy,
+commission an independent reader review by a model that did not write them. Brief it with the agreed
+reader and page contracts: what can the reader still not answer or do? Keep findings and a response to
+each beside the render verification artefact, rebuild affected pages and recheck. Review parent and
+Index pages last against their children. This is the acceptance loop described in
+`coding:iterative-acceptance`; automated lint and reader judgement answer different questions.
 
 ## Principles
 

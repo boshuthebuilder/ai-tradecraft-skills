@@ -4,6 +4,20 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v6.7.0 — 2026-09-15
+
+A **MINOR** introducing an opt-in contract-driven document-wiki profile. Existing body-based wikis,
+provenance values and incremental user-synthesis behaviour remain valid.
+
+- Schema-owned per-type contracts, optional `{page_contracts}` context and advertised `page_facts`
+  output, deterministic briefing anatomy, dated owner overlays and project-owned renderer wiring.
+- Durable extracts keyed by source, purpose and version; model provenance, gap-directed rereads,
+  validated restart joins and named degenerate backend outcomes.
+- Typed identifier policies, dated series, citation-derived facets/hubs and measurements-only depth;
+  context-crossing restrictions, evidence-bearing enrichment and sync-safe publication guidance.
+- Scoped render verification, independent reader acceptance, event/action versus record-gap rules,
+  rulebook-copy checks and case-aware curation. Case-specific personas and thresholds stay in Schema.
+
 ## v6.6.0 — 2026-09-03
 
 A **MINOR** for `ai-os`, from a real preprocessing run over a family backlog. Six findings, each
