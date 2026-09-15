@@ -396,7 +396,7 @@ sufficient text for the table, whereas understanding may need less. Declare trun
 for each purpose; never reuse a summary as if it were a complete figures extraction. For targeted
 rereads, worker restart joins, cache versioning and per-answer model provenance, follow
 [the architecture's durable extract rules](../../ARCHITECTURE.md#durable-extracts-for-rendered-wikis-opt-in).
-A degenerate backend outcome stops that backend for the run, rather than spending the chunk retry
+When degenerate-answer detection is enabled, that outcome stops the backend for the run rather than spending the chunk retry
 budget on repeated non-answers.
 
 ## Interop

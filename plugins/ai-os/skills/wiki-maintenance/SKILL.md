@@ -376,10 +376,10 @@ are a contract, not a style choice. The first three are **required on every deri
 
 | key | required? | value | read by |
 |---|---|---|---|
-| `entities` | optional | Schema-defined facet lists | derive from validated links/parties |
 | `provenance` | always | `derived` \| `manual` \| `calendar` | every sweep (skips `manual`/`calendar`) |
 | `last-updated` | always | `YYYY-MM-DD` | the freshness sweep |
 | `status` | always | `current` \| `superseded` | every sweep (skips `superseded`) |
+| `entities` | optional | Schema-defined facet lists | derive from validated links/parties |
 | `source` *(single)* / `sources` *(list)* | when file-derived | **project-root-relative** path(s) to the source file(s) — never absolute, so a folder rename or machine move is a no-op — or, for a cross-project synthesis, the source **pages** | the orphan sweep |
 | `deadline` *(single)* / `deadlines` *(list)* | when a forward date exists | `YYYY-MM-DD` (or `{date, note}`) | the Deadlines roll-up |
 

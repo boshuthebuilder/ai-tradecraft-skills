@@ -202,7 +202,10 @@ wasn't shown this run", and the review found that ambiguity is what makes a mode
 orphans, false missing-pages, and rewrite pages whose unseen tail it then drops. Mark the partiality
 deterministically at the boundary; the prompt templates are written to trust those markers.
 
-### Backend answers that are not answers
+### Backend answers that are not answers (optional capability)
+
+Deployments adopting degenerate-answer detection use the following contract; existing retry policies
+remain valid until this capability is enabled.
 
 An empty final answer, an explicit zero-output-token final result, or a known continuation/echo
 placeholder is a named **degenerate** backend outcome. Stop retrying that backend for this run; record
@@ -260,7 +263,7 @@ page's model, even if the destination permits more. A restricted source cannot b
 because a hub links to it. Tool reads need the same restriction; filtering the prompt while leaving
 raw restricted pages available to the model is not enforcement.
 
-A deterministic transform that **adds** information (identifier completion, alias resolution,
+For deployments adopting evidence-bearing enrichment, a deterministic transform that **adds** information (identifier completion, alias resolution,
 abbreviation expansion) also needs typed targets and evidence. Record each decision's page, token,
 chosen value, kind, source and resolution tier. Prefer evidence on the page, linked subjects and cited
 sources; a wider search needs matching kind or institution, and ambiguity remains unresolved. Never
@@ -269,7 +272,8 @@ The policy must survive filenames, free text, audit views and roll-ups, not just
 
 ### Writes into synced folders
 
-Publish page updates in place; never delete and recreate a wiki tree. Remove only stale pages the
+Deployments adopting sync-safe publication use this write contract. Publish page updates in place;
+never delete and recreate a wiki tree. Remove only stale pages the
 system owns and can prove are obsolete, preserving manual content, backups required by the deployment
 and editor state. A case-only rename is a rename: use an intermediate name where the filesystem needs
 it, and compare identities according to that filesystem. Count sync conflict copies during reconcile,
