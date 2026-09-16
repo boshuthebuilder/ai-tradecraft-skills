@@ -47,7 +47,7 @@ Start a new Codex session; each plugin's bundled skills load on demand — invok
 support (`codex plugin --help`); verified against `codex-cli 0.144.1`.
 
 Any other agent that reads the open [`SKILL.md`](https://learn.chatgpt.com/docs/build-skills) format
-from a skills directory (Cursor, Gemini CLI, …) can instead symlink the skill folders it wants —
+from a skills directory can instead symlink the skill folders it wants —
 `plugins/coding/skills/*`, `plugins/ai-os/skills/*`, and `plugins/productivity/skills/*` — into
 that agent's skills path.
 
@@ -97,9 +97,9 @@ change, iterate to acceptance), **gate** (review the change), **verify** (prove 
 - **`adversarial-review`** — the cross-model review gate for every complex change: a *different*
   model from the one that wrote the code reviews the open PR adversarially and posts its findings
   as PR comments, iterating to convergence. Carries the author-agnostic reviewer chain
-  (Gemini · Claude · Codex — each a leg whenever the author is a different model, diversity-first;
-  same-model disclosed as the last resort), each leg's prerequisites, the auditable PR-comment
-  protocol, a bundled headless-Gemini harness
+  (Antigravity CLI · Claude · Codex — with eligibility determined by the actual reviewer model,
+  diversity-first and same-model disclosed as the last resort), each path's prerequisites, the
+  auditable PR-comment protocol, a bundled Antigravity CLI harness
   (`plugins/coding/skills/adversarial-review/tools/agy-review` — typed exits,
   verify-by-artifact), and the one-time machine setup headless reviewers need. Repo-agnostic and
   agent-agnostic — the method is markdown any coding agent can follow, and the harness is one

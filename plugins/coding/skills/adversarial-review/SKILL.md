@@ -170,8 +170,9 @@ eligibility gate; subscription windows only decide the order among eligible revi
    the background (see *Bounding a review CLI* below); expect a subscription rate wall after
    roughly a dozen rounds in a session — the wall locks the shared bucket for days, which is why
    it sits last among the different-model legs. Its review quality has earned its place in the
-   chain (it has caught data-loss-class bugs the author's own tests missed); reach for it when the
-   Antigravity or Claude leg dies typed or when a second independent model is worth the window.
+   chain (it has caught data-loss-class bugs the author's own tests missed); reach for it when it is
+   the next eligible path after another reviewer dies typed, or when a second independent model is
+   worth the window.
 
 **Last resort — same-model, disclosed.** When *no* different-model reviewer is available (every other
 model's CLI missing or walled), run a same-model reviewer: a fresh agent of the author's own model with
