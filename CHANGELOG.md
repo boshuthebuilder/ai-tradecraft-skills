@@ -4,6 +4,13 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v7.0.0 — 2026-09-16
+
+A **MAJOR** correction to `adversarial-review`: remove the MiniMax reviewer leg because the method no
+longer assumes that subscription is available. The remaining paths are Antigravity CLI, Claude and
+Codex. Antigravity is named as the multi-model execution path it is, and reviewer eligibility follows
+the model it actually serves rather than treating the CLI itself as the Gemini model family.
+
 ## v6.7.1 — 2026-09-15
 
 A **PATCH** correcting the contract-driven wiki guidance after independent review.

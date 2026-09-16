@@ -4,7 +4,7 @@ description: >-
   Run the cross-model adversarial review gate on a pull request: a *different* model from the one
   that wrote the code reviews the open PR adversarially and posts its findings as PR comments, before
   the change is declared done. Covers reviewer selection (the fallback chain), the auditable
-  PR-comment protocol, the bundled headless-Gemini harness (`tools/agy-review`, typed exits), and the
+  PR-comment protocol, the bundled Antigravity CLI harness (`tools/agy-review`, typed exits), and the
   one-time machine setup headless reviewers need. Also covers reviewing a numeric or engineering
   contract (a physical model, sizing or pricing calculation, tolerance table — anything whose units
   mean something), where findings carry counterexamples, fixes carry recomputations, and each
@@ -28,10 +28,10 @@ When in doubt, it applies.
 
 ## The rules
 
-1. **Reviewer ≠ author, by model.** Select by model *diversity* first, availability second. If
-   Claude wrote the code, Gemini, Codex or MiniMax reviews it; if Codex wrote it, Gemini, Claude or
-   MiniMax reviews it. Same-model review is a genuine last resort — and must be disclosed on the PR so
-   the weaker gate is visible.
+1. **Reviewer ≠ author, by model.** Select by model *diversity* first, availability second. The
+   Antigravity CLI is an execution path, not a model family: use its live model catalogue to select a
+   model different from the author. Claude and Codex are the other concrete paths. Same-model review is
+   a genuine last resort — and must be disclosed on the PR so the weaker gate is visible.
 2. **PR-anchored.** Review the *open PR*, not a local diff: the merge-base diff (`main...HEAD`) is
    exactly the author's change, and the PR description is the stated intent the reviewer can check
    it against. (A quick local-diff pass is fine while iterating pre-push; the auditable gate before
@@ -90,28 +90,24 @@ When in doubt, it applies.
 
 ## The fallback chain
 
-Pick the first *available* reviewer whose model differs from the author's. Four concrete legs — Gemini,
-Claude, Codex, MiniMax — each eligible whenever the author is **not** that model; order the eligible ones
-by diversity first, then window economics (lead with the idle separate-subscription pools — Antigravity,
-then MiniMax; conserve the walled Codex bucket and the Max window Claude shares with interactive work).
-The recurring case is a **Claude-authored** change, whose order is therefore Gemini → MiniMax → Codex
-(Claude itself is ineligible): the two idle separate budgets spend first, Codex — which walls for days —
-last. A **Codex-** or **Gemini-authored** change has Claude as a first-class leg, not the last resort — do
-not reach past it to a same-model reviewer. MiniMax adds a genuinely different model family (a fourth
-vendor, separately trained): it differs from *any* author, so it is eligible on every review and is never
-the *only* thing between an author and a same-model gate. Diversity here is the eligibility gate — a
-reviewer must differ from the author — while the *order* among the eligible legs is window economics,
-which is why the idle Antigravity pool still leads and MiniMax follows it rather than jumping the queue.
+Pick the first *available* reviewer whose **served model** differs from the author's. Three concrete
+execution paths remain: Antigravity CLI, Claude and Codex. Order eligible paths by diversity first, then
+window economics: lead with a genuinely different model from the separate Antigravity subscription,
+then use an eligible primary Claude or Codex path. The recurring case is a **Claude-authored** change:
+select a non-Claude model through Antigravity first, with Codex as the fallback. A **Codex-authored**
+change may use a non-Codex Antigravity model or Claude. If Antigravity serves the same model family as
+the author, it is same-model review even though the CLI and subscription differ. Diversity is the
+eligibility gate; subscription windows only decide the order among eligible reviewers.
 
-1. **Gemini** — the idle-pool lead; ineligible only when Gemini authored the change. Via the bundled
-   harness: `tools/agy-review <pr>
+1. **Antigravity CLI** — the idle-pool lead when it can serve a model family different from the author.
+   Via the bundled harness: `tools/agy-review <pr>
    [--repo owner/name] [--label focus]` (path relative to this skill's directory — from a clone of
    this repo that is `plugins/coding/skills/adversarial-review/tools/agy-review`), run from inside a checkout of
    the repo under review. It pre-flights the known silent
    killers, bounds the run, and verifies success by the *posted PR comment*, never the CLI's exit
    code. `--model "<label>"` runs the review on another Antigravity-pool model (see *Quota-aware
    reviewer selection*), and every result line carries the run's `conversation: <id>` for follow-ups
-   (see *Follow-ups*). Gemini leads on **window economics, not review quality**: the Antigravity
+   (see *Follow-ups*). Antigravity leads on **window economics, not review quality**: its
    subscription is a budget separate from both the author's Claude plan and Codex's single shared
    ChatGPT-Plus bucket — which rate-walls for *days* and is better saved for the coding work it is
    the capability fit for. (Flipped from Codex-first 2026-07-22, the day Codex hard-walled to the
@@ -153,10 +149,10 @@ which is why the idle Antigravity pool still leads and MiniMax follows it rather
    final line didn't match the auto-denied grep — so the harness runs the identical salvage attempt
    there too, gated only on a captured conversation id rather than on which grep fired.
 
-2. **Claude** — ineligible only when Claude authored the change; for a Codex- or Gemini-authored change
+2. **Claude** — ineligible only when Claude authored the change; for a Codex-authored change
    this is a first-class leg. There is **no bundled harness** — none is needed, because Claude does not
-   share the hostile silent-failure modes that forced the Gemini harness into being: print mode returns
-   findings on stdout and a **non-zero exit on hard failure**, so success is directly observable. Drive
+   share the hostile silent-failure modes that forced the Antigravity harness into being: print mode
+   returns findings on stdout and a **non-zero exit on hard failure**, so success is directly observable. Drive
    it like the Codex leg below. Two forms: when your driver is **Claude Code**, spawn a fresh subagent
    (the Task tool) with *no shared context*; otherwise run **`claude -p`** headless. Either way hand it
    ONLY the PR diff, the PR description, and a mandate to break the change — plus the scope-and-shape lens
@@ -174,29 +170,9 @@ which is why the idle Antigravity pool still leads and MiniMax follows it rather
    the background (see *Bounding a review CLI* below); expect a subscription rate wall after
    roughly a dozen rounds in a session — the wall locks the shared bucket for days, which is why
    it sits last among the different-model legs. Its review quality has earned its place in the
-   chain (it has caught data-loss-class bugs the author's own tests missed); reach for it when the
-   Gemini or Claude leg dies typed or when a second independent model is worth the window.
-
-4. **MiniMax** — ineligible only when MiniMax authored the change (i.e. never, for a repo whose agents are
-   Claude/Codex/Gemini), so it is an eligible different-model leg on *every* review, and the most diverse
-   one — a fourth vendor's model, separately trained. It draws its own **MiniMax subscription** (a
-   Token/Coding plan), a budget independent of the Claude, ChatGPT and Antigravity plans, so it spends
-   nothing the author or the other legs need. There is **no bundled harness** — build one only when the
-   hand-rolling is felt (rule 10); drive it like the Codex leg. The catch that shapes the prompt: `mmx text
-   chat` is a **pure chat completion — no repo, `gh`, or tool access** — so, unlike agy/codex, it can fetch
-   nothing itself. Hand it the whole change *inline*: run `gh pr diff <n> --repo owner/name` and `gh pr
-   view <n> --repo owner/name` yourself and paste both (the diff + the stated intent) INTO the prompt,
-   alongside the break-it mandate and the scope-and-shape lens (rule 10) — name `--repo` on both so a
-   multi-checkout session diffs the right repo. Send the prompt on stdin as a JSON messages array
-   (`echo '[{"role":"user","content":"…"}]' | mmx text chat --messages-file - --output json`), and bound
-   the run (`--timeout <secs>`, wrapped in the watchdog of *Bounding a review CLI*). It posts nothing
-   itself: relay its findings with `gh pr comment`, naming the reviewer (`MiniMax (mmx)`) and its verdict.
-   It walls *typed* like the others — an exhausted/rate-limited window returns a documented MiniMax error
-   code (1002/2045 rate · 1008/2056 quota), so treat a walled run as a done leg and advance. Note that mmx
-   **silently substitutes its default model for an unknown `--model`** rather than erroring, and there is no
-   `mmx models` catalogue to check against — so pin a model your plan documents (e.g. `MiniMax-M3`) and
-   confirm it by the **served model in the response** (the envelope's `model` field must equal your pin),
-   never by trusting the call to have run what you asked for.
+   chain (it has caught data-loss-class bugs the author's own tests missed); reach for it when it is
+   the next eligible path after another reviewer dies typed, or when a second independent model is
+   worth the window.
 
 **Last resort — same-model, disclosed.** When *no* different-model reviewer is available (every other
 model's CLI missing or walled), run a same-model reviewer: a fresh agent of the author's own model with
@@ -206,24 +182,23 @@ never a substitute for an available different-model leg.
 
 ## Prerequisites — what each leg needs before you pick it
 
-The **Gemini** leg self-enforces: `tools/agy-review` pre-flights its prerequisites at runtime and fails
+The **Antigravity** leg self-enforces: `tools/agy-review` pre-flights its prerequisites at runtime and fails
 with a typed exit — `6` if `agy`/`gh`/`git`/`python3` is off PATH or you are not inside the repo's
 checkout, `2` if `agy` is not signed in, `3` if a grant is missing (*Machine setup*). You need not check
 by hand before that leg.
 
-The **Claude**, **Codex**, and **MiniMax** legs have **no wrapper** — nothing pre-flights them, so a
+The **Claude** and **Codex** legs have **no wrapper** — nothing pre-flights them, so a
 missing CLI or a dead login surfaces only as a failed run mid-review. Confirm them yourself first. Every
 leg also needs `gh` authenticated and a git checkout of the repo under review; findings post as PR comments.
 
 | leg | CLIs | auth / setup | one-line check |
 |---|---|---|---|
-| Gemini | `agy` `gh` `git` `python3` | signed into Antigravity + one-time grants (*Machine setup*) | `agy models` lists models (the harness checks the rest) |
+| Antigravity | `agy` `gh` `git` `python3` | signed into Antigravity + one-time grants (*Machine setup*) | `agy models` lists models (the harness checks the rest) |
 | Claude | `claude` `gh` | signed into Claude | `claude -p "reply with ok"` returns `ok` |
 | Codex | `codex` `gh` | signed into ChatGPT (Codex) | `codex --version`, and `codex exec "say ok"` answers |
-| MiniMax | `mmx` `gh` | subscription key in `~/.mmx/config.json` (a Token/Coding plan) | `mmx quota show` returns windows, and `mmx text chat --message "say ok"` answers |
 | all | `gh` | `gh auth login` | `gh auth status` is green, run from inside the repo checkout |
 
-A cold machine typically fails on auth (a CLI installed but not signed in) or, for Gemini, the one-time
+A cold machine typically fails on auth (a CLI installed but not signed in) or, for Antigravity, the one-time
 grants — both are `agy models` / `claude -p` / `codex exec` away from a clear answer.
 
 ## Reviewing a numeric or engineering contract
@@ -266,13 +241,13 @@ hand it, so a protocol documented here alone is never applied: you get ordinary 
 none of the hit rate above. Forward the block below on whichever leg you use, keeping it inside the
 label-hygiene rules (static reading, name only permitted extras, never cite an external reference):
 
-- **Gemini** — pass it as `tools/agy-review <pr> --label "…"`.
+- **Antigravity** — pass it as `tools/agy-review <pr> --label "…"`.
 - **Claude** — include it in the subagent brief or the `claude -p` prompt, alongside the diff and PR
   description.
 - **Codex** — pass it in the prompt to `codex exec` (see *Bounding a review CLI*). Note that
   `codex review --base <branch>` takes **no** custom prompt: the two are mutually exclusive
   (`the argument '--base <BRANCH>' cannot be used with '[PROMPT]'`), so `exec` is the form that can
-  carry this contract. When the Gemini leg runs, a numeric review rides the harness's `--label`, but
+  carry this contract. When the Antigravity leg runs, a numeric review rides the harness's `--label`, but
   forwarding matters most on THIS leg: `codex review` is the form that CANNOT carry the contract, so
   reaching for it out of habit silently drops the whole protocol.
 - **Same-model last resort** — include it in the brief, alongside the diff and PR description.
@@ -294,7 +269,7 @@ The fix-side clause matters because follow-up rounds are exactly when the recomp
 vector are due, and a reviewer holding only the finding rules will approve a correction that ships
 neither. Each defect class above is invisible to a prose read, and each has shipped at least once.
 
-## Machine setup (one-time, per machine) — headless Gemini
+## Machine setup (one-time, per machine) — Antigravity CLI
 
 These grants govern the **headless reviewer only** — the sandboxed `agy -p` process the harness
 drives. Authoring agents (the ones picking up issues, editing labels, opening PRs) run under their
@@ -353,11 +328,6 @@ you plan the review:
   subscription rather than the primary Claude/ChatGPT plans. When the primary plans are near their
   windows — or you simply want to preserve them for authoring — run the review on the pool:
   `tools/agy-review <pr> --model "<label>"`. An unknown label fails loud with the valid list.
-- **The MiniMax plan is another separate budget.** MiniMax's Token/Coding subscription is billed apart
-  from the Claude, ChatGPT and Antigravity plans and metered in its own 5-hour + weekly windows — so the
-  MiniMax leg is the one to reach for when those three are near their walls: a fresh, cheap, maximally
-  diverse reviewer that costs the primary plans nothing. It degrades reactively like the rest (a walled
-  window returns a MiniMax quota error, so you advance).
 - **Diversity still outranks quota.** The pool's Claude models let you review Claude-authored code
   without spending the primary Claude plan — but that is same-family review (weaker diversity, older
   generation). Prefer a genuinely different family first; reach for same-family-via-pool to preserve
