@@ -110,6 +110,14 @@ not impose one generic checklist on every subject. Show missing required rows as
 Derive Next from live actions and dates; do not print "nothing outstanding" above an open action.
 Warning callouts are for evidenced overdue, lapsed or expired states.
 
+- **Check absence against the page's own sources.** Before asserting "not on file", check its
+  source list and the relevant documents; a brief that omits a record is not evidence of absence.
+  An unreadable or partial source view leaves absence unverified. This prevents chasing a document
+  the page already cites.
+- **Sources that disagree stay visible.** State what each document says, explain the disagreement
+  and name the one settling step — a letter to request, register to check or confirmation to obtain.
+  Do not silently choose one source and present a disputed status as settled; preserve the declared
+  precedence of owner assertions while recording the conflicting evidence.
 - **History records events**, changes of state or decisions. Repeated statements, payslips or bills
   that only evidence continuity belong in records-on-file with cadence and coverage.
 - **Actions are typed** (for example pay, decide, chase, renew, file, book), with owner, evidence,
@@ -142,6 +150,42 @@ currencies or units without an explicit policy; show a missing policy instead of
 only series declared live. Assessments may follow the reader's perspective, but parent summaries must
 agree with children or identify the conflicting evidence, and are generated after the children.
 
+#### The basis of a money table
+
+A spend table counts the underlying cost once, not every document mentioning money. Apply these
+rules to the evidence before aggregating; keep extracted amounts intact for provenance:
+
+1. **One premium per policy year per insurer for the same cover.** A broker's invoice and the
+   insurer's schedule count once. A near-equal premium is a restatement; a clearly smaller premium
+   represents another policy. Check cover and policy identity to resolve uncertain matches rather
+   than silently counting or dropping them.
+2. **Prices offered are not spend.** Exclude quotations, estimates, tenders, published tariffs,
+   rate cards and fee schedules: they state a price, not an incurred cost or payment.
+3. **Acquisition is not running cost.** Keep a property completion balance or vehicle purchase
+   price in key facts, outside the asset's running-cost table.
+4. **A total and its parts count once.** Where one document states several amounts on one day and
+   the smaller amounts could be components of the largest, count only the largest in the total;
+   retain the components as evidence, not additional spend. If the component relationship is only
+   possible, label the resulting total provisional until checked; explicitly separate purchases
+   remain distinct costs.
+5. **A receipt does not add to its bill.** Match receipts to already-counted bills by value, including
+   half- or quarter-value instalments, over a generous date window declared in the table's basis.
+   Use the same obligation's evidence to distinguish a match from an unrelated equal payment.
+6. **Pay belongs to the staff subject and the pay period.** Never treat a payslip year-to-date total
+   as one month's pay. Attribute pay to the staff page wherever the payslip was filed; a copy held
+   as travel or visa evidence does not become travel spend.
+7. **An updated document counts once.** Reissued bookings or other updates replace the earlier
+   version for the same stay or obligation; do not add both versions.
+8. **Historical copies are not this period's spend.** Exclude copies in `old`, `previous`,
+   `superseded` or `archive` folders from the current-period total; previous owners' invoices do
+   not become the current owner's costs.
+
+Print the basis beneath every rendered money table: period, attribution, what was counted and
+excluded, and any matching or currency policy. Label whether it counts incurred costs or evidenced
+payments; an invoice alone does not establish payment. A page and its folder note must use the same
+basis for the same question. Show unresolved counting matches rather than presenting their total as
+settled.
+
 Citation-derived hubs (people, counterparties or another facet) are valid cross-cutting indexes, not
 new filing homes. The Schema sets their inclusion threshold. Optional `entities` frontmatter may hold
 facets deterministically derived from validated links and parties. Layout below a domain, folder-note
@@ -151,13 +195,39 @@ for table escaping and the target editor's link conventions.
 Index and deadline roll-ups exclude closed subjects, superseded documents and facts belonging to third
 parties unless explicitly in scope. Deduplicate by fact identity, not by the number of pages citing it.
 
+When a restricted row contributes to a roll-up, index or parent summary, generalise the **whole
+record**, including evidence, amount and other typed fields, to the source's outward ceiling. Keep
+only fields that ceiling permits; scrubbing the display string while metadata passes through is not
+enforcement. For `subject-clinical`, even an action's kind or owner is outside the outward ceiling.
+
 ### Additional depth: measurements-only
 
 An opted-in contract may permit `measurements-only`: typed metric, value, unit, date and printed
 reference range on explicitly authorised subject pages, without diagnoses, treatment, clinical
 opinions or imaging findings. Restrict both the extraction/context shape and the rendered fields;
 a lexical check is supplementary evidence, never the sole privacy boundary. Unrecognised depth
-values must fail validation. Cross-page contributions obey the architecture's context-crossing rule.
+values must fail validation; the supported vocabulary is the enumeration in *Rules that keep it safe*.
+Cross-page contributions obey the architecture's context-crossing rule.
+
+### Additional depth: subject-clinical
+
+`subject-clinical` permits full clinical substance — history, active conditions, treatment, dated
+encounters, measured values with units and printed ranges, and the plan — on explicitly authorised
+subject pages only, while every other page, including domain notes, hubs, roll-ups and the front page,
+carries at most that the subject page exists and the date of its last entry. Declare the authorised
+subject-page list in the Schema; never infer authorisation from a folder name. `measurements-only`
+remains the narrower choice for values without clinical substance.
+
+Apply [the architecture's context-crossing guard](../../ARCHITECTURE.md#context-crossings-and-evidence-bearing-enrichment)
+to cut each restricted page's contribution to that outward ceiling **before** another page's model,
+tool context or roll-up receives it, including when the destination is another authorised subject
+page. The deployment validates the Schema authorisations and enforces the context and output shapes;
+a prose instruction alone cannot implement this depth.
+
+For any restricted depth, a supplementary lexical check excludes citations (including link targets),
+link labels and filenames, and declares those exclusions in its report: naming a document held is
+not itself disclosing its contents. These are exclusions from the lexical content scan only; they
+never exempt those surfaces from identifier policy or the source's outward depth ceiling.
 
 ## The Index page — the dashboard
 
@@ -267,6 +337,12 @@ clean checks; an absent report is **not verified**. Record checks not performed 
 reporting zero. Use `productivity:portable-markdown` for table and link mechanics. Visual outputs need
 an editor/theme check when introduced or changed; text lint cannot establish chart legibility.
 
+Check an "is not on file" claim against the page's own citations; deployments may enforce this
+consistency check deterministically. Lexical depth counts report real content findings after excluding
+citations, link targets, link labels and filenames, with those exclusions and the checked scope named
+in the artefact. Report identifier and crossing-guard checks separately so a clean lexical count
+cannot conceal an unchecked privacy boundary.
+
 Before first hand-off or after changing page anatomy, use the reader-review acceptance step in
 `wiki-onboarding`. Keep its findings and the builder's responses beside the verification artefact.
 
@@ -279,6 +355,14 @@ and `reconcile`):
   source touches, append to the log. Cheap; run it often.
 - **Reconcile** — comprehensive and **periodic**: reckon the whole wiki to the files — dedupe, sweep
   orphans, reconcile stale claims, confirm the structure holds.
+
+**Every regeneration reckons to the live files immediately before rendering.** Diff the live folder
+against the source snapshot the pages will use, adopt moves so citations resolve, handle removed
+sources as drift, and read new or changed sources onto their pages before rendering. Record the
+snapshot and the added, removed, moved and edited sources with the pass, so its log states what the
+render was true against. An incomplete or blocked reckoning is a named gap, not a verified render.
+This check is part of regeneration, not deferred to the periodic reconcile: stale inputs can produce
+confident wrong statements, and the reader cannot tell which rows to distrust.
 
 **A deterministic gate runs before either spends model effort.** A cheap check of folder state — new or
 changed sources, items in the inbox, a changed calendar snapshot — decides whether there is anything to
@@ -331,10 +415,13 @@ with no inline maintainer, the scheduled passes are the primary path.
   it, **and enforced by the deployment's crossing guard** on everything a pass returns — a model
   holding the document quotes the number it was told not to often enough that the instruction cannot
   be the only line of defence (see [`ARCHITECTURE.md`](../../ARCHITECTURE.md)).
-- **Sensitivity has a depth as well as a mask.** The Schema may set a per-domain depth: `full`
-  (default), `administration-only` (a legal matter: adviser, dates, invoices, next deadline, never
-  the substance of advice), `dates-only` (health: appointments and "a report exists at <path>"). A
-  deterministic exclude list (paths and globs the gather never presents) handles credentials and
+- **Sensitivity has a depth as well as a mask.** The Schema declares a depth policy. Domain-wide
+  depths are `full` (default), `administration-only` (a legal matter: adviser, dates, invoices, next deadline, never
+  the substance of advice) and `dates-only` (health: appointments and "a report exists at <path>").
+  The Schema also permits the opt-in subject-page modes `measurements-only` and `subject-clinical` defined above. Selecting
+  a subject-page mode for a domain does not authorise every page in it: the declared subject-page
+  permissions and outward ceiling govern each contribution. These five names are the supported
+  depth vocabulary. A deterministic exclude list (paths and globs the gather never presents) handles credentials and
   anything the owner names; both are recorded decisions and are never re-raised. Identifiers leak
   through filenames as well as bodies: a filename carrying a full account or document number is a
   finding for the next curation round, and the wiki never repeats it.
