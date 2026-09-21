@@ -165,7 +165,9 @@ rules to the evidence before aggregating; keep extracted amounts intact for prov
    price in key facts, outside the asset's running-cost table.
 4. **A total and its parts count once.** Where one document states several amounts on one day and
    the smaller amounts could be components of the largest, count only the largest in the total;
-   retain the components as evidence, not additional spend.
+   retain the components as evidence, not additional spend. If the component relationship is only
+   possible, label the resulting total provisional until checked; explicitly separate purchases
+   remain distinct costs.
 5. **A receipt does not add to its bill.** Match receipts to already-counted bills by value, including
    half- or quarter-value instalments, over a generous date window declared in the table's basis.
    Use the same obligation's evidence to distinguish a match from an unrelated equal payment.
@@ -413,11 +415,13 @@ with no inline maintainer, the scheduled passes are the primary path.
   it, **and enforced by the deployment's crossing guard** on everything a pass returns — a model
   holding the document quotes the number it was told not to often enough that the instruction cannot
   be the only line of defence (see [`ARCHITECTURE.md`](../../ARCHITECTURE.md)).
-- **Sensitivity has a depth as well as a mask.** The Schema may set a per-domain depth: `full`
-  (default), `administration-only` (a legal matter: adviser, dates, invoices, next deadline, never
-  the substance of advice), `dates-only` (health: appointments and "a report exists at <path>"),
-  `measurements-only` or `subject-clinical` (the opt-in subject-page depths defined above). A
-  deterministic exclude list (paths and globs the gather never presents) handles credentials and
+- **Sensitivity has a depth as well as a mask.** The Schema declares a depth policy. Domain-wide
+  depths are `full` (default), `administration-only` (a legal matter: adviser, dates, invoices, next deadline, never
+  the substance of advice) and `dates-only` (health: appointments and "a report exists at <path>").
+  The Schema also permits the opt-in subject-page modes `measurements-only` and `subject-clinical` defined above. Selecting
+  a subject-page mode for a domain does not authorise every page in it: the declared subject-page
+  permissions and outward ceiling govern each contribution. These five names are the supported
+  depth vocabulary. A deterministic exclude list (paths and globs the gather never presents) handles credentials and
   anything the owner names; both are recorded decisions and are never re-raised. Identifiers leak
   through filenames as well as bodies: a filename carrying a full account or document number is a
   finding for the next curation round, and the wiki never repeats it.
