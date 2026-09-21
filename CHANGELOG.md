@@ -4,11 +4,11 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
-## Unreleased
+## v8.0.0 — 2026-09-21
 
 ### Changed
 
-- **Breaking — MAJOR on release:** evidence-bearing identifier completion now requires matching
+- **Breaking:** evidence-bearing identifier completion now requires matching
   kind **and** holder-or-issuer, replacing the previous kind-or-institution rule (#77).
 - Wiki maintenance defines the money-table counting basis, source checks before absence claims,
   explicit source disagreements, whole-record roll-up restrictions and lexical-check exclusions;

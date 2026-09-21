@@ -2,7 +2,7 @@
   "name": "ai-os",
   "displayName": "Headless AI OS",
   "description": "Framework + Agent Skills for a headless AI assisting system over real folders: the knowledge layer (project-onboarding, wiki-onboarding, wiki-maintenance, user-onboarding), the job-archetype framework (file-ingest, user-synthesis, code, folder-curation), folder-curation (adopt a lived-in folder through a deterministic audit and a propose-only move-plan before it is onboarded), and file-preprocessing \u2014 staging-folder triage with a portable hash-keyed audit manifest any agent can produce or consume. Works in any Claude Code or Cowork session, and can be consumed by an automated pipeline from the same source.",
-  "version": "7.0.0",
+  "version": "8.0.0",
   "author": {
     "name": "Boshu Zhang"
   }
