@@ -267,8 +267,12 @@ For deployments adopting evidence-bearing enrichment, a deterministic transform 
 information (identifier completion, alias resolution, abbreviation expansion) also needs typed targets
 and evidence. Record each decision's page, token,
 chosen value, kind, source and resolution tier. Prefer evidence on the page, linked subjects and cited
-sources; a wider search needs matching kind or institution, and ambiguity remains unresolved. Never
-complete from suffix coincidence alone. Apply the destination's identifier policy after enrichment.
+sources; a wider search requires **kind and holder-or-issuer**: the candidate's kind matches what
+the words beside the mention name, and its holder or issuer is named on the page, in the cited
+document or in the source folder path. If only one test passes, leave the mention as an unresolved
+suffix; ambiguity remains unresolved even when both pass. A completion citing a real document
+belonging to someone else is worse than a suffix left alone. Never complete from suffix coincidence
+alone. Apply the destination's identifier policy after enrichment.
 The policy must survive filenames, free text, audit views and roll-ups, not just identifier tables.
 
 ### Writes into synced folders

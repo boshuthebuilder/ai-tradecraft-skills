@@ -4,6 +4,21 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## Unreleased
+
+### Changed
+
+- **Breaking — MAJOR on release:** evidence-bearing identifier completion now requires matching
+  kind **and** holder-or-issuer, replacing the previous kind-or-institution rule (#77).
+- Wiki maintenance defines the money-table counting basis, source checks before absence claims,
+  explicit source disagreements, whole-record roll-up restrictions and lexical-check exclusions;
+  regeneration now reckons to live files immediately before rendering (#78–#81).
+
+### Added
+
+- Opt-in `subject-clinical` depth with Schema-authorised subject pages and an existence/last-entry
+  outward ceiling; `measurements-only` remains available (#76).
+
 ## v7.0.0 — 2026-09-16
 
 A **MAJOR** correction to `adversarial-review`: remove the MiniMax reviewer leg because the method no
