@@ -339,30 +339,12 @@ and **Reduce**; every other step is deterministic.
    the only steps whose judgement is about the *whole* batch — the strongest reasoning available, run
    twice a run. Routing both at one tier is a decision either way; make it deliberately (the
    framework rule is in [`ARCHITECTURE.md`](../../ARCHITECTURE.md)).
-8. **Guard the answers — once, where they cross into the deterministic side.** Every free-text
-   field the reasoning steps returned passes the deterministic redaction guard **here**, before any
-   of them is used to name a file, move it, write an entry, raise an item or render a view. That is
-   the whole set, named rather than gestured at: the fields that reach the manifest (`title`,
-   `summary`, `key_facts`, `look_reason`, `parties`, and every `connections[].relation` — whoever
-   wrote it, the understanding pass or the reduce pass that revised it, since reduce is advisory and
-   a failed one leaves the groups' own relations standing), the ones only a filename is derived from
-   (`party`, `doc_type`, `detail`), and the text of any item the run **raises** (`item`, `reason`,
-   `what_would_resolve`, `owner_action`, `proposed_action` — `owner_action` above all, since naming
-   which account to go and find is exactly what it is for) —
-   an escalation about an unrecognised account is precisely where a model repeats the account
-   number, and the ledger it lands in is read by people and by later runs. `parties`, `relation` and
-   the raised text are the three a guard written from memory omits, and the three a model most
-   naturally qualifies with the number it just read ("… — account 12345678"). Placing it at the manifest
-   write would be too late: the very next step builds the filename out of `party` and `detail`, and
-   a full account number a model put in `detail` would already be on the filesystem — in the name,
-   in `current_path`, and in `rename_history` — before any guard saw it. One crossing, one guard,
-   and everything downstream is already clean. The targets are typed, not a digit hunt —
-   `reference_numbers` is a field this schema *wants* populated, so it passes at the depth the
-   operator declared while account, card, licence and document numbers reduce to their last 4 — and
-   every redaction is **counted and reported in the run summary**, because a guard that silently
-   does nothing and one that silently does everything look the same from outside. The framework
-   rule, and why the prompt instruction alone was never enough, is in
-   [`ARCHITECTURE.md`](../../ARCHITECTURE.md).
+8. **Apply the declared identifier policy at the crossing.** Full source-supported identifiers are
+   retained by default under `wiki-maintenance`. If the owner explicitly requests a restriction,
+   apply it to every returned field before deriving filenames, writing manifest entries or raising
+   items, including typed fields, free text, parties and connection relations. Count and report any
+   redactions. Explicit source exclusions are enforced before reading, not after extraction; see
+   [`ARCHITECTURE.md`](../../ARCHITECTURE.md#redaction-is-a-guard-not-an-instruction).
 9. **Name and place — deterministically, from the guarded fields.** Filename pattern:
    `<Party> - <DocType> <YYYY-MM-DD> <Detail>.<ext>` (e.g.
    `Wren - Lab Report 2026-03-14 Vitamin D.pdf`). Fallbacks are fixed: unknown party → `Unknown`; no
@@ -420,9 +402,8 @@ records the rename in `rename_history` with the caller's plan reference in `plan
 merging and bundle splitting still apply (the merged or split output lands beside the original), and
 the original rests in the caller's archive area rather than a run's `_Archive/`. In-place mode never
 touches a file outside the list it was given. **The caller also hands over the folder's settled
-answers** — the rulebook's alias list, its language and naming rule, and its per-domain sensitivity
-depths — so a folder that has already answered "who is this" and "how deep for health" is not asked
-again, and the redaction guard applies the owner's depths rather than the default.
+answers** — the rulebook's alias list, language and naming rule, source exclusions and any explicit
+identifier restrictions — so settled decisions are reused rather than asked again.
 
 The reference implementation is family-ai-os's `preprocess` engine (dashboard-triggered, chunked
 LLM calls under a context budget with parallel chunk reads and strictly ordered applies, on-device

@@ -23,7 +23,7 @@ domain at a time, before any executor touches a file.
 
 The rulebook records the decisions the owner already made in the curation interview: the **depth**
 chosen for this round, which folders are closed matters, which formats are working formats, what is
-sensitive (excluded outright, or indexed at reduced depth), and the language and naming rule. They
+excluded outright or subject to an explicit identifier restriction, and the language and naming rule. They
 are settled decisions — apply them, never re-litigate them, and never re-raise a sensitivity choice
 already recorded here.
 

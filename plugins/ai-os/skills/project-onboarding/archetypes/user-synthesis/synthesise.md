@@ -100,9 +100,9 @@ Rules:
   them; a **recently-resolved** item you may reopen only if its evidence has since changed (then say
   what changed).
 - **Reconcile, don't average.** Conflicting claims between projects are surfaced as conflicts.
-- **Sensitive identifiers, last-4 only**, exactly as the source pages already hold them; a
-  deterministic guard checks every field you return before any of it is written, so a slip is caught
-  and counted, not shipped.
+- **Preserve full source-supported identifiers and relevant private or clinical content**, following
+  wiki-maintenance and any explicit owner restriction. Access only the projects this identity may
+  read; never reconstruct missing identifier digits by guessing.
 - **Authored notes carry through.** Source material marked `provenance: manual` is owner-asserted and
   authoritative — represent it faithfully; never contradict it from derived material.
 - Give every page you write frontmatter: `provenance: derived`, `last-updated: {date}`, `status: current`.

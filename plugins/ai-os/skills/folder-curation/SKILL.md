@@ -186,16 +186,10 @@ Show the audit, then ask, in this order, and record every answer in the rulebook
 4. **Which folders are closed matters** (ingested once as history, marked superseded) and which are
    live.
 5. **Which formats are working formats**, and whether the owner will convert or export them.
-6. **What is sensitive** beyond the last-4 rule: paths to exclude outright (credentials), and
-   domains to index at reduced depth (administration-only for a legal matter, dates-only for
-   health). Recorded as a decision, so later passes never re-raise it — and **compiled into the job
-   config, not left in prose**: the exclusions become the deterministic `exclude` list the gate
-   applies before a model sees anything, and the depths become the redaction guard's settings on
-   what a model returns. A depth that lives only in a rulebook sentence is a preference a model is
-   asked to honour;
-   the two enforcement points are in [`ARCHITECTURE.md`](../../ARCHITECTURE.md), and they are
-   different failures — the gate cannot stop a summary from quoting a number, and the guard cannot
-   un-read a credentials file.
+6. **Any explicit exclusions or identifier restrictions.** Full private content is the default
+   under `wiki-maintenance`; compile excluded paths and any requested identifier restriction into
+   job config. These decisions do not change the separate reorganisation depth selected above.
+   See the enforcement boundaries in [`ARCHITECTURE.md`](../../ARCHITECTURE.md).
 7. **Where AI outputs already sit** beside the sources, so the plan can relocate them.
 8. **Language and naming** for renamed files and folders, where the material is bilingual — and the
    **names each person and organisation appears under**, every script and nickname included. The

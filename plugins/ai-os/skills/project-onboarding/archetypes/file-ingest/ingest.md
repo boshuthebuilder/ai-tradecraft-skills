@@ -103,10 +103,9 @@ deterministic snapshot of the project's calendar.
 
 A wiki claim the owner asked to record that is **not** derived from a saved file is a **manual note**:
 give that page/block `provenance: manual`. Never flag a `provenance: manual` note as inconsistent with
-the files — it is authoritative; a calendar event never supersedes it. Honour an explicitly advertised, owner-approved identifier policy. Without one, record sensitive
-identifiers (account / document / licence / card numbers) as the **last 4 digits only**, never in full — a
-deterministic guard checks every field you return before any of it is written, so a slip is caught
-and counted, not shipped.
+the files — it is authoritative; a calendar event never supersedes it. Follow the identifier policy in wiki-maintenance: full source-supported identifiers by default,
+with any explicit owner restriction enforced by the deployment. Include relevant private and clinical
+substance; never complete a masked value by guessing.
 
 ## Surfacing what needs a human — precise and quiet
 
