@@ -84,7 +84,7 @@ wiki that's already there** (one of this skill's use cases is adding jobs to a f
 a wiki):
 
 - **No wiki / Schema yet** → run **wiki-onboarding**: scan, propose a structure that mirrors the
-  owner's own folders, interview on a few key points (what they'll ask the wiki, what's sensitive,
+  owner's own folders, interview on a few key points (what they'll ask the wiki, any explicit exclusions,
   per-domain update triggers, cadence), and write the **Schema / Index / Log** skeleton.
 - **A wiki / Schema already exists** → **do not re-onboard.** Read and validate the existing Schema,
   then go straight to stamping the jobs (step 3).
