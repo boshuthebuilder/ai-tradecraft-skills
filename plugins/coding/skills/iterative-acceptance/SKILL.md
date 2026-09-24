@@ -59,7 +59,7 @@ attention queue went from 88 of 132 files to 2, none of them wrong.
    a stated reason. Then the next batch of real input starts the loop again, cheaper.
 
 For a synthesis, the attention surface includes unresolved citations and links, malformed tables,
-missing contract fields, undated roll-up rows, policy-inconsistent identifiers, depth violations and
+missing contract fields, undated roll-up rows, identifier-policy violations and
 independent reader findings. Record the same scoped counters in each build's verification artefact;
 a policy-permitted mask is not a defect, and zero findings from an unperformed check is not success.
 A formatting miss may become a deterministic renderer; an incorrect identifier completion may become

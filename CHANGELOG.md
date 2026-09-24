@@ -4,7 +4,7 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
-## v9.0.0 — 2026-09-23
+## v9.0.0 — 2026-09-24
 
 ### Breaking
 

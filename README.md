@@ -140,8 +140,8 @@ layer over a folder of real files. Five skills cover the lifecycle:
   by confident match → update the pages it touches → surface what needs a human → log), answer
   queries from the wiki, and run periodic reconcile (lint) passes. The method is portable; each
   wiki's own Schema page is the authority for its exact pages and layout. Includes the provenance
-  model, the never-overwrite-a-human-edit guard, and a sensitive-data rule (identifiers as last-4
-  only).
+  model, the never-overwrite-a-human-edit guard, full private content and source-supported identifiers
+  by default, with explicit owner restrictions.
 - **`folder-curation`** — adopt a **lived-in** folder, the one between a drop folder and a tidy
   one. The audit half is deterministic and repeatable: a hash-keyed manifest over the whole library
   with type classes, duplicate groups that know a submission pack from a redundant copy,
