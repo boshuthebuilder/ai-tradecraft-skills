@@ -4,6 +4,17 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v9.0.0 — 2026-09-24
+
+### Breaking
+
+- Private wikis use `subject-clinical` as their sole, default content depth. Full clinical and other
+  personal content may appear on relevant authorised pages; remove the other depth modes and the
+  former subject-page-only ceiling. Migrate existing Schema settings before enabling the new method.
+- Full source-supported identifiers (`stated`) are now the default. Explicit owner restrictions,
+  project/identity access and excluded source paths still apply. Onboarding and archetype prompts
+  follow the same policy; the identifier evidence requirements are unchanged.
+
 ## v8.0.0 — 2026-09-21
 
 ### Changed

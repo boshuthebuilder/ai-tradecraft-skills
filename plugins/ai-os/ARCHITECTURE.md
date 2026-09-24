@@ -216,52 +216,27 @@ and tier per accepted answer, so weak-tier items can later be selected without r
 
 ## Redaction is a guard, not an instruction
 
-Two contracts in this framework are stated to the model as instructions — *record identifiers as the
-last 4 digits only*, and *never read what the sensitivity decision excluded*. A model asked not to
-quote a number quotes it anyway often enough to matter, and it is holding the document that contains
-it. So both are **crossing guards** — deterministic, and placed where a model's answers enter the
-system — and the prompt rule is the first of two lines of defence, never the only one:
+Private wikis retain full relevant content and source-supported identifiers by default. The policy
+is owned by `wiki-maintenance`; this section owns its enforcement boundaries. Redaction applies only
+when an owner explicitly requests an identifier restriction. It is not an automatic response to PII
+or clinical content.
 
-> Every free-text field a reasoning step returns passes a deterministic redaction guard **as it
-> crosses onto the deterministic side** — before any of it is used to name a file, write an entry or
-> render a view. A rule that governs what may leave the system belongs at the boundary the answers
-> actually pass through, not in the prompt that asks for them.
-
-Four properties keep the guard from becoming its own silent failure:
-
-- **It sits at the crossing — not inside the pipeline, and not at each write.** Not on the reduce
-  step, not on the summariser: a redaction that lives inside a model call fails exactly when the
-  model does. But "at each write" is the other trap, and the subtler one — a returned field is often
-  used to *derive* something before it is written, and a filename built from an unguarded field puts
-  the number on the filesystem before any write-time guard sees it. Guard the answers once, where
-  they enter the deterministic side, and everything downstream — names, entries, views, the paths
-  added later — is already clean.
-- **Its targets are typed, not a digit hunt.** A blind scrub over free text eats invoice numbers,
-  case references and dates, and the manifest schema has a field that *wants* the reference numbers
-  a document carries. The guard names the fields it scrubs and the identifier classes it scrubs for;
-  a field the deployment declares as a reference list is passed through, and its own depth is set by
-  the same sensitivity decision.
-- **A redaction is reported, never silent.** Count them per run, and name the field. A guard that
-  quietly does nothing and a guard that quietly does everything look identical from outside — a
-  count is what tells the owner the prompt rule is holding, or that it stopped.
-- **Exclusion is enforced by the gate, not by the guard.** The paths the owner excluded outright
-  never reach a model at all (the deterministic `exclude` list in the job config); the guard is for
-  what a model returns about the material it *was* given. The two are different failures and both
-  are needed — the guard cannot un-read a credentials file, and the gate cannot stop a summary of a
-  medical letter from quoting a number.
-
-The chain is one line, from decision to enforcement: the interview's sensitivity answers land in the
-folder's rulebook, the rulebook's exclusions and per-domain depths are compiled into the job config,
-and the guard applies the depths at the crossing. A depth recorded in prose and nowhere else is a
-preference, not a control.
+- Apply any explicit identifier restriction deterministically as model answers enter the system,
+  before deriving filenames, writing records or rendering views. Include typed fields, free text,
+  citations, audit views and whole roll-up records; changing only display text is insufficient.
+- Use typed identifier targets, never a blind digit hunt that corrupts dates, amounts or references.
+  Report applied redactions by field and count; a default full-content run should not invent them.
+- Enforce identity/project access and explicit path exclusions before a model or tool can read the
+  source. Permission to include private information does not grant access to another identity's
+  projects or to excluded credentials.
 
 ### Context crossings and evidence-bearing enrichment
 
-Depth applies whenever information crosses a boundary, including page-to-page and project-to-user-tier
-context. Cut a source page's contribution to its own allowed depth **before** handing it to another
-page's model, even if the destination permits more. A restricted source cannot become full-depth
-because a hub links to it. Tool reads need the same restriction; filtering the prompt while leaving
-raw restricted pages available to the model is not enforcement.
+Within an authorised context, clinical facts and full identifiers may contribute to any relevant
+page, including indexes, family summaries and user-tier synthesis. Do not reduce a source page to
+existence and dates. Access scoping, explicit source exclusions and any owner-requested identifier
+restriction survive page-to-page and project-to-user-tier crossings, including tool reads. A model
+instruction alone cannot enforce an access boundary; use the deployment's deterministic guards.
 
 For deployments adopting evidence-bearing enrichment, a deterministic transform that **adds**
 information (identifier completion, alias resolution, abbreviation expansion) also needs typed targets

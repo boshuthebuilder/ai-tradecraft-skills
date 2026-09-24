@@ -161,23 +161,11 @@ the field existed: read it as `flagged`.
   changes). Re-confirmation is a shortcut past the search, never a replacement for it. Skipping the search while a
   weak candidate survives is the trap — the owner exports `Report.pdf` in answer to the flag, the
   stale `Report draft.pdf` is still present, and the flag never clears.
-- **Every free-text field a model produced is guarded before it is written — the list is the whole
-  list.** `title`, `summary`, `key_facts`, `look_reason`, `parties` and each `connections[].relation`
-  come from a model that has just read the document — `connections[].relation` whoever wrote it,
-  the understanding pass or the reduce pass that revised it — and this file is the source of truth
-  *and* travels with the parcel — a number scrubbed only in `AUDIT.md` is a number the manifest still
-  hands to whoever opens it next. `parties` and `relation` are the easy ones to forget and the ones
-  a model most naturally qualifies ("… — account 12345678"), so name them explicitly rather than
-  relying on "the free-text fields". The `reference_numbers` list is the typed exception: it is a
-  field the schema wants populated, so it passes at the depth the folder declared rather than being
-  scrubbed blind. Two kinds of model text never land in this file and are guarded at the same
-  crossing regardless — what a producer only *derives* from (a filename part like `detail`), and
-  what it emits **past** the manifest into a raised-item ledger (an escalation's `item`, `reason`,
-  `what_would_resolve`, `owner_action`, `proposed_action` — `owner_action` included, and it is the
-  one most likely to name an identifier, since it tells a person which account or document to go
-  and find). The ledger is read by people and by later runs; a number
-  that reaches it has left the system just as surely. See the framework rule and the guard's four
-  properties in [`ARCHITECTURE.md`](../../../ARCHITECTURE.md).
+- **Identifier handling follows the declared policy.** Full source-supported identifiers are
+  retained by default. Any explicit owner restriction applies before writing to every affected
+  typed and free-text field, including parties, connection relations, filename components and
+  raised items. Do not scrub arbitrary digits. See the crossing rule in
+  [`ARCHITECTURE.md`](../../../ARCHITECTURE.md#redaction-is-a-guard-not-an-instruction).
 - `AUDIT.md` is derived; regenerate it from the manifest rather than editing it.
 
 ## Shared contracts

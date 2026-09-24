@@ -63,7 +63,7 @@ Reckon the whole vault and correct drift, making the **minimal stable changes** 
 
 Rules: identical to `synthesise` — incremental (return only changed pages; un-returned pages are kept),
 traceable to a source, **figures copied character-for-character from the source** (name the page if it
-isn't shown this run), reconcile-don't-average, last-4 only, `provenance: derived` +
+isn't shown this run), reconcile-don't-average, full source-supported identifiers by default, `provenance: derived` +
 `last-updated: {date}` + `status:` on every page you write, Knowledge ⊥ Ideas. The reconcile may write
 more broadly than a reactive synthesise, but it is still an **edit** of the existing tree, never a
 wholesale rebuild. **An observation is a wiki write, not an alert** — a `needs_a_look` carries an `owner_action` only when there is a physical act the owner must perform that this system cannot (the exact file or place, in one sentence); otherwise `owner_action` is null and the item is recorded, not queued, because the page you just wrote is where it will be read. **If you cite an open item, supersede it or say why both stand.** Both rules are stated in full in the archetype's other template. **Do not re-raise a `previously_raised` open or dismissed item** — reference it;

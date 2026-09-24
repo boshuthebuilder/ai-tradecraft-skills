@@ -79,7 +79,7 @@ which page a given kind of source touches. It's the authority when you design or
 extend it whenever you add a page or a field.
 
 A page's "fields to maintain" is a small, explicit contract — e.g. for a person page: identity documents
-(with dates and **last-4-only** numbers), status, key dates, a pointer to the source folder. Write enough
+(with dates and **full, source-supported** numbers), status, key dates, a pointer to the source folder. Write enough
 on the page that the obvious question ("when does this expire?", "what's the latest figure?") is answered
 from the wiki without opening the source. When you route an incoming source, match it to the right
 existing section/page using the Schema's trigger table; if you can't see the Schema body, route from the
@@ -133,8 +133,8 @@ Warning callouts are for evidenced overdue, lapsed or expired states.
 
 ### Identifiers, series and derived views
 
-An owner override chooses a named identifier policy: `last-four` (default), `home-only` (full at the
-subject's home), or `stated` (full wherever supported by evidence). Store typed identifiers with
+The default identifier policy is `stated`: full wherever supported by evidence. An explicit owner
+restriction may choose `last-four` or `home-only` (full at the subject's home). Store typed identifiers with
 holder, kind, home page, source and document status/dates. Masked source values are unresolved suffixes,
 not full identifiers. A structural derivation needs a declared validator and the original source;
 never guess from a suffix. Current, superseded and expired documents remain distinct, so an old
@@ -195,39 +195,26 @@ for table escaping and the target editor's link conventions.
 Index and deadline roll-ups exclude closed subjects, superseded documents and facts belonging to third
 parties unless explicitly in scope. Deduplicate by fact identity, not by the number of pages citing it.
 
-When a restricted row contributes to a roll-up, index or parent summary, generalise the **whole
-record**, including evidence, amount and other typed fields, to the source's outward ceiling. Keep
-only fields that ceiling permits; scrubbing the display string while metadata passes through is not
-enforcement. For `subject-clinical`, even an action's kind or owner is outside the outward ceiling.
+### Full content: subject-clinical
 
-### Additional depth: measurements-only
+`subject-clinical` is the sole content-depth mode and the default for private wikis. Health pages
+carry history, active conditions, treatment, dated encounters, measured values with units and printed
+reference ranges, and the documented plan. Other subjects carry their complete relevant evidence.
+The Schema declares each page's purpose and sources; clinical content and personal information may
+also appear in relevant domain notes, indexes, family summaries, roll-ups and other authorised pages.
+There is no subject-page-only or existence/date ceiling. Summaries remain selective for relevance,
+not because clinical substance is automatically suppressed. Do not invent diagnoses or care plans.
 
-An opted-in contract may permit `measurements-only`: typed metric, value, unit, date and printed
-reference range on explicitly authorised subject pages, without diagnoses, treatment, clinical
-opinions or imaging findings. Restrict both the extraction/context shape and the rendered fields;
-a lexical check is supplementary evidence, never the sole privacy boundary. Unrecognised depth
-values must fail validation; the supported vocabulary is the enumeration in *Rules that keep it safe*.
-Cross-page contributions obey the architecture's context-crossing rule.
+Remove the former `full`, `administration-only`, `dates-only` and `measurements-only` depth values
+when migrating a Schema; use `subject-clinical` or omit the depth to take the default. Existing
+`subject-clinical` contracts also change: their old outward ceiling no longer applies. Validate
+unknown values rather than silently treating them as another mode. Re-read source records where
+older pages contain only dates or measurements; a policy change cannot recover omitted facts.
 
-### Additional depth: subject-clinical
-
-`subject-clinical` permits full clinical substance — history, active conditions, treatment, dated
-encounters, measured values with units and printed ranges, and the plan — on explicitly authorised
-subject pages only, while every other page, including domain notes, hubs, roll-ups and the front page,
-carries at most that the subject page exists and the date of its last entry. Declare the authorised
-subject-page list in the Schema; never infer authorisation from a folder name. `measurements-only`
-remains the narrower choice for values without clinical substance.
-
-Apply [the architecture's context-crossing guard](../../ARCHITECTURE.md#context-crossings-and-evidence-bearing-enrichment)
-to cut each restricted page's contribution to that outward ceiling **before** another page's model,
-tool context or roll-up receives it, including when the destination is another authorised subject
-page. The deployment validates the Schema authorisations and enforces the context and output shapes;
-a prose instruction alone cannot implement this depth.
-
-For any restricted depth, a supplementary lexical check excludes citations (including link targets),
-link labels and filenames, and declares those exclusions in its report: naming a document held is
-not itself disclosing its contents. These are exclusions from the lexical content scan only; they
-never exempt those surfaces from identifier policy or the source's outward depth ceiling.
+This is a private-content policy, not an access grant. Keep identity/project access scoping and
+explicit source exclusions at [context crossings](../../ARCHITECTURE.md#context-crossings-and-evidence-bearing-enrichment).
+An owner-requested identifier restriction applies to entire records and their typed fields as well
+as display text; the default `stated` policy preserves full identifiers throughout.
 
 ## The Index page — the dashboard
 
@@ -332,16 +319,15 @@ what the owner asserted.
 For an opted-in wiki, every render and reconcile publishes a dated verification artefact (for example
 `_Audit/wiki-verify.json`) with page count, checked scope and counts including zero: missing mandatory
 rows or undeclared types, stale/missing extracts, source citations, broken links, malformed tables,
-identifier/depth violations and sync conflict copies. Missing or unreadable inputs are findings, not
+identifier-policy violations and sync conflict copies. Missing or unreadable inputs are findings, not
 clean checks; an absent report is **not verified**. Record checks not performed explicitly rather than
 reporting zero. Use `productivity:portable-markdown` for table and link mechanics. Visual outputs need
 an editor/theme check when introduced or changed; text lint cannot establish chart legibility.
 
 Check an "is not on file" claim against the page's own citations; deployments may enforce this
-consistency check deterministically. Lexical depth counts report real content findings after excluding
-citations, link targets, link labels and filenames, with those exclusions and the checked scope named
-in the artefact. Report identifier and crossing-guard checks separately so a clean lexical count
-cannot conceal an unchecked privacy boundary.
+consistency check deterministically. Verification must not flag clinical substance or full,
+evidence-supported identifiers merely because they occur outside a subject page. Report checks of
+explicit owner restrictions separately from source-evidence and access checks.
 
 Before first hand-off or after changing page anatomy, use the reader-review acceptance step in
 `wiki-onboarding`. Keep its findings and the builder's responses beside the verification artefact.
@@ -407,24 +393,13 @@ with no inline maintainer, the scheduled passes are the primary path.
     of feed + clock, exactly like the Deadlines roll-up) — a scheduled job never rebuilds it; only a
     hand-kept wiki refreshes it manually. Either way an empty, stale or blocked read must **never blank
     it** — leave the prior version and note the gap.
-- **Sensitive identifiers, last-4 only — unless the owner decides otherwise.** Record passport / account /
-  licence / card numbers as the last 4 digits only, never in full — on every page, in every table. The
-  owner may override this: an explicit, dated decision recorded in the Schema (or the wiki's
-  data-sensitivity page) is respected by every sweep from then on. A decided exception stops alerting;
-  it never becomes a permanently re-raised flag. This rule is stated here because a pass should honour
-  it, **and enforced by the deployment's crossing guard** on everything a pass returns — a model
-  holding the document quotes the number it was told not to often enough that the instruction cannot
-  be the only line of defence (see [`ARCHITECTURE.md`](../../ARCHITECTURE.md)).
-- **Sensitivity has a depth as well as a mask.** The Schema declares a depth policy. Domain-wide
-  depths are `full` (default), `administration-only` (a legal matter: adviser, dates, invoices, next deadline, never
-  the substance of advice) and `dates-only` (health: appointments and "a report exists at <path>").
-  The Schema also permits the opt-in subject-page modes `measurements-only` and `subject-clinical` defined above. Selecting
-  a subject-page mode for a domain does not authorise every page in it: the declared subject-page
-  permissions and outward ceiling govern each contribution. These five names are the supported
-  depth vocabulary. A deterministic exclude list (paths and globs the gather never presents) handles credentials and
-  anything the owner names; both are recorded decisions and are never re-raised. Identifiers leak
-  through filenames as well as bodies: a filename carrying a full account or document number is a
-  finding for the next curation round, and the wiki never repeats it.
+- **Full identifiers by default.** Preserve passport, account, licence and card numbers exactly as
+  supported by their sources, including in relevant summaries. Never reconstruct a full number from
+  a masked suffix without the evidence required by the enrichment contract. An explicit owner
+  restriction is recorded in the Schema and enforced by the deployment's crossing guard.
+- **Private content is useful content.** Apply the `subject-clinical` policy above across relevant
+  pages. Do not automatically suppress medical, legal or other personal substance. Explicit path
+  exclusions, including credentials the owner excludes, still prevent those sources entering a job.
 - **Deadlines are derived, not authored.** Record the date on the page that owns it; build the Deadlines
   list from those, and keep it distinct from any calendar feed. **An empty roll-up must say why:** zero
   rows found while derived pages exist is a likely keying fault, rendered as a loud banner on the
