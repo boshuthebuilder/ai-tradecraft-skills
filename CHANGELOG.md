@@ -19,18 +19,26 @@ shape.
   one beside it); create a page only when no existing page covers the topic, placed where it fits.
   **Never open a heading named for the run, its date or the batch.** An event-dated heading is
   structure; the Log stays the one run-dated page.
-- **The page must be in view.** An edit made without reading the page can add but never correct, so
-  a deployment gives ingest the pages' bodies (or a Read tool) or a section-level edit plus each page's
-  headings, verbatim, in `{wiki_structure}`. The placeholder is unchanged; what a deployment puts in it
-  is where this lands. The ingest template never resupplies a page body it has not seen.
-- **Reconcile folds accretion back** (`wiki-maintenance` reconcile, `file-ingest/reconcile.md` step 1):
-  on a page seen whole, move each run/date/batch section's facts into their topical sections, correct
-  contradicted lines, merge duplicate sections, drop the emptied one — citations and
-  `provenance: manual` content carried verbatim; a page seen only in part is left alone.
+- **The page must be in view.** An edit made without reading a page can add to it but never correct
+  it. The ingest template's only edit to an existing page is still `update`, which resupplies the whole
+  page, so a template consumed unchanged must show ingest each page it may touch in full (in the gather
+  report, or through a Read tool); it never resupplies a page it has not seen whole. A deployment may
+  add a section-level addition for pages it cannot show whole (the reference implementation's `append`
+  under a heading listed verbatim in `{wiki_structure}`): that places a fact in its section, and the
+  pass that next sees the page whole corrects any line it contradicts. With neither, the fact is
+  recorded as a gap in `needs_a_look` — never written blind, never accreted.
+- **Reconcile folds accretion back** (`wiki-maintenance` reconcile, `file-ingest/reconcile.md` step 1),
+  on affirmative evidence only: a section whose heading names a run, an ingest, an import or a batch,
+  or is a bare date that dates no event, holding facts that belong under the page's other sections. An
+  event- or period-dated heading is structure, and an ambiguous one is left alone. On a page seen
+  whole, its facts move into their topical sections, contradicted lines are corrected, duplicate
+  sections merge and the emptied container is dropped — citations and `provenance: manual` content
+  carried verbatim, the shrink tripwire still applying. A page seen only in part is left alone.
 
 Migration: re-reconcile any twin derived from `file-ingest/ingest.md` or `file-ingest/reconcile.md`,
-and check what your ingest can see — if it gets neither page bodies nor a section-level edit, that is
-the gap to close before this rule can hold. No placeholder or output shape changed.
+and check what your ingest can see. No placeholder, output shape or layout changed, but if your ingest
+is shown pages only in part and has no section-level addition, facts it cannot place are now recorded
+as gaps rather than written, so give it whole pages (or a Read tool) or add the addition.
 
 ## v9.0.0 — 2026-09-24
 
