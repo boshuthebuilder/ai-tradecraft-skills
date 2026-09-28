@@ -93,10 +93,13 @@ For each new or changed source, and each item in the inbox:
    where it fits in the wiki. How, given what you can see:
    - **A page you have seen whole** (read with a Read tool, or shown in full): `update` it with the fact
      in place and everything else kept.
-   - **A page you have not seen whole**: never resupply it — use the section-level addition the output
-     shape offers for such pages, under a heading copied **verbatim** from the listing, with whatever
-     frontmatter the fact needs. It places the fact; the next pass that sees the page whole corrects
-     any older line it contradicts.
+   - **A page you have not seen whole**: never resupply it. If the output shape below advertises a
+     section-level addition, use it, under a heading copied **verbatim** from the listing and with
+     whatever frontmatter the fact needs — it places the fact, and the next pass that sees the page
+     whole corrects any older line it contradicts. If the shape advertises none, this run was not given
+     what that page needs: leave the source unhandled (no filing, no page write for it) and name the
+     page and the source in `log_entry` as a missing precondition, so it is handled once the page can
+     be shown whole.
 
    Give every page you write provenance/freshness frontmatter (`provenance: derived`, the `source:`
    path, `last-updated: {date}`, `status: current`) with provenance links down to the source — except

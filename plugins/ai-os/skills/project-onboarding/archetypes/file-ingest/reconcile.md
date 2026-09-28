@@ -75,8 +75,9 @@ Reconcile the wiki **to the files**:
    merge sections that describe the same thing, and drop the emptied container, every source citation
    and all manual content carried verbatim. Any other heading, dated or not, is the page's own
    structure: leave it. The deployment's write guards apply to a fold like any other edit (a sharp
-   shrink is proposed, not applied). A page shown only in part is not folded, and raises nothing — it
-   waits for a pass that sees it whole.
+   shrink is proposed, not applied). A page shown only in part is not folded — the one change to such a
+   page that is **not** described in `needs_a_look` (the rule above): it raises nothing and waits for a
+   pass that sees the page whole.
 2. **`provenance: manual` content is owner-asserted and authoritative** — never flag it as
    inconsistent with the files, never delete it, never contradict it. The one permitted change:
    authored notes (ideas, brainstorms) that clearly belong together may be **merged or cross-linked**,

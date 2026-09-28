@@ -27,8 +27,9 @@ shape.
   a fact; the next pass that sees the page whole corrects any line it contradicts. The template's
   shipped output shape is still `create | update`, so a template consumed unchanged must show every
   page it may write in full. A deployment that cannot meet this for a page withholds that page's
-  sources, and reports why, until it can — the model can only decline to rewrite a page it has not
-  seen.
+  sources, and reports why, until it can. If one reaches the model anyway, it leaves the source
+  unhandled (no filing, no page write) and names the missing precondition in `log_entry` — it never
+  rewrites a page it has not seen.
 - **Reconcile folds accretion back** (`wiki-maintenance` reconcile, `file-ingest/reconcile.md` step 1),
   on affirmative evidence only: a section whose heading names the ingest itself (the job's own name,
   usually with the run's date), every fact under which is of a kind one of the page's other sections
