@@ -65,6 +65,19 @@ Reconcile the wiki **to the files**:
    `wiki_pages` with `verdict: apply`. Be confident: change only what the source index clearly
    supports. Where you are **unsure**, leave the page as-is and record the concern in `needs_a_look` —
    do **not** rewrite on a guess.
+
+   **Fold back what an ingest accreted** (`wiki-maintenance`, reconcile). On a page you were shown **in
+   full**, treat a section as an ingest run's container only on affirmative evidence: its heading names
+   the ingest itself — the job's own name, usually with the run's date (`## <date> ingest`) — **and**
+   every fact under it is of a kind one of the page's other sections already tracks. Then move each
+   fact into that section (the row into the table, the bullet into the list), correct any earlier
+   derived line it contradicts — never a `provenance: manual` one, which stays as asserted (rule 2) —
+   merge sections that describe the same thing, and drop the emptied container, every source citation
+   and all manual content carried verbatim. Any other heading, dated or not, is the page's own
+   structure: leave it. The deployment's write guards apply to a fold like any other edit (a sharp
+   shrink is proposed, not applied). A page shown only in part is not folded — the one change to such a
+   page that is **not** described in `needs_a_look` (the rule above): it raises nothing and waits for a
+   pass that sees the page whole.
 2. **`provenance: manual` content is owner-asserted and authoritative** — never flag it as
    inconsistent with the files, never delete it, never contradict it. The one permitted change:
    authored notes (ideas, brainstorms) that clearly belong together may be **merged or cross-linked**,

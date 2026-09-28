@@ -249,8 +249,24 @@ This is the spine. For **each** item in the inbox / drop folder:
    usually exists under a different convention than the source suggests. If a folder genuinely must be
    created, escalate *with the proposed path* as a one-click decision for the owner, never a bare report
    of absence.
-3. **Update the pages the source touches.** Use the Schema's trigger table to pick the page(s); update
-   their fields; add a provenance link down to the source file. **If the source carries a forward-looking
+3. **Update the pages the source touches — by integrating, never accreting.** Use the Schema's trigger
+   table to pick the page(s), then the section on each page the fact belongs to, and put it where the
+   page already tracks it: the row in the table that holds its kind, the list it extends, the field or
+   line it supersedes — correcting that line, not stacking the newer statement beside it. A source does
+   not earn a page, or a section, of its own: **synthesise into the existing page first**, and create a
+   page only when no existing page covers the topic, placed where it fits in the layout. **Never open a
+   heading named for the run, its date or the batch** (`## <date> ingest`, `## Documents added`): it
+   strands the facts below the sections they belong to, where the page's own tables and summaries never
+   learn them. Date the fact, not the section — a heading that dates an *event* is structure, and the
+   Log is the one page whose entries are run-dated. Integration needs the page in view, since an edit
+   made without reading a page can add to it but never correct it. So for every existing page its
+   ingest step may write, a deployment gives it either the **whole page** (or a way to read it) or a
+   **section-level addition** — a fact landing at the end of a named section, with each page's
+   headings listed verbatim, able to set the page's frontmatter too — which places the fact and leaves
+   the correction of any line it contradicts to the next pass that sees the page whole. The model can
+   only decline to rewrite a page it has not seen, never repair a missing capability, so a page the
+   deployment can neither show nor extend keeps its sources back until it can. An edit that can only
+   land at a page's end is accretion by construction. Add a provenance link down to the source file. **If the source carries a forward-looking
    date** (renewal, payment, expiry, deadline), record it as `deadline: YYYY-MM-DD` (or a `deadlines:`
    list) in **that page's** frontmatter. If your setup has a deterministic step that rolls those dates
    into a Deadlines page, don't hand-write that page — let the roll-up build it; otherwise update the
@@ -287,6 +303,18 @@ page rather than letting it vanish into chat.
 Reconcile the wiki **to the files** (the golden source): look for contradictions between pages, stale
 claims a newer source supersedes, orphan pages, missing domains and data gaps; refresh the Index
 (most-urgent, open-questions, key-facts); record the pass in the log.
+
+**Fold back what an ingest accreted.** On a page seen **whole**, a section is an ingest run's container
+— facts that missed their sections (step 3 of the core loop) — only on affirmative evidence: its
+heading names the ingest itself (the job's own name, usually with the run's date), **and** every fact
+under it is of a kind one of the page's other sections already tracks. Any other heading, dated or
+not, is the page's own structure and stays. Fold a container by moving each fact into its topical
+section — the row into the table that tracks it, the bullet into its list — correcting any earlier
+derived line it contradicts (never a `provenance: manual` one: owner assertions keep their precedence,
+and the disagreement stays visible), merging sections that describe the same thing, and dropping the
+emptied container. Every citation and all manual content survive verbatim, and the fold is subject to
+the shrink tripwire below like any other edit. A page seen only in part is never rewritten for this,
+and is no finding: it waits for a pass that sees it whole.
 
 Every reconcile starts with the cheap, deterministic checks, and each one reports its count **even when
 the count is clean** — "no findings" from a sweep that saw nothing and "no findings" from a healthy wiki
@@ -340,7 +368,7 @@ and `reconcile`):
 - **Ingest** — incremental and **reactive**: drain the inbox, update the pages each new or changed
   source touches, append to the log. Cheap; run it often.
 - **Reconcile** — comprehensive and **periodic**: reckon the whole wiki to the files — dedupe, sweep
-  orphans, reconcile stale claims, confirm the structure holds.
+  orphans, reconcile stale claims, fold accreted sections back, confirm the structure holds.
 
 **Every regeneration reckons to the live files immediately before rendering.** Diff the live folder
 against the source snapshot the pages will use, adopt moves so citations resolve, handle removed

@@ -5,6 +5,17 @@ wiki structure, it returns structured JSON a deterministic write stage applies. 
 template — specialise per project only where the generic shape falls short. `{…}` are filled by the
 deployment.
 
+Step 3 applies `wiki-maintenance`'s integration rule (core loop step 3), which needs the page in
+view. **Precondition:** for every existing page this job may write — topical pages and the Index alike —
+the deployment gives it either the **whole page** (in the gather report, or through a Read tool over
+the wiki) or a **section-level addition**: an output action that lands a fact at the end of a named
+section, with each page's section headings listed verbatim in `{wiki_structure}`, and that can also set
+the frontmatter keys this template writes (`source`, `last-updated`, `status`, `deadline`/`deadlines`).
+As shipped, the output shape offers only `update`, so a deployment using this template unchanged must
+show every page it may write in full. The model cannot repair a broken precondition — it can only
+decline to rewrite a page it has not seen — so a deployment that cannot meet it for a page withholds
+that page's sources from this job, and reports why, until it can.
+
 ---
 
 You are maintaining the **{project_name}** wiki, following the conventions in the `wiki-maintenance`
@@ -37,7 +48,8 @@ deployment validates and renders them. Unknown placeholders must be resolved bef
 
 The wiki lives under `{wiki_dir}/`. Match each source to the right **existing** section/page shown
 below, never a parallel layout. (A `Schema` page is the wiki's constitution; if its body isn't shown,
-route from the section/page names plus the source.)
+route from the section/page names plus the source.) Where the listing carries a page's section
+headings, they are its real headings, verbatim — the places a new fact can land.
 
 {wiki_structure}
 
@@ -72,7 +84,23 @@ For each new or changed source, and each item in the inbox:
    successful run like any other handled item (e.g. record it processed by content hash); if your
    drain consumes only *filed* items, give the note an explicit `filings` destination in the inbox's
    `Processed/` holding area instead — never leave it to be reprocessed and duplicated.
-3. **Update the wiki page(s) the source touches**, writing into the **existing** sections shown above.
+3. **Update the wiki page(s) the source touches by integrating, never accreting** (`wiki-maintenance`,
+   core loop step 3): put each fact in the existing page and section that already track its kind — the
+   table row, the list, the line it supersedes, corrected rather than left beside the new one. A source
+   does not need a page, or a section, of its own. **Never open a heading named for this run, its date
+   or the batch** (`## <date> ingest`, `## Documents added`); date the fact, not the section — the Log
+   (step 4) is the one run-dated page. Only when **no** existing page covers the topic, `create` one
+   where it fits in the wiki. How, given what you can see:
+   - **A page you have seen whole** (read with a Read tool, or shown in full): `update` it with the fact
+     in place and everything else kept.
+   - **A page you have not seen whole**: never resupply it. If the output shape below advertises a
+     section-level addition, use it, under a heading copied **verbatim** from the listing and with
+     whatever frontmatter the fact needs — it places the fact, and the next pass that sees the page
+     whole corrects any older line it contradicts. If the shape advertises none, this run was not given
+     what that page needs: leave the source unhandled (no filing, no page write for it) and name the
+     page and the source in `log_entry` as a missing precondition, so it is handled once the page can
+     be shown whole.
+
    Give every page you write provenance/freshness frontmatter (`provenance: derived`, the `source:`
    path, `last-updated: {date}`, `status: current`) with provenance links down to the source — except
    an **authored-note** page (step 2's exception), whose frontmatter is `provenance: manual` +

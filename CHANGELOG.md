@@ -4,6 +4,46 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v10.0.0 — 2026-09-28
+
+A **MAJOR** (reference implementation family-ai-os v2.7.4): a semantic change to a documented rule.
+"Update the pages the source touches, writing into the existing sections" left the *shape* of the
+update open, and a bulk drop into the reference implementation answered it with a dated batch section
+at the foot of each existing page — facts stranded below the tables and summaries that should have
+learned them. The rule now says what an update is, and the periodic pass gains a duty to undo the old
+shape.
+
+- **Integrate, never accrete** (`wiki-maintenance` core loop step 3, `file-ingest/ingest.md` step 3):
+  synthesise into the existing page first; put each fact in the section that already tracks its kind
+  (the table row, the list, the line it supersedes — correcting that line rather than stacking a newer
+  one beside it); create a page only when no existing page covers the topic, placed where it fits.
+  **Never open a heading named for the run, its date or the batch.** An event-dated heading is
+  structure; the Log stays the one run-dated page.
+- **The page must be in view — a stated precondition.** An edit made without reading a page can add
+  to it but never correct it. For every existing page ingest may write (the Index included), a
+  deployment gives it the whole page (in the gather report, or through a Read tool) or a section-level
+  addition that lands a fact in a named section and can set the page's frontmatter (the reference
+  implementation's `append` under a heading listed verbatim in `{wiki_structure}`). The addition places
+  a fact; the next pass that sees the page whole corrects any line it contradicts. The template's
+  shipped output shape is still `create | update`, so a template consumed unchanged must show every
+  page it may write in full. A deployment that cannot meet this for a page withholds that page's
+  sources, and reports why, until it can. If one reaches the model anyway, it leaves the source
+  unhandled (no filing, no page write) and names the missing precondition in `log_entry` — it never
+  rewrites a page it has not seen.
+- **Reconcile folds accretion back** (`wiki-maintenance` reconcile, `file-ingest/reconcile.md` step 1),
+  on affirmative evidence only: a section whose heading names the ingest itself (the job's own name,
+  usually with the run's date), every fact under which is of a kind one of the page's other sections
+  already tracks. Any other heading, dated or not, is structure and stays. On a page seen whole, the
+  facts move into their topical sections, contradicted derived lines are corrected (a
+  `provenance: manual` line never is), duplicate sections merge and the emptied container is dropped,
+  citations and manual content carried verbatim and the shrink tripwire still applying. A page seen
+  only in part is left alone and raises nothing.
+
+Migration: re-reconcile any twin derived from `file-ingest/ingest.md` or `file-ingest/reconcile.md`.
+No placeholder, output shape or layout changed, but check the ingest precondition: if your ingest is
+shown some existing pages only in part, add a section-level addition that can also set frontmatter,
+or hold those pages' sources back until it can see them whole.
+
 ## v9.0.0 — 2026-09-24
 
 ### Breaking
