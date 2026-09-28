@@ -67,17 +67,16 @@ Reconcile the wiki **to the files**:
    do **not** rewrite on a guess.
 
    **Fold back what an ingest accreted** (`wiki-maintenance`, reconcile). On a page you were shown **in
-   full**, treat a section as a run's container only on affirmative evidence: its heading names an
-   ingest or a run (`## <date> ingest`, `## Documents added`) or is a bare date that dates no event,
-   **and** every fact under it is of a kind one of the page's other sections already tracks. Then move
-   each fact into that section (the row into the table, the bullet into the list), correct any earlier
+   full**, treat a section as an ingest run's container only on affirmative evidence: its heading names
+   the ingest itself — the job's own name, usually with the run's date (`## <date> ingest`) — **and**
+   every fact under it is of a kind one of the page's other sections already tracks. Then move each
+   fact into that section (the row into the table, the bullet into the list), correct any earlier
    derived line it contradicts — never a `provenance: manual` one, which stays as asserted (rule 2) —
    merge sections that describe the same thing, and drop the emptied container, every source citation
-   and all manual content carried verbatim. A dated heading that is part of the page's own story (an
-   event or a period, `## <year-month> — <event>`) is structure, and so are the Log's entries; when
-   unsure, leave the section. The deployment's write guards apply to a fold like any other edit (a
-   sharp shrink is proposed, not applied). A page shown only in part is not rewritten for this (see
-   above).
+   and all manual content carried verbatim. Any other heading, dated or not, is the page's own
+   structure: leave it. The deployment's write guards apply to a fold like any other edit (a sharp
+   shrink is proposed, not applied). A page shown only in part is not folded, and raises nothing — it
+   waits for a pass that sees it whole.
 2. **`provenance: manual` content is owner-asserted and authoritative** — never flag it as
    inconsistent with the files, never delete it, never contradict it. The one permitted change:
    authored notes (ideas, brainstorms) that clearly belong together may be **merged or cross-linked**,

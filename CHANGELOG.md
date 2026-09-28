@@ -19,29 +19,29 @@ shape.
   one beside it); create a page only when no existing page covers the topic, placed where it fits.
   **Never open a heading named for the run, its date or the batch.** An event-dated heading is
   structure; the Log stays the one run-dated page.
-- **The page must be in view.** An edit made without reading a page can add to it but never correct
-  it. The ingest template's only edit to an existing page is still `update`, which resupplies the whole
-  page, so a template consumed unchanged must show ingest each existing page it may touch in full (in
-  the gather report, or through a Read tool). A deployment that cannot show a page whole adds a
-  section-level addition and advertises it in the output shape (the reference implementation's `append`
-  under a heading listed verbatim in `{wiki_structure}`): that places a fact, and the next pass that
-  sees the page whole corrects any line it contradicts. A page neither seen whole nor open to an
-  addition is left unchanged by the model — never rewritten blind — and reported by the deployment,
-  which knows what it showed.
+- **The page must be in view — a stated precondition.** An edit made without reading a page can add
+  to it but never correct it. For every existing page ingest may write (the Index included), a
+  deployment gives it the whole page (in the gather report, or through a Read tool) or a section-level
+  addition that lands a fact in a named section and can set the page's frontmatter (the reference
+  implementation's `append` under a heading listed verbatim in `{wiki_structure}`). The addition places
+  a fact; the next pass that sees the page whole corrects any line it contradicts. The template's
+  shipped output shape is still `create | update`, so a template consumed unchanged must show every
+  page it may write in full. A deployment that cannot meet this for a page withholds that page's
+  sources, and reports why, until it can — the model can only decline to rewrite a page it has not
+  seen.
 - **Reconcile folds accretion back** (`wiki-maintenance` reconcile, `file-ingest/reconcile.md` step 1),
-  on affirmative evidence only: a section whose heading names an ingest or a run, or is a bare date
-  that dates no event, and every fact under which is of a kind one of the page's other sections
-  already tracks. An event- or period-dated heading is structure, and an ambiguous one is left alone.
-  On a page seen whole, the facts move into their topical sections, contradicted derived lines are
-  corrected (a `provenance: manual` line never is), duplicate sections merge and the emptied container
-  is dropped, citations and manual content carried verbatim and the shrink tripwire still applying. A
-  page seen only in part is left alone.
+  on affirmative evidence only: a section whose heading names the ingest itself (the job's own name,
+  usually with the run's date), every fact under which is of a kind one of the page's other sections
+  already tracks. Any other heading, dated or not, is structure and stays. On a page seen whole, the
+  facts move into their topical sections, contradicted derived lines are corrected (a
+  `provenance: manual` line never is), duplicate sections merge and the emptied container is dropped,
+  citations and manual content carried verbatim and the shrink tripwire still applying. A page seen
+  only in part is left alone and raises nothing.
 
 Migration: re-reconcile any twin derived from `file-ingest/ingest.md` or `file-ingest/reconcile.md`.
-No placeholder, output shape or layout changed, but the ingest template now **requires** one of two
-things of a deployment: every existing page it may touch shown in full (or readable), or a section-level
-addition for the pages that are not. A deployment that shows pages only in part and has no addition
-must add one, and must report any page it could neither show nor extend.
+No placeholder, output shape or layout changed, but check the ingest precondition: if your ingest is
+shown some existing pages only in part, add a section-level addition that can also set frontmatter,
+or hold those pages' sources back until it can see them whole.
 
 ## v9.0.0 — 2026-09-24
 

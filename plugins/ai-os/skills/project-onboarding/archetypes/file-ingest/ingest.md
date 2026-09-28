@@ -6,13 +6,15 @@ template — specialise per project only where the generic shape falls short. `{
 deployment.
 
 Step 3 applies `wiki-maintenance`'s integration rule (core loop step 3), which needs the page in
-view. As shipped, this template's only edit to an existing page is `update`, which resupplies the whole
-page, so this job must be shown each existing page it may touch **in full** — in the gather report, or
-through a Read tool over the wiki. A deployment that cannot show a page whole (one too large to send,
-say) must add a **section-level addition** to the output shape — a fact landing at the end of a named
-section, with each page's section headings listed verbatim in `{wiki_structure}` — and advertise it
-there. The deployment knows which pages it showed whole, so a page it could neither show nor extend is
-its own finding to report; the model only leaves such a page alone.
+view. **Precondition:** for every existing page this job may write — topical pages and the Index alike —
+the deployment gives it either the **whole page** (in the gather report, or through a Read tool over
+the wiki) or a **section-level addition**: an output action that lands a fact at the end of a named
+section, with each page's section headings listed verbatim in `{wiki_structure}`, and that can also set
+the frontmatter keys this template writes (`source`, `last-updated`, `status`, `deadline`/`deadlines`).
+As shipped, the output shape offers only `update`, so a deployment using this template unchanged must
+show every page it may write in full. The model cannot repair a broken precondition — it can only
+decline to rewrite a page it has not seen — so a deployment that cannot meet it for a page withholds
+that page's sources from this job, and reports why, until it can.
 
 ---
 
@@ -91,10 +93,10 @@ For each new or changed source, and each item in the inbox:
    where it fits in the wiki. How, given what you can see:
    - **A page you have seen whole** (read with a Read tool, or shown in full): `update` it with the fact
      in place and everything else kept.
-   - **A page you have not seen whole**: never resupply it. Use the section-level addition if the
-     output shape below offers one, under a heading copied **verbatim** from the listing — it places
-     the fact, and the next pass that sees the page whole corrects any older line it contradicts. If
-     the shape offers none, leave the page unchanged; never guess at a body you have not seen.
+   - **A page you have not seen whole**: never resupply it — use the section-level addition the output
+     shape offers for such pages, under a heading copied **verbatim** from the listing, with whatever
+     frontmatter the fact needs. It places the fact; the next pass that sees the page whole corrects
+     any older line it contradicts.
 
    Give every page you write provenance/freshness frontmatter (`provenance: derived`, the `source:`
    path, `last-updated: {date}`, `status: current`) with provenance links down to the source — except
