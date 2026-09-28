@@ -5,15 +5,14 @@ wiki structure, it returns structured JSON a deterministic write stage applies. 
 template — specialise per project only where the generic shape falls short. `{…}` are filled by the
 deployment.
 
-Step 3 applies `wiki-maintenance`'s integration rule, and the rule needs the page in view: an edit
-made without reading a page can add to it but never correct it. As shipped, this template's only edit
-to an existing page is `update`, which resupplies the whole page — so show this job each page it may
-touch **in full** (in the gather report, or through a Read tool over the wiki). A deployment may add a
-**section-level addition** to the output shape for pages it cannot show whole — a fact landing at the
-end of a named section, with each page's section headings listed verbatim in `{wiki_structure}`. That
-places a fact in its section but cannot correct the line it supersedes; the pass that next sees the
-page whole does. A job with neither records the fact as a gap rather than writing it (step 3): it keeps
-the rule by doing less, never by accreting.
+Step 3 applies `wiki-maintenance`'s integration rule (core loop step 3), which needs the page in
+view. As shipped, this template's only edit to an existing page is `update`, which resupplies the whole
+page, so this job must be shown each existing page it may touch **in full** — in the gather report, or
+through a Read tool over the wiki. A deployment that cannot show a page whole (one too large to send,
+say) must add a **section-level addition** to the output shape — a fact landing at the end of a named
+section, with each page's section headings listed verbatim in `{wiki_structure}` — and advertise it
+there. The deployment knows which pages it showed whole, so a page it could neither show nor extend is
+its own finding to report; the model only leaves such a page alone.
 
 ---
 
@@ -83,25 +82,19 @@ For each new or changed source, and each item in the inbox:
    successful run like any other handled item (e.g. record it processed by content hash); if your
    drain consumes only *filed* items, give the note an explicit `filings` destination in the inbox's
    `Processed/` holding area instead — never leave it to be reprocessed and duplicated.
-3. **Update the wiki page(s) the source touches** by **integrating** what it adds (`wiki-maintenance`,
-   core loop step 3): synthesise into the existing page first — a source does not need a page, or a
-   section, of its own. Find the page whose topic the fact belongs to, then the section on it, and put
-   the fact where the page already tracks it: the row in the table that holds its kind, the list it
-   extends, the line it supersedes — correcting that line rather than leaving the older statement beside
-   the new one. That needs the page in view:
-   - **Seen whole** (read with a Read tool, or shown in full in the gather report): return it as an
-     `update` with the fact in place and everything else kept.
-   - **Not seen whole**: never resupply it. If the output shape below offers a section-level addition,
-     use it, with a heading copied **verbatim** from the listing — it places the fact in its section,
-     and the pass that next sees the page whole corrects any older line it contradicts. If the shape
-     offers none, leave the page as it is and record the gap in `needs_a_look` (the page, the fact, its
-     source), as for any page you need but cannot see.
-
-   **Never open a heading named for this run, its date or the batch** (`## <date> ingest`, `## Documents
-   added`): it strands the facts below the sections they belong to, where the page's own tables and
-   summaries never learn them. Date the fact, not the section — the Log (step 4) is the one run-dated
-   page. Only when **no** existing page covers the topic, `create` one, placed in the section of the
-   wiki where it fits.
+3. **Update the wiki page(s) the source touches by integrating, never accreting** (`wiki-maintenance`,
+   core loop step 3): put each fact in the existing page and section that already track its kind — the
+   table row, the list, the line it supersedes, corrected rather than left beside the new one. A source
+   does not need a page, or a section, of its own. **Never open a heading named for this run, its date
+   or the batch** (`## <date> ingest`, `## Documents added`); date the fact, not the section — the Log
+   (step 4) is the one run-dated page. Only when **no** existing page covers the topic, `create` one
+   where it fits in the wiki. How, given what you can see:
+   - **A page you have seen whole** (read with a Read tool, or shown in full): `update` it with the fact
+     in place and everything else kept.
+   - **A page you have not seen whole**: never resupply it. Use the section-level addition if the
+     output shape below offers one, under a heading copied **verbatim** from the listing — it places
+     the fact, and the next pass that sees the page whole corrects any older line it contradicts. If
+     the shape offers none, leave the page unchanged; never guess at a body you have not seen.
 
    Give every page you write provenance/freshness frontmatter (`provenance: derived`, the `source:`
    path, `last-updated: {date}`, `status: current`) with provenance links down to the source — except

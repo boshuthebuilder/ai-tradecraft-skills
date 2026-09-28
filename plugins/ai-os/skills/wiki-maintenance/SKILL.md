@@ -260,12 +260,13 @@ This is the spine. For **each** item in the inbox / drop folder:
    learn them. Date the fact, not the section — a heading that dates an *event* is structure, and the
    Log is the one page whose entries are run-dated. Integration needs the page in view, since an edit
    made without reading a page can add to it but never correct it. So a deployment shows its ingest
-   step the pages whole (or gives it a way to read them). Where it cannot, a **section-level
-   addition** — a fact landing at the end of a named section, with each page's headings listed
-   verbatim — places the fact in its section and leaves the correction of any line it contradicts to
-   the next pass that sees the page whole. With neither, the fact is recorded as a gap for that pass,
-   never written blind: an edit that can only land at a page's end is accretion by construction. Add a
-   provenance link down to the source file. **If the source carries a forward-looking
+   step each page whole (or gives it a way to read one); a page it cannot show whole needs a
+   **section-level addition** — a fact landing at the end of a named section, with each page's headings
+   listed verbatim — which places the fact and leaves the correction of any line it contradicts to the
+   next pass that sees the page whole. A page neither seen whole nor open to an addition is left
+   unchanged, never rewritten blind, and the deployment — which knows what it showed — reports it. An
+   edit that can only land at a page's end is accretion by construction. Add a provenance link down to
+   the source file. **If the source carries a forward-looking
    date** (renewal, payment, expiry, deadline), record it as `deadline: YYYY-MM-DD` (or a `deadlines:`
    list) in **that page's** frontmatter. If your setup has a deterministic step that rolls those dates
    into a Deadlines page, don't hand-write that page — let the roll-up build it; otherwise update the
@@ -303,17 +304,17 @@ Reconcile the wiki **to the files** (the golden source): look for contradictions
 claims a newer source supersedes, orphan pages, missing domains and data gaps; refresh the Index
 (most-urgent, open-questions, key-facts); record the pass in the log.
 
-**Fold back what an ingest accreted.** A run's container — a section whose heading names a run, an
-ingest, an import or a batch, or is a bare date that dates no event, holding facts that belong under
-the page's other sections — is facts that missed their sections (step 3 of the core loop). Fold only
-on that affirmative evidence: a dated heading that is part of the page's own story (an event, a
-period) is structure, and an ambiguous one is left alone. On a page seen **whole**, move each fact into
-its topical section — the row into the table that tracks it, the bullet into its list — correct any
-earlier line it contradicts, merge sections that describe the same thing, and drop the emptied
-container. Nothing is removed but duplication and superseded lines; every citation and any
-`provenance: manual` block survives verbatim; and the fold is subject to the shrink tripwire below
-like any other edit. Place any fact an ingest recorded as a gap once its page is seen whole. A page
-seen only in part is never rewritten for this.
+**Fold back what an ingest accreted.** On a page seen **whole**, a section is a run's container — facts
+that missed their sections (step 3 of the core loop) — only on affirmative evidence: its heading names
+an ingest or a run, or is a bare date that dates no event, **and** every fact under it is of a kind one
+of the page's other sections already tracks. A dated heading that is part of the page's own story (an
+event, a period) is structure; an ambiguous one is left alone. Fold a container by moving each fact
+into its topical section — the row into the table that tracks it, the bullet into its list —
+correcting any earlier derived line it contradicts (never a `provenance: manual` one: owner assertions
+keep their precedence, and the disagreement stays visible), merging sections that describe the same
+thing, and dropping the emptied container. Every citation and all manual content survive verbatim, and
+the fold is subject to the shrink tripwire below like any other edit. A page seen only in part is never
+rewritten for this.
 
 Every reconcile starts with the cheap, deterministic checks, and each one reports its count **even when
 the count is clean** — "no findings" from a sweep that saw nothing and "no findings" from a healthy wiki

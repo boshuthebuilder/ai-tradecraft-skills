@@ -66,21 +66,18 @@ Reconcile the wiki **to the files**:
    supports. Where you are **unsure**, leave the page as-is and record the concern in `needs_a_look` —
    do **not** rewrite on a guess.
 
-   **Integrate what an ingest accreted** (`wiki-maintenance`, reconcile). An ingest that could not see
-   a page whole can leave the facts it carried in a section of their own, below the sections they
-   belong to, where the page's own tables and summaries never learn them. Fold a section only on
-   affirmative evidence that it is a run's container: its heading names a run, an ingest, an import or
-   a batch (`## <date> ingest`, `## Documents added`), or is a bare date that dates no event, **and**
-   its facts belong under the page's other sections. A dated heading that is part of the page's own
-   story — an event or a period (`## <year-month> — <event>`) — is structure, and so are the Log's
-   entries; when unsure, leave the section. On a page you were shown **in full**: move each fact into
-   the section it belongs to (the row into the table that tracks it, the bullet into its list), correct
-   any earlier line it contradicts, merge sections that describe the same thing, then drop the emptied
-   container. Resupply the whole page with nothing removed but duplication and lines a newer source
-   supersedes, every source citation and any `provenance: manual` content (rule 2) carried verbatim.
-   The deployment's write guards still apply — a fold that would shrink the page sharply is proposed,
-   not applied. On a page shown in full, also place any fact an ingest recorded in `needs_a_look`
-   because it could not see that page. A page shown only in part is not rewritten for this (see above).
+   **Fold back what an ingest accreted** (`wiki-maintenance`, reconcile). On a page you were shown **in
+   full**, treat a section as a run's container only on affirmative evidence: its heading names an
+   ingest or a run (`## <date> ingest`, `## Documents added`) or is a bare date that dates no event,
+   **and** every fact under it is of a kind one of the page's other sections already tracks. Then move
+   each fact into that section (the row into the table, the bullet into the list), correct any earlier
+   derived line it contradicts — never a `provenance: manual` one, which stays as asserted (rule 2) —
+   merge sections that describe the same thing, and drop the emptied container, every source citation
+   and all manual content carried verbatim. A dated heading that is part of the page's own story (an
+   event or a period, `## <year-month> — <event>`) is structure, and so are the Log's entries; when
+   unsure, leave the section. The deployment's write guards apply to a fold like any other edit (a
+   sharp shrink is proposed, not applied). A page shown only in part is not rewritten for this (see
+   above).
 2. **`provenance: manual` content is owner-asserted and authoritative** — never flag it as
    inconsistent with the files, never delete it, never contradict it. The one permitted change:
    authored notes (ideas, brainstorms) that clearly belong together may be **merged or cross-linked**,
