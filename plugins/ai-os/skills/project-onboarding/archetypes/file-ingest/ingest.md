@@ -5,6 +5,12 @@ wiki structure, it returns structured JSON a deterministic write stage applies. 
 template — specialise per project only where the generic shape falls short. `{…}` are filled by the
 deployment.
 
+Step 3's integration rule needs the page in view. Give this job the bodies of the pages it may touch
+(or a Read tool over the wiki), or a **section-level edit** — an addition that lands inside a named
+section — together with each page's section headings, verbatim, in `{wiki_structure}`. A job that can
+only resupply a page it has not seen, or add to a page's end, accretes by construction (see
+`wiki-maintenance`).
+
 ---
 
 You are maintaining the **{project_name}** wiki, following the conventions in the `wiki-maintenance`
@@ -37,7 +43,8 @@ deployment validates and renders them. Unknown placeholders must be resolved bef
 
 The wiki lives under `{wiki_dir}/`. Match each source to the right **existing** section/page shown
 below, never a parallel layout. (A `Schema` page is the wiki's constitution; if its body isn't shown,
-route from the section/page names plus the source.)
+route from the section/page names plus the source.) Where the listing carries a page's section
+headings, they are its real headings, verbatim — the places a new fact can land.
 
 {wiki_structure}
 
@@ -72,7 +79,20 @@ For each new or changed source, and each item in the inbox:
    successful run like any other handled item (e.g. record it processed by content hash); if your
    drain consumes only *filed* items, give the note an explicit `filings` destination in the inbox's
    `Processed/` holding area instead — never leave it to be reprocessed and duplicated.
-3. **Update the wiki page(s) the source touches**, writing into the **existing** sections shown above.
+3. **Update the wiki page(s) the source touches** by **integrating** what it adds into the page and
+   section it belongs to — synthesise into the existing page first; a source does not need a page, or
+   a section, of its own. Find the page whose topic the fact belongs to, then the section on it, and
+   put the fact where the page already tracks it: the row in the table that holds its kind, the list
+   it extends, the line it supersedes — correcting that line rather than leaving the older statement
+   beside the new one. That needs the page in view: **read it first** where you can (a Read tool, or
+   its body in the gather report) and return it with the fact in place. Where you cannot read it, use
+   a section-level edit if the output shape below offers one, naming a heading copied **verbatim** from
+   the listing; if it offers none, leave that page unchanged and name the page and the fact in
+   `log_entry` — never resupply a page body you have not seen. **Never open a heading named for this
+   run, its date or the batch** (`## <date> ingest`, `## Documents added`): it strands the facts below
+   the sections they belong to, where the page's own tables and summaries never learn them. Date the
+   fact, not the section (the Log, step 4, is the one page whose entries are run-dated). Only when
+   **no** existing page covers the topic, `create` one, placed in the section of the wiki where it fits.
    Give every page you write provenance/freshness frontmatter (`provenance: derived`, the `source:`
    path, `last-updated: {date}`, `status: current`) with provenance links down to the source — except
    an **authored-note** page (step 2's exception), whose frontmatter is `provenance: manual` +

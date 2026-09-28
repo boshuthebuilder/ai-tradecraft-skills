@@ -4,6 +4,34 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v10.0.0 — 2026-09-28
+
+A **MAJOR** (reference implementation family-ai-os v2.7.4): a semantic change to a documented rule.
+"Update the pages the source touches, writing into the existing sections" left the *shape* of the
+update open, and a bulk drop into the reference implementation answered it with a dated batch section
+at the foot of each existing page — facts stranded below the tables and summaries that should have
+learned them. The rule now says what an update is, and the periodic pass gains a duty to undo the old
+shape.
+
+- **Integrate, never accrete** (`wiki-maintenance` core loop step 3, `file-ingest/ingest.md` step 3):
+  synthesise into the existing page first; put each fact in the section that already tracks its kind
+  (the table row, the list, the line it supersedes — correcting that line rather than stacking a newer
+  one beside it); create a page only when no existing page covers the topic, placed where it fits.
+  **Never open a heading named for the run, its date or the batch.** An event-dated heading is
+  structure; the Log stays the one run-dated page.
+- **The page must be in view.** An edit made without reading the page can add but never correct, so
+  a deployment gives ingest the pages' bodies (or a Read tool) or a section-level edit plus each page's
+  headings, verbatim, in `{wiki_structure}`. The placeholder is unchanged; what a deployment puts in it
+  is where this lands. The ingest template never resupplies a page body it has not seen.
+- **Reconcile folds accretion back** (`wiki-maintenance` reconcile, `file-ingest/reconcile.md` step 1):
+  on a page seen whole, move each run/date/batch section's facts into their topical sections, correct
+  contradicted lines, merge duplicate sections, drop the emptied one — citations and
+  `provenance: manual` content carried verbatim; a page seen only in part is left alone.
+
+Migration: re-reconcile any twin derived from `file-ingest/ingest.md` or `file-ingest/reconcile.md`,
+and check what your ingest can see — if it gets neither page bodies nor a section-level edit, that is
+the gap to close before this rule can hold. No placeholder or output shape changed.
+
 ## v9.0.0 — 2026-09-24
 
 ### Breaking
