@@ -1,0 +1,381 @@
+#!/usr/bin/env python3
+"""One card per live document, written by a model (agy or codex) from the document's whole extracted text.
+
+    cards.py build --root R                                    plan batches from finished extract records
+    cards.py work  --root R --engine agy --model M --terms F [--worker 0/3] [--redo ids.txt]
+
+Batches: small documents share a call (group), long ones get their own (single), and documents over the context
+budget are read section by section into cached notes, then carded from the notes (sections). Instructions come from
+`templates/card-instructions.md`, filled from the folder's own settings (people, description, categories,
+identifier policy).
+
+The join is deterministic: each call issues short ids (d1, d2, ...) for the items it sends; the reply's ids must
+equal that set exactly, with every card valid, or the chunk is retried, then halved, and never applied in part.
+A single item that still fails is recorded in <work>/state/card_err_<id>.txt. Before a card is written, the
+contamination guard checks it: a term from the operator's isolation list that the card names but its own source
+text does not carry writes <work>/state/ALERT and stops every worker.
+"""
+import glob
+import json
+import os
+import shutil
+import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import common  # noqa: E402
+import engines  # noqa: E402
+import isolation  # noqa: E402
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+KEYS = ["id", "doc_type", "party", "parties", "doc_date", "title", "summary", "key_facts", "category",
+        "language", "sensitive", "confidence", "look", "proposed_name"]
+FINAL = {"ok", "partial", "blank", "photo", "listed", "no_reader", "failed"}
+SECTION_PROMPT = """You are reading one section of a long document from a private archive, to help write a
+catalogue card for the whole document later. Document path: {path}. This is section {k} of {n}.
+Reply directly with JSON only: {{"notes": "..."}} where notes (at most 200 words, UK English) record what this
+section covers, the people and organisations named, dates, amounts, and anything that identifies what the document
+is and why it is in this folder. {identifier_rule} Do not create plans or files and do not run commands.
+
+SECTION TEXT:
+{text}"""
+
+
+class Budget:
+    def __init__(self, a):
+        self.small_chars, self.batch_chars = a.small_chars, a.batch_chars
+        self.batch_items, self.textless_batch = a.batch_items, a.textless_batch
+        self.section_chars, self.single_max = a.section_chars, a.single_max
+        self.section_tokens, self.single_tokens = a.section_tokens, a.single_tokens
+
+
+def read_label(tiers):
+    t = {k for k, v in (tiers or {}).items() if v} - {"blank"}
+    if not t or t <= {"photo", "none", "unread"}:
+        return "none"
+    if len(t) == 1:
+        return {"text_layer": "text_layer", "local_ocr": "local_ocr", "vision": "vision",
+                "listing": "text_layer"}.get(next(iter(t)), "mixed")
+    return "mixed"
+
+
+def full_text(r):
+    parts = []
+    for p in r.get("pages", []):
+        tx = (p.get("text") or "").strip()
+        if tx and p.get("tier") != "photo":
+            parts.append("[page %d]\n%s" % (p.get("n", 0), tx))
+    return "\n\n".join(parts)
+
+
+def identifier_rule(rb):
+    if rb["identifiers"] == "stated":
+        return "written IN FULL exactly as in the document"
+    if rb["identifiers"] == "last-four":
+        return "written as their last four characters only"
+    return "written in full only on the document's own home page; elsewhere their last four characters"
+
+
+def instructions(rb):
+    people = "\n".join("- %s (also: %s): %s" % (p.get("name"), ", ".join(p.get("also", [])) or "none",
+                                                  p.get("who", "")) for p in rb["people"]) or "- none recorded"
+    t = open(os.path.join(HERE, "templates", "card-instructions.md"), encoding="utf-8").read()
+    return t.format(folder_description=rb["folder_description"] or "No description recorded.", people=people,
+                    categories=", ".join(rb["card_categories"]), identifier_rule=identifier_rule(rb))
+
+
+class Run:
+    def __init__(self, a):
+        self.root, settings_dir, self.work = common.resolve(a)
+        self.rb = common.load_rulebook(self.root, settings_dir)
+        self.extract = os.path.realpath(a.extract) if a.extract else os.path.join(self.root, "_Audit", "extract")
+        self.cards = os.path.realpath(a.out) if a.out else os.path.join(self.root, "_Audit", "cards")
+        self.batches = os.path.join(self.work, "batches")
+        self.state = os.path.join(self.work, "state")
+        os.makedirs(self.state, exist_ok=True)
+        self.alert = os.path.join(self.state, "ALERT")
+        self.writer = common.Writer(self.root if getattr(a, "read_only_root", False) else None)
+        self.budget = Budget(a)
+
+    def record(self, eid):
+        return json.load(open(os.path.join(self.extract, eid + ".json"), encoding="utf-8"))
+
+    def payload(self, eid, text_override=None):
+        r = self.record(eid)
+        return {"id": eid, "path": r["path"], "class": r["class"], "page_count": r.get("page_count", 0),
+                "read": read_label(r.get("tiers")), "text": full_text(r) if text_override is None else text_override}
+
+
+def build(a):
+    run = Run(a)
+    b = run.budget
+    os.makedirs(run.batches, exist_ok=True)
+    planned = {it["id"] for f in glob.glob(os.path.join(run.batches, "*.json"))
+               for it in json.load(open(f, encoding="utf-8"))["items"]}
+    buckets = {0: [], 1: [], 2: [], 3: []}
+    waiting = 0
+    for f in sorted(os.listdir(run.extract)):
+        if not f.endswith(".json"):
+            continue
+        eid = f[:-5]
+        if eid in planned or os.path.exists(os.path.join(run.cards, eid + ".json")):
+            continue
+        r = json.load(open(os.path.join(run.extract, f), encoding="utf-8"))
+        if r.get("status") not in FINAL:
+            waiting += 1
+            continue
+        chars = len(full_text(r))
+        pc = r.get("page_count", 0)
+        buckets[1 if chars < 20 else 0 if pc <= 20 else 2 if pc <= 100 else 3].append({"id": eid, "chars": chars})
+    seq = len(glob.glob(os.path.join(run.batches, "*.json")))
+    made = 0
+    for bk in (0, 1, 2, 3):
+        cur, cur_chars = [], 0
+        for it in sorted(buckets[bk], key=lambda x: x["id"]) + [None]:
+            flush = it is None or (it["chars"] <= b.small_chars and cur and (
+                len(cur) >= (b.textless_batch if bk == 1 else b.batch_items) or cur_chars + it["chars"] > b.batch_chars))
+            if flush and cur:
+                common.Writer().json(os.path.join(run.batches, "%d_%05d.json" % (bk, seq)),
+                                     {"bucket": bk, "mode": "group", "items": cur})
+                seq, made, cur, cur_chars = seq + 1, made + 1, [], 0
+            if it is None:
+                break
+            if it["chars"] > b.small_chars:
+                mode = "single" if it["chars"] <= b.single_max else "sections"
+                common.Writer().json(os.path.join(run.batches, "%d_%05d.json" % (bk, seq)),
+                                     {"bucket": bk, "mode": mode, "items": [it]})
+                seq, made = seq + 1, made + 1
+                continue
+            cur.append(it)
+            cur_chars += it["chars"]
+    print("build: %d new batches, %d records still waiting for extraction" % (made, waiting))
+    return 0
+
+
+def validate(card, categories):
+    if not isinstance(card, dict):
+        return None
+    for k in KEYS:
+        card.setdefault(k, [] if k == "parties" else "")
+    if not isinstance(card.get("key_facts"), dict):
+        card["key_facts"] = {"dates": [], "amounts": [], "reference_numbers": []}
+    if card.get("category") not in categories:
+        card["category_raw"] = card.get("category")
+        card["category"] = "Other"
+    return card
+
+
+def call_chunk(engine, instr, items, categories, schema, cwd):
+    """One call for `items`. Returns {real id: card} only when the reply covers exactly the ids sent."""
+    short = {"d%d" % (i + 1): it for i, it in enumerate(items)}
+    sent = [dict(it, id=k) for k, it in short.items()]
+    prompt = engines.NO_TOOLS + instr + "\n\nInput items (JSON, %d items):\n" % len(sent) + json.dumps(
+        sent, ensure_ascii=False)
+    reply, usage = engine(prompt, cwd, schema=schema)
+    obj = common.parse_json(reply)
+    arr = obj.get("items") if isinstance(obj, dict) else obj
+    if not isinstance(arr, list):
+        raise ValueError("reply has no items list")
+    ids = [c.get("id") for c in arr if isinstance(c, dict)]
+    if len(ids) != len(arr) or len(set(ids)) != len(ids) or set(ids) != set(short):
+        raise ValueError("reply ids %s do not match the ids sent" % sorted(set(ids) ^ set(short))[:6])
+    out = {}
+    for c in arr:
+        card = validate(dict(c), categories)
+        if card is None:
+            raise ValueError("invalid card for %s" % c.get("id"))
+        card["id"] = short[c["id"]]["id"]
+        out[card["id"]] = card
+    return out, usage
+
+
+def run_items(run, engine, instr, items, schema, log, sink, depth=0):
+    last = "?"
+    for attempt in range(3):
+        d = engines.fresh_dir("cards_")
+        try:
+            got, usage = call_chunk(engine, instr, items, run.rb["card_categories"], schema, d)
+            sink.update(got)
+            log("  %d items ok usage=%s" % (len(items), json.dumps(usage)))
+            return
+        except engines.QuotaError:
+            raise
+        except (engines.EngineError, ValueError) as ex:
+            last = str(ex)[:200]
+            log("  attempt %d for %d items: %s" % (attempt + 1, len(items), last))
+        finally:
+            shutil.rmtree(d, True)
+    if len(items) > 1 and depth < 6:
+        h = len(items) // 2
+        run_items(run, engine, instr, items[:h], schema, log, sink, depth + 1)
+        run_items(run, engine, instr, items[h:], schema, log, sink, depth + 1)
+        return
+    open(os.path.join(run.state, "card_err_%s.txt" % items[0]["id"]), "w").write(last)
+
+
+def sections_text(run, engine_light, eid, log, engine_name):
+    it = run.payload(eid)
+    text = it["text"]
+    b = run.budget
+    size = common.est_tokens if b.section_tokens else len
+    limit = b.section_tokens or b.section_chars
+    chunks, cur, cur_n = [], "", 0
+    for block in text.split("\n\n[page "):
+        piece = block if not chunks and not cur else "\n\n[page " + block
+        n = size(piece)
+        if cur and cur_n + n > limit:
+            chunks.append(cur)
+            cur, cur_n = "", 0
+        cur += piece
+        cur_n += n
+    if cur:
+        chunks.append(cur)
+    cache = os.path.join(run.work, "sections")
+    os.makedirs(cache, exist_ok=True)
+    notes = []
+    for k, c in enumerate(chunks, 1):
+        cp = os.path.join(cache, "%s_%s_%d_%d.txt" % (eid[:16], engine_name, k, len(chunks)))
+        if os.path.exists(cp):
+            notes.append(open(cp, encoding="utf-8").read())
+            continue
+        for attempt in range(3):
+            d = engines.fresh_dir("sections_")
+            try:
+                resp, _usage = engine_light(engines.NO_TOOLS + SECTION_PROMPT.format(
+                    path=it["path"], k=k, n=len(chunks), text=c,
+                    identifier_rule="Write reference numbers %s." % identifier_rule(run.rb)), d)
+                note = "[section %d of %d] %s" % (k, len(chunks), common.parse_json(resp).get("notes", ""))
+                open(cp, "w", encoding="utf-8").write(note)
+                notes.append(note)
+                break
+            except engines.QuotaError:
+                raise
+            except (engines.EngineError, ValueError) as ex:
+                log("  section %d/%d attempt %d failed: %s" % (k, len(chunks), attempt + 1, str(ex)[:160]))
+            finally:
+                shutil.rmtree(d, True)
+        else:
+            notes.append("[section %d of %d] (unread)" % (k, len(chunks)))
+    return "SECTION NOTES (the document was read in %d sections):\n%s\n\nOPENING TEXT:\n%s" % (
+        len(chunks), "\n".join(notes), text[:20000])
+
+
+def write_cards(run, cards, batch_name, evidence, meta, log):
+    for eid, c in cards.items():
+        src = full_text(run.record(eid))
+        blob = json.dumps(c, ensure_ascii=False)
+        bad = isolation.contamination(blob, src, evidence) if evidence else []
+        if bad:
+            open(run.alert, "w").write("contamination: card %s names %d isolation term(s) absent from its source\n"
+                                       % (eid, len(bad)))
+            log("ALERT: card %s names isolation terms absent from its source" % eid[:12])
+            raise common.ToolError("contamination alert; every worker stops")
+        c["card_meta"] = dict(meta, batch=batch_name, created_at=common.now_local())
+        run.writer.json(os.path.join(run.cards, eid + ".json"), c, indent=1)
+
+
+def work(a):
+    run = Run(a)
+    b = run.budget
+    wi, wn = [int(x) for x in a.worker.split("/")]
+    log = common.logger(run.work, ("redo%d" if a.redo else "cards%d") % wi)
+    if a.no_isolation_terms:
+        evidence = {}
+        log("isolation terms: none, by operator decision (--no-isolation-terms)")
+    else:
+        evidence = isolation.load_terms(a.terms)
+    if a.engine == "codex":
+        engine = engines.Codex(a.model, effort=a.effort)
+        light = engines.Codex(a.light_model, effort="low") if a.light_model else engine
+        schema = os.path.join(HERE, "schemas", "card_codex.json")
+    else:
+        engine = light = engines.Agy(a.model)
+        schema = os.path.join(HERE, "schemas", "card.json")
+    meta = {"model": a.model or "cli-default", "via": a.engine}
+    instr = instructions(run.rb)
+    run.writer.makedirs(run.cards)
+    if a.redo:
+        ids = [l.strip() for l in open(a.redo) if l.strip()]
+        batches = [{"name": "redo_%d" % i, "mode": "group", "items": [{"id": x}]} for i, x in enumerate(ids)
+                   if i % wn == wi]
+        done_p = os.path.join(run.state, "redo_done_%d.txt" % wi)
+        redone = set(l.strip() for l in open(done_p)) if os.path.exists(done_p) else set()
+
+        def has(e):
+            return e in redone
+    else:
+        files = sorted(glob.glob(os.path.join(run.batches, "*.json")))
+        batches = [dict(json.load(open(f, encoding="utf-8")), name=os.path.basename(f)[:-5])
+                   for i, f in enumerate(files) if i % wn == wi]
+
+        def has(e):
+            return os.path.exists(os.path.join(run.cards, e + ".json"))
+    for bt in batches:
+        if os.path.exists(run.alert):
+            log("ALERT present, stopping")
+            return 3
+        todo = [it["id"] for it in bt["items"] if not has(it["id"])]
+        if not todo:
+            continue
+        t0 = time.time()
+        while todo:
+            sink = {}
+            try:
+                big = bt["mode"] == "sections" or (bt["mode"] == "single" and b.single_tokens and
+                                                    common.est_tokens(run.payload(todo[0])["text"]) > b.single_tokens)
+                if big:
+                    items = [dict(run.payload(todo[0], sections_text(run, light, todo[0], log, a.engine)),
+                                  read="sectioned")]
+                else:
+                    items = [run.payload(e) for e in todo]
+                run_items(run, engine, instr, items, schema, log, sink)
+                write_cards(run, sink, bt["name"], evidence, meta, log)
+                todo = []
+            except engines.QuotaError as ex:
+                write_cards(run, sink, bt["name"], evidence, meta, log)
+                wait = min(5 * 3600, (ex.reset_seconds or (1800 if a.engine == "codex" else 600)) + 90)
+                log("quota on %s; sleeping %d min" % (bt["name"], wait // 60))
+                time.sleep(wait)
+                todo = [e for e in todo if not has(e)]
+            finally:
+                if a.redo:
+                    with open(done_p, "a") as fh:
+                        for eid in sink:
+                            fh.write(eid + "\n")
+                            redone.add(eid)
+        log("batch %s mode=%s carded in %.0fs" % (bt["name"], bt["mode"], time.time() - t0))
+    open(os.path.join(run.state, ("redo%d" if a.redo else "cards%d") % wi + ".done"), "w").write(common.now_local())
+    log("worker finished")
+    return 0
+
+
+def main():
+    ap = common.base_args("Per-document cards")
+    ap.add_argument("cmd", choices=["build", "work"])
+    ap.add_argument("--extract", help="extract records (default <root>/_Audit/extract)")
+    ap.add_argument("--out", help="cards directory (default <root>/_Audit/cards)")
+    ap.add_argument("--engine", choices=["agy", "codex"], default="agy")
+    ap.add_argument("--model", help="engine model id (agy: effort encoded in the id)")
+    ap.add_argument("--effort", default="medium", help="codex reasoning effort")
+    ap.add_argument("--light-model", help="codex model for section notes")
+    ap.add_argument("--terms", help="the operator's isolation terms file")
+    ap.add_argument("--no-isolation-terms", action="store_true",
+                    help="state explicitly that no other project needs isolating (logged)")
+    ap.add_argument("--worker", default="0/1")
+    ap.add_argument("--redo", help="file of ids to re-card even though cards exist")
+    ap.add_argument("--small-chars", type=int, default=60_000)
+    ap.add_argument("--batch-chars", type=int, default=180_000)
+    ap.add_argument("--batch-items", type=int, default=30)
+    ap.add_argument("--textless-batch", type=int, default=60)
+    ap.add_argument("--section-chars", type=int, default=400_000)
+    ap.add_argument("--single-max", type=int, default=600_000)
+    ap.add_argument("--section-tokens", type=int, help="budget sections by estimated tokens (codex: 110000)")
+    ap.add_argument("--single-tokens", type=int, help="largest single call in estimated tokens (codex: 150000)")
+    a = ap.parse_args()
+    if a.cmd == "work" and not (a.terms or a.no_isolation_terms):
+        raise common.ToolError("give --terms (the isolation list) or --no-isolation-terms")
+    return build(a) if a.cmd == "build" else work(a)
+
+
+if __name__ == "__main__":
+    common.run_main(main)

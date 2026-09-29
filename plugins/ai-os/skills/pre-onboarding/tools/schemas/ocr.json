@@ -1,0 +1,14 @@
+{
+ "type": "object",
+ "properties": {
+  "pages": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {"file": {"type": "string"}, "text": {"type": "string"}},
+    "required": ["file", "text"]
+   }
+  }
+ },
+ "required": ["pages"]
+}
