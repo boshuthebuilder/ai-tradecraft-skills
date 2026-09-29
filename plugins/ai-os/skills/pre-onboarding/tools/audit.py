@@ -79,7 +79,7 @@ def main():
     log = common.logger(work, "audit")
     folder = os.path.basename(root)
 
-    t0 = time.time()
+    t0 = common.clock()
     run_at = common.iso_utc(t0)
     log("audit start", folder)
 
@@ -432,7 +432,7 @@ def main():
                           "newest": common.iso_utc(d["newest"]) if d["newest"] else None,
                           "changed_last_12m": d["recent"]}
                       for t, d in sorted(top.items())},
-        "elapsed_s": round(time.time() - t0),
+        "elapsed_s": 0 if os.environ.get("PRE_ONBOARDING_NOW") else round(time.time() - t0),
     }
     writer.json(os.path.join(out, "summary.json"), summary, indent=1)
 

@@ -1,0 +1,31 @@
+{
+ "wiki": "Alex Personal Wiki",
+ "pages": 12,
+ "frontmatter_conforming": "12/12",
+ "frontmatter_bad": [],
+ "superseded_pages": 0,
+ "dead_source_paths": [],
+ "backticked_paths_unchecked": 0,
+ "dead_page_links": [],
+ "em_dash_lines": 0,
+ "em_dash_where": [],
+ "deadlines": [
+  [
+   "2025-04-30",
+   "30 Home/30 Home.md"
+  ],
+  [
+   "2031-07-15",
+   "10 Identity/10 Identity.md"
+  ]
+ ],
+ "documents_in_scope": 17,
+ "documents_not_covered": 0,
+ "not_covered_sample": [],
+ "rationale": {
+  "blocks": 12,
+  "pages_without_block": []
+ },
+ "acceptance": "not recorded",
+ "problems": 0
+}

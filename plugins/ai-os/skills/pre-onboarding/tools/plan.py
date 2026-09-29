@@ -149,6 +149,8 @@ def execute(a):
                 if apply_:
                     os.makedirs(dst, exist_ok=True)
             elif act in ("move", "rename") and not r["from"].endswith("/"):
+                if not r["to"]:
+                    raise ValueError("no destination: the owner must choose one before approving")
                 src, dst = guard.inside(r["from"]), guard.inside(r["to"])
                 if not is_item(src):
                     raise ValueError("source missing")
@@ -278,7 +280,8 @@ def check(a):
 def new_row(**kw):
     r = {c: "" for c in COLS}
     r.update(kw)
-    r.setdefault("depth", "light")
+    if not r["depth"]:
+        r["depth"] = "light"
     if not r["status"]:
         r["status"] = "proposed"
     return r
@@ -471,11 +474,17 @@ def prove(a):
     """Re-audit proof: the change in (path, hash) pairs between the two manifests must equal the executed moves."""
     def pairs(entries):
         return {(p, h) for p, (h, _k, _o) in live_paths(entries).items()}
-    rows = [r for r in read_plan(a.plan) if r["action"] in ("move", "rename") and r["status"] == "done"
-            and not r["from"].endswith("/")]
+    done = [r for r in read_plan(a.plan) if r["action"] in ("move", "rename") and r["status"] == "done"]
+    rows = [r for r in done if not r["from"].endswith("/")]
+    folders = [(r["from"], r["to"]) for r in done if r["from"].endswith("/")]
     before, after = pairs(load_manifest(a.before)), pairs(load_manifest(a.after))
     exp_gone = {(r["from"], r["evidence"]) for r in rows}
     exp_new = {(r["to"], r["evidence"]) for r in rows}
+    for old, new in folders:              # a folder rename carries every path under it
+        for p, h in before:
+            if p.startswith(old):
+                exp_gone.add((p, h))
+                exp_new.add((new + p[len(old):], h))
     gone, new = before - after, after - before
     allowed = tuple(a.allow_departed_under or ())
     res = {
@@ -483,7 +492,7 @@ def prove(a):
         "new_unexpected": sorted(map(list, new - exp_new)),
         "gone_missing": sorted(map(list, exp_gone - gone)),
         "new_missing": sorted(map(list, exp_new - new)),
-        "rows_checked": len(rows),
+        "rows_checked": len(done),
     }
     res["ok"] = not any(res[k] for k in ("gone_unexpected", "new_unexpected", "gone_missing", "new_missing"))
     print(json.dumps(res, ensure_ascii=False, indent=1))

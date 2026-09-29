@@ -1,0 +1,52 @@
+{
+ "version": 1,
+ "rulebook_sha256": "2e3ea4b7108c03c6c0054fcb1ec34e5289755dfac4d2fdf1b799d9ac064ac678",
+ "inbox": "_Inbox",
+ "migrations_dir": "_Migrations",
+ "wiki_dir": "Alex Personal Wiki",
+ "reserved": [],
+ "depth": "light",
+ "packs": [
+  "01 Identity/Passport renewal 2021"
+ ],
+ "working_formats": [
+  ".pages",
+  ".numbers"
+ ],
+ "active": [
+  "01 Identity",
+  "02 Finance",
+  "03 Home"
+ ],
+ "finished": [
+  "04 Study",
+  "05 Archive"
+ ],
+ "people": [
+  {
+   "name": "Alex Example",
+   "also": [
+    "Alex",
+    "亚历克斯"
+   ],
+   "who": "owner of this folder"
+  },
+  {
+   "name": "Robin Example",
+   "also": [
+    "Robin"
+   ],
+   "who": "Alex's partner"
+  },
+  {
+   "name": "Robin Trading Ltd",
+   "also": [],
+   "who": "Alex's employer"
+  }
+ ],
+ "identifiers": "stated",
+ "boundaries": [],
+ "folder_description": "Alex Example's personal papers: identity, money, home and language study.",
+ "exclude": [],
+ "keep_empty_folders": true
+}

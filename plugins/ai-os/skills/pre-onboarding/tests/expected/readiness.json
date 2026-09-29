@@ -1,0 +1,72 @@
+{
+ "manifest": {
+  "generated_at": "2024-06-30T12:00:00Z",
+  "live_entries": 18,
+  "departed_entries": 0,
+  "migrating": 1,
+  "root_strays": 1,
+  "redundant_copies": 4,
+  "hygiene": 2,
+  "unconverted_iwork": 1,
+  "items_on_disk": 25
+ },
+ "records": {
+  "missing_extracts": 18,
+  "missing_cards": 18,
+  "bad_category": 0,
+  "extract_paths_stale": 0,
+  "contamination": "not verified: no --terms"
+ },
+ "wiki": {
+  "wiki": "Alex Personal Wiki",
+  "pages": 12,
+  "frontmatter_conforming": "12/12",
+  "frontmatter_bad": [],
+  "superseded_pages": 0,
+  "dead_source_paths": [],
+  "backticked_paths_unchecked": 0,
+  "dead_page_links": [],
+  "em_dash_lines": 0,
+  "em_dash_where": [],
+  "deadlines": [
+   [
+    "2025-04-30",
+    "30 Home/30 Home.md"
+   ],
+   [
+    "2031-07-15",
+    "10 Identity/10 Identity.md"
+   ]
+  ],
+  "documents_in_scope": 17,
+  "documents_not_covered": 0,
+  "not_covered_sample": [],
+  "rationale": {
+   "blocks": 12,
+   "pages_without_block": []
+  },
+  "acceptance": "not recorded",
+  "problems": 0
+ },
+ "rulebook": {
+  "copies_identical": true,
+  "names_wiki_folder": true
+ },
+ "scratch": {
+  "left_in_audit": []
+ },
+ "handoff_contract": {
+  "wiki_folder_named_after_folder": "ok",
+  "fixed_pages": "ok",
+  "derived_pages_hold_nothing_hand_written": "ok",
+  "rulebook_reserves_rulebook_filenames": "ok",
+  "new_files_routed_within_folder": "ok",
+  "settings_rulebook_json": "ok",
+  "settings_wiki_schema_json": "ok"
+ },
+ "summary": {
+  "handoff_findings": 0,
+  "wiki_problems": 0,
+  "records_missing": 36
+ }
+}

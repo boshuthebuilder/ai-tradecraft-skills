@@ -20,8 +20,15 @@ class ToolError(Exception):
     """A named failure a tool reports and exits on; never swallowed."""
 
 
+def clock():
+    """Seconds since the epoch. Tests freeze it with PRE_ONBOARDING_NOW (epoch seconds) so outputs can be compared
+    byte for byte; nothing else should set it."""
+    fixed = os.environ.get("PRE_ONBOARDING_NOW")
+    return float(fixed) if fixed else time.time()
+
+
 def now_local():
-    return time.strftime("%Y-%m-%dT%H:%M:%S%z")
+    return time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(clock()))
 
 
 def iso_utc(ts):

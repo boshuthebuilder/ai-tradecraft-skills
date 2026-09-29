@@ -1,0 +1,182 @@
+{
+ "version": 1,
+ "schema_path": "Alex Personal Wiki/90 Schema/90 Schema.md",
+ "schema_sha256": "6832133938ed1afbae433d0777912147cd377d10795bc9bbe2291bedf370b16c",
+ "sections": [
+  {
+   "section": "00 Index",
+   "number": "00",
+   "pages": "dashboard",
+   "professional": "chief of staff",
+   "kind": "fixed"
+  },
+  {
+   "section": "01 Deadlines",
+   "number": "01",
+   "pages": "every forward date, rolled up",
+   "professional": "chief of staff",
+   "kind": "fixed, derived"
+  },
+  {
+   "section": "02 People",
+   "number": "02",
+   "pages": "everyone who appears",
+   "professional": "personal assistant",
+   "kind": "fixed"
+  },
+  {
+   "section": "10 Identity",
+   "number": "10",
+   "pages": "passport",
+   "professional": "immigration adviser",
+   "kind": "active"
+  },
+  {
+   "section": "20 Finance",
+   "number": "20",
+   "pages": "Bank accounts; Cash position; Tax",
+   "professional": "private banker; CFO; chartered tax adviser",
+   "kind": "active"
+  },
+  {
+   "section": "30 Home",
+   "number": "30",
+   "pages": "lease, bills",
+   "professional": "household manager",
+   "kind": "active"
+  },
+  {
+   "section": "40 Study",
+   "number": "40",
+   "pages": "courses and certificates",
+   "professional": "academic registrar",
+   "kind": "history"
+  },
+  {
+   "section": "90 Schema",
+   "number": "90",
+   "pages": "this page",
+   "professional": "librarian",
+   "kind": "fixed"
+  },
+  {
+   "section": "91 Log",
+   "number": "91",
+   "pages": "append-only history",
+   "professional": "librarian",
+   "kind": "fixed"
+  }
+ ],
+ "routing": [
+  {
+   "prefixes": [
+    "01 Identity/"
+   ],
+   "target": "10 Identity",
+   "section": "10"
+  },
+  {
+   "prefixes": [
+    "02 Finance/Tax/"
+   ],
+   "target": "20 Tax",
+   "section": "20"
+  },
+  {
+   "prefixes": [
+    "02 Finance/"
+   ],
+   "target": "20 Bank accounts and Cash position",
+   "section": "20"
+  },
+  {
+   "prefixes": [
+    "03 Home/"
+   ],
+   "target": "30 Home",
+   "section": "30"
+  },
+  {
+   "prefixes": [
+    "04 Study/",
+    "05 Archive/"
+   ],
+   "target": "40 Study",
+   "section": "40"
+  },
+  {
+   "prefixes": [
+    "06 Work/"
+   ],
+   "target": "20 Tax (employment income)",
+   "section": "20"
+  },
+  {
+   "prefixes": [
+    "_Inbox/"
+   ],
+   "target": "filed by the routing above",
+   "section": null
+  }
+ ],
+ "contracts": [
+  {
+   "section": "10 Identity",
+   "number": "10",
+   "professional": "immigration adviser",
+   "questions": [
+    "When does the passport expire?",
+    "Which numbers would an application need?"
+   ],
+   "fields": "number, issue date, expiry, scan path"
+  },
+  {
+   "section": "20 Finance",
+   "number": "20",
+   "professional": "private banker; CFO; chartered tax adviser",
+   "questions": [
+    "Is anything due?",
+    "What came in and went out?",
+    "What is the tax position?"
+   ],
+   "fields": "account, period, balances, tax year, amounts"
+  },
+  {
+   "section": "30 Home",
+   "number": "30",
+   "professional": "household manager",
+   "questions": [
+    "Where does Alex live and on what terms?",
+    "What bills are due?"
+   ],
+   "fields": "address, landlord, term, rent, bills"
+  },
+  {
+   "section": "40 Study",
+   "number": "40",
+   "professional": "academic registrar",
+   "questions": [
+    "Which courses and certificates are held?",
+    "Where are they?"
+   ],
+   "fields": "course, school, dates, result, path"
+  }
+ ],
+ "pages": {
+  "20 Finance/Bank accounts.md": {
+   "professional": "private banker",
+   "deliverable": "accounts schedule",
+   "tone": "measured"
+  },
+  "20 Finance/Cash position.md": {
+   "professional": "CFO",
+   "deliverable": "cash note",
+   "tone": "numerate, brief"
+  },
+  "20 Finance/Tax.md": {
+   "professional": "chartered tax adviser",
+   "deliverable": "annual tax position letter",
+   "tone": "exact, dated"
+  }
+ }
+}
