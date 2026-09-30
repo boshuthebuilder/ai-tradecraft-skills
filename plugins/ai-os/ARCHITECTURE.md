@@ -62,7 +62,8 @@ move-plan the owner approves row by row). It is the folder-hygiene family this d
 and it fixes the contract in two places the others do not reach: a job may sit *entirely* below the
 determinism boundary and still be a job (scheduled, counted, fail-loud), and a job may touch the
 owner's own material only by **proposing** rows that a separate, owner-triggered execution applies
-under guards. Curation precedes onboarding; the `folder-curation` skill is the method.
+under guards. Curation precedes onboarding, as the first part of preparing a folder (see *Preparing a
+folder before onboarding*, below); the `folder-curation` skill is the method.
 
 The names are the same as the modes: a job's `id` equals its `mode`, so there is no third vocabulary.
 
@@ -84,6 +85,13 @@ A job is **not** a monolith. It is three layers, each with a single home, compos
 
 The split matters: guidance the model reads (layers 1–2) is prose it can be persuaded against;
 guarantees (layer 3) are code it cannot. Put a rule in the layer that can actually hold it.
+
+**A reviewer is never the author, and code holds that.** Where a page is accepted before the owner
+relies on it ([the core wiki rule's acceptance](skills/wiki-maintenance/SKILL.md#acceptance)), the
+review is played by a model that did not write the page. A prompt can ask for a different reviewer
+but cannot notice it was given the same one, so the code that records a verdict (a preparation tool
+in an interactive session, the deployment's guard for a job) compares the reviewing model with the
+writing one and refuses a verdict whose reviewer is its author.
 
 ## The determinism boundary
 
@@ -131,9 +139,12 @@ say which stage needs what, so the choice is visible rather than accidental.
 
 ## Durable extracts for rendered wikis (opt-in)
 
-A deployment may adopt **contract-driven rendering** for a document wiki. This is an additional
-profile, not a replacement for body-based wikis or incrementally evolved user-tier Knowledge.
-The Schema declares which pages use it. For those pages, durable structured extracts, dated owner
+A deployment may adopt **deterministic rendering**
+([`wiki-maintenance`'s optional profile](skills/wiki-maintenance/SKILL.md#deterministic-rendering-optional-profile))
+for a document wiki. This is an additional profile, not a replacement for body-based wikis or
+incrementally evolved user-tier Knowledge. Every page already has a contract under the core wiki rule;
+the profile changes only how the pages it names are produced. The Schema declares which pages use it.
+For those pages, durable structured extracts, dated owner
 assertions, the page-type contract and the clock are the renderer's inputs; page prose is an output,
 never the editable source of a figure. The deployment owns the renderer and its write guards.
 
@@ -370,11 +381,20 @@ Two concepts the archetypes above rest on:
   reads, and which wikis a synthesis may see. One rule, single-homed in the deployment, so it can
   never drift between surfaces.
 - Wikis come in two **tiers**. A **project-tier** wiki is strictly self-contained: it never names or
-  links another project (the `wiki-maintenance` rule). A **user-tier** wiki — one per identity — is
-  the only place cross-project links live: it is *synthesised over* the project wikis that identity
+  links another project, and its project files every new item within itself, never routing one to
+  another project ([the `wiki-maintenance` rule](skills/wiki-maintenance/SKILL.md#rules-that-keep-it-safe)).
+  A **user-tier** wiki, one per identity, is the only place cross-project links live: it is
+  *synthesised over* the project wikis that identity
   may access, reads them, and never writes back into them. Isolation is by construction: the
   synthesis job's gather only ever presents the wikis the access rule allows, so a cross-tier leak
   cannot happen downstream of it.
+- **Cross-project migrations are proposed by the user tier and approved by the owner.** Because the
+  user-tier synthesis is the one pass that reads both sides, it is where a file one project holds for
+  another is noticed: it proposes the move as an escalation for the owner to approve or decline
+  (the user-synthesis archetype's optional `migration` field), and never moves a file itself. An
+  approved migration is carried out inside the holding project by its approved curation plan, which
+  stages the files for the other project to collect (`folder-curation`), under that project's guards.
+  No job in either tier moves a file between projects on its own.
 
 Onboarding an *identity* (as opposed to a project) is its own skill — **`user-onboarding`** — because
 a user vault is a different shape from a project wiki: its storage is owned differently (see *Storage
@@ -444,6 +464,24 @@ archetype is a `synthesise`/`reconcile` **pair**, not a lone job (the twin rule 
   stability rules still hold) — the same incremental-write contract, differing only in breadth and
   cadence. Reconcile runs on a clock, not on the reactive gate.
 
+## Preparing a folder before onboarding
+
+A lived-in folder can arrive **prepared** rather than cold. Preparation happens in an interactive
+session before any job runs, and nothing in the owner's material changes in it without the owner's
+approval. Its sequence, who decides at each step and the tools that do the exact parts belong to
+[`pre-onboarding`](skills/pre-onboarding/SKILL.md): in outline, audit and approved tidy-up rounds
+(`folder-curation`), the full text of every document and a card for each, the wiki (`wiki-onboarding`
+under the core wiki rule), a readiness check, then the hand-off to `project-onboarding`.
+
+What this design relies on is where preparation ends. A prepared folder meets
+[the hand-off contract](skills/pre-onboarding/SKILL.md#the-hand-off-contract), and carries
+machine-readable twins of its rulebook and Schema ([the settings twins](skills/pre-onboarding/SKILL.md#the-settings-twins))
+that code reads in place of prose, each stale once its source changes. `project-onboarding` takes cold
+and prepared folders in one flow: it checks a prepared folder against the contract, never rebuilds
+it, and seeds the jobs from the state preparation left, so the first gate tick is a no-op rather than
+a second ingest of every document. The three layers hold unchanged: during preparation the tools the
+skill bundles are the guards, as the deployment's code is for its jobs.
+
 ## Execution context constraints (why the indirection exists)
 
 These shape any real deployment and are worth stating once, generically:
@@ -457,6 +495,15 @@ These shape any real deployment and are worth stating once, generically:
   a missed producer run shows up as `stale`, not as silent emptiness.
 - **Least privilege.** A job sees only what its config declares. Read-only stays read-only by
   construction where possible (no write path to misuse), not by a flag.
+- **One login per machine; the context is isolated per call.** A model engine is logged in once on a
+  machine, and that login serves every project and identity the machine works for. No project copies
+  a login or token file: a copied token goes stale when the engine rotates it, and can log the main
+  install out. What is isolated is each call's context: a call sees nothing from another project (no
+  history, memories, sessions or instructions), has only the tools its job declares, and any outcome
+  that is not an answer is a named state, never taken for one. What a call is shown is still the
+  access rule's to decide (*Tiers and identities*), whatever login makes it. Check the isolation
+  before relying on it, with a call that must name nothing from another project; how the preparation
+  tools do that is [`pre-onboarding`'s engine isolation](skills/pre-onboarding/SKILL.md#engine-isolation).
 
 ## What this gives you
 
@@ -464,5 +511,6 @@ A folder that maintains itself: drop a document in, and within one gate interval
 change nothing and nothing runs. The conventions live in one public home (the skills); the design
 lives here; a deployment is just an instance that supplies a timer, storage, and a model runner and
 follows this shape. Onboard a new folder by stamping the file-ingest archetype — see
-`plugins/ai-os/skills/project-onboarding`. A lived-in folder is adopted through `folder-curation`
-first: audited, tidied only as far as its owner chose, then onboarded.
+`plugins/ai-os/skills/project-onboarding`. A lived-in folder is adopted through `pre-onboarding`,
+which runs `folder-curation`: audited, tidied only as far as its owner chose, read in full, its wiki
+built and accepted, then onboarded.

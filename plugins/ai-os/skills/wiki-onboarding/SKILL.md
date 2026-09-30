@@ -242,8 +242,9 @@ When a page is accepted, in which lenses and what a verdict records are the core
 Commission the review from **a model that did not write the page**. Brief it with the agreed reader,
 the page's contract and professional, the page and its sources, and have it answer in both lenses.
 Write the verdict, with the models that wrote and reviewed the page, to the acceptance record beside
-the audit pair (in a prepared folder, `_Audit/wiki-acceptance.json`, which the wiki check reports as
-recorded or not), with each finding and the response to it. Rebuild what the findings touch and review
+the audit pair (in a prepared folder, `_Audit/wiki-acceptance.json`, whose state per page and lens the
+wiki check reports as [acceptance](../wiki-maintenance/SKILL.md#acceptance) sets out), with each
+finding and the response to it. Rebuild what the findings touch and review
 it again, children before parents and the Index last. This is the acceptance loop of
 `coding:iterative-acceptance`; a passing check never stands in for it.
 

@@ -22,6 +22,16 @@ this file — one source of truth, two filenames.
 - **Skills are conventions, not code.** Enforcement (write guards, path checks, locks) belongs
   in a deployment's code; a skill *describes* intent. Don't write a rule into a skill that only
   code can hold — point to the three-layer model in `plugins/ai-os/ARCHITECTURE.md` instead.
+  **The exception: operator tools a skill bundles for an interactive session.** Where a person runs
+  the skill by hand and no deployment stands behind the session, the skill may carry the code that
+  holds its rules, in its own `tools/` folder: `adversarial-review`'s
+  `plugins/coding/skills/adversarial-review/tools/agy-review`, `ai-writing-audit`'s
+  `plugins/productivity/skills/ai-writing-audit/tools/` (`audit.py`, `sync_check.py`), and
+  `pre-onboarding`'s `plugins/ai-os/skills/pre-onboarding/tools/`. Such a tool is generic and
+  settings-driven (no real names in code, fixtures or tests), installs no packages of its own (the
+  standard library, or one dependency-free script), fails loud, and is documented beside the skill.
+  The skill still states each rule, and a deployment's jobs never depend on the tool: a rule a job
+  needs is held in the deployment's code.
 - **One home per convention.** `wiki-maintenance` owns how a wiki is kept; archetypes own job
   shapes; `plugins/ai-os/ARCHITECTURE.md` owns the ai-os system design. Don't restate a
   convention in a second place — reference it.
@@ -32,8 +42,9 @@ this file — one source of truth, two filenames.
 Releases are **semver tags** `vMAJOR.MINOR.PATCH`, recorded in [`CHANGELOG.md`](CHANGELOG.md).
 The versioned *interface* is everything a consumer may depend on:
 
-- **skill names and their frontmatter contracts** (`wiki-onboarding`, `wiki-maintenance`,
-  `project-onboarding`, `ai-writing-audit`) and the `plugins/<direction>/skills/<name>/SKILL.md` layout;
+- **skill names and their frontmatter contracts**, every skill's (for example `wiki-onboarding`,
+  `wiki-maintenance`, `project-onboarding`, `pre-onboarding`, `ai-writing-audit`), and the
+  `plugins/<direction>/skills/<name>/SKILL.md` layout;
 - **archetype directory layout** under
   `plugins/ai-os/skills/project-onboarding/archetypes/<archetype>/`
   (the file set: `README.md`, `jobs.yaml`, prompt templates, `scheduler.md`) and the

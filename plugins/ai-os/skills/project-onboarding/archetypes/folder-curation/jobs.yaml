@@ -31,7 +31,7 @@ classes:
   image:    {hash: full, size_cap_mb: 25, ingest: scans_only}
   imaging:  {hash: count_only, ingest: never}
   software: {hash: count_only, ingest: never}
-  iwork:    {hash: full, ingest: after_convert}
+  iwork:    {hash: full, ingest: read}         # read directly, without the apps; a package is one item
   email:    {hash: full, ingest: read}
   archive:  {hash: full, ingest: on_request}
 

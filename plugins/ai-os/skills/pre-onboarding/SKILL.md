@@ -39,7 +39,8 @@ conditions that make `project-onboarding` stop for curation at its step 1) and t
 to start as a skeleton and fill as sources arrive; or when the folder already has a wiki with a Schema and needs
 only its jobs.
 
-Not for: a drop folder of files that belong to no project yet (`file-preprocessing`); a git repository (the `code`
+Not for: a drop folder of files that belong to no project yet (`file-preprocessing`, which owns such files and
+moves them into parcels, where this skill reads a kept folder in place); a git repository (the `code`
 archetype); keeping a wiki that already exists (`wiki-maintenance`).
 
 ## Before you start

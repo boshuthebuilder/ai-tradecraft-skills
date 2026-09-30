@@ -48,11 +48,11 @@ that finds one files it into the wiki and logs the move.
 
 ## The recommended layout (an example — the Schema is the law)
 
-When a wiki is created from scratch, a **human-readable, numbered-domain** layout works well: one folder
-per domain, each domain an area of responsibility as the office running these affairs would divide
-them ([the core wiki rule](#the-core-wiki-rule)), following the owner's *own* top-level folders wherever
-they already divide things that way, so the wiki reads the way a person thinks about their affairs
-rather than as an abstract index. A typical shape:
+When a wiki is created from scratch, a **human-readable, numbered-section** layout works well: one
+folder per section, each section an area of responsibility as the office running these affairs would
+divide them ([sections by responsibility](#sections-by-responsibility)), following the owner's *own*
+top-level folders wherever they already divide things that way, so the wiki reads the way a person
+thinks about their affairs rather than as an abstract index. A typical shape:
 
 ```
 <wiki>/
@@ -67,10 +67,10 @@ rather than as an abstract index. A typical shape:
 ```
 
 Conventions that make it readable: number prefixes drive sidebar ordering (in Obsidian, put each page
-in a folder of the same name so the root sorts numerically); each domain folder has an **overview note**
-of the same name plus **one detail page per item**; a domain exists only because the owner has files for
+in a folder of the same name so the root sorts numerically); each section folder has an **overview note**
+of the same name plus **one detail page per item**; a section exists only because the owner has files for
 it — never invent a taxonomy the material doesn't have. The meta pages sit at high numbers (9x) so
-content owns the 00–89 range: a wiki that works will grow domains, and Schema and Log should never need
+content owns the 00–89 range: a wiki that works will grow sections, and Schema and Log should never need
 renaming to stay last.
 
 **This is a recommended default, not a law.** The authority for *this* wiki's exact names and layout is

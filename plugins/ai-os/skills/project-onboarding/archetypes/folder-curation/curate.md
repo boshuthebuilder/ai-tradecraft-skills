@@ -50,7 +50,15 @@ only. Follow the skill's *Propose* rules, of which these decide most rows:
    folder, never a blank target tree.
 7. **Every row states its evidence and its reason** — the sha256 id the audit gave, and one sentence
    naming the finding it resolves. A row you cannot evidence from the audit is not a row.
-8. Order rows by `seq` in execution order: renames and moves first, conversions next, deletions last.
+   An `rmdir` row and a folder `rename` carry no evidence id (the schema says so); their reason
+   still names the finding.
+8. Order rows by `seq` in execution order: renames, moves and `create` rows first, conversions next,
+   `rmdir` rows once the moves that empty their folders are done, deletions last. An emptied folder
+   is removed only by an `rmdir` row, which the skill's rule on emptied folders adds once the owner
+   has approved the moves that empty it, so a folder is never removed on the strength of a move the
+   owner declined. In a fresh proposal, emit one only where the skill's rule on return migrations
+   asks for it in the same round: the migrations folder's `<Project>/`, in a round that returns
+   everything still staged there.
 
 Anything you cannot place with confidence is a **`needs_a_look`**, not a guessed row.
 
@@ -92,7 +100,7 @@ Return JSON only:
 ```json
 {
   "verdict": "propose | skip",
-  "move_plan": [{"seq": 1, "domain": "...", "depth": "light", "action": "move", "from": "...", "to": "...", "evidence": "<sha256>", "reason": "...", "kind": "", "sweep": "", "needs_a_look": ""}],
+  "move_plan": [{"seq": 1, "domain": "...", "depth": "light", "action": "move | rename | create | convert | rmdir | delete", "from": "...", "to": "...", "evidence": "<sha256>, or empty for an rmdir or a folder rename", "reason": "...", "kind": "", "sweep": "", "needs_a_look": ""}],
   "later_rounds": [{"depth": "medium", "summary": "one line — what a deeper round would resolve"}],
   "needs_a_look": [{"item": "...", "look": "misfiled | credentials | flagged", "evidence": ["<sha256>", "..."], "reason": "...", "owner_action": "null, OR one sentence naming the act only the owner can perform", "what_would_resolve": "one sentence — the single decision that closes this", "proposed_action": "optional — what you would do on a yes"}],
   "log_entry": "## [{date}] curate | ..."

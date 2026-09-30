@@ -11,7 +11,9 @@ description: >-
   access) continue another's work on the same folder. Use when handed a drop folder of accumulated
   files to triage before they join any project; the audit is the durable artefact that makes a later
   onboarding — by any system — cheap. Also callable in-place by folder-curation to rename
-  already-filed files without moving them.
+  already-filed files without moving them. Not for a lived-in folder its owner already keeps:
+  preparing that for the system is pre-onboarding, which reads every file where it is and moves
+  nothing without the owner's approved plan.
 ---
 
 # file-preprocessing
@@ -31,6 +33,12 @@ folder stays self-describing through two files that travel with it:
 Colocation is the export story: each run folder also carries its own manifest+audit **slice** (paths
 rebased relative to the run folder), so a collected parcel still explains itself wherever it ends
 up; the root pair is the long memory that survives parcels leaving.
+
+**Not [`pre-onboarding`](../pre-onboarding/SKILL.md).** This skill owns a drop folder's files and
+moves them into parcels; `pre-onboarding` prepares a lived-in folder its owner already keeps, reading
+every file where it is and moving nothing without the owner's approved plan. Neither supersedes the
+other, and both write the manifest format [`references/manifest-schema.md`](references/manifest-schema.md)
+defines.
 
 ## The folder contract
 
