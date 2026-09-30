@@ -2,7 +2,7 @@
 """The folder's settings twins in <root>/.familyai/ (or --settings-dir). Formats: `references/settings.md`.
 
     settings.py compile --root R   build wiki-schema.json from the Schema page's tables
-    settings.py check   --root R   both twins fresh and consistent with the rulebook; every finding counted
+    settings.py check   --root R [--out F]   both twins fresh and consistent with the rulebook; every finding counted
 
 `rulebook.json` is written by the preparing agent from the owner's answers, in the same change as the rulebook
 (`CLAUDE.md`, with a byte-identical `AGENTS.md`), and records the rulebook's sha256. `wiki-schema.json` is compiled
@@ -11,6 +11,7 @@ from the Schema page's tables, each the one table under a `## ` heading of its n
 - Layout: `Section | Pages | Professional lens | Kind`
 - Routing: `Files under | Section and page`
 - Page contracts: `Section (professional) | Reader | Questions, most important first | Fields every page carries`
+  (a table written before the Reader column compiles with no reader, which `check` reports)
 - optional Page professionals: `Page | Professional | Deliverable | Tone`
 
 Other headers, a missing required table and a row that cannot be read fail loud; nothing is guessed. Both twins
@@ -32,9 +33,11 @@ TABLES = {  # key: (heading, fixed headers, required)
                                      "Fields every page carries"], True),
     "pages": ("Page professionals", ["Page", "Professional", "Deliverable", "Tone"], False),
 }
+LEGACY_HEADERS = {"contracts": ["Section (professional)", "Questions, most important first",
+                                "Fields every page carries"]}
 KINDS = ("active", "history", "fixed")
 KIND_FLAGS = ("derived",)
-SCHEMA_PAGES = ("90 Schema/90 Schema.md", "09 Schema/09 Schema.md")
+NO_READER = "the Schema's Page contracts table has no Reader column; add one after Section (professional)"
 
 
 def split_row(line):
@@ -70,14 +73,14 @@ def sections_of(text):
         if fence:
             continue
         if line.startswith("## "):
-            out.append((line[3:].strip(), []))
+            out.append((re.sub(r"\s+#+\s*$", "", line[3:]).strip(), []))
             table = None
         elif line.lstrip().startswith("|") and out:
             if table is None:
                 table = []
                 out[-1][1].append(table)
             cells = split_row(line)
-            if not all(re.fullmatch(r":?-{3,}:?", c) for c in cells):
+            if not all(re.fullmatch(r":?-+:?", c) for c in cells):
                 table.append(cells)
         else:
             table = None
@@ -85,7 +88,8 @@ def sections_of(text):
 
 
 def find_table(sections, key):
-    """The rows under the one `## <heading>` section for `key`, header checked; [] for an absent optional table."""
+    """The rows under the one `## <heading>` section for `key`, header checked; [] for an absent optional table. A
+    table with the key's legacy headers has None in each column it lacks."""
     heading, headers, required = TABLES[key]
     found = [(h, tables) for h, tables in sections
              if re.fullmatch(r"%s(\s*[(:].*)?" % re.escape(heading), h, re.I)]
@@ -101,18 +105,28 @@ def find_table(sections, key):
     if len(tables) != 1:
         raise common.ToolError("Schema section %r holds %d tables; it must hold exactly one" % (h, len(tables)))
     rows = tables[0] or [[]]
-    if rows[0] != headers:
+    legacy = LEGACY_HEADERS.get(key)
+    if rows[0] not in (headers, legacy):
         raise common.ToolError("Schema section %r: table headers | %s |, expected exactly | %s |"
                                % (h, " | ".join(rows[0]), " | ".join(headers)))
     for n, row in enumerate(rows[1:], 1):
-        if len(row) != len(headers):
+        if len(row) != len(rows[0]):
             raise common.ToolError("Schema section %r row %d has %d cells, expected %d: %s"
-                                   % (h, n, len(row), len(headers), row))
-    return rows[1:]
+                                   % (h, n, len(row), len(rows[0]), row))
+    if rows[0] == headers:
+        return rows[1:]
+    gaps = [i for i, name in enumerate(headers) if name not in legacy]
+    out = []
+    for row in rows[1:]:
+        row = list(row)
+        for i in gaps:
+            row.insert(i, None)
+        out.append(row)
+    return out
 
 
 def fail(table, row, why):
-    raise common.ToolError("Schema %s table, row %s: %s" % (table, " | ".join(row), why))
+    raise common.ToolError("Schema %s table, row %s: %s" % (table, " | ".join(c for c in row if c is not None), why))
 
 
 def numbered(cell, table, row):
@@ -130,13 +144,16 @@ def professionals(cell, table, row):
 
 
 def questions(cell, table, row):
-    """`1. First? 2. Second?` as a list in that order; the numbers must run 1, 2, 3 and so on."""
-    marks = re.findall(r"(?:^|\s)(\d+)\.\s+", cell)
-    if not marks:
-        return [cell] if cell else fail(table, row, "no question")
-    if [int(n) for n in marks] != list(range(1, len(marks) + 1)) or not re.match(r"1\.\s", cell):
-        fail(table, row, "questions must be numbered 1., 2., 3. in priority order, not %s" % marks)
-    return [q.strip() for q in re.split(r"(?:^|\s)\d+\.\s+", cell) if q.strip()]
+    """`1. First? 2. Second?` as a list in that order: numbered from 1 in priority order, a single question too."""
+    mark = r"(?:^|\s)\d+\.(?=\s|$)"
+    marks = [int(m.strip()[:-1]) for m in re.findall(mark, cell)]
+    if not re.match(r"1\.(\s|$)", cell) or marks != list(range(1, len(marks) + 1)):
+        fail(table, row, "questions must be numbered 1., 2., 3. in priority order: %r" % cell)
+    qs = [q.strip() for q in re.split(mark, cell)[1:]]
+    for n, q in enumerate(qs, 1):
+        if not q:
+            fail(table, row, "question %d is empty" % n)
+    return qs
 
 
 def compile_text(text, schema_path):
@@ -162,7 +179,10 @@ def compile_text(text, schema_path):
         ps = re.findall(r"`([^`]+)`", files)
         if not ps or any(not p.endswith("/") for p in ps):
             fail("Routing", row, "name each folder prefix in backticks, ending in /")
-        m = re.match(r"(\d{2})\b", target)
+        m = re.match(r"(\d{2}) +\S", target)
+        if re.match(r"\d", target) and not m:
+            fail("Routing", row, "%r must start with a two-digit section number and a name (or be a note without "
+                 "a number, which routes nothing)" % target)
         if m and m.group(1) not in by_number:
             fail("Routing", row, "section %s is not in the Layout table" % m.group(1))
         for p in ps:
@@ -180,7 +200,7 @@ def compile_text(text, schema_path):
         if number in contracted:
             fail("Page contracts", row, "section %s has two contracts" % number)
         contracted.add(number)
-        if not reader:
+        if reader == "":
             fail("Page contracts", row, "no reader named")
         field_list = [f.strip() for f in fields.split(",") if f.strip()]
         if not field_list:
@@ -203,15 +223,16 @@ def compile_text(text, schema_path):
         if not prof:
             fail("Page professionals", row, "no professional named")
         pages[page] = {"professional": prof, "deliverable": deliverable, "tone": tone}
-    return {"version": common.SETTINGS_VERSION, "schema_path": schema_path, "schema_sha256": None,
+    return {"version": common.WIKI_SCHEMA_VERSION, "schema_path": schema_path, "schema_sha256": None,
             "sections": sections, "routing": routing, "contracts": contracts, "pages": pages}
 
 
 def schema_path(root, wiki_dir):
-    for rel in SCHEMA_PAGES:
-        if os.path.exists(os.path.join(root, wiki_dir, rel)):
-            return "%s/%s" % (wiki_dir, rel)
-    raise common.ToolError("no Schema page under %s/ (looked for %s)" % (wiki_dir, ", ".join(SCHEMA_PAGES)))
+    rel = common.schema_page(root, wiki_dir)
+    if rel is None:
+        raise common.ToolError("no Schema page under %s/ (looked for %s)"
+                               % (wiki_dir, ", ".join(common.SCHEMA_PAGES)))
+    return rel
 
 
 def compile_schema(root, rb):
@@ -248,11 +269,17 @@ def twin_state(load):
 def check_cmd(a):
     root, settings_dir, _work = common.resolve(a, verify=False)
     findings, status = [], {}
+    folder_wiki = os.path.basename(root) + " Wiki"
     claude, agents = (os.path.join(root, n) for n in ("CLAUDE.md", "AGENTS.md"))
     text = None
     if os.path.exists(claude):
-        with open(claude, encoding="utf-8") as f:
-            text = f.read()
+        with open(claude, "rb") as f:
+            raw = f.read()
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError as e:
+            findings.append("CLAUDE.md is not valid UTF-8 (byte %d)" % e.start)
+            text = raw.decode("utf-8", "replace")
 
     status["rulebook_json"], got = twin_state(lambda: common.load_rulebook(root, settings_dir, required=True))
     if status["rulebook_json"] != "fresh":
@@ -266,37 +293,45 @@ def check_cmd(a):
                                                          else "CLAUDE.md missing")
     else:
         status["rulebook_facts"] = "checked"
-        if rb["wiki_dir"] != os.path.basename(root) + " Wiki":
-            findings.append("wiki_dir %r is not '<folder name> Wiki' (%r)" % (rb["wiki_dir"],
-                                                                             os.path.basename(root) + " Wiki"))
-        for name in common.reserved_names(rb):
+        if rb["wiki_dir"] != folder_wiki:
+            findings.append("wiki_dir %r is not '<folder name> Wiki' (%r)" % (rb["wiki_dir"], folder_wiki))
+        # One defect, one finding: the rulebook is checked against the wiki folder it must name.
+        for name in common.reserved_names(dict(rb, wiki_dir=folder_wiki)):
             if name not in text:
                 findings.append("the rulebook does not mention reserved name %r" % name)
         for pack in rb["packs"]:
             if pack not in text:
                 findings.append("the rulebook does not mention pack %r" % pack)
 
-    if text is not None and os.path.exists(agents):
+    missing = [n for n, p in (("CLAUDE.md", claude), ("AGENTS.md", agents)) if not os.path.exists(p)]
+    if not missing:
         status["rulebook_copies_identical"] = common.sha256_file(claude) == common.sha256_file(agents)
         if not status["rulebook_copies_identical"]:
             findings.append("CLAUDE.md and AGENTS.md differ")
     else:
-        status["rulebook_copies_identical"] = "not verified: a rulebook file is missing"
-        findings.append("rulebook file missing: %s" % " and ".join(
-            n for n, p in (("CLAUDE.md", claude), ("AGENTS.md", agents)) if not os.path.exists(p)))
+        status["rulebook_copies_identical"] = "not verified: %s missing" % " and ".join(missing)
+        if status["rulebook_json"] == "stale":
+            missing = [n for n in missing if n != "CLAUDE.md"]  # the stale twin's finding already names it
+        if missing:
+            findings.append("rulebook file missing: %s" % " and ".join(missing))
 
     status["wiki_schema_json"], ws = twin_state(lambda: common.load_wiki_schema(root, settings_dir, required=True))
     if status["wiki_schema_json"] != "fresh":
         findings.append(str(ws))
     else:
-        if rb and not ws["schema_path"].startswith(rb["wiki_dir"] + "/"):
+        if not ws["schema_path"].startswith(folder_wiki + "/"):
             findings.append("wiki-schema.json was compiled from %r, outside the wiki folder %r"
-                            % (ws["schema_path"], rb["wiki_dir"]))
+                            % (ws["schema_path"], folder_wiki))
+        if any(c["reader"] is None for c in ws["contracts"]):
+            findings.append(NO_READER)
         have = {c["number"] for c in ws["contracts"]}
         for s in ws["sections"]:
             if s["kind"] != "fixed" and s["number"] not in have:
                 findings.append("section %s %s has no page contract" % (s["number"], s["name"]))
-    print(json.dumps({"status": status, "findings": findings, "count": len(findings)}, ensure_ascii=False, indent=1))
+    out = json.dumps({"status": status, "findings": findings, "count": len(findings)}, ensure_ascii=False, indent=1)
+    if a.out:
+        common.Writer(root if a.read_only_root else None).text(a.out, out)
+    print(out)
     return 1 if findings else 0
 
 
@@ -309,6 +344,8 @@ def main():
         p.add_argument("--settings-dir")
         p.add_argument("--work")
         p.add_argument("--read-only-root", action="store_true")
+        if name == "check":
+            p.add_argument("--out", help="also write the result here")
     a = ap.parse_args()
     return compile_cmd(a) if a.cmd == "compile" else check_cmd(a)
 

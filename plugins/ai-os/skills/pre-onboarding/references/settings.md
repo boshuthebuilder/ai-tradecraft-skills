@@ -20,8 +20,8 @@ An unknown version, an unknown key or a value of the wrong shape fails loud.
 
 | Key | Value | Default | Meaning |
 | --- | --- | --- | --- |
-| `version` | `1` | required | the format version |
-| `rulebook_sha256` | sha256 hex | required | the sha256 of `CLAUDE.md` when this twin was last reviewed against it |
+| `version` | `1` | required | the format version of `rulebook.json` |
+| `rulebook_sha256` | sha256 hex | required | the sha256 of `CLAUDE.md` when this twin was last reviewed against it; absent or empty means unpinned |
 | `inbox` | folder name | `_Inbox` | the drop point at the top of the folder |
 | `migrations_dir` | folder name | `_Migrations` | where files the owner approved for another project wait |
 | `wiki_dir` | folder name | `<folder name> Wiki` | the wiki folder; must be exactly `<folder name> Wiki` |
@@ -54,8 +54,8 @@ review defeats the point.
 `settings.py compile --root <folder>` reads four tables from the Schema page (`90 Schema/90 Schema.md` in the wiki
 folder; `09 Schema/09 Schema.md` is read for a wiki laid out before the meta pages moved to the 90s). Each is the
 one table under a `## ` heading of its name (a remark in brackets or after a colon may follow, as in
-`## Layout (sections)`); tables in fenced code are ignored, and the page may carry any other sections and tables.
-Headers are fixed, word for word:
+`## Layout (sections)`), with every row starting with `|`; tables in fenced code are ignored, and the page may carry
+any other sections and tables. Headers are fixed, word for word:
 
 | Table | Headers | Required |
 | --- | --- | --- |
@@ -64,18 +64,21 @@ Headers are fixed, word for word:
 | Page contracts | `Section (professional) \| Reader \| Questions, most important first \| Fields every page carries` | yes |
 | Page professionals | `Page \| Professional \| Deliverable \| Tone` | no |
 
+A Page contracts table written before the Reader column (`Section (professional) \| Questions, most important
+first \| Fields every page carries`) still compiles, with no reader; `check` reports it until the column is added.
+
 What each cell holds:
 
 - **Section** (Layout): a two-digit number, a space and the name, such as `20 Finance`; each number once.
   **Professional lens**: one professional, or several separated by `;`. **Kind**: `active`, `history` or `fixed`,
   optionally followed by `, derived` for a page generated from other pages that holds nothing hand-written.
 - **Files under** (Routing): one or more folder prefixes, each in backticks and ending in `/`; each prefix routed
-  once. **Section and page**: starts with the target section's number, or is a note with no number, which routes
-  nothing (`_Inbox/`, filed by the routing above).
+  once. **Section and page**: starts with the target section's two-digit number and a space, or is a note with no
+  number, which routes nothing (`_Inbox/`, filed by the routing above).
 - **Section (professional)** (Page contracts): a Layout section by number and name, with its professionals in
   brackets (left out, the Layout's are used); one contract per section. **Reader**: who reads these pages.
-  **Questions**: numbered `1. … 2. …` in priority order. **Fields**: the fields every page carries, separated by
-  commas.
+  **Questions**: numbered `1. … 2. …` from the start of the cell, in priority order (a single question is `1. …`
+  too). **Fields**: the fields every page carries, separated by commas.
 - **Page** (Page professionals): a page path relative to the wiki folder, under a Layout section, such as
   `20 Finance/Tax.md`; each page once. **Deliverable** and **Tone**: what the professional produces and how it
   reads.
@@ -114,16 +117,17 @@ above fails loud, naming the table and the row. Nothing is guessed.
 ### The compiled twin
 
 Compilation is deterministic: the same Schema bytes give the same twin bytes, with no timestamp and paths relative
-to the folder, so recompiling an unchanged Schema changes nothing.
+to the folder, so recompiling an unchanged Schema changes nothing. Tools check the twin's version and shape when
+they read it, so a twin of another version or shape is refused as invalid rather than tripped over.
 
 | Key | Value |
 | --- | --- |
-| `version` | `1` |
+| `version` | `2` (version 1, compiled before sections carried a number and a name, is refused: recompile) |
 | `schema_path` | the Schema page, relative to the folder |
 | `schema_sha256` | the Schema page's sha256 when compiled |
 | `sections` | Layout rows in order: `{number, name, kind, derived, pages, professionals}` |
 | `routing` | one row per prefix, in table order: `{prefix, target, section}` (`section` is `null` for a note); a path routes by its longest matching prefix |
-| `contracts` | `{number, name, professionals, reader, questions, fields}`, questions and fields as lists in order |
+| `contracts` | `{number, name, professionals, reader, questions, fields}`, questions and fields as lists in order; `reader` is `null` from a table without the Reader column |
 | `pages` | `{"<section>/<page>.md": {professional, deliverable, tone}}` |
 
 ### A page's professional
@@ -138,30 +142,35 @@ rule, refuses it rather than pick one. Deliverable and tone come only from the p
 | What happened | State | Remedy |
 | --- | --- | --- |
 | `CLAUDE.md` edited since the pin | `stale` | review `rulebook.json` against it, then record the new hash |
-| `rulebook.json` has no `rulebook_sha256` | `unpinned` | review it against `CLAUDE.md`, then record the hash |
+| `rulebook.json` has no or an empty `rulebook_sha256` | `unpinned` | review it against `CLAUDE.md`, then record the hash |
 | `CLAUDE.md` missing | `stale` | restore the rulebook |
 | the Schema page edited since compiling | `stale` | `settings.py compile --root <folder>` |
 | the Schema page moved or deleted | `stale` | restore it, then compile |
+| a `90 Schema` page added to a wiki compiled from `09 Schema` | `stale` | `settings.py compile --root <folder>` |
 
-Every tool that takes `--root` verifies both twins before it reads or writes anything, and refuses (exit 2) with
-a message that starts `stale:` or `unpinned:` and names the source. Two skip that gate. `settings.py`: `compile` is
-the remedy (it still refuses a stale `rulebook.json`, whose `wiki_dir` it reads) and `check` is the diagnosis.
-`readiness.py` reports a stale twin as a hand-off finding (exit 1), and still refuses a stale `rulebook.json`,
-which its other checks read.
+Every tool that takes `--root` verifies both twins before it reads or writes anything, and refuses (exit 2),
+printing `error: stale: …` or `error: unpinned: …` naming the source; a malformed twin is refused the same way.
+Two skip that gate and report instead. `settings.py`: `compile` is the remedy (it still refuses a stale
+`rulebook.json`, whose `wiki_dir` it reads) and `check` is the diagnosis. `readiness.py` reports a stale or unpinned
+twin as a hand-off finding (exit 1), reading the settings without trusting them, as `check` does.
+
 An absent twin is not stale: a folder has no `wiki-schema.json` before its wiki exists, and tools fall back to the
 defaults without a `rulebook.json`. The tools that need a twin (`settings.py check`, `wiki.py bundles`, the
 hand-off contract in `readiness.py`) say so.
 
 ## `settings.py check`
 
-Prints `{"status": …, "findings": […], "count": n}` and exits 1 on any finding. It checks:
+Prints `{"status": …, "findings": […], "count": n}` (also to `--out` when given) and exits 1 on any finding. One
+defect gives one finding. It checks:
 
 - both twins are present and fresh (`status.rulebook_json`, `status.wiki_schema_json`: `fresh`, `stale`,
   `unpinned`, `missing` or `invalid`);
 - `wiki_dir` is `<folder name> Wiki`;
-- the rulebook's text names every reserved name and every pack path;
+- the rulebook's text (valid UTF-8) names every reserved name, with the wiki folder as `<folder name> Wiki`, and
+  every pack path;
 - `CLAUDE.md` and `AGENTS.md` are byte-identical;
 - the twin was compiled from a Schema inside the wiki folder;
+- the Page contracts table has its Reader column;
 - every section that is not `fixed` has a page contract.
 
 These are the facts code can hold. Whether the rest of `rulebook.json` says what the rulebook's prose says is the

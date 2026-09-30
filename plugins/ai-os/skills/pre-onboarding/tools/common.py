@@ -13,7 +13,8 @@ import shlex
 import sys
 import time
 
-SETTINGS_VERSION = 1
+RULEBOOK_VERSION = 1
+WIKI_SCHEMA_VERSION = 2  # 2: sections by number and name, one routing row per prefix, contracts with a reader
 RULEBOOK_FILES = ("CLAUDE.md", "AGENTS.md", "GEMINI.md")
 RULEBOOK_SOURCE = "CLAUDE.md"
 SETTINGS_DIRNAME = ".familyai"
@@ -147,7 +148,8 @@ def base_args(description, writes=True):
 def resolve(args, verify=True):
     """Normalise the common arguments; returns (root, settings_dir, work). A stale twin is refused here, so every
     tool refuses it, unless `verify` is off: only for settings.py (compile is the remedy, check the diagnosis) and
-    readiness.py (which reports the twins' freshness as hand-off findings)."""
+    readiness.py (which reports the twins' freshness as hand-off findings). A malformed twin fails loud either way
+    when it is read."""
     root = os.path.realpath(args.root)
     if not os.path.isdir(root):
         raise ToolError("root missing: %s" % root)
@@ -173,7 +175,7 @@ def verify_twins(root, settings_dir):
 
 
 DEFAULTS = {
-    "version": SETTINGS_VERSION,
+    "version": RULEBOOK_VERSION,
     "inbox": "_Inbox",
     "migrations_dir": "_Migrations",
     "wiki_dir": None,                 # default: "<folder name> Wiki"
@@ -200,7 +202,15 @@ DEFAULTS = {
 
 NAME_LISTS = ("reserved", "packs", "working_formats", "active", "finished", "card_categories", "exclude",
               "pack_keywords")
+SCHEMA_PAGES = ("90 Schema/90 Schema.md", "09 Schema/09 Schema.md")  # in order of precedence
 WIKI_SCHEMA_KEYS = ("version", "schema_path", "schema_sha256", "sections", "routing", "contracts", "pages")
+WIKI_SCHEMA_ROWS = {
+    "sections": {"number": str, "name": str, "kind": str, "derived": bool, "pages": str, "professionals": list},
+    "routing": {"prefix": str, "target": str, "section": (str, type(None))},
+    "contracts": {"number": str, "name": str, "professionals": list, "reader": (str, type(None)), "questions": list,
+                  "fields": list},
+}
+PAGE_ROW = {"professional": str, "deliverable": str, "tone": str}
 
 
 def read_json_object(path):
@@ -221,12 +231,12 @@ def validate_rulebook(data, path):
 
     def is_text(v):
         return isinstance(v, str) and v.strip() != ""
-    if data.get("version") != SETTINGS_VERSION:
+    if data.get("version") != RULEBOOK_VERSION:
         raise ToolError("%s: unsupported version %r" % (path, data.get("version")))
     unknown = set(data) - set(DEFAULTS) - {"rulebook_sha256"}
     if unknown:
         raise ToolError("%s: unknown keys %s" % (path, sorted(unknown)))
-    if "rulebook_sha256" in data and not re.fullmatch(r"[0-9a-f]{64}", str(data["rulebook_sha256"])):
+    if data.get("rulebook_sha256") and not is_sha256(data["rulebook_sha256"]):
         bad("rulebook_sha256", "a sha256 hex digest")
     for k in NAME_LISTS:
         if k in data and not (isinstance(data[k], list) and all(is_text(x) for x in data[k])):
@@ -291,26 +301,64 @@ def check_rulebook_pin(root, data, path):
         raise StaleTwin("stale", "%s no longer matches %s, edited since; %s" % (path, src, fix))
 
 
+def is_sha256(v):
+    return isinstance(v, str) and re.fullmatch(r"[0-9a-f]{64}", v) is not None
+
+
+def schema_page(root, wiki_dir):
+    """The wiki's Schema page relative to the folder (the first of SCHEMA_PAGES that exists), or None."""
+    return next(("%s/%s" % (wiki_dir, rel) for rel in SCHEMA_PAGES
+                 if os.path.exists(os.path.join(root, wiki_dir, rel))), None)
+
+
+def validate_wiki_schema(data, path, recompile):
+    """Fail loud on a wiki-schema.json of another version or shape, so no consumer trips over it later."""
+    def bad(what):
+        raise ToolError("%s: %s; %s" % (path, what, recompile))
+
+    def rows_ok(rows, shape):
+        return all(isinstance(r, dict) and set(r) == set(shape)
+                   and all(isinstance(r[k], t) and (t is not list or all(isinstance(x, str) for x in r[k]))
+                           for k, t in shape.items()) for r in rows)
+    if data.get("version") != WIKI_SCHEMA_VERSION:
+        bad("unsupported version %r (this tool reads version %d)" % (data.get("version"), WIKI_SCHEMA_VERSION))
+    if set(data) != set(WIKI_SCHEMA_KEYS):
+        bad("keys %s, expected %s" % (sorted(data), list(WIKI_SCHEMA_KEYS)))
+    sp = data["schema_path"]
+    if not (isinstance(sp, str) and not os.path.isabs(sp) and ".." not in sp.split("/")
+            and any(sp.endswith("/" + rel) for rel in SCHEMA_PAGES)):
+        bad("schema_path %r is not a Schema page inside the folder" % (sp,))
+    if not is_sha256(data["schema_sha256"]):
+        bad("schema_sha256 is not a sha256 hex digest")
+    for key, shape in WIKI_SCHEMA_ROWS.items():
+        if not (isinstance(data[key], list) and rows_ok(data[key], shape)):
+            bad("%s is not a list of %s" % (key, "{%s}" % ", ".join(shape)))
+    if not (isinstance(data["pages"], dict) and rows_ok(data["pages"].values(), PAGE_ROW)):
+        bad("pages is not a map of page to {%s}" % ", ".join(PAGE_ROW))
+
+
 def load_wiki_schema(root, settings_dir, required=True):
-    """The compiled twin of the wiki's Schema page, refused when the page has changed or gone since it was
-    compiled; an absent twin is allowed unless `required`."""
+    """The compiled twin of the wiki's Schema page, refused when the page has changed, gone or been superseded
+    since it was compiled; an absent twin is allowed unless `required`."""
     path = os.path.join(settings_dir, "wiki-schema.json")
-    recompile = "recompile it: settings.py compile --root %s" % shlex.quote(root)
+    compile_cmd = "settings.py compile --root %s" % shlex.quote(root)
+    recompile = "recompile it: " + compile_cmd
     if not os.path.exists(path):
         if required:
-            raise ToolError("missing %s; compile it: settings.py compile --root %s" % (path, shlex.quote(root)))
+            raise ToolError("missing %s; compile it: %s" % (path, compile_cmd))
         return None
     data = read_json_object(path)
-    if data.get("version") != SETTINGS_VERSION:
-        raise ToolError("%s: unsupported version %r; %s" % (path, data.get("version"), recompile))
-    missing = [k for k in WIKI_SCHEMA_KEYS if k not in data]
-    if missing:
-        raise ToolError("%s: missing %s; %s" % (path, ", ".join(missing), recompile))
+    validate_wiki_schema(data, path, recompile)
     src = os.path.join(root, data["schema_path"])
     if not os.path.exists(src):
-        raise StaleTwin("stale", "%s was compiled from %s, which is missing; %s" % (path, src, recompile))
+        raise StaleTwin("stale", "%s was compiled from %s, which is missing; restore it, then %s"
+                        % (path, src, recompile))
     if sha256_file(src) != data["schema_sha256"]:
         raise StaleTwin("stale", "%s no longer matches %s, edited since; %s" % (path, src, recompile))
+    current = schema_page(root, data["schema_path"].rsplit("/", 2)[0])
+    if current != data["schema_path"]:
+        raise StaleTwin("stale", "%s was compiled from %s, but %s now takes precedence; %s"
+                        % (path, src, os.path.join(root, current), recompile))
     return data
 
 

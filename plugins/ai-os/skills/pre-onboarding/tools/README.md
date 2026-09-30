@@ -4,7 +4,8 @@ Standard-library Python (3.9+) plus one Swift helper for Apple Vision OCR. Gener
 here names a folder, a person or a project. Every tool takes `--root <folder>`; most also take `--settings-dir`
 (default `<root>/.familyai`), `--work` (state outside the folder, default `~/.ai-os-pre-onboarding/<folder>`) and
 `--read-only-root` (refuse any write inside the folder, used with `--out` elsewhere to prove a tool). Every tool
-that takes `--root` refuses a stale settings twin before it reads or writes anything; the twins' formats are in
+that takes `--root` refuses a stale settings twin before it reads or writes anything, except the two diagnoses
+(`settings.py`, `readiness.py`), which report it; the twins' formats are in
 [`../references/settings.md`](../references/settings.md).
 
 | Tool | What it does |

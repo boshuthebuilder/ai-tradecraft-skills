@@ -47,6 +47,15 @@ def drop_section(text, heading):
     return re.sub(r"(?ms)^## %s\n.*?(?=^## )" % re.escape(heading), "", text)
 
 
+def legacy_contracts(text):
+    """The Schema text with its Page contracts table as written before the Reader column."""
+    text = text.replace("| Section (professional) | Reader | Questions, most important first | Fields every page "
+                        "carries |\n| --- | --- | --- | --- |",
+                        "| Section (professional) | Questions, most important first | Fields every page carries |\n"
+                        "| --- | --- | --- |")
+    return text.replace(") | Alex | 1.", ") | 1.")
+
+
 class FixtureCopy(unittest.TestCase):
     """Each test works on its own copies of the fixture folder; the committed fixture is never touched."""
 
@@ -80,6 +89,17 @@ class FixtureCopy(unittest.TestCase):
                 data[k] = v
         with open(p, "w", encoding="utf-8") as f:
             f.write(json.dumps(data, ensure_ascii=False, indent=1))
+
+    def schema_json(self, root, change):
+        p = os.path.join(root, ".familyai", "wiki-schema.json")
+        data = json.loads(read(p))
+        change(data)
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(json.dumps(data, ensure_ascii=False, indent=1))
+
+    def audit(self, root):
+        return run("audit.py", "--root", root, "--work", self.work(root), "--out", os.path.join(self.tmp, "out"),
+                   "--read-only-root")
 
     def edit_rulebook(self, root, old, new):
         """Edit the rulebook and its copy the same way and re-pin the twin, as a preparing agent would."""
@@ -192,8 +212,8 @@ class MalformedSchemaTest(unittest.TestCase):
         cases = {
             "an extra Layout column": ("| Section | Pages | Professional lens | Kind |",
                                        "| Section | Pages | Professional lens | Kind | Notes |"),
-            "contracts without a Reader": ("| Section (professional) | Reader | Questions",
-                                           "| Section (professional) | Questions"),
+            "contracts with a renamed Reader": ("| Section (professional) | Reader | Questions",
+                                                "| Section (professional) | Audience | Questions"),
             "a renamed optional column": ("| Page | Professional | Deliverable | Tone |",
                                           "| Page | Professional | Deliverable | Voice |"),
             "a renamed Routing column": ("| Files under | Section and page |", "| Folder | Section and page |"),
@@ -232,6 +252,22 @@ class MalformedSchemaTest(unittest.TestCase):
                                               "not in the Layout"),
             "a page under an unknown section": ("| 20 Finance/Tax.md |", "| 25 Tax/Tax.md |", "not a page path"),
             "a page listed twice": ("| 20 Finance/Tax.md |", "| 20 Finance/Cash position.md |", "listed twice"),
+            "questions not starting at 1.": ("| Alex | 1. Where does Alex live", "| Alex | Where does Alex live",
+                                             "numbered 1., 2., 3."),
+            "text before the first question": ("| Alex | 1. Where does Alex live",
+                                               "| Alex | Home: 1. Where does Alex live", "numbered 1., 2., 3."),
+            "an unnumbered question": ("| Alex | 1. Where does Alex live and on what terms? 2. What bills are due? |",
+                                       "| Alex | Where does Alex live? |", "numbered 1., 2., 3."),
+            "an empty last question": ("2. What bills are due? |", "2. What bills are due? 3. |",
+                                       "question 3 is empty"),
+            "a three-digit section": ("| 30 Home | lease", "| 300 Home | lease", "two-digit section number"),
+            "a one-digit section": ("| 30 Home | lease", "| 3 Home | lease", "two-digit section number"),
+            "a contract named unlike its section": ("| 40 Study (academic registrar) |",
+                                                    "| 40 Studies (academic registrar) |", "not in the Layout"),
+            "a routing target without a space": ("| `03 Home/` | 30 Home |", "| `03 Home/` | 30Home |",
+                                                 "two-digit section number and a name"),
+            "a one-digit routing target": ("| `03 Home/` | 30 Home |", "| `03 Home/` | 3 Home |",
+                                           "two-digit section number and a name"),
         }
         for name, (old, new, pattern) in cases.items():
             with self.subTest(name):
@@ -245,6 +281,22 @@ class MalformedSchemaTest(unittest.TestCase):
         self.assertEqual(renamed, settings.compile_text(self.TEXT, "x"))
         self.assertEqual(settings.compile_text(self.swap("## Layout\n", "## Layout (sections)\n"), "x"),
                          settings.compile_text(self.TEXT, "x"))
+
+    def test_markdown_variants(self):
+        same = settings.compile_text(self.TEXT, "x")
+        self.assertEqual(settings.compile_text(self.swap("## Layout\n", "## Layout ##\n"), "x"), same)
+        self.assertEqual(settings.compile_text(self.swap("| Section | Pages | Professional lens | Kind |\n"
+                                                         "| --- | --- | --- | --- |",
+                                                         "| Section | Pages | Professional lens | Kind |\n"
+                                                         "| - | :-: | -: | :- |"), "x"), same)
+
+    def test_contracts_written_before_the_reader_column(self):
+        legacy = settings.compile_text(legacy_contracts(self.TEXT), "x")
+        current = settings.compile_text(self.TEXT, "x")
+        self.assertEqual([c["reader"] for c in legacy["contracts"]], [None] * 4)
+        for c in current["contracts"]:
+            c["reader"] = None
+        self.assertEqual(legacy, current)
 
     def test_fenced_tables_are_ignored(self):
         fenced = "## Routing\n\n```\n| Folder | Where |\n| --- | --- |\n```\n"
@@ -315,7 +367,7 @@ class StaleTest(FixtureCopy):
         self.compile(self.root)
         self.edit(self.root, "CLAUDE.md", "Nobody else.", "Nobody else!")
         self.edit(self.root, "AGENTS.md", "Nobody else.", "Nobody else!")
-        self.assert_every_tool_refuses(self.root, "CLAUDE.md")
+        self.assert_every_tool_refuses(self.root, "CLAUDE.md", reported_by=("readiness.py",))
         code, _out, err = run("settings.py", "compile", "--root", self.root, "--work", self.work(self.root))
         self.assertEqual(code, 2)
         self.assertIn("stale:", err)
@@ -330,12 +382,81 @@ class StaleTest(FixtureCopy):
         self.assertIn("which is missing", err)
 
     def test_an_unpinned_rulebook_json_is_refused(self):
-        self.rulebook_json(self.root, rulebook_sha256=None)
-        code, _out, err = run("audit.py", "--root", self.root, "--work", self.work(self.root), "--out",
-                              os.path.join(self.tmp, "out"), "--read-only-root")
+        for n, pin in enumerate((None, "")):
+            with self.subTest(pin=pin):
+                root = self.copy("unpinned%d" % n)
+                self.rulebook_json(root, rulebook_sha256=pin)
+                code, _out, err = self.audit(root)
+                self.assertEqual(code, 2)
+                self.assertIn("error: unpinned:", err)
+                self.assertEqual(self.check(root)["status"]["rulebook_json"], "unpinned")
+
+    def test_a_missing_rulebook_is_stale(self):
+        self.compile(self.root)
+        os.remove(os.path.join(self.root, "CLAUDE.md"))
+        code, _out, err = self.audit(self.root)
         self.assertEqual(code, 2)
-        self.assertIn("unpinned:", err)
-        self.assertEqual(self.check(self.root)["status"]["rulebook_json"], "unpinned")
+        self.assertIn("error: stale:", err)
+        self.assertIn("CLAUDE.md, which is missing", err)
+        result = self.check(self.root)
+        self.assertEqual(result["status"]["rulebook_json"], "stale")
+        self.assertEqual(sum("CLAUDE.md" in f for f in result["findings"]), 1, result)
+
+    def test_a_superseded_schema_page_is_stale(self):
+        wiki = os.path.join(self.root, "Alex Personal Wiki")
+        os.rename(os.path.join(wiki, "90 Schema"), os.path.join(wiki, "09 Schema"))
+        os.rename(os.path.join(wiki, "09 Schema", "90 Schema.md"), os.path.join(wiki, "09 Schema", "09 Schema.md"))
+        self.compile(self.root)
+        self.assertEqual(self.ws(self.root)["schema_path"], "Alex Personal Wiki/09 Schema/09 Schema.md")
+        os.makedirs(os.path.join(wiki, "90 Schema"))
+        shutil.copy(os.path.join(wiki, "09 Schema", "09 Schema.md"), os.path.join(wiki, "90 Schema", "90 Schema.md"))
+        code, _out, err = self.audit(self.root)
+        self.assertEqual(code, 2)
+        self.assertIn("90 Schema.md now takes precedence", err)
+
+    def test_an_old_or_malformed_schema_twin_is_refused_by_name(self):
+        def old_format(ws):
+            ws["version"] = 1
+            for r in ws["routing"]:
+                r["prefixes"] = [r.pop("prefix")]
+
+        def old_shape_new_version(ws):
+            for r in ws["routing"]:
+                r["prefixes"] = [r.pop("prefix")]
+
+        cases = [
+            ("the format before version 2", old_format, "unsupported version 1"),
+            ("an old shape under the new version", old_shape_new_version, "routing is not a list"),
+            ("a null schema_sha256", lambda ws: ws.update(schema_sha256=None), "schema_sha256 is not"),
+            ("a null schema_path", lambda ws: ws.update(schema_path=None), "schema_path None"),
+            ("a path outside the folder", lambda ws: ws.update(schema_path="../x/90 Schema/90 Schema.md"),
+             "not a Schema page inside the folder"),
+            ("a missing key", lambda ws: ws.pop("pages"), "keys"),
+            ("sections as a number", lambda ws: ws.update(sections=5), "sections is not a list"),
+            ("a page row without a tone", lambda ws: ws["pages"]["20 Finance/Tax.md"].pop("tone"),
+             "pages is not a map"),
+        ]
+        for n, (name, change, pattern) in enumerate(cases):
+            with self.subTest(name):
+                root = self.copy("twin%d" % n)
+                self.compile(root)
+                self.schema_json(root, change)
+                out = os.path.join(self.tmp, "out")
+                for tool, sub, args in (("audit.py", [], ["--out", out, "--read-only-root"]),
+                                        ("wiki.py", ["bundles"], ["--out", out])):
+                    code, _out, err = run(tool, *sub, "--root", root, "--work", self.work(root), *args)
+                    self.assertEqual(code, 2, err)
+                    self.assertIn(pattern, err)
+                    self.assertNotIn("Traceback", err)
+                result = self.check(root)
+                self.assertEqual(result["status"]["wiki_schema_json"], "invalid")
+                self.assertEqual(result["count"], 1, result)
+
+    def test_a_missing_root_is_named(self):
+        code, _out, err = run("plan.py", "light", "--root", os.path.join(self.tmp, "nowhere"), "--manifest",
+                              self.manifest, "--out", os.path.join(self.tmp, "out"))
+        self.assertEqual(code, 2)
+        self.assertIn("root missing", err)
 
     def test_fresh_twins_are_not_refused(self):
         self.compile(self.root)
@@ -351,11 +472,34 @@ class CheckTest(FixtureCopy):
         self.assertEqual(result["findings"], [])
         self.assertEqual(result["status"], {"rulebook_json": "fresh", "rulebook_facts": "checked",
                                             "rulebook_copies_identical": True, "wiki_schema_json": "fresh"})
+        out = os.path.join(self.tmp, "check.json")
+        code, stdout, err = run("settings.py", "check", "--root", self.root, "--work", self.work(self.root),
+                                "--out", out)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(read(out)), json.loads(stdout))
+
+    def test_absent_twins_are_missing(self):
+        os.remove(os.path.join(self.root, ".familyai", "rulebook.json"))
+        status = self.check(self.root)["status"]
+        self.assertEqual((status["rulebook_json"], status["wiki_schema_json"]), ("missing", "missing"))
 
     def test_each_planted_defect_is_reported_once(self):
         def agents_differ(root):
             with open(os.path.join(root, "AGENTS.md"), "a", encoding="utf-8") as f:
                 f.write("\nA local note.\n")
+
+        def not_utf8(root):
+            for name in ("CLAUDE.md", "AGENTS.md"):
+                with open(os.path.join(root, name), "ab") as f:
+                    f.write(b"\xff\n")
+            self.rulebook_json(root, rulebook_sha256=common.sha256_file(os.path.join(root, "CLAUDE.md")))
+
+        def no_reader(root):
+            p = os.path.join(root, SCHEMA)
+            text = read(p)
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(legacy_contracts(text))
+            self.compile(root)
 
         def contract_dropped(root):
             self.edit(root, SCHEMA, "| 30 Home (household manager) | Alex | 1. Where does Alex live and on what "
@@ -373,11 +517,15 @@ class CheckTest(FixtureCopy):
             ("a pack not named", lambda r: self.rulebook_json(r, packs=["01 Identity/Passport renewal 2021",
                                                                          "02 Finance/Loan 2022"]),
              "pack '02 Finance/Loan 2022'"),
-            ("a wiki folder not named after the folder", lambda r: self.rulebook_json(r, wiki_dir="Wiki"),
-             "wiki_dir 'Wiki'"),
+            ("a wiki folder not named after the folder",
+             lambda r: self.rulebook_json(r, wiki_dir="Alex Personal Vault"), "wiki_dir 'Alex Personal Vault'"),
             ("a section without a contract", contract_dropped, "section 30 Home has no page contract"),
             ("no rulebook.json", lambda r: os.remove(os.path.join(r, ".familyai", "rulebook.json")),
              "missing folder settings"),
+            ("no CLAUDE.md", lambda r: os.remove(os.path.join(r, "CLAUDE.md")), "CLAUDE.md, which is missing"),
+            ("no AGENTS.md", lambda r: os.remove(os.path.join(r, "AGENTS.md")), "rulebook file missing: AGENTS.md"),
+            ("a rulebook that is not UTF-8", not_utf8, "not valid UTF-8"),
+            ("contracts written before the Reader column", no_reader, settings.NO_READER),
         ]
         for n, (name, plant, finding) in enumerate(cases):
             with self.subTest(name):
@@ -385,7 +533,8 @@ class CheckTest(FixtureCopy):
                 self.compile(root)
                 plant(root)
                 found = self.check(root)["findings"]
-                self.assertEqual(sum(finding in f for f in found), 1, found)
+                self.assertEqual(len(found), 1, found)
+                self.assertIn(finding, found[0])
 
 
 class RulebookValidationTest(FixtureCopy):

@@ -545,6 +545,8 @@ def main():
     a = ap.parse_args()
     if getattr(a, "root", None):
         root = os.path.realpath(a.root)
+        if not os.path.isdir(root):
+            raise common.ToolError("root missing: %s" % root)
         common.verify_twins(root, common.settings_dir_for(root, a.settings_dir))
     return {"light": light, "migrate": migrate, "return": return_, "approve": approve, "rmdirs": rmdirs,
             "check": check, "execute": execute, "prove": prove}[a.cmd](a)

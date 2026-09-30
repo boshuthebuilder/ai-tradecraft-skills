@@ -43,8 +43,8 @@ folder, and the full method text follows.
 ## Principles
 
 - **The folder carries its own settings.** Its rulebook, and the twins in `.familyai/` that tools read, each pinned
-  to its source so an edit makes it stale rather than silently wrong; every tool refuses a stale twin. Formats and
-  checks: [`references/settings.md`](references/settings.md).
+  to its source so an edit makes it stale rather than silently wrong; every tool refuses a stale twin, and the two
+  diagnoses report it. Formats and checks: [`references/settings.md`](references/settings.md).
 - **Guards in the tools, not in prompts.** Every write goes through one guarded writer; `--read-only-root` proves a
   tool against a real folder without changing it.
 - **One login per machine per engine, context isolated per call.** Tokens are never copied.

@@ -82,10 +82,10 @@ def main():
     ap.add_argument("--out")
     ap.add_argument("--manifest")
     a = ap.parse_args()
-    # A diagnosis, not a gate: a stale wiki-schema.json is a hand-off finding below. A stale rulebook.json is still
-    # refused here, because the other checks read it.
+    # A diagnosis, not a gate: a stale or unpinned twin is a hand-off finding below, so the settings are read here
+    # without trusting them (as settings.py check does). A malformed rulebook.json still fails loud.
     root, settings_dir, _work = common.resolve(a, verify=False)
-    rb = common.load_rulebook(root, settings_dir)
+    rb = common.load_rulebook(root, settings_dir, verify=False)
     audit = os.path.join(root, "_Audit")
     mpath = a.manifest or os.path.join(audit, "manifest.json")
     man = json.load(open(mpath, encoding="utf-8"))
