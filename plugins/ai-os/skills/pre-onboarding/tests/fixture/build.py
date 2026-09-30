@@ -444,6 +444,10 @@ gantt
     P1234567 :2021-07-15, 2031-07-15
 ```
 
+| Section | Label | Start | End | Source |
+| --- | --- | --- | --- | --- |
+| Passport | P1234567 | 2021-07-15 | 2031-07-15 | `01 Identity/Passport scan.pdf` |
+
 The 2021 renewal pack is kept whole in `01 Identity/Passport renewal 2021/` (2 files: the scan copy and
 `01 Identity/Passport renewal 2021/Application form.docx`, which names the previous passport P0987654).
 """, deadlines=[("2031-07-15", '"Passport P1234567 expires"')]))
@@ -461,33 +465,30 @@ One current account at Example Bank plc, number 12345678, sort code 01-02-03 (`0
 | Account | Sort code | Latest statement | Closing balance | Source |
 | --- | --- | --- | --- | --- |
 | 12345678 | 01-02-03 | March 2024 | GBP 4,160.00 | `02 Finance/Bank statement 2024-03.pdf` |
+
+The March 2024 statement, from opening to closing balance:
+
+```mermaid
+xychart-beta
+    title "Current account, March 2024 (GBP)"
+    x-axis ["Opening balance", "Salary in", "Rent out", "Closing balance"]
+    y-axis "GBP" 0 --> 4160.00
+    bar [2410.00, 3200.00, 1450.00, 4160.00]
+```
+
+| Label | Value (GBP) | Source |
+| --- | ---: | --- |
+| Opening balance | 2410.00 | `02 Finance/Bank statement 2024-03.pdf` |
+| Salary in | 3200.00 | `02 Finance/Bank statement 2024-03.pdf` |
+| Rent out | 1450.00 | `02 Finance/Bank statement 2024-03.pdf` |
+| Closing balance | 4160.00 | `02 Finance/Bank statement 2024-03.pdf` |
 """))
     w(W("20 Finance", "Cash position.md"), page(["02 Finance/Bank statement 2024-03.pdf",
                                                  "02 Finance/Tax/Budget final.xlsx"], """# Cash position
 
 March 2024 closed GBP 1,750 higher than it opened: salary in, rent out.
 
-| Date | Balance (GBP) | Source |
-| --- | --- | --- |
-| 2024-03-01 | 2410 | `02 Finance/Bank statement 2024-03.pdf` |
-| 2024-03-15 | 5610 | `02 Finance/Bank statement 2024-03.pdf` |
-| 2024-03-31 | 4160 | `02 Finance/Bank statement 2024-03.pdf` |
-
-```mermaid
-xychart-beta
-    title "Current account balance, March 2024 (GBP)"
-    x-axis ["2024-03-01", "2024-03-15", "2024-03-31"]
-    y-axis "GBP" 0 --> 6000
-    line [2410, 5610, 4160]
-```
-
 Planned monthly spending from `02 Finance/Tax/Budget final.xlsx`:
-
-| Item | GBP per month | Source |
-| --- | --- | --- |
-| Rent | 1450 | `02 Finance/Tax/Budget final.xlsx` |
-| Utilities | 150 | `02 Finance/Tax/Budget final.xlsx` |
-| Savings | 400 | `02 Finance/Tax/Budget final.xlsx` |
 
 ```mermaid
 pie title Planned monthly spending (GBP)
@@ -495,6 +496,12 @@ pie title Planned monthly spending (GBP)
     "Utilities" : 150
     "Savings" : 400
 ```
+
+| Label | Value (GBP) | Source |
+| --- | ---: | --- |
+| Rent | 1450 | `02 Finance/Tax/Budget final.xlsx` |
+| Utilities | 150 | `02 Finance/Tax/Budget final.xlsx` |
+| Savings | 400 | `02 Finance/Tax/Budget final.xlsx` |
 """))
     w(W("20 Finance", "Tax.md"), page(["02 Finance/Tax/Tax return 2023.pdf", "06 Work/Contract.docx"], """# Tax
 
@@ -519,6 +526,11 @@ timeline
     2024-03-15 : Electricity bill GBP 96.40
 ```
 
+| Date | Label | Source |
+| --- | --- | --- |
+| 2024-05-01 | Lease renewed to 2025-04-30 | `03 Home/Lease renewal.pdf` |
+| 2024-03-15 | Electricity bill GBP 96.40 | `03 Home/Utilities /Electricity bill.pdf` |
+
 | Record | Date | Path |
 | --- | --- | --- |
 | Lease renewal (Pages original and PDF export) | 2024-05-01 | `03 Home/Lease renewal.pages`, `03 Home/Lease renewal.pdf` |
@@ -533,14 +545,6 @@ French to B1 and a Chinese intermediate certificate, 2023 to 2024.
 | --- | --- | --- |
 | French B1 | 16/20 written, 14/20 oral | `04 Study/Cours de français.pdf` |
 | Chinese intermediate | excellent | `04 Study/中文课程.pdf` |
-
-```mermaid
-xychart-beta
-    title "French B1 marks (out of 20)"
-    x-axis ["Written", "Oral", "Target"]
-    y-axis "Marks" 0 --> 20
-    bar [16, 14, 15]
-```
 
 | Folder | Files | What it holds |
 | --- | --- | --- |

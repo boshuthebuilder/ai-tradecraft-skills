@@ -4,13 +4,27 @@
     wiki.py bundles --root R --out <dir>       per-section evidence bundles for drafting agents (JSONL), from cards
     wiki.py check   --root R [--out <json>]    deterministic checks; every item a count, zero included
     wiki.py move    --root R --map <json>      move pages ({"old rel": "new rel"}) and rewrite every relative link
+    wiki.py chart   --root R --kind K --data <rows.csv|rows.json> --title T [--out <md>]
+                                               a Mermaid chart and its data table, from cited rows
 
 Bundles are routed by the compiled Schema routing (longest prefix wins) and record the manifest's sha256; a bundle
 older than the manifest is refused (bundles go stale after any migration). Pages link only to other pages
 (relative, spaces as %20, `&` literal); source files are named by folder-relative path in backticks.
+
+Charts: `--data` is a CSV file with a header row or a JSON array of objects, rows kept in order, every row with the
+same columns: bar `label` (or `period`), `value`, `unit`, `source`; line `period`, `value`, `unit`, `source`; pie
+`label`, `value`, `unit`, `source`; gantt `label`, `start`, `end`, `source`, optional `section`; timeline `date`,
+`label`, `source`. `source` is a file or folder under the root, outside its reserved names; values are plain
+decimals written exactly as given; one unit per chart, on the y-axis or in a pie's title; dates YYYY-MM-DD; a
+series has three points or more. A breach is refused, naming the row. The output is the Mermaid block, a blank line
+and its data table, which `check` requires beside every xychart-beta, pie, gantt and timeline block (chart
+pairing). Rules in full: tools/README.md.
 """
 import argparse
 import collections
+import csv
+import datetime
+import decimal
 import glob
 import json
 import os
@@ -126,6 +140,7 @@ def check_result(root, rb, man):
                    if not any(part.startswith(".") for part in os.path.relpath(p, wiki).split(os.sep)))
     res = collections.OrderedDict(wiki=rb["wiki_dir"], pages=len(pages))
     fm_bad, dead_src, dead_links, em, unchecked, dls, sup = [], [], [], [], 0, [], 0
+    charts, unpaired = 0, []
     text = ""
     log_prefix = "91 Log" + os.sep
     for p in pages:
@@ -160,6 +175,10 @@ def check_result(root, rb, man):
             if not os.path.exists(os.path.normpath(os.path.join(os.path.dirname(p), urllib.parse.unquote(lk)))):
                 dead_links.append([rel, lk])
         em += [[rel, i] for i, line in enumerate(body.splitlines(), 1) if EM_DASH in strip_code(line)]
+        for line, _kind, paired in chart_blocks(t):
+            charts += 1
+            if not paired:
+                unpaired.append([rel, line])
 
     def covered(pth):
         if pth in text:
@@ -176,6 +195,7 @@ def check_result(root, rb, man):
     res.update(frontmatter_conforming="%d/%d" % (len(pages) - len(fm_bad), len(pages)), frontmatter_bad=fm_bad,
                superseded_pages=sup, dead_source_paths=dead_src, backticked_paths_unchecked=unchecked,
                dead_page_links=dead_links, em_dash_lines=len(em), em_dash_where=em[:10],
+               chart_blocks=charts, charts_without_data_table=unpaired,
                deadlines=sorted(map(list, {tuple(x) for x in dls})),
                documents_in_scope=len(scope), documents_not_covered=len(uncovered), not_covered_sample=uncovered[:20])
     rat = os.path.join(root, "_Audit", "wiki-rationale.md")
@@ -188,7 +208,7 @@ def check_result(root, rb, man):
         res["rationale"] = "not recorded"
     acc = os.path.join(root, "_Audit", "wiki-acceptance.json")
     res["acceptance"] = "recorded" if os.path.exists(acc) else "not recorded"
-    problems = len(fm_bad) + len(dead_src) + len(dead_links) + len(em) + len(uncovered)
+    problems = len(fm_bad) + len(dead_src) + len(dead_links) + len(em) + len(uncovered) + len(unpaired)
     res["problems"] = problems
     return res
 
@@ -248,6 +268,324 @@ def move(a):
     return 1 if dead else 0
 
 
+# ------------------------------------------------------------------------------------ chart
+
+CHART_COLUMNS = {  # kind: (the columns every row has, "a|b" meaning exactly one of the two; optional columns)
+    "bar": (("label|period", "value", "unit", "source"), ()),
+    "line": (("period", "value", "unit", "source"), ()),
+    "pie": (("label", "value", "unit", "source"), ()),
+    "gantt": (("label", "start", "end", "source"), ("section",)),
+    "timeline": (("date", "label", "source"), ()),
+}
+SERIES = ("bar", "line", "pie")
+CHART_TABLES = {  # chart pairing: the header row of the data table `chart` writes after a block, by Mermaid type
+    "xychart-beta": re.compile(r"\| (Label|Period) \| Value \([^|]+\) \| Source \|"),
+    "pie": re.compile(r"\| Label \| Value \([^|]+\) \| Source \|"),
+    "gantt": re.compile(r"\| (Section \| )?Label \| Start \| End \| Source \|"),
+    "timeline": re.compile(r"\| Date \| Label \| Source \|"),
+}
+TABLE_RULE = re.compile(r"\|( *:?-{3,}:? *\|)+")
+SOURCED_ROW = re.compile(r"\|.*\| `[^`]+` \|")
+FENCE_OPEN = re.compile(r" {0,3}(`{3,}|~{3,})(.*)")
+FENCE_CLOSE = re.compile(r" {0,3}(`{3,}|~{3,})[ \t]*")
+NUMBER = re.compile(r"-?[0-9]+(\.[0-9]+)?")
+ISO_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+MONTH = (r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|"
+         r"oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b\.?")
+DAY = r"[0-9]{1,2}(?:st|nd|rd|th)?"
+DATE_LIKE = re.compile(  # a date in any spelling: year first, day and month in figures, or a named month with a day
+    r"(?<![0-9a-z.])(?:(?P<ymd>[0-9]{4}(?P<s1>[-/.])[0-9]{1,2}(?P=s1)[0-9]{1,2})"
+    r"|(?P<a>[0-9]{1,2})(?P<s2>[-/.])(?P<b>[0-9]{1,2})(?P=s2)(?:[0-9]{4}|[0-9]{2})"
+    r"|%s (?:of )?%s,? [0-9]{2}(?:[0-9]{2})?|%s %s,? [0-9]{2}(?:[0-9]{2})?)(?![0-9a-z]|\.[0-9])"
+    % (DAY, MONTH, MONTH, DAY), re.I)
+UNCARRIED = '"`|#;'  # no chart text holds these: each breaks a Mermaid line or the Markdown table
+GANTT_KEYWORDS = ("title", "section", "dateFormat", "axisFormat", "tickInterval", "excludes", "includes",
+                  "todayMarker", "click", "weekday", "topAxis")  # a gantt line starting with one is not a task
+
+
+def chart_rows(path):
+    """The rows of a chart's data file, in order, and where each is: a .csv with a header row (`line N` of the file,
+    blank lines counted, the header on line 1 when first), or a .json array of objects (`row N`, from 1). Every value
+    comes back as text exactly as written (a JSON number as its literal text)."""
+    name = os.path.basename(path)
+    ext = os.path.splitext(path)[1].lower()
+    if ext not in (".csv", ".json"):
+        raise common.ToolError("--data must be a .csv or .json file: %s" % path)
+    if not os.path.isfile(path):
+        raise common.ToolError("--data missing: %s" % path)
+    if ext == ".csv":
+        table = []
+        try:
+            with open(path, encoding="utf-8-sig", newline="") as f:
+                reader = csv.reader(f)
+                start = 1
+                for r in reader:
+                    if r:
+                        table.append(("line %d" % start, r))
+                    start = reader.line_num + 1
+        except (UnicodeDecodeError, csv.Error) as e:
+            raise common.ToolError("%s: not readable as UTF-8 CSV (%s)" % (path, e))
+        if not table:
+            raise common.ToolError("%s: empty; a chart's CSV starts with a header row" % path)
+        head = table[0][1]
+        if len(set(head)) != len(head):
+            raise common.ToolError("%s: the header row repeats a column: %s" % (path, head))
+        rows, places = [], []
+        for place, r in table[1:]:
+            if len(r) != len(head):
+                raise common.ToolError("%s %s: %d cells, but the header has %d" % (name, place, len(r), len(head)))
+            rows.append(dict(zip(head, r)))
+            places.append(place)
+    else:
+        def pairs(items):
+            keys = [k for k, _ in items]
+            if len(set(keys)) != len(keys):
+                raise common.ToolError("%s: an object repeats a key: %s" % (path, keys))
+            return dict(items)
+
+        def constant(c):
+            raise common.ToolError("%s: %s is not a value a chart can show" % (path, c))
+        try:
+            with open(path, encoding="utf-8-sig") as f:
+                rows = json.load(f, parse_int=str, parse_float=str, parse_constant=constant, object_pairs_hook=pairs)
+        except ValueError as e:
+            raise common.ToolError("%s: not valid JSON (%s)" % (path, e))
+        if not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows):
+            raise common.ToolError("%s: expected a JSON array of objects, one per row" % path)
+        places = ["row %d" % n for n in range(1, len(rows) + 1)]
+        for place, r in zip(places, rows):
+            for k, v in r.items():
+                if not isinstance(v, str):
+                    raise common.ToolError("%s %s: %s must be text or a number, not %s"
+                                           % (name, place, k, json.dumps(v)))
+    if not rows:
+        raise common.ToolError("%s: no rows" % path)
+    return rows, places
+
+
+def chart_date(value):
+    """The date a YYYY-MM-DD text names, or None."""
+    if not ISO_DATE.fullmatch(value):
+        return None
+    try:
+        return datetime.date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def chart_text(value, what, where, uncarried=""):
+    """`value`, refused (naming `where`) when empty, padded, opening with `%%` (a Mermaid comment), holding a
+    character the chart cannot carry, or holding a date not written YYYY-MM-DD."""
+    if value == "":
+        raise common.ToolError("%s: no %s" % (where, what))
+    if value != value.strip():
+        raise common.ToolError("%s: %s %r has spaces at its ends" % (where, what, value))
+    if value.startswith("%%"):
+        raise common.ToolError("%s: %s %r starts with %%%%, which Mermaid reads as a comment" % (where, what, value))
+    bad = sorted({ch for ch in value if ch in UNCARRIED + uncarried or ord(ch) < 32 or ord(ch) == 127})
+    if bad:
+        raise common.ToolError("%s: %s %r holds %s, which a chart or its table cannot carry"
+                               % (where, what, value, " ".join(repr(c) for c in bad)))
+    for m in DATE_LIKE.finditer(value):
+        if m.group("ymd") and chart_date(m.group(0)):
+            continue
+        if m.group("a") and not (0 < int(m.group("a")) <= 31 and 0 < int(m.group("b")) <= 31
+                                 and min(int(m.group("a")), int(m.group("b"))) <= 12):
+            continue  # figures that cannot be a day and a month, such as a version number
+        raise common.ToolError("%s: %s %r holds the date %r; write dates YYYY-MM-DD"
+                               % (where, what, value, m.group(0)))
+    return value
+
+
+def chart_source(root, value, where, reserved):
+    """Refuse a source that is not a file or folder inside the folder being prepared (`root`, a real path), or that
+    lies under one of its reserved names (the wiki, _Audit, the settings, the inbox and the like), which are not
+    data."""
+    if value == "":
+        raise common.ToolError("%s: no source; every row names the file or folder its figures come from, by "
+                               "folder-relative path" % where)
+    parts = (value[:-1] if value.endswith("/") else value).split("/")
+    if (value != value.strip() or os.path.isabs(value) or "\\" in value or any(p in ("", ".", "..") for p in parts)
+            or any(ch in "`|" or ord(ch) < 32 for ch in value)):
+        raise common.ToolError("%s: source %r is not a folder-relative path" % (where, value))
+    real = os.path.realpath(os.path.join(root, value))
+    if not os.path.exists(real):
+        raise common.ToolError("%s: source %r does not exist in %s" % (where, value, root))
+    if not real.startswith(root + os.sep):
+        raise common.ToolError("%s: source %r resolves to %s, outside %s" % (where, value, real, root))
+    for rel in (value.rstrip("/"), os.path.relpath(real, root).replace(os.sep, "/")):
+        name = next((n for n in reserved if rel.casefold() == n.casefold()
+                     or rel.casefold().startswith(n.casefold() + "/")), None)
+        if name:
+            raise common.ToolError("%s: source %r is under %s, which the folder reserves; cite the document itself"
+                                   % (where, value, name))
+
+
+def chart_row_date(row, col, where):
+    d = chart_date(row[col])
+    if d is None:
+        raise common.ToolError("%s: %s %r is not a date written YYYY-MM-DD" % (where, col, row[col]))
+    return d
+
+
+def render_chart(root, kind, title, rows, where, places, reserved):
+    """The Mermaid block for `rows`, a blank line, then their data table; refused when a rule is broken, naming the
+    row by `where` (the data file) and its entry in `places` (as `chart_rows` gives them). `reserved` is the folder's
+    reserved top-level names, under which no source may lie."""
+    required, optional = CHART_COLUMNS[kind]
+    cols = set(rows[0])
+    for place, r in zip(places, rows):
+        if set(r) != cols:
+            raise common.ToolError("%s %s: columns %s differ from the first row's %s"
+                                   % (where, place, sorted(r), sorted(cols)))
+    if "source" not in cols:
+        raise common.ToolError("%s: no source column; every row needs its source, the folder-relative path of the "
+                               "file or folder its figures come from" % where)
+    names = []
+    for need in required:
+        have = [c for c in need.split("|") if c in cols]
+        if len(have) != 1:
+            raise common.ToolError("%s: a %s chart needs exactly one %s column" % (where, kind, " or ".join(
+                repr(c) for c in need.split("|"))))
+        names.append(have[0])
+    unknown = sorted(cols - set(names) - set(optional))
+    if unknown:
+        raise common.ToolError("%s: unknown columns %s for a %s chart (it takes %s)" % (
+            where, unknown, kind, ", ".join(required + optional)))
+    if kind in SERIES and len(rows) < 3:
+        raise common.ToolError("%s: a %s series needs at least three points, not %d; state fewer figures in a "
+                               "sentence" % (where, kind, len(rows)))
+    key = names[0]  # what names each row: its label, period or date
+    chart_text(title, "title", "--title")
+    seen = {}
+    for place, r in zip(places, rows):
+        at = "%s %s" % (where, place)
+        chart_source(root, r["source"], at, reserved)
+        if kind in SERIES:
+            chart_text(r[key], key, at)
+            if r[key] in seen:
+                raise common.ToolError("%s: %s %r repeats %s's" % (at, key, r[key], seen[r[key]]))
+            seen[r[key]] = place
+            if not NUMBER.fullmatch(r["value"]):
+                raise common.ToolError("%s: value %r is not a plain decimal (digits, an optional minus sign and "
+                                       "decimal point; no separators, symbols or exponent)" % (at, r["value"]))
+            if kind == "pie" and decimal.Decimal(r["value"]) <= 0:
+                raise common.ToolError("%s: pie value %r is not positive" % (at, r["value"]))
+            chart_text(r["unit"], "unit", at)
+            if r["unit"] != rows[0]["unit"]:
+                raise common.ToolError("%s: unit %r differs from the first row's %r; a chart has one unit"
+                                       % (at, r["unit"], rows[0]["unit"]))
+        elif kind == "gantt":
+            for col in ("label", "section"):
+                if col in r:
+                    chart_text(r[col], col, at, ":")
+                    if r[col].split()[0] in GANTT_KEYWORDS:
+                        raise common.ToolError("%s: %s %r starts with the gantt keyword %r, so Mermaid would not read "
+                                               "it as a task" % (at, col, r[col], r[col].split()[0]))
+            start, end = chart_row_date(r, "start", at), chart_row_date(r, "end", at)
+            if end < start:
+                raise common.ToolError("%s: ends %s, before it starts %s" % (at, r["end"], r["start"]))
+        else:
+            chart_row_date(r, "date", at)
+            chart_text(r["label"], "label", at, ":")
+    if kind == "pie" and not re.search(r"(?<!\w)%s(?!\w)" % re.escape(rows[0]["unit"]), title):
+        raise common.ToolError("--title %r must name the unit %r as a word: a pie has no axis to carry it"
+                               % (title, rows[0]["unit"]))
+    return chart_block(kind, title, rows, key) + "\n" + chart_table(kind, rows, key)
+
+
+def chart_block(kind, title, rows, key):
+    if kind in ("bar", "line"):
+        values = [r["value"] for r in rows]
+        amounts = [decimal.Decimal(v) for v in values]
+        y_axis = 'y-axis "%s"' % rows[0]["unit"]
+        if min(amounts) >= 0 and max(amounts) > 0:
+            y_axis += " 0 --> %s" % values[amounts.index(max(amounts))]
+        lines = ["xychart-beta", 'title "%s"' % title, "x-axis [%s]" % ", ".join('"%s"' % r[key] for r in rows),
+                 y_axis, "%s [%s]" % (kind, ", ".join(values))]
+    elif kind == "pie":
+        lines = ["pie title " + title] + ['"%s" : %s' % (r["label"], r["value"]) for r in rows]
+    elif kind == "gantt":
+        lines, section = ["gantt", "title " + title, "dateFormat YYYY-MM-DD"], None
+        for r in rows:
+            if "section" in r and r["section"] != section:
+                section = r["section"]
+                lines.append("section " + section)
+            lines.append("%s :%s, %s" % (r["label"], r["start"], r["end"]))
+    else:
+        lines = ["timeline", "title " + title]
+        for i, r in enumerate(rows):
+            if i and r["date"] == rows[i - 1]["date"]:
+                lines[-1] += " : " + r["label"]
+            else:
+                lines.append("%s : %s" % (r["date"], r["label"]))
+    return "```mermaid\n%s\n%s\n```\n" % (lines[0], "\n".join("    " + x for x in lines[1:]))
+
+
+def chart_table(kind, rows, key):
+    if kind in SERIES:
+        cols = [(key.capitalize(), key, "---"), ("Value (%s)" % rows[0]["unit"], "value", "---:")]
+    elif kind == "gantt":
+        cols = ([("Section", "section", "---")] if "section" in rows[0] else []) + [
+            ("Label", "label", "---"), ("Start", "start", "---"), ("End", "end", "---")]
+    else:
+        cols = [("Date", "date", "---"), ("Label", "label", "---")]
+    lines = ["| %s | Source |" % " | ".join(c[0] for c in cols), "| %s | --- |" % " | ".join(c[2] for c in cols)]
+    lines += ["| %s | `%s` |" % (" | ".join(r[c[1]] for c in cols), r["source"]) for r in rows]
+    return "\n".join(lines) + "\n"
+
+
+def chart_blocks(text):
+    """Chart pairing: the Mermaid blocks in a page of a type `chart` renders, as (line of the opening fence in the
+    page, type, paired). Only a fence opened at the outermost level with the info string `mermaid` counts: one
+    quoted inside another fenced block (backticks or tildes, closed only by a fence of the same character at least
+    as long) or in an indented code block is an example, not a chart. Paired: the next non-blank line after the
+    block starts the data table `chart` writes for that type, its header row, the rule row, then at least one row,
+    every row ending in a backticked source."""
+    raw = text.splitlines()
+    lines = [x.strip() for x in raw]
+    found, i = [], 0
+
+    def closes(line, fence):
+        m = FENCE_CLOSE.fullmatch(line)
+        return bool(m) and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence)
+    while i < len(raw):
+        m = FENCE_OPEN.fullmatch(raw[i])
+        i += 1
+        if not m or (m.group(1)[0] == "`" and "`" in m.group(2)):
+            continue  # not a fence (indented four or more is code; a backtick after backticks is inline code)
+        fence, start = m.group(1), i
+        while i < len(raw) and not closes(raw[i], fence):
+            i += 1
+        body, i = lines[start:i], i + 1
+        if m.group(2).split()[:1] != ["mermaid"]:
+            continue
+        kind = next((x.split()[0] for x in body if x and not x.startswith("%%")), None)
+        if kind not in CHART_TABLES:
+            continue
+        k, rows = i, []
+        while k < len(lines) and not lines[k]:
+            k += 1
+        if k + 1 < len(lines) and CHART_TABLES[kind].fullmatch(lines[k]) and TABLE_RULE.fullmatch(lines[k + 1]):
+            k += 2
+            while k < len(lines) and lines[k].startswith("|"):
+                rows.append(lines[k])
+                k += 1
+        found.append((start, kind, bool(rows) and all(SOURCED_ROW.fullmatch(r) for r in rows)))
+    return found
+
+
+def chart(a):
+    root, settings_dir, _work = common.resolve(a)
+    reserved = common.reserved_names(common.load_rulebook(root, settings_dir))
+    rows, places = chart_rows(a.data)
+    out = render_chart(root, a.kind, a.title, rows, os.path.basename(a.data), places, reserved)
+    if a.out:
+        common.Writer(root if a.read_only_root else None).text(a.out, out)
+    sys.stdout.write(out)
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description="Wiki tools")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -267,8 +605,13 @@ def main():
     p.add_argument("--out")
     p = common_args(sub.add_parser("move"))
     p.add_argument("--map", required=True)
+    p = common_args(sub.add_parser("chart"))
+    p.add_argument("--kind", required=True, choices=list(CHART_COLUMNS))
+    p.add_argument("--data", required=True)
+    p.add_argument("--title", required=True)
+    p.add_argument("--out")
     a = ap.parse_args()
-    return {"bundles": bundles, "check": check, "move": move}[a.cmd](a)
+    return {"bundles": bundles, "check": check, "move": move, "chart": chart}[a.cmd](a)
 
 
 if __name__ == "__main__":
