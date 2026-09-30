@@ -34,6 +34,7 @@ classes:
   iwork:    {hash: full, ingest: read}         # read directly, without the apps; a package is one item
   email:    {hash: full, ingest: read}
   archive:  {hash: full, ingest: on_request}
+  other:    {hash: full, ingest: after_convert}  # other proprietary formats: read only once a `convert` row has made an export
 
 # Deterministic exclude list — paths the gate never presents to a model, whatever the class.
 # (The folder-curation interview's sensitivity answers land here.)

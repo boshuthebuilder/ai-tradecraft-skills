@@ -413,7 +413,7 @@ touches a file outside the list it was given. **The caller also hands over the f
 answers** — the rulebook's alias list, language and naming rule, source exclusions and any explicit
 identifier restrictions — so settled decisions are reused rather than asked again.
 
-The reference implementation is family-ai-os's `preprocess` engine (dashboard-triggered, chunked
+The reference implementation is the deployment's preprocess engine (dashboard-triggered, chunked
 LLM calls under a context budget with parallel chunk reads and strictly ordered applies, on-device
 OCR + probe + orientation, native interleave-merge and page-rotation tools); this skill is the
 portable spec any agent can execute by hand.

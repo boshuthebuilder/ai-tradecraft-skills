@@ -266,8 +266,9 @@ From the audit and the answers, emit a **move-plan** (schema:
   behind, so a duplicate is not taken for the file itself. Staging is a curation act, never a filing
   rule: the rulebook never routes new files into the migrations folder.
 - **Return migrations** bring a staged file the owner decides to keep back to its original path, by a
-  `move` row out of `_Migrations/<Project>/`; a round that returns everything still staged for that
-  project adds an `rmdir` row for the emptied `_Migrations/<Project>/`.
+  `move` row out of `_Migrations/<Project>/`. When the approved return moves empty
+  `_Migrations/<Project>/`, its `rmdir` row is proposed then, as for any emptied folder (above), and
+  never in the same proposal as the moves, so a declined return cannot leave an `rmdir` that fails.
 - **Never invent a taxonomy.** The owner's shape stays; the plan resolves conflicts inside it. A
   full re-taxonomy is a depth the owner must choose, and even then it is proposed as a mapping from
   every existing folder, never as a blank target tree.
