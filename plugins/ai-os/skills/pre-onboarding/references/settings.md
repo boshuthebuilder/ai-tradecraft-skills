@@ -26,17 +26,17 @@ An unknown version, an unknown key or a value of the wrong shape fails loud.
 | `migrations_dir` | folder name | `_Migrations` | where files the owner approved for another project wait |
 | `wiki_dir` | folder name | `<folder name> Wiki` | the wiki folder; must be exactly `<folder name> Wiki` |
 | `reserved` | list of names | `[]` | top-level names reserved beyond the fixed set below |
-| `depth` | `light`, `medium` or `full` | `light` | the reorganisation depth the owner chose (`folder-curation`'s ladder) |
+| `depth` | `light`, `medium` or `full` | `light` | the reorganisation depth the owner chose ([`folder-curation`'s ladder](../../folder-curation/SKILL.md#the-depth-ladder)) |
 | `packs` | list of folder paths | `[]` | submission records, whose copies are never deleted, in addition to the folders the audit's pack keywords match; each an existing folder, relative and named exactly, or the tools refuse to run |
 | `working_formats` | list of extensions | `[]` | formats the owner keeps working in, such as `.pages` |
 | `active`, `finished` | lists of folder paths | `[]` | live matters, and closed matters ingested once as history |
 | `people` | list of `{name, also, who}` | `[]` | each person or organisation: canonical name, every other name or script it appears under, and one line on who they are |
-| `identifiers` | `stated`, `last-four` or `home-only` | `stated` | `wiki-maintenance`'s identifier policy: reference numbers in full unless the owner restricts them; passwords are never written under any policy |
+| `identifiers` | `stated`, `last-four` or `home-only` | `stated` | [`wiki-maintenance`'s identifier policy](../../wiki-maintenance/SKILL.md#identifiers-series-and-derived-views): reference numbers in full unless the owner restricts them; passwords are never written under any policy |
 | `boundaries` | list | `[]` | access boundaries inside the folder, as the owner described them |
 | `card_categories` | list of names | a generic set | the categories a document card may carry |
 | `folder_description` | text | `""` | one line on what the folder holds, for the card engine's brief |
 | `exclude` | list of paths | `[]` | paths the owner excluded from reading |
-| `keep_empty_folders` | `true` or `false` | `true` | whether emptied folders stay |
+| `keep_empty_folders` | `true` or `false` | `true` | whether emptied folders stay (the owner declines the [`rmdir` rows](../../folder-curation/references/move-plan-schema.md#rmdir-and-the-bin) among their own folders) |
 | `image_cap_mb`, `pack_keywords` | number, list of patterns | `25`; `application`, `passport`, `renew`, `visa`, `submission`, `evidence` | audit tunables; a folder whose packs go by other words lists its own patterns, each a valid regular expression |
 | `ocr_languages` | list of BCP 47 codes | `["en-GB"]` | the languages local OCR reads in, most likely first; it knows `en`, `fr`, `de` and `es` in any region, `zh-Hans` (or `zh-CN`, `zh-SG`) and `zh-Hant` (or `zh-TW`, `zh-HK`, `zh-MO`), in any letter case, and any other code fails loud |
 
@@ -133,10 +133,11 @@ they read it, so a twin of another version or shape is refused as invalid rather
 
 ### A page's professional
 
-A page is written in the voice of one professional (tone only; facts, sources and format rules do not change):
-its row in Page professionals when it has one; otherwise its section's professional, when the section names
-exactly one. A page in a section that names several must be listed: `common.page_voice`, the one reading of this
-rule, refuses it rather than pick one. Deliverable and tone come only from the page's own row.
+A page is written in the voice of one professional, tone only: the rule's home is
+[the core wiki rule](../../wiki-maintenance/SKILL.md#the-core-wiki-rule). The tools read that professional from the
+Schema: the page's row in Page professionals when it has one; otherwise its section's professional, when the
+section names exactly one. A page in a section that names several must be listed: `common.page_voice`, the one
+reading of this rule, refuses it rather than pick one. Deliverable and tone come only from the page's own row.
 
 ## Stale twins
 
