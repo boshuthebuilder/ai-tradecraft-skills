@@ -161,9 +161,9 @@ away (and `.DS_Store`), unless it already has one. The rows are `proposed`, or a
 
     plan.py check --root <folder> --plan <move-plan.csv> [--manifest <file>]
 
-A dry run of every row, under the executor's own guards: a `delete` is outside any pack, its path is one the
-manifest marks `redundant`, a separate canonical copy exists and both hash to `evidence` on disk; a file `move` or
-`rename` has its source, hashing to `evidence`; every path stays inside the folder with no symbolic link on it.
+A dry run of every row, `delete` rows included (checked against the manifest), under the executor's own guards:
+the rules [the plan schema](../../folder-curation/references/move-plan-schema.md) encodes and
+[folder-curation step 5](../../folder-curation/SKILL.md#5-execute-deterministic-guards-not-judgement) sets out.
 Prints a `FAIL` line per failing row and `rows ok <n> failed <n>`; exit 1 on any failure. A destination that
 already exists is seen only by `execute`.
 
@@ -174,12 +174,13 @@ already exists is seen only by `execute`.
 
 Without `--apply` it prints what each row would do and changes nothing. With it, rows run in `seq` order:
 
-- **`main`** (the default) runs every approved row but `delete`: `create`; a file or package `move` or `rename`
-  (its hash equal to `evidence` before and after, never over an existing path, missing folders created); a folder
-  `rename`; an `rmdir`, only of a folder with nothing left in it but `.DS_Store`, moved to the Bin.
-- **`deletes`** runs only the approved `delete` rows, and refuses to start unless every other approved row is
-  `done` and the manifest (`--manifest`) was written after the last of them. Each row is checked again against that
-  manifest and on disk, as `check` does, and the copy is moved to the Bin.
+- **`main`** (the default) runs every approved row but `delete`: `create`, a file or package `move` or `rename`
+  (missing folders created), a folder `rename`, and `rmdir`.
+- **`deletes`** runs only the approved `delete` rows, against the manifest `--manifest` names.
+
+Each row runs under the guards of [folder-curation step 5](../../folder-curation/SKILL.md#5-execute-deterministic-guards-not-judgement)
+and [the plan schema](../../folder-curation/references/move-plan-schema.md), the delete phase's included
+([`rmdir` and the Bin](../../folder-curation/references/move-plan-schema.md#rmdir-and-the-bin)).
 
 The Bin is `--bin`, or the user's bin (`~/.Trash`); an item whose name is taken there gets ` (<n>)`. Each change is
 logged to `<plan folder>/undo.log` as JSON lines: an `intent` line before it and a `done` line with its reverse
@@ -228,14 +229,17 @@ Each run writes `<work>/index/extract_<lane><k>.jsonl` as it goes and, when it e
 | `.docx`, `.pptx` (with its notes), `.xlsx` | parsed directly |
 | `.doc`, `.rtf`, `.odt`, `.html` | `textutil` |
 | legacy `.ppt`, `.xls` | exported to PDF by LibreOffice, then read as a PDF |
-| `.txt`, `.md`, `.csv` | decoded as UTF-8, GB 18030 or UTF-16, else Latin-1 |
+| `.txt`, `.md`, `.csv` | decoded as text (below) |
 | zip archive | its list of members |
 | anything else | as text when it plainly is text; otherwise `no_reader` |
 
-Apple Vision is asked first for Chinese and English; when that finds fewer than five Chinese characters, it is
-asked again for English and French, and the better reading kept. A reading is clean when it has at least 40
-characters, mostly letters, digits, spaces and ordinary punctuation, a word of three Latin letters or at least 15
-Chinese characters, and (from Vision) a confidence of at least 0.45.
+<!-- provisional: #90 -->
+
+Plain text is decoded as UTF-8, GB 18030 or UTF-16, else Latin-1. Apple Vision is asked first for Chinese and
+English; when that finds fewer than five Chinese characters, it is asked again for English and French, and the
+better reading kept. A reading is clean when it has at least 40 characters, mostly letters, digits, spaces and
+ordinary punctuation, a word of three Latin letters or at least 15 Chinese characters, and (from Vision) a
+confidence of at least 0.45.
 
 ### The record
 
@@ -321,7 +325,9 @@ Keeps other projects out of model-facing context. The terms file's format is in
 - **`canary`** asks the engine, in a fresh empty folder, to list every personal name, family name, company,
   property, street or address in its context other than the message. It writes `{engine, checked_at, terms, reply,
   usage, hits, pass}` (or `error`) to `--out` and prints it without the reply; `pass` needs a reply with no term in
-  it. Exit 0 on a pass. The result is the record that the gate ran; no tool reads it.
+  it. Exit 0 on a pass. The result is the record that the gate ran; no tool reads it. With nothing to list there
+  is no terms file, so the canary cannot run: [the skill](../SKILL.md#5-open-the-gate-to-the-engines) says what is
+  recorded instead.
 
 ## `cards.py`
 
@@ -390,15 +396,14 @@ are relative to the wiki folder, source paths to the folder.
 | `move` | moves pages and rewrites every link to and from them |
 | `drift` | page lines citing a path that has left or is leaving |
 
-<!-- provisional: #93 -->
+Malformed input (a manifest, card, extract record or `bundles.json` of the wrong shape, or a file where a folder
+must be) is refused by name, exit 2.
 
-`profile`, `brief` and `drift`, `bundles --reuse` and the refusal of stale bundles arrive with the wiki tools
-(issue #93); until then `bundles` needs `--out` and `move` refuses less. `rationale`, `review-prompts` and
-`accept` arrive with the wiki checker (issue #94).
+<!-- provisional: #94 -->
+
+`rationale`, `review-prompts` and `accept` arrive with the wiki checker (issue #94).
 
 ### `profile`
-
-<!-- provisional: #93 -->
 
     wiki.py profile --root <folder> [--depth 2] [--parties 5] [--cards <dir>] [--extract <dir>] [--out <file>]
 
@@ -415,30 +420,31 @@ mirrors others:
 
 ### `bundles`
 
-<!-- provisional: #93 -->
-
     wiki.py bundles --root <folder> [--out <dir>] [--reuse] [--text-cap 12000] [--cards <dir>] [--extract <dir>]
 
 Routes every live manifest entry outside the migrations folder by the compiled routing (its longest matching
 prefix; a note row routes nothing) and writes one `bundle_<NN>.jsonl` per section to `--out` (default
-`<work>/bundles`; refused inside the folder). Each line is a document: its short id, path, other copies, pages,
+`<work>/bundles`; refused inside the folder, and the tool's own: a rebuild removes `bundles.json` and the section
+files there). Each line is a document: its short id, path, other copies, pages,
 extract status, and from its card `title`, `doc_type`, `party`, `parties`, `doc_date`, `category`, `language` and
 `sensitive`; then `summary` and `key_facts`, and in an `active` section the full text, capped at `--text-cap`
 characters. In any other section, reading, photos and other bulk material is listed `compact`, without summary or
 text. A card with no extract record is refused.
 
-`bundles.json` records `manifest_sha256`, `routing_sha256` (the routing rows and section kinds), `text_cap`, the
-counts per section, the files, and the `unrouted` and `uncarded` paths; either list non-empty exits 1. A rebuild
-removes section files it no longer writes.
+`bundles.json` records `manifest_sha256`, `routing_sha256` (the routing rows and section kinds), `arguments` (the
+non-default `--settings-dir`, `--manifest`, `--cards`, `--extract` and `--text-cap` it was built with), `text_cap`,
+the counts per section, the files, and the `unrouted` and `uncarded` paths; either list non-empty exits 1. A
+rebuild removes `bundles.json` before anything else, so one that fails part way leaves none to trust, and removes
+section files it no longer writes.
 
 **Staleness.** `brief`, and `bundles --reuse` (which reuses fresh bundles without rebuilding), refuse (exit 2)
 bundles whose recorded `manifest_sha256` differs from the current manifest's, whose `routing_sha256` differs from
-the current Schema's, or whose files are missing, and name the command that rebuilds them. Every curation round
-ends in a re-audit that rewrites the manifest, so bundles built before it are refused rather than read.
+the current Schema's, or whose files are missing, and name the command that rebuilds them with the recorded
+`arguments`. `--reuse` also refuses bundles built with other `--cards`, `--extract` or `--text-cap` than the ones
+it is given. Every curation round ends in a re-audit that rewrites the manifest, so bundles built before it are
+refused rather than read.
 
 ### `brief`
-
-<!-- provisional: #93 -->
 
     wiki.py brief --root <folder> --page <page> [--page <page> ...] [--bundles <dir>] [--out <file>]
 
@@ -447,18 +453,19 @@ professional, deliverable and tone ([a page's professional](settings.md#a-pages-
 contract (reader, questions, fields; a `fixed` section takes the method's shape, and any other section without a
 contract is refused); the routing into its section and its bundle; the owner context from `rulebook.json` (folder
 description, people with aliases, identifier policy, boundaries); the page map; each page's rationale block with
-what the Schema fixes filled in; the JSON a drafting agent returns (each page's full text and rationale block, its
-check result and its flags for the owner); and the checker command every drafting agent runs. The page map is every
+what the Schema fixes filled in; the JSON a drafting agent returns, which is what
+[wiki-onboarding step 4a](../../wiki-onboarding/SKILL.md#4a-draft-the-pages-when-every-document-has-been-read)
+names (`pages`, each with its `path`, `text`, `rationale` and `index_entry`, then `open_questions` and
+`check_result`); and the checker command every drafting agent runs. The page map is every
 page under the wiki folder, every page in the Schema's Page professionals table, each Layout section's folder note
 (`<NN Name>/<NN Name>.md`) and the pages briefed, each marked `exists` or `planned`. It refuses stale bundles, and
 writes `--out` only outside the folder. The same inputs render the same bytes.
 
 ### The stage templates
 
-<!-- provisional: #93 -->
-
-In `tools/templates/`, one per stage, each opening with a comment naming its stage and who fills it; fields are in
-braces and doubled braces are literal, so each fills as a Python format string, and each asks for JSON back.
+In [`tools/templates/`](../tools/templates/), one per stage, each opening with a comment naming its stage and who
+fills it; fields are in braces and doubled braces are literal, so each fills as a Python format string, and each
+asks for JSON back. `brief` renders the page brief whole; the coordinating agent fills the others.
 
 | Template | Stage and pen | Fields |
 | --- | --- | --- |
@@ -542,8 +549,6 @@ it. Fill this section in when the checker lands.
 
 ### `move`
 
-<!-- provisional: #93 -->
-
     wiki.py move --root <folder> --map <file.json>
 
 Moves pages, `{"20 Finance/Tax.md": "25 Tax & Duty/Tax & returns.md"}`, and rewrites every relative link to or from
@@ -551,13 +556,20 @@ a moved page, percent-encoded with `/` and `&` literal as `productivity:portable
 (`../25%20Tax%20&%20Duty/Tax%20&%20returns.md`); a link neither end of which moved is left as written. It renames
 the moved pages' rationale headings, removes the folders it empties, and prints JSON: `moved`, `pages_rewritten`,
 `links_rewritten`, `folders_removed`, `rationale_blocks_renamed`, `schema_rows_to_update` (each moved page the
-Schema's Page professionals table still names: edit the Schema, then compile) and `dead_links` left anywhere in the
-wiki; either of the last two exits 1. It refuses, before changing anything, a missing page, an existing or shared
-destination, a path outside the wiki and the Schema page itself.
+Schema's Page professionals table still names), `layout_to_update` (each move that leaves the Schema's Layout wrong:
+a page moved out of every Layout section, or a section's folder note moved away) and `dead_links` left anywhere in
+the wiki; any of the last three exits 1. For the first two, edit the Schema, then compile.
+
+It refuses, before changing anything: a missing page; an existing or shared destination; a destination under a
+file; one differing only in case from a page, another destination or a folder (a case-only rename of the page
+itself stays possible where the file system allows it); a path outside the wiki; and the Schema page itself. Every
+destination is checked against the pages as they are before the run, so a swap or a chain is refused as
+`destination exists`: make a swap in three runs through a temporary name (A to T, then B to A, then T to B) and a
+chain in two from its far end (B to C, then A to B). A run writes every moved page first, then rewrites the pages
+linking to them, and only then removes the old pages; after a failure part way, delete the pages it wrote at the
+map's destinations and run the same map again.
 
 ### `drift`
-
-<!-- provisional: #93 -->
 
     wiki.py drift --root <folder> [--out <file>]
 

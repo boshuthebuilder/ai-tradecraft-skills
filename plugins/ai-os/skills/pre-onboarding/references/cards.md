@@ -137,10 +137,12 @@ fails is retried halved, never applied in part. `cards.py` holds it so:
 ### The terms file
 
 The operator supplies it at run time (`--terms <file>`): never committed, never inside the folder, never shown to a
-model. One term per line, optionally followed by markers, `Term|marker|marker`: shorter forms whose presence in a
+model. It lists every name that must not reach a model working on the folder, the operator's own identifiers from
+other use of the engines included ([the skill](../SKILL.md#before-you-start)). One term per line, optionally
+followed by markers, `Term|marker|marker`: shorter forms whose presence in a
 document's own text shows the term is genuine content of that document. Blank lines and lines starting with `#`
 are ignored. A missing or empty file is refused. `cards.py work` needs `--terms`, or `--no-isolation-terms` to
-state, in its log, that no other project needs isolating.
+state, in its log, that there is genuinely nothing to list; the skill's step 5 says what that leaves unverified.
 
 ### Before any call
 
@@ -180,8 +182,6 @@ runs only under the identifier policy `stated`, and refuses under any other.
   `<work>/state/redo_refs.txt`, which is the file `cards.py work --redo` takes.
 
 ## Who reads a card
-
-<!-- provisional: #93 -->
 
 - `wiki.py profile`: `category`, `doc_date`, `party` and `parties`, aliases folded to the rulebook's canonical
   names.

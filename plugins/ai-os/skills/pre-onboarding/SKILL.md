@@ -48,14 +48,17 @@ archetype); keeping a wiki that already exists (`wiki-maintenance`).
   isolation](#engine-isolation)). Local reading uses Apple Vision through a small helper you build once in the
   tools folder (`swiftc -O page_ocr.swift -o page-ocr`), poppler for PDFs, and, when installed, tesseract and
   LibreOffice. A tool that is missing is named in the records it would have read, never skipped silently. Ask the
-  operator which engine and model each model lane uses (with `agy`, the effort is part of the model id).
+  operator which engine and model each of the three model lanes uses: the vision lane (`agy` only), the cards, and
+  the wiki's drafting and review subagents (with `agy`, the effort is part of the model id).
 - **The tools.** Run each as `python3 <tools>/<tool>.py`, where `<tools>` is this skill's `tools/` folder
   (standard-library Python 3.9 or later). Every tool takes `--root "<folder>"`; working state lives outside the
   folder, in the work directory, `<work>` below (`--work`, default `~/.ai-os-pre-onboarding/<folder name>`). The
   common flags, every command and every output are in the [tool reference](references/tools.md).
-- **The isolation terms file.** The operator's list of names from other projects and people that must never reach
-  this folder's cards: kept outside the folder, never committed, never shown to a model. Ask the operator for its
-  path; its format is in [the card contract](references/cards.md#the-terms-file).
+- **The isolation terms file.** Every name that must never reach a model working on this folder: the people,
+  organisations and places of the operator's other projects, and the operator's own identifiers from any other use
+  of the engines. It is kept outside the folder, never committed and never shown to a model. Ask the operator for
+  its path; its format is in [the card contract](references/cards.md#the-terms-file). Where there is genuinely
+  nothing to list, step 5 says what runs instead.
 - **The owner is in the session.** Nothing in the owner's material changes without an approved plan row, and every
   structural choice in the wiki is the owner's to agree. Plan the session around the owner's decisions.
 
@@ -120,7 +123,8 @@ fix every other finding now.
 
 A round is [`folder-curation` steps 3 to 6](../folder-curation/SKILL.md#3-propose-the-only-model-step), carried
 out by `plan.py` in a plan folder, `<folder>/_Audit/plans/<YYYY-MM-DD>/` (below `<plan folder>`, and `<plan>` its
-`move-plan.csv`). Finish curating before step 4: an extract record carries the path it was read at.
+`move-plan.csv`). Finish curating before step 4 where you can: extract records and bundles carry the paths they
+were built from. A round after that is repaired, never read again (*A round after extraction*, below).
 
 1. **Propose.** `plan.py light --root "<folder>" --out "<plan folder>"` proposes the light-depth rows: root strays
    (their destination left for the owner), file and folder names with a space at either end or before the
@@ -131,13 +135,14 @@ out by `plan.py` in a plan folder, `<folder>/_Audit/plans/<YYYY-MM-DD>/` (below 
    their paths in a file and run
    `plan.py migrate --root "<folder>" --project <Project> --paths-file <file> --out "<plan folder>"`;
    `plan.py return` brings staged files back.
-2. **Show the owner the actual files.** Confirm a cross-project boundary with the files it moves, never with a
-   description of them ([folder-curation step 2](../folder-curation/SKILL.md#2-interview-the-owner-a-fixed-ladder-one-pass)):
-   the owner reads `review.tsv`, which lists every staged path with its copy kind and the copies that stay behind,
+2. **Show the owner the actual files**
+   ([a boundary is confirmed with its files](../folder-curation/SKILL.md#2-interview-the-owner-a-fixed-ladder-one-pass)).
+   The owner reads `review.tsv`, which lists every staged path with its copy kind and the copies that stay behind,
    and a `MISSING` line for each listed path the manifest does not know. Correct the paths file and propose the
    round again until the list is what the owner means.
 3. **Approve.** The owner reads the plan domain by domain and chooses a destination for each stray; write it into
-   that row's `to` column. Record each decision as it is made:
+   that row's `to` column ([the plan schema](../folder-curation/references/move-plan-schema.md)). Record each
+   decision as it is made:
    `plan.py approve --plan <plan> --rows 1-5,7 --note "<what the owner said>"`, with `--decline` for a no. Then
    `plan.py rmdirs --root "<folder>" --plan <plan>` proposes an `rmdir` row for each top-most folder the approved
    moves empty; the owner approves or declines those too (the rulebook's `keep_empty_folders`).
@@ -154,11 +159,17 @@ out by `plan.py` in a plan folder, `<folder>/_Audit/plans/<YYYY-MM-DD>/` (below 
 7. **Delete last.** Only after a clean proof:
    `plan.py execute --root "<folder>" --plan <plan> --phase deletes --apply`, then re-audit once more and check the
    deletes against the fresh manifest ([folder-curation step 6](../folder-curation/SKILL.md#6-verify-by-re-audit)).
-8. **Expect another round.** Deleting redundant copies can make new ones: once copies leave, a folder shares a
-   different proportion with its canonical home, and a working copy can become redundant
-   ([folder-curation step 5](../folder-curation/SKILL.md#5-execute-deterministic-guards-not-judgement)). Propose
-   what the re-audit shows as a new round, never folded into the one just run. Curation is done when a round's
-   proof and delete check are clean and the owner wants nothing more at the depth they chose.
+8. **Deleting redundant copies can make new ones**
+   ([folder-curation step 5, *Expect a second round of redundancy*](../folder-curation/SKILL.md#5-execute-deterministic-guards-not-judgement)):
+   propose what the re-audit shows as a new round. Curation is done when a round's proof and delete check are
+   clean and the owner wants nothing more at the depth they chose.
+
+<!-- provisional: #97 -->
+
+**A round after extraction.** When a round has to run after step 4 (a migration found while the wiki is drafted,
+say), repair what it moved rather than read anything again: once the round's re-audit is proved, repath the extract
+records from the fresh manifest (each record's path rewritten by its content hash, with no re-read), rebuild the
+bundles and run `wiki.py drift` (step 7). Cards are keyed by content, so they follow their documents.
 
 ### 4. Extract the text
 
@@ -169,8 +180,8 @@ Each live document gets a record in `_Audit/extract/<id>.json` holding the text 
 read it: a PDF's text layer first, then local OCR, and last the model vision lane (step 6) for pages local OCR
 could not read cleanly. Office files and plain text are parsed directly. The tiers, statuses and fields are in
 [the tool reference](references/tools.md#extractpy). Run again with `--retry-failed` once the cause of a failed
-record is fixed; to re-read a record after a later move, remove it and run `extract.py` again. Two lessons from
-real folders:
+record is fixed; a record is never read again to follow a move
+([a round after extraction](#3-curation-rounds-each-approved-by-the-owner)). Two lessons from real folders:
 
 - **iWork is read without the apps.** Pages, Numbers and Keynote documents are read by parsing the package itself
   (`iwa.py`), with its preview image as the fallback (the record is then `partial`). Never open an app or export a
@@ -187,8 +198,8 @@ real folders:
 Before any model reads this folder:
 
     python3 <tools>/isolation.py scan   --terms <terms file> --path <tools> --path "<folder>/.familyai"
-    python3 <tools>/isolation.py canary --terms <terms file> --engine agy --model <model> \
-        --out <work>/state/canary-agy.json
+    python3 <tools>/isolation.py canary --terms <terms file> --engine <engine> --model <model> \
+        --out <work>/state/canary-<engine>.json
 
 `scan` checks every file a model will be shown (the tools' prompts and templates, and the settings the card
 instructions are filled from) for the terms, and exits 1 on any hit; scan the wiki briefs the same way before
@@ -197,6 +208,13 @@ each engine you will use, and keep the result: it is the record that the gate ra
 never start a lane without a passing one. A failure means the engine's context carries another project: fix its
 setup ([engine isolation](#engine-isolation)) and run the canary again.
 
+<!-- provisional: #97 -->
+
+**When there is nothing to list.** The gate needs a terms file, and an empty one is refused. Where the operator
+genuinely has no name to keep out (no other project, and no other use of the engines), there is no file. Record the
+canary as not run, and why: a named not-verified state, never a pass. Run the cards with `--no-isolation-terms`,
+which their log records, and readiness without `--terms`; it then reports isolation as not verified.
+
 ### 6. The vision lane and the cards
 
 <!-- provisional: #92 -->
@@ -204,13 +222,14 @@ setup ([engine isolation](#engine-isolation)) and run the canary again.
     python3 <tools>/vision.py --root "<folder>" --model <vision model> \
         --lanes extract_main0,extract_main1,extract_main2,extract_main3,extract_apps0
     python3 <tools>/cards.py build --root "<folder>"
-    python3 <tools>/cards.py work  --root "<folder>" --engine agy --model <model> --terms <terms file> [--worker 0/3]
+    python3 <tools>/cards.py work  --root "<folder>" --engine <engine> --model <model> --terms <terms file> \
+        [--worker 0/3]
 
-The vision lane reads the page images queued in step 4 and exits once every extraction lane named in `--lanes`
-has finished and its queue is empty. Then `cards.py build` plans batches from the finished records (run it again if
-it reports records still waiting), and `cards.py work` has the engine write one card per document. What a card
-holds, how the answers are joined to their documents and how each card is checked against the terms are
-[the card contract](references/cards.md). A card that names a term its own document does not carry writes
+The vision lane, which runs on `agy` only, reads the page images queued in step 4 and exits once every extraction
+lane named in `--lanes` has finished and its queue is empty. Then `cards.py build` plans batches from the finished
+records (run it again if it reports records still waiting), and `cards.py work` has the engine write one card per
+document. What a card holds, how the answers are joined to their documents and how each card is checked against
+the terms are [the card contract](references/cards.md). A card that names a term its own document does not carry writes
 `<work>/state/ALERT` and stops every worker: find where the term came from before you remove the file. A document
 that could not be carded is listed as `<work>/state/card_err_<id>.txt`; list those ids in a file and run
 `cards.py work` with `--redo <file>` once the cause is fixed.
@@ -227,66 +246,66 @@ document's own text that ends the same way, and writes the cards it could not se
 
 The method is [`wiki-onboarding`](../wiki-onboarding/SKILL.md) under the core wiki rule; this is who holds the pen
 at each stage, and the tool or brief for it. Each role is a model briefed as that role; the agent running the
-session coordinates, and the owner decides.
-
-<!-- provisional: #93 -->
+session coordinates, and the owner decides. In a prepared folder the readers come first, before the librarian's
+proposal that [wiki-onboarding step 2](../wiki-onboarding/SKILL.md#2-propose-a-structure-the-librarians-sections-and-each-pages-professional)
+puts ahead of its interview: the cards and the profile already give the librarian the material, and the readers'
+questions should shape the sections rather than confirm them. The questions of
+[its step 3](../wiki-onboarding/SKILL.md#3-interview--a-few-targeted-questions) then confirm the proposal.
 
 | Stage | Who holds the pen | Brief or tool | Method |
 | --- | --- | --- | --- |
 | Readers: who reads the wiki, and what for | the owner, answering; the agent asks and records the answers in the owner's words | `readers-interview.md`, with `wiki.py profile` | [step 3](../wiki-onboarding/SKILL.md#3-interview--a-few-targeted-questions) |
 | Sections and routing | the librarian proposes; the owner agrees | `structure-brief.md`, with `wiki.py profile` | [step 2](../wiki-onboarding/SKILL.md#2-propose-a-structure-the-librarians-sections-and-each-pages-professional) |
 | Each page's professional | the librarian proposes; the owner agrees | `structure-brief.md` | step 2 |
-| Each section's page contract | the section's professional drafts it; the owner agrees | `contract-brief.md` | [step 3a](../wiki-onboarding/SKILL.md#3a-page-contracts-for-every-page-type-drafted-by-its-professionals) |
+| Each section's page contract | the section's professional drafts it, or its professionals together where it has several; the owner agrees | `contract-brief.md` | [step 3a](../wiki-onboarding/SKILL.md#3a-page-contracts-for-every-page-type-drafted-by-its-professionals) |
 | Each page | that professional writes it, as their deliverable to the owner, their client, in their own voice | `page-brief.md`, rendered by `wiki.py brief`; `wiki.py chart`; `wiki.py check` | [step 4a](../wiki-onboarding/SKILL.md#4a-draft-the-pages-when-every-document-has-been-read) |
 | Acceptance | the owner's lens and the professional's, each played by a model that did not write the page | `review-owner.md`, `review-professional.md` | [step 6](../wiki-onboarding/SKILL.md#6-reader-acceptance-the-owners-lens-and-the-professionals) |
 
-The briefs are templates in `tools/templates/`: to brief a role, fill the template's fields and give it to a model
-in a fresh context (a subagent), then take the JSON it returns to the owner. The librarian picks each page's
-professional from [the professional catalogue](../wiki-maintenance/references/professionals.md), as its note on
-choosing says. The coordinator alone writes what sections share: the fixed pages (the Index, the Log, a People
-alias table), the Deadlines roll-up from the pages' own frontmatter, and the rationale file from the blocks the
-drafters return.
+The briefs are templates in [`tools/templates/`](tools/templates/): to brief a role, fill the template's fields and
+give it to a model in a fresh context (a subagent), then take the JSON it returns to the owner. The librarian picks
+each page's professional from [the professional catalogue](../wiki-maintenance/references/professionals.md), as its
+note on choosing says. What the sections share is the coordinator's to write
+([step 4a](../wiki-onboarding/SKILL.md#4a-draft-the-pages-when-every-document-has-been-read), *JSON returns*).
 
-<!-- provisional: #93 -->
 <!-- provisional: #94 -->
 
 In order:
 
 1. `wiki.py profile --root "<folder>" --out <work>/profile.json`: the folder's shape, per folder, for the readers
    interview and the librarian.
-2. Hold the readers interview; brief the librarian with the readers' answers; agree the sections, routing and
-   each page's professional with the owner. Create the wiki folder, `<folder name> Wiki/`, and its Schema page,
-   `90 Schema/90 Schema.md`, as [wiki-onboarding step 4](../wiki-onboarding/SKILL.md#4-write-the-skeleton)
-   describes it, with the agreed tables in the format
-   [the settings reference](references/settings.md#the-schema-pages-tables) fixes. Then run
+2. Hold the readers interview; brief the librarian with the readers' answers; confirm the proposal with
+   wiki-onboarding step 3's questions, asking only what the rulebook does not already answer; agree the sections,
+   routing and each page's professional with the owner. Create the wiki folder, `<folder name> Wiki/`, and its
+   Schema page, `90 Schema/90 Schema.md`, as
+   [wiki-onboarding step 4](../wiki-onboarding/SKILL.md#4-write-the-skeleton) describes it, with the agreed tables
+   in the format [the settings reference](references/settings.md#the-schema-pages-tables) fixes. Then run
    `settings.py compile --root "<folder>"` and `settings.py check --root "<folder>"`.
-3. `wiki.py bundles --root "<folder>"` routes every live document to its section's evidence bundle in the work
-   directory. It lists what it cannot route and what has no card: fix the routing (edit the Schema, compile again)
-   or card the document (step 6), until both lists are empty.
-4. Brief each section's professional; agree each contract with the owner; add it to the Schema's Page contracts
-   table; compile and check again (the check names any section, other than a `fixed` one, still without a
-   contract).
-5. Settle the page map: every page the wiki will hold, from the agreed layout and Page professionals table (`brief`
-   lists it); no drafting agent adds, renames or merges a page. Then render a brief per group of pages:
+3. `wiki.py bundles --root "<folder>"` routes every live document to its section's evidence bundle, in
+   `<work>/bundles` by default. It lists what it cannot route and what has no card: fix the routing (edit the
+   Schema, compile again) or card the document (step 6), until both lists are empty.
+4. Brief each section's professional, or all of a section's professionals together where it has several, to draft
+   its contract; agree each contract with the owner; add it to the Schema's Page contracts table; compile and
+   check again (the check names any section, other than a `fixed` one, still without a contract).
+5. Render a brief per group of pages on the page map, which
+   [step 4a](../wiki-onboarding/SKILL.md#4a-draft-the-pages-when-every-document-has-been-read) fixes before
+   drafting starts (`brief` lists it):
    `wiki.py brief --root "<folder>" --page "<NN Section>/<Page>.md" [--page ...] --out <work>/briefs/<NN>.md`.
-   Scan the briefs for the terms (step 5). Give each section to its own drafting agent, in a fresh context with
-   only its brief; it writes its pages, draws charts with `wiki.py chart`, runs the checker command its brief
-   names, and returns JSON.
-6. Write the fixed pages, the Deadlines roll-up (`wiki.py check` lists every page's `deadlines:` as
-   `[date, page]`) and `_Audit/wiki-rationale.md` from the returns (`wiki.py rationale` assembles the file). Then
-   run `wiki.py check --root "<folder>"` over the whole wiki until it reports zero problems.
-7. Accept every page in both lenses through a model that did not write it (another model or engine than the one
-   that drafted it, named in the record), recording each verdict in
-   `_Audit/wiki-acceptance.json` (`wiki.py review-prompts` and `wiki.py accept`); rebuild what the findings touch
-   and review it again, children before parents and the Index last.
+   Scan the briefs for the terms (step 5), then draft as step 4a sets out. Each drafting agent draws its charts
+   with `wiki.py chart`, runs the checker command its brief names, and returns the JSON its brief shows: each
+   page's text, rationale block and Index entry, its open questions and its check result.
+6. From the returns, write the fixed pages, the Deadlines roll-up (`wiki.py check` lists every page's
+   `deadlines:` as `[date, page]`) and `_Audit/wiki-rationale.md` (`wiki.py rationale` assembles it). Then run
+   `wiki.py check --root "<folder>"` over the whole wiki until it reports zero problems.
+7. Accept every page as [wiki-onboarding step 6](../wiki-onboarding/SKILL.md#6-reader-acceptance-the-owners-lens-and-the-professionals)
+   runs it and [the core rule's acceptance](../wiki-maintenance/SKILL.md#acceptance) sets it out, through a model
+   other than the one that drafted it: `wiki.py review-prompts` renders the prompts, and `wiki.py accept` records
+   each verdict in `_Audit/wiki-acceptance.json`.
 
-<!-- provisional: #93 -->
-
-**Card bundles go stale after any migration.** A bundle records the manifest it was built from, and every
-curation round ends in a re-audit that rewrites the manifest. After any round, rebuild the bundles, and run
-`wiki.py drift --root "<folder>"` to list every page line that cites a path that has left or is leaving, before
-drafting again; `brief` refuses stale bundles. To move a page, use `wiki.py move --root "<folder>" --map <file>`,
-which rewrites every link to and from it.
+**Bundles go stale after any migration**
+([step 4a, *Fresh bundles*](../wiki-onboarding/SKILL.md#4a-draft-the-pages-when-every-document-has-been-read)):
+`brief` and `bundles --reuse` refuse bundles built from another manifest or routing, so rebuild them after any
+round ([a round after extraction](#3-curation-rounds-each-approved-by-the-owner)). To move a page,
+`wiki.py move --root "<folder>" --map <file>` rewrites every link to and from it.
 
 ### 8. Check readiness
 
@@ -307,24 +326,16 @@ job runs on it until then ([wiki-onboarding step 5](../wiki-onboarding/SKILL.md#
 ## Engine isolation
 
 <!-- provisional: #92 -->
-
-- **One login per machine per engine**, shared by every project on the machine. Never copy a login or token file
-  into a project's state: a copied token goes stale when the engine rotates it, and can log the main install out.
-- **Context isolated per call.** Every call starts in a fresh, empty working directory, with the prompt on
-  standard input, no tools (a tool use fails the call and its reply is discarded), no API keys in its environment,
-  and its own process group, killed on timeout. The engine sees nothing from another project: no history,
-  memories, sessions or instructions. A per-project state folder, where one is used, holds no credential file: it
-  is scanned before and after every call, and one found there fails the call.
-- **Named outcomes, never guesses.** A quota message whatever the exit code (with the reset time, where the
-  message gives one, which the workers sleep until), an empty answer (`degenerate`), a tool use and an engine
-  error are each named, and none is taken for an answer.
-- **The gate before, the guard after.** The canary (step 5) before the first call, and the contamination check on
-  every card.
-
 <!-- provisional: #91 -->
 
-The exact command-line flags each engine runs with are in `tools/engines.py`, and are set by the isolation spike
-on the operator's machine; read them there rather than from this page.
+Each engine has one login per machine, shared by every project on it, and no project copies a login or token file:
+a copied token goes stale when the engine rotates it, and can log the main install out. What is isolated is each
+call's context. The model sees nothing from another project (no history, memories, sessions or instructions), can
+do nothing but answer, and every outcome that is not an answer is named rather than taken for one. A per-project
+state folder, where one is used, holds no credential file; no caller sets one yet, and whether one is needed is for
+the isolation spike on the operator's machine to settle. How `tools/engines.py` holds this, and with which flags,
+is in [the tool reference](references/tools.md#enginespy); the canary checks it before the first call (step 5), and
+the contamination guard after, on every card.
 
 ## Identifiers
 
@@ -351,7 +362,9 @@ What a deployment relies on when it onboards a prepared folder, and what `readin
 - **The manifest is current**, with its counts reported: live, departed and migrating entries, root strays,
   redundant copies, hygiene defects, unconverted iWork files.
 - **Every live document has an extract record and a card**; each card's category is one the rulebook allows,
-  each record's path agrees with the manifest, and no card names an isolation term its document does not carry.
+  and no card names an isolation term its document does not carry.
+- **Every extract record's path agrees with the manifest**, repathed after any later round: readiness fails the
+  hand-off on a record whose path does not.
 - **The wiki** is at `<folder name> Wiki/`, with numbered sections and the fixed pages `00 Index`, `01 Deadlines`,
   `90 Schema` and `91 Log`, and `wiki.py check` reports zero problems (frontmatter, `sources:` lists and
   folder-relative backticked paths that exist, links, em dashes, coverage, charts, rationale blocks), with
@@ -369,7 +382,6 @@ Which of these `readiness.py` reports today, and how, is in [the tool reference]
 
 ## The tools
 
-<!-- provisional: #93 -->
 <!-- provisional: #94 -->
 
 | Tool | Step | What it does |
@@ -394,15 +406,8 @@ Every flag, output and exit code: [the tool reference](references/tools.md).
   and no section, routing, professional or contract is written into the Schema until the owner agrees it.
 - **The folder carries its own settings.** The rulebook and its twins travel with the folder; the tools read the
   twins and refuse a stale one.
-- **Guards in the tools, not in prompts.** Every write goes through one guarded writer; `--read-only-root` proves
-  a tool against a real folder without changing it. A skill describes; code enforces
-  ([the three layers](../../ARCHITECTURE.md#the-three-layers-of-a-job)).
-- **Only understanding is a model call.** Hashing, routing, joining answers to documents, repairing what a source
-  settles, rendering charts and checking are deterministic
-  ([the determinism boundary](../../ARCHITECTURE.md#the-determinism-boundary)).
-- **Counts, never silence.** Every check reports a count, zero included, or a named not-verified state; an alert
-  stops every worker until someone reads it.
 - **Working files stay outside the folder.** The work directory holds what the tools need along the way; the
   folder holds only what the deployment will read.
-- **Nothing is permanently deleted.** Removed copies and emptied folders go to the Bin, each with its undo entry.
-- **One writer per file.** A drafting agent writes only its own pages; what sections share is the coordinator's.
+- **Guards live in the tools, not in prompts.** Every write goes through one guarded writer; `--read-only-root`
+  proves a tool against a real folder without changing it. A skill describes; code enforces
+  ([the three layers](../../ARCHITECTURE.md#the-three-layers-of-a-job)).
