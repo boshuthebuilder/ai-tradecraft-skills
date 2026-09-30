@@ -27,7 +27,7 @@ An unknown version, an unknown key or a value of the wrong shape fails loud.
 | `wiki_dir` | folder name | `<folder name> Wiki` | the wiki folder; must be exactly `<folder name> Wiki` |
 | `reserved` | list of names | `[]` | top-level names reserved beyond the fixed set below |
 | `depth` | `light`, `medium` or `full` | `light` | the reorganisation depth the owner chose (`folder-curation`'s ladder) |
-| `packs` | list of folder paths | `[]` | submission records, whose copies are never deleted |
+| `packs` | list of folder paths | `[]` | submission records, whose copies are never deleted, in addition to the folders the audit's pack keywords match |
 | `working_formats` | list of extensions | `[]` | formats the owner keeps working in, such as `.pages` |
 | `active`, `finished` | lists of folder paths | `[]` | live matters, and closed matters ingested once as history |
 | `people` | list of `{name, also, who}` | `[]` | each person or organisation: canonical name, every other name or script it appears under, and one line on who they are |

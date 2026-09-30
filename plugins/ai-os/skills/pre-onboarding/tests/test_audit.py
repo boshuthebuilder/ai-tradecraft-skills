@@ -4,6 +4,7 @@ with the frozen outputs in expected/.
 
     python3 -m unittest discover plugins/ai-os/skills/pre-onboarding/tests
 """
+import csv
 import hashlib
 import json
 import os
@@ -90,6 +91,12 @@ class AuditCase(unittest.TestCase):
         for rel, data in files.items():
             write(os.path.join(root, rel), data)
         return root
+
+    def pinned(self, **settings):
+        """A rulebook and its twin pinned to it, carrying `settings`, as files for folder()."""
+        rulebook = "# Rules\n\nThe owner's rules for this folder.\n"
+        twin = dict(settings, version=1, rulebook_sha256=hashlib.sha256(rulebook.encode()).hexdigest())
+        return {"CLAUDE.md": rulebook, ".familyai/rulebook.json": json.dumps(twin)}
 
     def out(self, root):
         return os.path.join(os.path.dirname(root), "out")
@@ -201,6 +208,39 @@ class CopyKindsTest(AuditCase):
         k = kinds(m)
         self.assertEqual(k["Letters/Visa application 2023/Form.pdf"], "pack")
         self.assertEqual(k["Letters/Holiday 2023/Form.pdf"], "working_copy")
+
+    def loan_letters(self, parent, packs):
+        """Three payslips, copied into a loan pack named without a keyword and into a folder named like it."""
+        files = self.pinned(packs=packs)
+        for n in (1, 2, 3):
+            for folder in ("Letters", "Letters/Loan 2022", "Letters/Loan 2022 old"):
+                files["%s/Payslip %d.pdf" % (folder, n)] = "payslip %d" % n
+        root = self.folder(files, parent=parent)
+        k = kinds(self.audit(root))
+        plan_dir = os.path.join(self.tmp, parent, "plan")
+        code, _o, err = run("plan.py", "light", "--root", root, "--manifest",
+                            os.path.join(self.out(root), "manifest.json"), "--out", plan_dir)
+        self.assertEqual(code, 0, err)
+        with open(os.path.join(plan_dir, "move-plan.csv"), encoding="utf-8", newline="") as f:
+            deletes = sorted(r["from"] for r in csv.DictReader(f) if r["action"] == "delete")
+        return k, deletes
+
+    def test_a_pack_the_rulebook_lists(self):
+        """Listed, with or without a trailing /, its copies are packs and never proposed for deletion; a folder
+        whose name only starts with the pack's name is not in it."""
+        old = ["Letters/Loan 2022 old/Payslip %d.pdf" % n for n in (1, 2, 3)]
+        for n, listed in enumerate(("Letters/Loan 2022", "Letters/Loan 2022/")):
+            with self.subTest(listed=listed):
+                k, deletes = self.loan_letters("listed%d" % n, [listed])
+                self.assertEqual({p: k[p] for p in k if p.startswith("Letters/Loan 2022/")},
+                                 {"Letters/Loan 2022/Payslip %d.pdf" % i: "pack" for i in (1, 2, 3)})
+                self.assertEqual({k[p] for p in old}, {"redundant"})
+                self.assertEqual(deletes, old)
+
+    def test_the_same_copies_unlisted_are_redundant(self):
+        k, deletes = self.loan_letters("unlisted", [])
+        self.assertEqual({k["Letters/Loan 2022/Payslip %d.pdf" % n] for n in (1, 2, 3)}, {"redundant"})
+        self.assertEqual(len(deletes), 6)
 
     def test_an_iwork_package_is_one_item_hashed_over_its_members(self):
         root = self.fixture()
@@ -360,14 +400,10 @@ class MigratingTest(AuditCase):
         self.assertIn("- Other Project: `_Migrations/Other Project/02 Finance/Old invoice.pdf`", self.report(root))
 
     def test_the_settings_name_the_migrations_folder(self):
-        rulebook = "# Rules\n\nStaged files wait in `_Leaving/`.\n"
-        root = self.folder({
-            "CLAUDE.md": rulebook,
-            ".familyai/rulebook.json": json.dumps({"version": 1, "migrations_dir": "_Leaving",
-                                                   "rulebook_sha256": hashlib.sha256(rulebook.encode()).hexdigest()}),
+        root = self.folder(dict(self.pinned(migrations_dir="_Leaving"), **{
             "_Leaving/Robin Shared/Bills/Gas.pdf": "gas", "_Leaving/Loose.pdf": "not under a project",
             "_Migrations/Other/Water.pdf": "an ordinary underscore folder now, so skipped", "Bills/Gas.pdf": "gas",
-        })
+        }))
         e = by_path(self.audit(root))
         self.assertEqual(sorted(e), ["Bills/Gas.pdf", "_Leaving/Loose.pdf"])
         gas = e["Bills/Gas.pdf"]                # the canonical copy stays; the entry is migrating all the same
