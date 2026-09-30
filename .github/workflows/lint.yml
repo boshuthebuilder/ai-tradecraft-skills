@@ -13,3 +13,20 @@ jobs:
       - run: pip install pyyaml
       - name: Lint SKILL.md frontmatter
         run: python scripts/lint_skills.py
+  pre-onboarding-tools:
+    # The pre-onboarding tools are standard-library Python 3.9+, so nothing is installed. Tiers that need a tool the
+    # runner lacks (macOS OCR, textutil, tesseract) skip, and -v prints each skip reason, naming its tier.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.x"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Unit tests
+        run: python -W error::ResourceWarning -m unittest discover -v plugins/ai-os/skills/pre-onboarding/tests
+      - name: Frozen outputs on the fixture
+        run: python plugins/ai-os/skills/pre-onboarding/tests/regen_expected.py --check
