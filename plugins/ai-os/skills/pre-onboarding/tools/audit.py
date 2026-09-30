@@ -23,7 +23,8 @@ import common  # noqa: E402
 
 SCHEMA = "family-ai-preprocess-manifest/2"
 GEN = "ai-os-pre-onboarding-audit/1"
-BASE_RESERVED = {"AGENTS.md", "CLAUDE.md", "GEMINI.md", ".familyai", "Outbox", "Wiki"}
+BASE_RESERVED = {"AGENTS.md", "CLAUDE.md", "GEMINI.md", ".familyai", "Outbox", "Wiki"}  # names the walk skips at
+# the top; not the names a rulebook must reserve (common.reserved_names), which include _Migrations, audited here
 IMG = {".jpg", ".jpeg", ".png", ".heic", ".tif", ".tiff", ".gif", ".bmp", ".webp"}
 DOC = {".pdf", ".doc", ".docx", ".odt", ".rtf", ".txt", ".md", ".html", ".htm", ".xlsx", ".xls",
        ".csv", ".pptx", ".ppt", ".pot", ".potx", ".pps", ".ppsx"}

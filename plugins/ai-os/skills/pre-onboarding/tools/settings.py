@@ -288,15 +288,20 @@ def check_cmd(a):
         rb = common.load_rulebook(root, settings_dir, required=True, verify=False)
     except common.ToolError:
         rb = None
+    wiki_named_right = rb is None or rb["wiki_dir"] == folder_wiki
     if rb is None or text is None:
         status["rulebook_facts"] = "not verified: %s" % ("rulebook.json unreadable" if rb is None
                                                          else "CLAUDE.md missing")
     else:
         status["rulebook_facts"] = "checked"
-        if rb["wiki_dir"] != folder_wiki:
-            findings.append("wiki_dir %r is not '<folder name> Wiki' (%r)" % (rb["wiki_dir"], folder_wiki))
-        # One defect, one finding: the rulebook is checked against the wiki folder it must name.
-        for name in common.reserved_names(dict(rb, wiki_dir=folder_wiki)):
+        # One defect, one finding: a misnamed wiki folder is reported once, and the two facts that follow from it
+        # (the name the rulebook reserves, where the Schema sits) wait until it is named right.
+        if not wiki_named_right:
+            findings.append("wiki_dir %r is not '<folder name> Wiki' (%r); the rulebook's mention of the wiki folder "
+                            "and the Schema's location are checked once it is" % (rb["wiki_dir"], folder_wiki))
+        for name in common.reserved_names(rb):
+            if name == rb["wiki_dir"] and not wiki_named_right:
+                continue
             if name not in text:
                 findings.append("the rulebook does not mention reserved name %r" % name)
         for pack in rb["packs"]:
@@ -319,7 +324,7 @@ def check_cmd(a):
     if status["wiki_schema_json"] != "fresh":
         findings.append(str(ws))
     else:
-        if not ws["schema_path"].startswith(folder_wiki + "/"):
+        if wiki_named_right and not ws["schema_path"].startswith(folder_wiki + "/"):
             findings.append("wiki-schema.json was compiled from %r, outside the wiki folder %r"
                             % (ws["schema_path"], folder_wiki))
         if any(c["reader"] is None for c in ws["contracts"]):

@@ -11,7 +11,7 @@ machine-readable **twin** in `<folder>/.familyai/` (or wherever `--settings-dir`
 
 The source is the authority; the twin is what code reads. Each twin records its source's sha256, so an edited
 source makes the twin **stale**, never silently wrong. Every tool refuses a stale twin before it reads or writes
-anything.
+anything, except the two that diagnose it (see [Stale twins](#stale-twins)).
 
 ## `rulebook.json`
 

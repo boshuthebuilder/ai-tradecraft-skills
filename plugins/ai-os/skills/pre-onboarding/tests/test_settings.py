@@ -435,6 +435,10 @@ class StaleTest(FixtureCopy):
             ("sections as a number", lambda ws: ws.update(sections=5), "sections is not a list"),
             ("a page row without a tone", lambda ws: ws["pages"]["20 Finance/Tax.md"].pop("tone"),
              "pages is not a map"),
+            ("a list holding a number", lambda ws: ws["sections"][0].update(professionals=[5]),
+             "sections is not a list"),
+            ("a row with an extra key", lambda ws: ws["routing"][0].update(prefixes=["01 Identity/"]),
+             "routing is not a list"),
         ]
         for n, (name, change, pattern) in enumerate(cases):
             with self.subTest(name):
@@ -488,6 +492,18 @@ class CheckTest(FixtureCopy):
             with open(os.path.join(root, "AGENTS.md"), "a", encoding="utf-8") as f:
                 f.write("\nA local note.\n")
 
+        def wiki_misnamed(root):
+            """A wiki folder really named otherwise, with the rulebook, its twin and the Schema twin agreeing."""
+            os.rename(os.path.join(root, "Alex Personal Wiki"), os.path.join(root, "Alex Personal Vault"))
+            for name in ("CLAUDE.md", "AGENTS.md"):
+                p = os.path.join(root, name)
+                text = read(p)
+                with open(p, "w", encoding="utf-8") as f:
+                    f.write(text.replace("Alex Personal Wiki", "Alex Personal Vault"))
+            self.rulebook_json(root, wiki_dir="Alex Personal Vault",
+                               rulebook_sha256=common.sha256_file(os.path.join(root, "CLAUDE.md")))
+            self.compile(root)
+
         def not_utf8(root):
             for name in ("CLAUDE.md", "AGENTS.md"):
                 with open(os.path.join(root, name), "ab") as f:
@@ -519,6 +535,7 @@ class CheckTest(FixtureCopy):
              "pack '02 Finance/Loan 2022'"),
             ("a wiki folder not named after the folder",
              lambda r: self.rulebook_json(r, wiki_dir="Alex Personal Vault"), "wiki_dir 'Alex Personal Vault'"),
+            ("a wiki folder really named otherwise", wiki_misnamed, "wiki_dir 'Alex Personal Vault'"),
             ("a section without a contract", contract_dropped, "section 30 Home has no page contract"),
             ("no rulebook.json", lambda r: os.remove(os.path.join(r, ".familyai", "rulebook.json")),
              "missing folder settings"),
