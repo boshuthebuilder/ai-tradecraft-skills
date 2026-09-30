@@ -4,7 +4,8 @@
 Drains <work>/vision_queue (images written by extract.py). Each batch of up to six images is copied into a fresh,
 otherwise empty folder and agy runs there sandboxed in plan mode (it can view files in that folder; writes and
 commands are refused). The transcription replaces the page's text in the extract record (tier `vision`, engine
-`agy`); the local text is kept as `local_text`. After three failed attempts a page is marked `unread` with the local
+`agy`); the local text is kept as `local_text`. A reply is applied only when it returns every image, in the order
+sent, with its text; anything else is a failed attempt, and after three a page is marked `unread` with the local
 text kept. Worker k of N owns the ids that hash to k. Exits when extraction has finished and its share is empty.
 
     python3 vision.py --root R --model <vision model id> [--worker 0/2]
@@ -96,9 +97,12 @@ def main():
                                schema=SCHEMA if os.path.exists(SCHEMA) else None)
             obj = common.parse_json(resp)
             pages = obj.get("pages") if isinstance(obj, dict) else obj
-            got = {p.get("file"): p.get("text", "") for p in pages if isinstance(p, dict)}
-            if set(got) != set(names):
-                raise engines.EngineError("reply does not match the images sent: %s" % sorted(set(names) ^ set(got)))
+            if not isinstance(pages, list):
+                raise ValueError("reply has no pages list")
+            files = [p.get("file") if isinstance(p, dict) and isinstance(p.get("text"), str) else None for p in pages]
+            if files != names:
+                raise engines.EngineError("reply files %s are not the images sent, in order (%s)" % (files, names))
+            got = {p["file"]: p["text"] for p in pages}
         except engines.QuotaError as ex:
             wait = min(5 * 3600, (ex.reset_seconds or 600) + 90)
             log("quota; sleeping %d min" % (wait // 60))

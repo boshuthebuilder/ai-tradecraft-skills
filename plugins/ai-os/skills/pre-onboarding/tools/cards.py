@@ -9,11 +9,13 @@ budget are read section by section into cached notes, then carded from the notes
 `templates/card-instructions.md`, filled from the folder's own settings (people, description, categories,
 identifier policy).
 
-The join is deterministic: each call issues short ids (d1, d2, ...) for the items it sends; the reply's ids must
-equal that set exactly, with every card valid, or the chunk is retried, then halved, and never applied in part.
-A single item that still fails is recorded in <work>/state/card_err_<id>.txt. Before a card is written, the
-contamination guard checks it: a term from the operator's isolation list that the card names but its own source
-text does not carry writes <work>/state/ALERT and stops every worker.
+The join is deterministic: each call issues short ids (d1, d2, ...) for the items it sends. The reply's ids must be
+exactly the ids sent, in the order sent (the instructions ask for that order, and two cards whose ids were swapped
+can only be caught by their position), with every card meeting the card schema (schemas/card.json). Otherwise the
+chunk is retried, then halved, and never applied in part. Every item of a chunk that still fails is
+recorded in <work>/state/card_err_<id>.txt. Before any card of a batch is written, the contamination guard checks
+them all: a term from the operator's isolation list that a card names but its own source text does not carry
+writes <work>/state/ALERT, writes none of them and stops every worker.
 """
 import glob
 import json
@@ -31,6 +33,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 KEYS = ["id", "doc_type", "party", "parties", "doc_date", "title", "summary", "key_facts", "category",
         "language", "sensitive", "confidence", "look", "proposed_name"]
 FINAL = {"ok", "partial", "blank", "photo", "listed", "no_reader", "failed"}
+TYPES = {"object": dict, "array": list, "string": str, "boolean": bool}
 SECTION_PROMPT = """You are reading one section of a long document from a private archive, to help write a
 catalogue card for the whole document later. Document path: {path}. This is section {k} of {n}.
 Reply directly with JSON only: {{"notes": "..."}} where notes (at most 200 words, UK English) record what this
@@ -152,15 +155,33 @@ def build(a):
     return 0
 
 
+def schema_problems(value, schema, where="card"):
+    """How `value` breaks `schema`, in the subset of JSON Schema the card schemas use (type, properties, required,
+    items)."""
+    want = TYPES.get(schema.get("type"))
+    if want and not isinstance(value, want):
+        return ["%s is not %s" % (where, schema["type"])]
+    out = []
+    if isinstance(value, dict):
+        out += ["%s.%s is missing" % (where, k) for k in schema.get("required", []) if k not in value]
+        out += [p for k, sub in schema.get("properties", {}).items() if k in value
+                for p in schema_problems(value[k], sub, "%s.%s" % (where, k))]
+    if isinstance(value, list) and "items" in schema:
+        out += [p for i, x in enumerate(value) for p in schema_problems(x, schema["items"], "%s[%d]" % (where, i))]
+    return out
+
+
+with open(os.path.join(HERE, "schemas", "card.json"), encoding="utf-8") as _f:
+    CARD_SCHEMA = json.load(_f)["properties"]["items"]["items"]
+
+
 def validate(card, categories):
-    if not isinstance(card, dict):
+    """The card when it meets the card schema, else None. A category outside the folder's list becomes Other, with
+    the model's word kept as category_raw."""
+    if schema_problems(card, CARD_SCHEMA):
         return None
-    for k in KEYS:
-        card.setdefault(k, [] if k == "parties" else "")
-    if not isinstance(card.get("key_facts"), dict):
-        card["key_facts"] = {"dates": [], "amounts": [], "reference_numbers": []}
-    if card.get("category") not in categories:
-        card["category_raw"] = card.get("category")
+    if card["category"] not in categories:
+        card["category_raw"] = card["category"]
         card["category"] = "Other"
     return card
 
@@ -176,14 +197,14 @@ def call_chunk(engine, instr, items, categories, schema, cwd):
     arr = obj.get("items") if isinstance(obj, dict) else obj
     if not isinstance(arr, list):
         raise ValueError("reply has no items list")
-    ids = [c.get("id") for c in arr if isinstance(c, dict)]
-    if len(ids) != len(arr) or len(set(ids)) != len(ids) or set(ids) != set(short):
-        raise ValueError("reply ids %s do not match the ids sent" % sorted(set(ids) ^ set(short))[:6])
+    ids = [c.get("id") if isinstance(c, dict) else None for c in arr]
+    if ids != list(short):
+        raise ValueError("reply ids %s are not the ids sent, in order (%s)" % (ids[:8], list(short)[:8]))
     out = {}
     for c in arr:
         card = validate(dict(c), categories)
         if card is None:
-            raise ValueError("invalid card for %s" % c.get("id"))
+            raise ValueError("invalid card for %s: %s" % (c["id"], "; ".join(schema_problems(c, CARD_SCHEMA)[:3])))
         card["id"] = short[c["id"]]["id"]
         out[card["id"]] = card
     return out, usage
@@ -198,7 +219,7 @@ def run_items(run, engine, instr, items, schema, log, sink, depth=0):
             sink.update(got)
             log("  %d items ok usage=%s" % (len(items), json.dumps(usage)))
             return
-        except engines.QuotaError:
+        except (engines.QuotaError, common.ToolError):
             raise
         except (engines.EngineError, ValueError) as ex:
             last = str(ex)[:200]
@@ -210,7 +231,9 @@ def run_items(run, engine, instr, items, schema, log, sink, depth=0):
         run_items(run, engine, instr, items[:h], schema, log, sink, depth + 1)
         run_items(run, engine, instr, items[h:], schema, log, sink, depth + 1)
         return
-    open(os.path.join(run.state, "card_err_%s.txt" % items[0]["id"]), "w").write(last)
+    for it in items:
+        with open(os.path.join(run.state, "card_err_%s.txt" % it["id"]), "w", encoding="utf-8") as f:
+            f.write(last)
 
 
 def sections_text(run, engine_light, eid, log, engine_name):
@@ -236,7 +259,8 @@ def sections_text(run, engine_light, eid, log, engine_name):
     for k, c in enumerate(chunks, 1):
         cp = os.path.join(cache, "%s_%s_%d_%d.txt" % (eid[:16], engine_name, k, len(chunks)))
         if os.path.exists(cp):
-            notes.append(open(cp, encoding="utf-8").read())
+            with open(cp, encoding="utf-8") as f:
+                notes.append(f.read())
             continue
         for attempt in range(3):
             d = engines.fresh_dir("sections_")
@@ -245,10 +269,11 @@ def sections_text(run, engine_light, eid, log, engine_name):
                     path=it["path"], k=k, n=len(chunks), text=c,
                     identifier_rule="Write reference numbers %s." % identifier_rule(run.rb)), d)
                 note = "[section %d of %d] %s" % (k, len(chunks), common.parse_json(resp).get("notes", ""))
-                open(cp, "w", encoding="utf-8").write(note)
+                with open(cp, "w", encoding="utf-8") as f:
+                    f.write(note)
                 notes.append(note)
                 break
-            except engines.QuotaError:
+            except (engines.QuotaError, common.ToolError):
                 raise
             except (engines.EngineError, ValueError) as ex:
                 log("  section %d/%d attempt %d failed: %s" % (k, len(chunks), attempt + 1, str(ex)[:160]))
@@ -261,15 +286,18 @@ def sections_text(run, engine_light, eid, log, engine_name):
 
 
 def write_cards(run, cards, batch_name, evidence, meta, log):
+    """Every card is checked before any is written: one alert writes none of them."""
     for eid, c in cards.items():
         src = full_text(run.record(eid))
         blob = json.dumps(c, ensure_ascii=False)
         bad = isolation.contamination(blob, src, evidence) if evidence else []
         if bad:
-            open(run.alert, "w").write("contamination: card %s names %d isolation term(s) absent from its source\n"
-                                       % (eid, len(bad)))
+            with open(run.alert, "w", encoding="utf-8") as f:
+                f.write("contamination: card %s names %d isolation term(s) absent from its source\n"
+                        % (eid, len(bad)))
             log("ALERT: card %s names isolation terms absent from its source" % eid[:12])
-            raise common.ToolError("contamination alert; every worker stops")
+            raise common.ToolError("contamination alert; no card of this batch written; every worker stops")
+    for eid, c in cards.items():
         c["card_meta"] = dict(meta, batch=batch_name, created_at=common.now_local())
         run.writer.json(os.path.join(run.cards, eid + ".json"), c, indent=1)
 

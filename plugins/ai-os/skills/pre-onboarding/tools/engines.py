@@ -4,14 +4,22 @@ One login per machine per engine, shared by every project; context is isolated p
 Each call runs in a fresh, empty working directory, with the prompt on stdin, tools refused, API keys removed
 from the environment, in its own process group (killed on timeout). Outcomes are typed:
 
-- `QuotaError` (with `reset_seconds` when the message says when): quota text is detected whatever the exit code.
+- `QuotaError` (with `reset_seconds` when the message says when): quota text is detected whatever the exit code,
+  and wins over an empty answer.
 - `DegenerateError`: an empty final answer (agy returns one after a denied tool attempt, about 3% of calls).
-- `ToolUseError`: the model used a tool; the reply is discarded.
+- `ToolUseError`: the model used a tool (a codex tool item) or was refused one (an agy denied action); the reply is
+  discarded.
+- `CredentialError`: a credential-like file in the per-project state folder. It stops the run, not just the call.
+- `SetupError`: the engine cannot run as configured (no binary, no model, a codex schema that is not strict). It
+  stops the run.
 - `EngineError`: anything else the CLI reports.
 
 An optional `state_home` points the engine's state (history, sessions) at a per-project folder. It must never hold
-login files: it is scanned before and after every call, and a credential-like file fails the call. How each
-engine reaches the shared login is decided by the isolation spike and recorded in the skill.
+login files: it is scanned before and after every call, and a credential-like regular file (not a symlink) fails the
+run. How each engine reaches the shared login is decided by the isolation spike and recorded in the skill.
+
+The flags below are the ones in use today, pinned by tests/test_engines.py. They are provisional: the isolation
+spike (issue #91) decides the final isolation mode and flags per engine, and may change them.
 """
 import json
 import os
@@ -22,8 +30,10 @@ import subprocess
 import tempfile
 import time
 
+import common
+
 KEY_VARS = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY")
-QUOTA_RE = re.compile(r"quota|429|exhaust|rate.?limit|resource_exhausted|usage limit|too many requests", re.I)
+QUOTA_RE = re.compile(r"quota|\b429\b|exhaust|rate.?limit|resource_exhausted|usage limit|too many requests", re.I)
 CRED_RE = re.compile(r"(auth\.json|oauth|token|creds|credential)", re.I)
 CODEX_OFF = ["shell_tool", "unified_exec", "shell_snapshot", "memories", "apps", "browser_use",
              "browser_use_external", "computer_use", "in_app_browser", "image_generation", "multi_agent", "plugins",
@@ -50,6 +60,38 @@ class DegenerateError(EngineError):
 
 class ToolUseError(EngineError):
     pass
+
+
+class CredentialError(EngineError, common.ToolError):
+    """A credential-like file in the per-project state folder: the run stops (a ToolError is never retried)."""
+
+
+class SetupError(EngineError, common.ToolError):
+    """The engine cannot run as configured: the run stops rather than retrying every item."""
+
+
+def is_api_key(name):
+    """An environment variable that carries an API key: the named ones and any other `*_API_KEY`. An engine given
+    one would bill and sign in by key instead of through the machine's one login."""
+    return name in KEY_VARS or name.upper().endswith("_API_KEY")
+
+
+def not_strict(schema, where="$"):
+    """Where a JSON schema falls short of the strict form codex's --output-schema needs: every object closed
+    (`additionalProperties: false`) with every property required. An empty list means strict."""
+    out = []
+    if isinstance(schema, dict):
+        if schema.get("type") == "object":
+            props = schema.get("properties", {})
+            if schema.get("additionalProperties") is not False:
+                out.append(where + ": additionalProperties is not false")
+            if set(schema.get("required", [])) != set(props):
+                out.append(where + ": not every property is required")
+            for k, v in props.items():
+                out += not_strict(v, "%s.%s" % (where, k))
+        if "items" in schema:
+            out += not_strict(schema["items"], where + "[]")
+    return out
 
 
 def reset_seconds(text, now=None):
@@ -90,7 +132,8 @@ def _guard(home):
     if home:
         bad = credential_files(home)
         if bad:
-            raise EngineError("credential-like files inside the per-project state folder %s: %s" % (home, bad[:5]))
+            raise CredentialError("credential-like files inside the per-project state folder %s: %s; no reply is "
+                                  "used and the run stops" % (home, bad[:5]))
 
 
 def _run(cmd, stdin, env, cwd, timeout):
@@ -109,7 +152,7 @@ def _run(cmd, stdin, env, cwd, timeout):
 
 
 def _env(extra):
-    env = {k: v for k, v in os.environ.items() if k not in KEY_VARS}
+    env = {k: v for k, v in os.environ.items() if not is_api_key(k)}
     env["PATH"] = os.environ.get("PATH", "") + ":" + ":".join(SEARCH)
     env.update(extra)
     return env
@@ -119,7 +162,9 @@ class Agy:
     def __init__(self, model, binary=None, state_home=None, timeout=900):
         self.model, self.bin, self.home, self.timeout = model, find("agy", binary), state_home, timeout
         if not self.bin:
-            raise EngineError("agy not found")
+            raise SetupError("agy not found")
+        if not model:
+            raise SetupError("agy needs a model id (its effort is encoded in the id)")
 
     def __call__(self, prompt, cwd, schema=None, model=None):
         msg = json.dumps({"event": "user", "message": {"role": "user", "content": prompt}}, ensure_ascii=False)
@@ -130,23 +175,30 @@ class Agy:
         _guard(self.home)
         rc, out, err = _run(cmd, msg + "\n", _env({"HOME": self.home} if self.home else {}), cwd, self.timeout)
         _guard(self.home)
-        result = None
+        result, other = None, []
         for line in out.splitlines():
             try:
                 ev = json.loads(line)
             except ValueError:
-                continue
-            if ev.get("event") == "result":
-                result = ev.get("result")
-        blob = out[-400:] + " " + err[-400:]
-        if not result or result.get("status") != "SUCCESS":
+                ev = None
+            if isinstance(ev, dict) and ev.get("event") == "result":
+                result = ev.get("result") or {}
+            else:
+                other.append(line)
+        # the result line is left out of the quota search: its usage counts can read like a status code
+        blob = "\n".join(other)[-400:] + " " + err[-400:]
+        ok = bool(result) and result.get("status") == "SUCCESS"
+        response = (result.get("response") or "") if ok else ""
+        denied = (result or {}).get("denied_actions") or []
+        if not response.strip():
             text = ((result or {}).get("error") or "") + " " + blob
             if QUOTA_RE.search(text):
                 raise QuotaError(text.strip()[-300:], reset_seconds(text))
-            raise EngineError("agy rc=%s: %s" % (rc, text.strip()[-300:]))
-        response = result.get("response") or ""
-        if not response.strip():
-            raise DegenerateError("agy returned an empty answer (denied: %s)" % result.get("denied_actions"))
+            if not ok:
+                raise EngineError("agy rc=%s: %s" % (rc, text.strip()[-300:]))
+            raise DegenerateError("agy returned an empty answer (denied: %s)" % denied)
+        if denied:
+            raise ToolUseError("agy was refused %s; reply discarded" % denied)
         return response, result.get("usage")
 
 
@@ -155,7 +207,7 @@ class Codex:
         self.model, self.effort, self.home, self.timeout = model, effort, state_home, timeout
         self.bin = find("codex", binary)
         if not self.bin:
-            raise EngineError("codex not found")
+            raise SetupError("codex not found")
 
     def __call__(self, prompt, cwd, schema=None, model=None, effort=None):
         outf = os.path.join(cwd, "last_%d.txt" % os.getpid())
@@ -168,6 +220,10 @@ class Codex:
         if model or self.model:
             cmd += ["-m", model or self.model]
         if schema:
+            with open(schema, encoding="utf-8") as f:
+                problems = not_strict(json.load(f))
+            if problems:
+                raise SetupError("codex output schema %s is not strict: %s" % (schema, "; ".join(problems[:3])))
             cmd += ["--output-schema", schema]
         cmd.append("-")
         env = {k: os.environ[k] for k in ("LANG", "TMPDIR", "USER", "LOGNAME", "HOME") if k in os.environ}
@@ -191,8 +247,10 @@ class Codex:
             elif t.startswith("item.") and (ev.get("item") or {}).get("type") not in (None, "agent_message",
                                                                                       "reasoning"):
                 tools.append((ev.get("item") or {}).get("type"))
-        text = open(outf, encoding="utf-8").read() if os.path.exists(outf) else ""
+        text = ""
         if os.path.exists(outf):
+            with open(outf, encoding="utf-8") as f:
+                text = f.read()
             os.remove(outf)
         blob = " ".join(errs) + " " + err[-600:]
         if tools:
