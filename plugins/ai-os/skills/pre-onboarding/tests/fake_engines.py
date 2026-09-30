@@ -5,12 +5,14 @@ and found first on PATH (or passed to an adapter as its binary). Its state folde
 because the codex adapter passes the engine only a short allowlist of environment variables. In that folder:
 
 - `scenario.json` scripts the replies: `{"replies": [reply, ...], "default": reply}`; call k takes `replies[k]`, then
-  `default`. A reply is a dict with a `kind` and options (see `reply()` below).
+  `default`. A reply is a dict with a `kind` (text, empty, quota, fail, tool, sleep, hold, write) and options.
 - `calls.jsonl` gets one line per call: argv, environment, stdin, working directory and its listing, process group,
   session, and the prompt as the engine saw it.
 
-Card replies are built from the items in the prompt, so each card names its own document's path; a reply that swaps
-ids is therefore visible in what gets written.
+Card replies are built from the items in the prompt: each card names its own document's path and carries the first
+run of four or more digits in that document's text, so a reply that swaps ids or crosses contents is visible in what
+gets written. Options change that: `swap` (two ids exchanged, cards in place), `cross` (contents rotated, ids and
+order intact), `reorder` (a correct reply in reverse order), `drop`, `extra`, `invalid`, `suffix`.
 """
 import json
 import os
@@ -18,11 +20,14 @@ import stat
 import sys
 
 FAKE = r'''#!%(python)s
-import json, os, subprocess, sys, time
+import json, os, re, subprocess, sys, time
 STATE = %(state)r
 ENGINE = %(engine)r
 HEARTBEAT = ("import sys, time\nfor _ in range(100):\n"
-             "    open(sys.argv[1], 'w').write(repr(time.time()))\n    time.sleep(0.1)\n")
+             "    with open(sys.argv[1], 'w') as f:\n        f.write(repr(time.time()))\n    time.sleep(0.1)\n")
+HOLDER = ("import os, sys, time\nos.setsid()\n"
+          "with open(sys.argv[2] + '.tmp', 'w') as f:\n    f.write(str(os.getpid()))\n"
+          "os.replace(sys.argv[2] + '.tmp', sys.argv[2])\ntime.sleep(float(sys.argv[1]))\n")
 
 
 def load(name, default):
@@ -41,19 +46,30 @@ def items_in(prompt):
 
 
 def card(it, r):
+    nums = re.findall(r"\d{4,}", it.get("text", ""))[:1]
     return {"id": it["id"], "doc_type": "Letter", "party": "Alex", "parties": [], "doc_date": "",
-            "title": "Card of " + it["path"], "summary": "About " + it["path"] + "." + r.get("suffix", ""),
-            "key_facts": {"dates": [], "amounts": [], "reference_numbers": []}, "category": "Other",
-            "language": "en", "sensitive": False, "confidence": "high", "look": "", "proposed_name": ""}
+            "title": "Card of " + it["path"],
+            "summary": "About " + it["path"] + "." + "".join(" Ref " + n + "." for n in nums) + r.get("suffix", ""),
+            "key_facts": {"dates": [], "amounts": [], "reference_numbers": ["ref " + n for n in nums]},
+            "category": "Other", "language": "en", "sensitive": False, "confidence": "high", "look": "",
+            "proposed_name": ""}
 
 
 def answer(prompt, r):
-    """The reply text for a text-like kind: cards for a card prompt, notes for a section prompt, else r["text"]."""
+    """The reply text for a text-like kind: cards for a card prompt, notes for a section prompt, pages for a vision
+    prompt, else r["text"]."""
     items = items_in(prompt)
     if items is not None:
         cards = [card(it, r) for it in items]
         if r.get("swap") and len(cards) >= 2:
             cards[0]["id"], cards[1]["id"] = cards[1]["id"], cards[0]["id"]
+        if r.get("cross") and len(cards) >= 2:
+            ids = [c["id"] for c in cards]
+            cards = cards[1:] + cards[:1]
+            for c, i in zip(cards, ids):
+                c["id"] = i
+        if r.get("reorder"):
+            cards = cards[::-1]
         if r.get("drop") and len(cards) >= 2:
             cards.pop()
         if r.get("extra"):
@@ -86,7 +102,10 @@ def main():
     else:
         prompt = raw
     calls = os.path.join(STATE, "calls.jsonl")
-    n = sum(1 for _ in open(calls, encoding="utf-8")) if os.path.exists(calls) else 0
+    n = 0
+    if os.path.exists(calls):
+        with open(calls, encoding="utf-8") as f:
+            n = sum(1 for _ in f)
     sc = load("scenario.json", {})
     r = (sc.get("replies") or [])[n] if n < len(sc.get("replies") or []) else sc.get("default", {"kind": "text"})
     cwd = os.getcwd()
@@ -105,12 +124,26 @@ def main():
             time.sleep(0.02)
         time.sleep(r.get("seconds", 8))
         return 0
+    if kind == "hold":
+        # a grandchild that leaves the process group (setsid) but keeps the inherited stdout and stderr open
+        pid_file = os.path.join(STATE, "holder.pid")
+        subprocess.Popen([sys.executable, "-c", HOLDER, str(r.get("hold", 10)), pid_file], stdin=subprocess.DEVNULL)
+        while not os.path.exists(pid_file):
+            time.sleep(0.02)
+        time.sleep(r.get("seconds", 8))
+        return 0
     if kind == "write":
         home = os.environ.get("HOME" if ENGINE == "agy" else "CODEX_HOME", "")
         target = os.path.join(home, r["name"])
         os.makedirs(os.path.dirname(target), exist_ok=True)
         with open(target, "w") as f:
             f.write("{}")
+    if r.get("bad_bytes"):
+        sys.stdout.flush()
+        sys.stdout.buffer.write(b"\xff\xfe not utf-8 \x80\n")
+        sys.stdout.buffer.flush()
+        sys.stderr.buffer.write(b"warning \xff\xfe\n")
+        sys.stderr.buffer.flush()
     text = "" if kind in ("empty", "quota", "fail") else answer(prompt, r)
     return agy(r, kind, text) if ENGINE == "agy" else codex(r, kind, text)
 
@@ -122,6 +155,8 @@ def agy(r, kind, text):
         if r.get("result_error") is not None:
             print(json.dumps({"event": "result", "result": {"status": "ERROR", "error": r["result_error"]}}))
         return r.get("rc", 1)
+    for ev in r.get("events", []):
+        print(json.dumps(ev))
     print(json.dumps({"event": "message", "message": {"role": "assistant", "content": text}}))
     result = {"status": "SUCCESS", "response": text, "usage": usage}
     if r.get("denied"):
@@ -147,8 +182,8 @@ def codex(r, kind, text):
         print(json.dumps({"type": "item.completed", "item": tool}))
     print(json.dumps({"type": "item.completed", "item": {"id": "item_2", "type": "agent_message", "text": text}}))
     print(json.dumps({"type": "turn.completed", "usage": r.get("usage", {"input_tokens": 100, "output_tokens": 20})}))
-    with open(out, "w", encoding="utf-8") as f:
-        f.write(text)
+    with open(out, "wb") as f:
+        f.write(text.encode("utf-8") + (b" \xff" if r.get("bad_bytes") else b""))
     return r.get("rc", 0)
 
 
@@ -194,23 +229,32 @@ class Fakes:
         if os.path.exists(p):
             os.remove(p)
 
-    def heartbeat(self, engine):
-        p = os.path.join(self.state[engine], "heartbeat")
+    def read_state(self, engine, name):
+        p = os.path.join(self.state[engine], name)
         if not os.path.exists(p):
             return None
         with open(p, encoding="utf-8") as f:
             return f.read()
 
+    def heartbeat(self, engine):
+        return self.read_state(engine, "heartbeat")
+
 
 def tool_env(base, fakes, **extra):
-    """The environment a tool under test runs with: the fakes first on PATH, HOME and TMPDIR in temp folders, and
-    API keys set (fake values) so their removal can be checked."""
+    """The environment a tool under test runs with: the fakes first on PATH, HOME and TMPDIR in temp folders, secrets
+    set (fake values) so their removal can be checked, and ResourceWarning an error in every Python child."""
     home, tmp = os.path.join(base, "home"), os.path.join(base, "tmp")
     os.makedirs(home, exist_ok=True)
     os.makedirs(tmp, exist_ok=True)
     env = {"PATH": fakes.bin + os.pathsep + os.environ.get("PATH", "/usr/bin:/bin"), "HOME": home, "TMPDIR": tmp,
-           "LANG": "C.UTF-8", "OPENAI_API_KEY": "sk-fake-not-a-key", "GEMINI_API_KEY": "fake-not-a-key",
-           "ANTHROPIC_API_KEY": "fake-not-a-key", "GOOGLE_API_KEY": "fake-not-a-key",
-           "OTHERVENDOR_API_KEY": "fake-not-a-key"}
+           "LANG": "C.UTF-8", "PYTHONWARNINGS": "error::ResourceWarning"}
+    env.update(SECRETS)
     env.update(extra)
     return env
+
+
+# every one of these must be kept from both engines (fake values, never real ones)
+SECRETS = {"OPENAI_API_KEY": "sk-fake-not-a-key", "GEMINI_API_KEY": "fake", "ANTHROPIC_API_KEY": "fake",
+           "GOOGLE_API_KEY": "fake", "OTHERVENDOR_API_KEY": "fake", "GOOGLE_APPLICATION_CREDENTIALS": "/nowhere.json",
+           "CLOUDSDK_AUTH_ACCESS_TOKEN": "fake", "ANTHROPIC_AUTH_TOKEN": "fake", "AWS_SECRET_ACCESS_KEY": "fake",
+           "SERVICE_CLIENT_SECRET": "fake", "OPENAI_BASE_URL": "http://127.0.0.1:9/", "Mixed_Case_Api_Key": "fake"}

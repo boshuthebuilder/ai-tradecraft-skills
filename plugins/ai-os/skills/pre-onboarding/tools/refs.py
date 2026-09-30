@@ -20,7 +20,8 @@ import cards as C  # noqa: E402
 import common  # noqa: E402
 
 TRUNC = re.compile(r"…\s?([A-Za-z0-9]{2,4})(?![A-Za-z0-9])")
-TRUNC_REF = re.compile(r"(?:…\s?|\.\.\.\s?|\*{2,}\s*|[xX]{3,}\s*|(?i:ending(?: in)?|ends(?: in)?|last 4(?: digits)?:?)\s+)"
+TRUNC_REF = re.compile(r"(?:…\s?|\.\.\.\s?|\*{2,}\s*|[xX]{3,}\s*|"
+                       r"(?i:ending(?: in)?|ends(?: in)?|last 4(?: digits)?:?)\s+)"
                        r"([A-Za-z0-9]{2,4})(?![A-Za-z0-9])")
 CAND = re.compile(r"(?<![A-Za-z0-9])([A-Za-z]{0,3}\d(?:\d|[ \-/](?=\d)){3,34}|[A-Z0-9]{5,24})(?![A-Za-z0-9])")
 
@@ -46,7 +47,7 @@ def main():
     stats = collections.Counter()
     redo = []
     for f in sorted(glob.glob(os.path.join(cards_dir, "*.json"))):
-        c = json.load(open(f, encoding="utf-8"))
+        c = C.load_json(f)
         eid = c["id"]
         body = json.dumps({k: v for k, v in c.items() if k not in ("id", "card_meta")}, ensure_ascii=False)
         refs_blob = json.dumps((c.get("key_facts") or {}).get("reference_numbers") or [], ensure_ascii=False)
@@ -54,7 +55,7 @@ def main():
                 any(re.search(r"\d", m.group(1)) for m in TRUNC_REF.finditer(refs_blob))):
             continue
         stats["cards_with_truncation"] += 1
-        src = C.full_text(json.load(open(os.path.join(extract_dir, eid + ".json"), encoding="utf-8")))
+        src = C.full_text(C.load_json(os.path.join(extract_dir, eid + ".json")))
         by_core = {}
         for m in CAND.finditer(src):
             by_core.setdefault(core(m.group(1)), m.group(1).strip())

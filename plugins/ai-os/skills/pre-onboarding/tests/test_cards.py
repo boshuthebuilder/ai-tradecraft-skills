@@ -92,11 +92,17 @@ class BudgetAndSchemaTest(unittest.TestCase):
         self.assertEqual(common.est_tokens(""), 0)
 
     def test_the_card_fields_agree_across_both_schemas(self):
+        items = []
         for name in ("card.json", "card_codex.json"):
             with open(os.path.join(TOOLS, "schemas", name), encoding="utf-8") as f:
                 item = json.load(f)["properties"]["items"]["items"]
-            self.assertEqual(item["required"], cards.KEYS, name)
-            self.assertEqual(list(item["properties"]), cards.KEYS, name)
+            self.assertEqual(item["required"], list(item["properties"]), name)
+            items.append(item)
+        agy, codex = items
+        self.assertEqual(agy["required"], codex["required"])
+        for key, prop in agy["properties"].items():
+            self.assertEqual(prop["type"], codex["properties"][key]["type"], key)
+        self.assertEqual(cards.CARD_SCHEMA, agy)
 
     def test_a_complete_card_is_valid(self):
         c = card_for("d1", notes="an extra field is allowed")
@@ -189,6 +195,73 @@ class JoinTest(unittest.TestCase):
                              CATEGORIES, None, self.cwd)
 
 
+class SiblingFactsTest(unittest.TestCase):
+    """call_chunk: a card carrying a fact (4+ digits, or a key fact) from a sibling's source, not its own, is a
+    crossed card: the chunk is rejected even though ids and order are intact."""
+
+    ITEMS = [{"id": eid(path), "path": path, "class": "document", "page_count": 1, "read": "text_layer",
+              "text": text} for path, text in [
+                  ("02 Finance/Statement.pdf", "Statement for account 55501234, period 2024-03."),
+                  ("03 Home/Council tax.pdf", "Council tax bill, reference 77709876, sort 20-00-00."),
+                  ("02 Finance/Receipt 2024-05.pdf", "Receipt, no numbers here.")]]
+
+    def setUp(self):
+        self.cwd = tempfile.mkdtemp(prefix="facts_test_")
+        self.addCleanup(shutil.rmtree, self.cwd, True)
+
+    def join(self, mangle):
+        return cards.call_chunk(StubEngine(mangle), "I", self.ITEMS, CATEGORIES, None, self.cwd)
+
+    def test_crossed_contents_are_rejected(self):
+        def cross(cs):
+            cs[0]["summary"], cs[1]["summary"] = "Council tax, reference 77709876.", "Account 55501234."
+            return cs
+
+        def crossed_key_fact(cs):
+            cs[2]["key_facts"]["reference_numbers"] = ["reference 77709876"]
+            return cs
+
+        def crossed_date(cs):
+            cs[1]["key_facts"]["dates"] = ["period 2024-03"]
+            return cs
+
+        def crossed_short_digits(cs):
+            cs[0]["key_facts"]["reference_numbers"] = ["sort 20-00-00"]  # no run of four digits: the key fact alone
+            return cs
+        for name, mangle in (("digits", cross), ("a key fact", crossed_key_fact), ("a dated key fact", crossed_date),
+                             ("a key fact without four digits in a row", crossed_short_digits)):
+            with self.subTest(name):
+                with self.assertRaisesRegex(ValueError, "from d\\d's source"):
+                    self.join(mangle)
+
+    def test_facts_of_its_own_or_of_nobody_are_accepted(self):
+        def own(cs):
+            cs[0]["key_facts"]["reference_numbers"] = ["account 55501234"]
+            cs[0]["summary"] = "Statement for account 55501234."
+            return cs
+
+        def nobody(cs):
+            cs[2]["summary"] = "Receipt from 2019, total 4999."
+            return cs
+
+        def from_its_path(cs):
+            cs[2]["title"] = "Receipt of May 2024"  # the year is in its own path, and in a sibling's text
+            return cs
+        for name, mangle in (("its own", own), ("nobody's", nobody), ("its own path", from_its_path)):
+            with self.subTest(name):
+                got, _usage = self.join(mangle)
+                self.assertEqual(len(got), 3)
+
+    def test_a_fact_both_sources_carry_is_accepted(self):
+        items = [dict(it, text=it["text"] + " Customer 99990000.") for it in self.ITEMS[:2]]
+
+        def shared(cs):
+            cs[0]["summary"] = cs[1]["summary"] = "Customer 99990000."
+            return cs
+        got, _usage = cards.call_chunk(StubEngine(shared), "I", items, CATEGORIES, None, self.cwd)
+        self.assertEqual(len(got), 2)
+
+
 class RunItemsTest(unittest.TestCase):
     """run_items: a rejected chunk is retried, then halved, and never applied in part."""
 
@@ -266,6 +339,7 @@ class CardsCliCase(unittest.TestCase):
         cmd = [sys.executable, os.path.join(TOOLS, "cards.py")] + list(args[:1]) + [
             "--root", self.root, "--work", self.work, "--extract", self.extract, "--out", self.cards] + list(args[1:])
         r = subprocess.run(cmd, capture_output=True, text=True, env=self.env)
+        self.assertNotIn("ResourceWarning", r.stderr, "cards.py left a file or process open")
         return r.returncode, r.stdout, r.stderr
 
     def work_run(self, engine, *extra):
@@ -357,6 +431,33 @@ class WorkTest(CardsCliCase):
                 schema = c["argv"][c["argv"].index("--output-schema" if engine == "codex" else "--json-schema") + 1]
                 self.assertEqual(os.path.basename(schema), "card_codex.json" if engine == "codex" else "card.json")
 
+    def test_a_crossing_engine_is_rejected_and_halved_and_never_written(self):
+        """Ids and order intact, contents crossed: only the sibling-facts check can see it."""
+        a, b = self.two_docs("Rent for the flat, reference 55501234.", "Council tax bill, account 77709876.")
+        self.fakes.script("codex", default={"kind": "text", "cross": True}, watch=self.cards)
+        code, _out, err = self.work_run("codex", "--terms", self.terms)
+        self.assertEqual(code, 0, err)
+        calls = self.fakes.calls("codex")
+        self.assertEqual([item_count(c) for c in calls], [2, 2, 2, 1, 1])
+        self.assertTrue(all(c["watch"] == [] for c in calls), "a card was written mid-batch")
+        self.assertIn("carries a fact from", err)
+        got = self.written()
+        self.assertEqual(got[a]["key_facts"]["reference_numbers"], ["ref 55501234"])
+        self.assertEqual(got[b]["key_facts"]["reference_numbers"], ["ref 77709876"])
+        self.assertEqual(got[a]["title"], "Card of 03 Home/Rent.pdf")
+
+    def test_a_correct_reply_in_another_order_costs_four_more_calls(self):
+        """The order check rejects a reply that is right but reordered; this pins the cost of that decision: for a
+        chunk of two, three rejected calls and two single calls instead of one call."""
+        a, b = self.two_docs()
+        self.fakes.script("codex", default={"kind": "text", "reorder": True})
+        code, _out, err = self.work_run("codex", "--terms", self.terms)
+        self.assertEqual(code, 0, err)
+        self.assertEqual([item_count(c) for c in self.fakes.calls("codex")], [2, 2, 2, 1, 1])
+        got = self.written()
+        self.assertEqual((got[a]["title"], got[b]["title"]),
+                         ("Card of 03 Home/Rent.pdf", "Card of 03 Home/Council tax.pdf"))
+
     def test_a_missing_card_is_rejected_and_halved(self):
         a, b = self.two_docs()
         self.fakes.script("codex", default={"kind": "text", "drop": True}, watch=self.cards)
@@ -405,6 +506,31 @@ class ContaminationTest(CardsCliCase):
         code, _out, err = self.work_run("codex", "--terms", self.terms)
         self.assertEqual(code, 3, err)
         self.assertIn("ALERT present", err)
+
+    def test_redo_counts_an_id_only_once_its_card_is_written(self):
+        ids = self.docs("Rent paid to Zarnwick Farm.", "Council tax bill.")
+        self.fakes.script("codex", default={"kind": "text"})
+        code, _out, err = self.work_run("codex", "--terms", self.terms)
+        self.assertEqual(code, 0, err)
+        redo = os.path.join(self.tmp, "redo.txt")
+        write(redo, ids[1] + "\n")
+        done = os.path.join(self.work, "state", "redo_done_0.txt")
+        self.fakes.script("codex", default={"kind": "text", "suffix": " Seen at Zarnwick Farm."})
+        code, _out, err = self.work_run("codex", "--terms", self.terms, "--redo", redo)
+        self.assertEqual(code, 2, err)
+        self.assertIn("contamination", err)
+        self.assertNotIn(ids[1], read(done) if os.path.exists(done) else "", "an alerted id was recorded as redone")
+        os.remove(os.path.join(self.work, "state", "ALERT"))
+        self.fakes.reset("codex")
+        self.fakes.script("codex", default={"kind": "text"})
+        code, _out, err = self.work_run("codex", "--terms", self.terms, "--redo", redo)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(self.fakes.calls("codex")), 1, "the alerted id was skipped on the next --redo")
+        self.assertEqual(self.written()[ids[1]]["card_meta"]["batch"], "redo_0")
+        self.assertEqual(read(done).split(), [ids[1]])
+        code, _out, err = self.work_run("codex", "--terms", self.terms, "--redo", redo)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(self.fakes.calls("codex")), 1, "a redone id was carded again")
 
     def test_a_term_its_own_source_carries_is_not_an_alert(self):
         ids = self.docs("Rent paid to Zarnwick Farm.", "Council tax for Zarnwick, the farm.")

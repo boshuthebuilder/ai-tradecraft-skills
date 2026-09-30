@@ -46,6 +46,7 @@ class Case(unittest.TestCase):
     def iso(self, *args):
         r = subprocess.run([sys.executable, os.path.join(TOOLS, "isolation.py")] + list(args), capture_output=True,
                            text=True, env=self.env)
+        self.assertNotIn("ResourceWarning", r.stderr, "isolation.py left a file or process open")
         return r.returncode, r.stdout, r.stderr
 
 
@@ -87,19 +88,37 @@ class ScanTest(Case):
         write(os.path.join(d, "sub", "dirty.md"), "Remember the zarnwick farm lease.")
         write(os.path.join(d, "dirty.py"), 'PROMPT = "Other Project notes"')
         write(os.path.join(d, "image.bin"), "Other Project")
+        write(os.path.join(d, "config.toml"), 'developer_instructions = "Mention Zarnwick Farm."\n')
+        write(os.path.join(d, "jobs", "jobs.yaml"), "- id: ingest\n  note: Other Project\n")
+        write(os.path.join(d, "jobs", "clean.yml"), "- id: ingest\n")
         named = os.path.join(self.tmp, "prompt.tmpl")
         write(named, "About 青石湾.")
         out = os.path.join(self.tmp, "gate", "scan.json")
         code, stdout, err = self.iso("scan", "--terms", self.terms, "--path", d, "--path", named, "--out", out)
         self.assertEqual(code, 1, err)
         res = json.loads(stdout)
-        self.assertEqual(res["files_with_terms"], {os.path.join(d, "sub", "dirty.md"): 1,
-                                                   os.path.join(d, "dirty.py"): 1, named: 1})
-        self.assertEqual(res["files_checked"], 4)
+        self.assertEqual(res["files_with_terms"], {"0:" + os.path.join("sub", "dirty.md"): 1, "0:dirty.py": 1,
+                                                   "0:config.toml": 1, "0:" + os.path.join("jobs", "jobs.yaml"): 1,
+                                                   "1:prompt.tmpl": 1})
+        self.assertEqual(res["files_checked"], 7)
+        self.assertNotIn(self.tmp, stdout, "the scan printed an absolute path")
         self.assertIs(res["pass"], False)
         self.assertEqual(json.loads(read(out)), res, "the artefact must match what was printed")
         for term in ("Zarnwick", "Other Project", "青石湾"):
             self.assertNotIn(term, stdout + read(out), "a term was written out")
+
+    def test_a_path_that_carries_a_term_is_masked(self):
+        d = os.path.join(self.tmp, "Zarnwick Farm handover")
+        write(os.path.join(d, "Zarnwick notes", "zarnwick farm.md"), "Rent for Zarnwick Farm.")
+        write(os.path.join(d, "青石湾.md"), "青石湾")
+        out = os.path.join(self.tmp, "gate", "scan.json")
+        code, stdout, err = self.iso("scan", "--terms", self.terms, "--path", d, "--out", out)
+        self.assertEqual(code, 1, err)
+        self.assertEqual(json.loads(stdout)["files_with_terms"],
+                         {"0:" + os.path.join("<term> notes", "<term>.md"): 1, "0:<term>.md": 1})
+        for text in (stdout, read(out)):
+            for form in ("Zarnwick", "zarnwick", "青石湾"):
+                self.assertNotIn(form, text)
 
     def test_a_clean_scan_passes(self):
         d = os.path.join(self.tmp, "prompts")
@@ -156,6 +175,7 @@ class CanaryTest(Case):
         code, res, _stdout, _err = self.canary("codex")
         self.assertEqual(code, 1)
         self.assertEqual((res["hits"], res["pass"]), (1, False))
+        self.assertEqual(res["reply"], "Names: Alex, <term>.", "the artefact must not carry the term")
 
     def test_an_engine_failure_fails_and_is_recorded(self):
         self.fakes.script("codex", default={"kind": "quota", "rc": 1, "message": "usage limit reached"})

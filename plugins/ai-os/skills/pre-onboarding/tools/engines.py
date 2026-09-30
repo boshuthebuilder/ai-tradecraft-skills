@@ -1,13 +1,15 @@
 """Engine adapters for bulk reading: Gemini through the `agy` CLI and ChatGPT through the `codex` CLI.
 
 One login per machine per engine, shared by every project; context is isolated per call, credentials never are.
-Each call runs in a fresh, empty working directory, with the prompt on stdin, tools refused, API keys removed
-from the environment, in its own process group (killed on timeout). Outcomes are typed:
+Each call runs in a fresh, empty working directory, with the prompt on stdin, tools refused, keys, tokens and other
+secrets removed from the environment, in its own process group (killed on timeout, and never waited on for longer
+than KILL_GRACE after that). Output is read as UTF-8, with undecodable bytes replaced. Outcomes are typed:
 
 - `QuotaError` (with `reset_seconds` when the message says when): quota text is detected whatever the exit code,
   and wins over an empty answer.
 - `DegenerateError`: an empty final answer (agy returns one after a denied tool attempt, about 3% of calls).
-- `ToolUseError`: the model used a tool (a codex tool item) or was refused one (an agy denied action); the reply is
+- `ToolUseError`: the model used a tool (a codex tool item, or an agy stream event naming a tool, action, function
+  or call, unless `allow_reads` is set for the vision lane) or was refused one (an agy denied action); the reply is
   discarded.
 - `CredentialError`: a credential-like file in the per-project state folder. It stops the run, not just the call.
 - `SetupError`: the engine cannot run as configured (no binary, no model, a codex schema that is not strict). It
@@ -33,8 +35,26 @@ import time
 import common
 
 KEY_VARS = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY")
-QUOTA_RE = re.compile(r"quota|\b429\b|exhaust|rate.?limit|resource_exhausted|usage limit|too many requests", re.I)
-CRED_RE = re.compile(r"(auth\.json|oauth|token|creds|credential)", re.I)
+# Variables an engine must not inherit: keys, tokens, credentials and secrets (the name's ending decides), and base
+# URLs, which would send the prompt to another endpoint than the one the machine's login belongs to.
+SECRET_VAR_RE = re.compile(r"(_API_KEY|_AUTH_TOKEN|_ACCESS_TOKEN|_CREDENTIALS|_SECRET|_SECRET_ACCESS_KEY|_BASE_URL)$",
+                           re.I)
+QUOTA_RE = re.compile(r"\bquota\b|\b429\b|\bexhausted\b|\brate.?limit|resource_exhausted|usage limit|"
+                      r"too many requests", re.I)
+# Credential stores are judged by file name. A name is one when a word of it (split at . _ - and spaces) is a
+# credential word, or two words form a credential pair, or its extension is a credential store's; notes (.md and
+# the like), public keys and anything about usage are not. So auth.json, oauth_creds.json, access_token.txt,
+# client_secret.json, api_key.txt, .netrc, .env, id_rsa, password.txt and keychain.db are caught, and tokens.json,
+# token_usage.json, tokenizer.json, oauthflow.md and credential_types.md are not.
+CRED_WORDS = {"auth", "oauth", "creds", "credential", "credentials", "secret", "secrets", "token", "password",
+              "passwords", "passwd", "apikey", "netrc", "keychain"}
+CRED_PAIRS = {("api", "key"), ("private", "key"), ("id", "rsa"), ("id", "ed25519"), ("id", "ecdsa"), ("id", "dsa")}
+CRED_EXTS = {".env", ".netrc", ".keychain", ".keychain-db", ".p12", ".pfx"}
+NOT_CRED_EXTS = {".md", ".markdown", ".rst", ".html", ".pub"}
+# agy stream events that show a tool at work: an event type or key naming a tool, action, function or call. The
+# names are a fail-closed guess until the isolation spike (issue #91) records agy's real event names.
+AGY_TOOL_RE = re.compile(r"tool|action|function|call", re.I)
+KILL_GRACE = 5  # seconds to wait for the pipes after killing a timed-out engine's process group
 CODEX_OFF = ["shell_tool", "unified_exec", "shell_snapshot", "memories", "apps", "browser_use",
              "browser_use_external", "computer_use", "in_app_browser", "image_generation", "multi_agent", "plugins",
              "remote_plugin", "code_mode_host", "hooks", "goals", "tool_suggest", "skill_mcp_dependency_install",
@@ -70,10 +90,49 @@ class SetupError(EngineError, common.ToolError):
     """The engine cannot run as configured: the run stops rather than retrying every item."""
 
 
-def is_api_key(name):
-    """An environment variable that carries an API key: the named ones and any other `*_API_KEY`. An engine given
-    one would bill and sign in by key instead of through the machine's one login."""
-    return name in KEY_VARS or name.upper().endswith("_API_KEY")
+def is_secret_var(name):
+    """An environment variable the engine must not see (SECRET_VAR_RE, the named keys, and
+    GOOGLE_APPLICATION_CREDENTIALS). An engine given one could bill, sign in or send the prompt some other way than
+    through the machine's one login."""
+    return (name in KEY_VARS or name.upper() == "GOOGLE_APPLICATION_CREDENTIALS"
+            or SECRET_VAR_RE.search(name) is not None)
+
+
+def is_credential_name(name):
+    """True for a file name shaped like a credential store (see CRED_WORDS above)."""
+    low = name.lower()
+    stem, ext = os.path.splitext(low)
+    if ext in CRED_EXTS or stem == ".env":
+        return True
+    if ext in NOT_CRED_EXTS or "usage" in stem:
+        return False
+    words = [w for w in re.split(r"[^a-z0-9]+", stem) if w]
+    return bool(set(words) & CRED_WORDS) or any(p in CRED_PAIRS for p in zip(words, words[1:]))
+
+
+def tool_events(lines):
+    """The agy stream events (other than the result) whose type or any key names a tool, action, function or
+    call."""
+    def keys(v):
+        if isinstance(v, dict):
+            for k, x in v.items():
+                yield k
+                yield from keys(x)
+        elif isinstance(v, list):
+            for x in v:
+                yield from keys(x)
+    found = []
+    for line in lines:
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(ev, dict):
+            continue
+        kind = "%s %s" % (ev.get("event", ""), ev.get("type", ""))
+        if AGY_TOOL_RE.search(kind) or any(AGY_TOOL_RE.search(str(k)) for k in keys(ev)):
+            found.append(kind.strip() or "event")
+    return found
 
 
 def not_strict(schema, where="$"):
@@ -108,7 +167,7 @@ def reset_seconds(text, now=None):
             hour = hour % 12 + (12 if m.group(3).upper() == "PM" else 0)
         target = time.mktime((t.tm_year, t.tm_mon, t.tm_mday, hour, minute, 0, 0, 0, -1))
         now_s = time.mktime(t)
-        return int(target - now_s if target > now_s else target + 86400 - now_s)
+        return int(target - now_s if target >= now_s else target + 86400 - now_s)
     return None
 
 
@@ -123,7 +182,7 @@ def credential_files(home):
     for d, _ds, fs in os.walk(home):
         for f in fs:
             p = os.path.join(d, f)
-            if CRED_RE.search(f) and os.path.isfile(p) and not os.path.islink(p):
+            if is_credential_name(f) and os.path.isfile(p) and not os.path.islink(p):
                 found.append(os.path.relpath(p, home))
     return found
 
@@ -138,7 +197,7 @@ def _guard(home):
 
 def _run(cmd, stdin, env, cwd, timeout):
     p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd,
-                         env=env, text=True, start_new_session=True)
+                         env=env, encoding="utf-8", errors="replace", start_new_session=True)
     try:
         out, err = p.communicate(stdin, timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -146,21 +205,33 @@ def _run(cmd, stdin, env, cwd, timeout):
             os.killpg(p.pid, signal.SIGKILL)
         except OSError:
             pass
-        p.communicate()
+        try:
+            p.communicate(timeout=KILL_GRACE)
+        except subprocess.TimeoutExpired:
+            pass  # a descendant that left the group (setsid) still holds the pipes; stop waiting for it
+        for pipe in (p.stdin, p.stdout, p.stderr):
+            if pipe:
+                pipe.close()
+        p.wait()
         raise EngineError("timeout after %ss" % timeout)
     return p.returncode, out, err
 
 
 def _env(extra):
-    env = {k: v for k, v in os.environ.items() if not is_api_key(k)}
+    env = {k: v for k, v in os.environ.items() if not is_secret_var(k)}
     env["PATH"] = os.environ.get("PATH", "") + ":" + ":".join(SEARCH)
     env.update(extra)
     return env
 
 
 class Agy:
-    def __init__(self, model, binary=None, state_home=None, timeout=900):
+    """`allow_reads` is for the vision lane only, where the model must open the images in its working folder: tool
+    events are then accepted (plan mode refuses writes and commands, and a denied action still fails the call).
+    Everywhere else any tool-like event in the stream fails the call."""
+
+    def __init__(self, model, binary=None, state_home=None, timeout=900, allow_reads=False):
         self.model, self.bin, self.home, self.timeout = model, find("agy", binary), state_home, timeout
+        self.allow_reads = allow_reads
         if not self.bin:
             raise SetupError("agy not found")
         if not model:
@@ -190,6 +261,9 @@ class Agy:
         ok = bool(result) and result.get("status") == "SUCCESS"
         response = (result.get("response") or "") if ok else ""
         denied = (result or {}).get("denied_actions") or []
+        used = [] if self.allow_reads else tool_events(other)
+        if used:
+            raise ToolUseError("agy stream shows tool use %s; reply discarded" % sorted(set(used))[:5])
         if not response.strip():
             text = ((result or {}).get("error") or "") + " " + blob
             if QUOTA_RE.search(text):
@@ -249,7 +323,7 @@ class Codex:
                 tools.append((ev.get("item") or {}).get("type"))
         text = ""
         if os.path.exists(outf):
-            with open(outf, encoding="utf-8") as f:
+            with open(outf, encoding="utf-8", errors="replace") as f:
                 text = f.read()
             os.remove(outf)
         blob = " ".join(errs) + " " + err[-600:]

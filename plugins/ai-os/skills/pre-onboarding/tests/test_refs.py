@@ -72,6 +72,7 @@ class RefsTest(unittest.TestCase):
         cmd = [sys.executable, os.path.join(TOOLS, "refs.py"), "--root", root or self.root, "--work", self.work,
                "--cards", self.cards, "--extract", self.extract] + list(extra)
         r = subprocess.run(cmd, capture_output=True, text=True, env=self.env)
+        self.assertNotIn("ResourceWarning", r.stderr, "refs.py left a file open")
         return r.returncode, r.stdout, r.stderr
 
     def cards_on_disk(self):

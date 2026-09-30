@@ -1,9 +1,10 @@
 """The vision lane against a fake `agy`: the images alone in a fresh folder, the whole-batch join (every image back,
-in the order sent, or nothing applied), three tries then `unread` with the local text kept, and quota waits that do
-not count as tries.
+in the order sent, or nothing applied), three tries then `unread` with the local text kept, quota waits that do
+not count as tries, the model allowed to open its images, and run-stopping errors that stop the lane.
 
 vision.py polls with `time.sleep(60)`; the runner below replaces `time.sleep` with a no-op in the tool's own process
-so the lane runs to its end at once. Nothing else about the tool changes.
+so the lane runs to its end at once. Nothing else about the tool changes, except in the one test that makes the
+engine raise a run-stopping error, which it does by replacing the adapter's call in that same process.
 
     python3 -m unittest discover plugins/ai-os/skills/pre-onboarding/tests
 """
@@ -20,12 +21,19 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TOOLS = os.path.join(HERE, "..", "tools")
 VISION = os.path.join(TOOLS, "vision.py")
 sys.path.insert(0, HERE)
-from fake_engines import Fakes, tool_env  # noqa: E402
+from fake_engines import SECRETS, Fakes, tool_env  # noqa: E402
 
 RUNNER = ("import runpy, sys, time\n"
           "time.sleep = lambda seconds: None\n"
-          "sys.argv = sys.argv[1:]\n"
-          "runpy.run_path(sys.argv[0], run_name='__main__')\n")
+          "if sys.argv[1] != '-':\n"
+          "    sys.path.insert(0, %r)\n"
+          "    import engines\n"
+          "    error = getattr(engines, sys.argv[1])\n"
+          "    def stop(self, *args, **kwargs):\n"
+          "        raise error('a run-stopping error from the engine adapter')\n"
+          "    engines.Agy.__call__ = stop\n"
+          "sys.argv = sys.argv[2:]\n"
+          "runpy.run_path(sys.argv[0], run_name='__main__')\n") % os.path.realpath(TOOLS)
 
 
 def read(path, mode="r"):
@@ -50,28 +58,30 @@ class VisionTest(unittest.TestCase):
         self.fakes = Fakes(self.tmp)
         self.env = tool_env(self.tmp, self.fakes)
         write(os.path.join(self.work, "state", "extraction.done"), "done")
-        self.id = hashlib.sha256(b"01 Identity/Scan.pdf").hexdigest()
+        self.eid = hashlib.sha256(b"01 Identity/Scan.pdf").hexdigest()
         self.queue = os.path.join(self.work, "vision_queue")
         for n in (1, 2):
-            write(os.path.join(self.queue, "%s_%05d.png" % (self.id, n)), b"\x89PNG fake page %d" % n)
-        rec = {"id": self.id, "path": "01 Identity/Scan.pdf", "class": "document", "status": "needs_vision",
+            write(os.path.join(self.queue, "%s_%05d.png" % (self.eid, n)), b"\x89PNG fake page %d" % n)
+        rec = {"id": self.eid, "path": "01 Identity/Scan.pdf", "class": "document", "status": "needs_vision",
                "page_count": 3, "tiers": {"pending_vision": 2, "text_layer": 1},
                "pages": [{"n": 1, "tier": "pending_vision", "text": "local one", "queued": True},
                          {"n": 2, "tier": "pending_vision", "text": "local two", "queued": True},
                          {"n": 3, "tier": "text_layer", "text": "typed page"}]}
-        write(os.path.join(self.out, self.id + ".json"), json.dumps(rec))
+        write(os.path.join(self.out, self.eid + ".json"), json.dumps(rec))
 
-    def vision(self):
-        cmd = [sys.executable, "-c", RUNNER, VISION, "--root", self.root, "--work", self.work, "--out", self.out,
-               "--model", "vision-model", "--lanes", "extraction"]
+    def vision(self, stop_with="-"):
+        cmd = [sys.executable, "-c", RUNNER, stop_with, VISION, "--root", self.root, "--work", self.work,
+               "--out", self.out, "--model", "vision-model", "--lanes", "extraction"]
         r = subprocess.run(cmd, capture_output=True, text=True, env=self.env, timeout=120)
+        self.assertNotIn("ResourceWarning", r.stderr, "vision.py left a file or process open")
         return r.returncode, r.stdout, r.stderr
 
     def record(self):
-        return json.loads(read(os.path.join(self.out, self.id + ".json")))
+        return json.loads(read(os.path.join(self.out, self.eid + ".json")))
 
     def test_a_good_reply_replaces_the_local_text(self):
-        self.fakes.script("agy", default={"kind": "text"})
+        # the model opening its images shows as a tool event; only the vision lane accepts that
+        self.fakes.script("agy", default={"kind": "text", "events": [{"event": "tool_call", "name": "view_file"}]})
         code, _out, err = self.vision()
         self.assertEqual(code, 0, err)
         r = self.record()
@@ -88,7 +98,7 @@ class VisionTest(unittest.TestCase):
         argv = call["argv"]
         self.assertEqual(argv[argv.index("--model") + 1], "vision-model")
         self.assertEqual(os.path.basename(argv[argv.index("--json-schema") + 1]), "ocr.json")
-        self.assertEqual(sorted(k for k in call["env"] if k.endswith("_API_KEY")), [])
+        self.assertEqual(sorted(set(SECRETS) & set(call["env"])), [])
         self.assertEqual(os.listdir(self.env["TMPDIR"]), [], "the call's folder was left behind")
         self.assertTrue(os.path.exists(os.path.join(self.work, "state", "vision0.done")))
 
@@ -120,6 +130,20 @@ class VisionTest(unittest.TestCase):
         self.assertEqual(len(self.fakes.calls("agy")), 2)
         self.assertEqual([p["tier"] for p in self.record()["pages"]], ["vision", "vision", "text_layer"])
         self.assertEqual(json.loads(read(os.path.join(self.work, "state", "vision_tries_0.json"))), {})
+
+    def test_a_run_stopping_error_stops_the_lane_and_is_not_a_try(self):
+        for error in ("CredentialError", "SetupError"):
+            with self.subTest(error):
+                self.setUp()
+                before = self.record()
+                code, _out, err = self.vision(stop_with=error)
+                self.assertEqual(code, 2, err)
+                self.assertIn("error: a run-stopping error", err)
+                self.assertEqual(self.record(), before, "the record changed")
+                self.assertEqual(len(os.listdir(self.queue)), 2, "the queue was drained")
+                self.assertFalse(os.path.exists(os.path.join(self.work, "state", "vision_tries_0.json")),
+                                 "a run-stopping error was counted as a try")
+                self.assertEqual(os.listdir(self.env["TMPDIR"]), [], "the call's folder was left behind")
 
 
 if __name__ == "__main__":

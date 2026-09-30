@@ -50,17 +50,22 @@ def main():
     os.makedirs(state, exist_ok=True)
     wi, wn = [int(x) for x in a.worker.split("/")]
     log = common.logger(work, "vision%d" % wi)
-    agy = engines.Agy(a.model)
+    agy = engines.Agy(a.model, allow_reads=True)  # the one caller that lets the model open files (its images)
     tries_p = os.path.join(state, "vision_tries_%d.json" % wi)
-    tries = collections.Counter(json.load(open(tries_p)) if os.path.exists(tries_p) else {})
     alert = os.path.join(state, "ALERT")
+
+    def load_json(p):
+        with open(p, encoding="utf-8") as f:
+            return json.load(f)
+
+    tries = collections.Counter(load_json(tries_p) if os.path.exists(tries_p) else {})
 
     def extraction_finished():
         return all(os.path.exists(os.path.join(state, n + ".done")) for n in a.lanes.split(","))
 
     def load(eid):
         p = os.path.join(out, eid + ".json")
-        return json.load(open(p, encoding="utf-8")) if os.path.exists(p) else None
+        return load_json(p) if os.path.exists(p) else None
 
     idle = 0
     while True:
@@ -109,6 +114,9 @@ def main():
             shutil.rmtree(d, True)
             time.sleep(wait)
             continue
+        except common.ToolError:
+            shutil.rmtree(d, True)
+            raise  # a credential file or a setup problem stops the lane; it is not a failed try
         except (engines.EngineError, ValueError) as ex:
             log("batch failed: %s" % str(ex)[:200])
             for f in ready:
@@ -145,10 +153,12 @@ def main():
                 os.remove(os.path.join(queue, f))
             except OSError:
                 pass
-        json.dump(tries, open(tries_p, "w"))
+        with open(tries_p, "w", encoding="utf-8") as f:
+            json.dump(tries, f)
         log("batch %d images %s" % (len(ready), "ok" if got is not None else "FAILED"))
     log("finished")
-    open(os.path.join(state, "vision%d.done" % wi), "w").write(common.now_local())
+    with open(os.path.join(state, "vision%d.done" % wi), "w", encoding="utf-8") as f:
+        f.write(common.now_local())
     return 0
 
 

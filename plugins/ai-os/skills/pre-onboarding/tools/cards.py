@@ -9,17 +9,28 @@ budget are read section by section into cached notes, then carded from the notes
 `templates/card-instructions.md`, filled from the folder's own settings (people, description, categories,
 identifier policy).
 
-The join is deterministic: each call issues short ids (d1, d2, ...) for the items it sends. The reply's ids must be
-exactly the ids sent, in the order sent (the instructions ask for that order, and two cards whose ids were swapped
-can only be caught by their position), with every card meeting the card schema (schemas/card.json). Otherwise the
-chunk is retried, then halved, and never applied in part. Every item of a chunk that still fails is
+The join is deterministic: each call issues short ids (d1, d2, ...) for the items it sends, and a reply is applied
+only when it passes three checks, each catching something different:
+
+- Ids: the reply's ids are exactly the ids sent, in the order sent. This catches a missing, extra, duplicated or
+  unknown id, and two ids swapped while the cards stay in place. It also rejects a correct reply in another order
+  (the instructions ask for the order sent), which costs a retry of the chunk.
+- Schema: every card meets the card schema (schemas/card.json).
+- Sibling facts: no card carries a fact (a run of four or more digits, or a key_facts entry) that is in another
+  item's source (its path and text) but not in its own. This catches cards whose contents were crossed while the ids
+  and their order stayed intact, when the documents carry such distinguishing facts. Crossing between documents with
+  nothing distinguishing is not caught by any deterministic check.
+
+Otherwise the chunk is retried, then halved, and never applied in part. Every item of a chunk that still fails is
 recorded in <work>/state/card_err_<id>.txt. Before any card of a batch is written, the contamination guard checks
 them all: a term from the operator's isolation list that a card names but its own source text does not carry
-writes <work>/state/ALERT, writes none of them and stops every worker.
+writes <work>/state/ALERT, writes none of them and stops every worker. With --redo, an id counts as redone only once
+its card is written.
 """
 import glob
 import json
 import os
+import re
 import shutil
 import sys
 import time
@@ -30,10 +41,9 @@ import engines  # noqa: E402
 import isolation  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-KEYS = ["id", "doc_type", "party", "parties", "doc_date", "title", "summary", "key_facts", "category",
-        "language", "sensitive", "confidence", "look", "proposed_name"]
 FINAL = {"ok", "partial", "blank", "photo", "listed", "no_reader", "failed"}
 TYPES = {"object": dict, "array": list, "string": str, "boolean": bool}
+DIGITS = re.compile(r"\d{4,}")
 SECTION_PROMPT = """You are reading one section of a long document from a private archive, to help write a
 catalogue card for the whole document later. Document path: {path}. This is section {k} of {n}.
 Reply directly with JSON only: {{"notes": "..."}} where notes (at most 200 words, UK English) record what this
@@ -42,6 +52,16 @@ is and why it is in this folder. {identifier_rule} Do not create plans or files 
 
 SECTION TEXT:
 {text}"""
+
+
+def load_json(path):
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def read_text(path):
+    with open(path, encoding="utf-8") as f:
+        return f.read()
 
 
 class Budget:
@@ -82,7 +102,7 @@ def identifier_rule(rb):
 def instructions(rb):
     people = "\n".join("- %s (also: %s): %s" % (p.get("name"), ", ".join(p.get("also", [])) or "none",
                                                   p.get("who", "")) for p in rb["people"]) or "- none recorded"
-    t = open(os.path.join(HERE, "templates", "card-instructions.md"), encoding="utf-8").read()
+    t = read_text(os.path.join(HERE, "templates", "card-instructions.md"))
     return t.format(folder_description=rb["folder_description"] or "No description recorded.", people=people,
                     categories=", ".join(rb["card_categories"]), identifier_rule=identifier_rule(rb))
 
@@ -101,7 +121,7 @@ class Run:
         self.budget = Budget(a)
 
     def record(self, eid):
-        return json.load(open(os.path.join(self.extract, eid + ".json"), encoding="utf-8"))
+        return load_json(os.path.join(self.extract, eid + ".json"))
 
     def payload(self, eid, text_override=None):
         r = self.record(eid)
@@ -114,7 +134,7 @@ def build(a):
     b = run.budget
     os.makedirs(run.batches, exist_ok=True)
     planned = {it["id"] for f in glob.glob(os.path.join(run.batches, "*.json"))
-               for it in json.load(open(f, encoding="utf-8"))["items"]}
+               for it in load_json(f)["items"]}
     buckets = {0: [], 1: [], 2: [], 3: []}
     waiting = 0
     for f in sorted(os.listdir(run.extract)):
@@ -123,7 +143,7 @@ def build(a):
         eid = f[:-5]
         if eid in planned or os.path.exists(os.path.join(run.cards, eid + ".json")):
             continue
-        r = json.load(open(os.path.join(run.extract, f), encoding="utf-8"))
+        r = load_json(os.path.join(run.extract, f))
         if r.get("status") not in FINAL:
             waiting += 1
             continue
@@ -136,7 +156,8 @@ def build(a):
         cur, cur_chars = [], 0
         for it in sorted(buckets[bk], key=lambda x: x["id"]) + [None]:
             flush = it is None or (it["chars"] <= b.small_chars and cur and (
-                len(cur) >= (b.textless_batch if bk == 1 else b.batch_items) or cur_chars + it["chars"] > b.batch_chars))
+                len(cur) >= (b.textless_batch if bk == 1 else b.batch_items)
+                or cur_chars + it["chars"] > b.batch_chars))
             if flush and cur:
                 common.Writer().json(os.path.join(run.batches, "%d_%05d.json" % (bk, seq)),
                                      {"bucket": bk, "mode": "group", "items": cur})
@@ -186,8 +207,32 @@ def validate(card, categories):
     return card
 
 
+def facts(card):
+    """What a card states that can be checked against a source: its runs of four or more digits (outside its id)
+    and its key_facts entries."""
+    found = set(DIGITS.findall(json.dumps({k: v for k, v in card.items() if k != "id"}, ensure_ascii=False)))
+    for v in (card.get("key_facts") or {}).values():
+        found.update(x for x in v if isinstance(x, str) and x.strip())
+    return found
+
+
+def crossed(cards, items):
+    """(short id, sibling short id) for the first card carrying a fact that a sibling item's source has and its own
+    lacks, else None. A source is the item's path and text: the model saw both."""
+    sources = {k: "%s\n%s" % (it.get("path", ""), it.get("text", "")) for k, it in items.items()}
+    for k, c in cards.items():
+        for f in sorted(facts(c)):
+            if f in sources[k]:
+                continue
+            sibling = next((j for j, s in sources.items() if j != k and f in s), None)
+            if sibling:
+                return k, sibling
+    return None
+
+
 def call_chunk(engine, instr, items, categories, schema, cwd):
-    """One call for `items`. Returns {real id: card} only when the reply covers exactly the ids sent."""
+    """One call for `items`. Returns {real id: card} only when the reply passes the three checks in the module
+    docstring: ids, schema and sibling facts."""
     short = {"d%d" % (i + 1): it for i, it in enumerate(items)}
     sent = [dict(it, id=k) for k, it in short.items()]
     prompt = engines.NO_TOOLS + instr + "\n\nInput items (JSON, %d items):\n" % len(sent) + json.dumps(
@@ -200,12 +245,18 @@ def call_chunk(engine, instr, items, categories, schema, cwd):
     ids = [c.get("id") if isinstance(c, dict) else None for c in arr]
     if ids != list(short):
         raise ValueError("reply ids %s are not the ids sent, in order (%s)" % (ids[:8], list(short)[:8]))
-    out = {}
+    checked = {}
     for c in arr:
         card = validate(dict(c), categories)
         if card is None:
             raise ValueError("invalid card for %s: %s" % (c["id"], "; ".join(schema_problems(c, CARD_SCHEMA)[:3])))
-        card["id"] = short[c["id"]]["id"]
+        checked[c["id"]] = card
+    hit = crossed(checked, short)
+    if hit:
+        raise ValueError("card %s carries a fact from %s's source that its own source lacks" % hit)
+    out = {}
+    for k, card in checked.items():
+        card["id"] = short[k]["id"]
         out[card["id"]] = card
     return out, usage
 
@@ -323,21 +374,30 @@ def work(a):
     instr = instructions(run.rb)
     run.writer.makedirs(run.cards)
     if a.redo:
-        ids = [l.strip() for l in open(a.redo) if l.strip()]
+        ids = [x.strip() for x in read_text(a.redo).splitlines() if x.strip()]
         batches = [{"name": "redo_%d" % i, "mode": "group", "items": [{"id": x}]} for i, x in enumerate(ids)
                    if i % wn == wi]
         done_p = os.path.join(run.state, "redo_done_%d.txt" % wi)
-        redone = set(l.strip() for l in open(done_p)) if os.path.exists(done_p) else set()
+        redone = {x.strip() for x in read_text(done_p).splitlines()} if os.path.exists(done_p) else set()
 
         def has(e):
             return e in redone
+
+        def written(cards):
+            """Record ids as redone only once write_cards has written their cards."""
+            with open(done_p, "a", encoding="utf-8") as fh:
+                for eid in cards:
+                    fh.write(eid + "\n")
+                    redone.add(eid)
     else:
         files = sorted(glob.glob(os.path.join(run.batches, "*.json")))
-        batches = [dict(json.load(open(f, encoding="utf-8")), name=os.path.basename(f)[:-5])
-                   for i, f in enumerate(files) if i % wn == wi]
+        batches = [dict(load_json(f), name=os.path.basename(f)[:-5]) for i, f in enumerate(files) if i % wn == wi]
 
         def has(e):
             return os.path.exists(os.path.join(run.cards, e + ".json"))
+
+        def written(cards):
+            pass
     for bt in batches:
         if os.path.exists(run.alert):
             log("ALERT present, stopping")
@@ -358,21 +418,18 @@ def work(a):
                     items = [run.payload(e) for e in todo]
                 run_items(run, engine, instr, items, schema, log, sink)
                 write_cards(run, sink, bt["name"], evidence, meta, log)
+                written(sink)
                 todo = []
             except engines.QuotaError as ex:
                 write_cards(run, sink, bt["name"], evidence, meta, log)
+                written(sink)
                 wait = min(5 * 3600, (ex.reset_seconds or (1800 if a.engine == "codex" else 600)) + 90)
                 log("quota on %s; sleeping %d min" % (bt["name"], wait // 60))
                 time.sleep(wait)
                 todo = [e for e in todo if not has(e)]
-            finally:
-                if a.redo:
-                    with open(done_p, "a") as fh:
-                        for eid in sink:
-                            fh.write(eid + "\n")
-                            redone.add(eid)
         log("batch %s mode=%s carded in %.0fs" % (bt["name"], bt["mode"], time.time() - t0))
-    open(os.path.join(run.state, ("redo%d" if a.redo else "cards%d") % wi + ".done"), "w").write(common.now_local())
+    with open(os.path.join(run.state, ("redo%d" if a.redo else "cards%d") % wi + ".done"), "w") as f:
+        f.write(common.now_local())
     log("worker finished")
     return 0
 
