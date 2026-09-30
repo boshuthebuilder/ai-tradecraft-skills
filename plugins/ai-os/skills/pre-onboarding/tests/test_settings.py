@@ -160,7 +160,7 @@ class CompileTest(FixtureCopy):
                          {"professional": "household manager", "deliverable": None, "tone": None,
                           "source": "section"})
         with self.assertRaisesRegex(common.ToolError, "names 3 professionals"):
-            common.page_voice(ws, "20 Finance/20 Finance.md")
+            common.page_voice(ws, "20 Finance/Savings.md")
         with self.assertRaisesRegex(common.ToolError, "no section"):
             common.page_voice(ws, "50 Travel/Trips.md")
 

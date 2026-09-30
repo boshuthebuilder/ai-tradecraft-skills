@@ -610,6 +610,7 @@ class MoveTest(Copy):
                          "20 Finance/20 Finance.md": "20 Finance/Overview.md"}, code=1)
         self.assertEqual((res["dead_links"], res["folders_removed"], res["links_rewritten"]), ([], [], 6))
         self.assertEqual([x[0] for x in res["layout_to_update"]], ["00 Index/00 Index.md", "20 Finance/20 Finance.md"])
+        self.assertEqual(res["schema_rows_to_update"], [["20 Finance/20 Finance.md", "20 Finance/Overview.md"]])
         index = read(self.page("00 Index/Dashboards/Home & Index.md"))
         self.assertIn("[20 Finance](../../20%20Finance/Overview.md)", index)
         self.assertIn("[40 Study](../../40%20Study/40%20Study.md)", index)

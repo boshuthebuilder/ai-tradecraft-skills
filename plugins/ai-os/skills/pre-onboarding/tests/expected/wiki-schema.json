@@ -1,7 +1,7 @@
 {
  "version": 2,
  "schema_path": "Alex Personal Wiki/90 Schema/90 Schema.md",
- "schema_sha256": "b5f1f0b81df3a9f3e7cabe0f8aa96980743d1ffa77e32225b3e38eb51e7694aa",
+ "schema_sha256": "e3bd053f68daaacd0d9c67d75de4e2c107dc9d1d44b50c145e6b4cea9a623322",
  "sections": [
   {
    "number": "00",
@@ -219,6 +219,11 @@
   }
  ],
  "pages": {
+  "20 Finance/20 Finance.md": {
+   "professional": "private banker",
+   "deliverable": "finance overview",
+   "tone": "measured"
+  },
   "20 Finance/Bank accounts.md": {
    "professional": "private banker",
    "deliverable": "accounts schedule",

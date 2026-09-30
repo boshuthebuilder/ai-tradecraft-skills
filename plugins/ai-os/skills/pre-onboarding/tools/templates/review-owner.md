@@ -1,5 +1,5 @@
-<!-- Stage 5, acceptance in the owner's lens. Filled by the coordinating agent: replace every field in braces;
-doubled braces are literal. -->
+<!-- Stage 5, acceptance in the owner's lens. Rendered by `wiki.py review-prompts`, which fills every field in braces
+and drops this comment; doubled braces are literal. -->
 # Owner review: {page}
 
 The acceptance stage of [the core wiki rule](../../../wiki-maintenance/SKILL.md#the-core-wiki-rule) in
@@ -11,6 +11,8 @@ The acceptance stage of [the core wiki rule](../../../wiki-maintenance/SKILL.md#
 {questions}
 
 ## The page
+
+`{page}` in `{wiki_dir}`, as it stands (sha256 `{page_sha256}`):
 
 {page_text}
 
@@ -24,10 +26,11 @@ In the owner's lens, as the rule's *Acceptance* sets it out:
 
 ## Reply
 
-JSON only; the verdict is `accept` or `revise`, and every finding says where on the page it is:
+JSON only. The verdict is `accepted`, or `changes` with at least one finding; every finding says where on the page
+it is. Copy the page's sha256 as given: it ties your verdict to the version you read.
 
 ```json
-{{"page": "{page}", "lens": "owner", "author": "{author_model}", "reviewer": "{reviewer_model}",
- "verdict": "<accept or revise>",
+{{"page": "{page}", "page_sha256": "{page_sha256}", "lens": "owner", "author": "{author_model}",
+ "reviewer": "{reviewer_model}", "verdict": "<accepted or changes>",
  "findings": [{{"where": "<heading or line>", "finding": "<what the reader cannot answer or do>"}}]}}
 ```
