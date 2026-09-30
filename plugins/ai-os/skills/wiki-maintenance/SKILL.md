@@ -35,8 +35,9 @@ whatever your setup declares:
 - optionally a **config / rulebook** for the folder, and an **outbox** for drafts awaiting review.
 - optionally an **audit pair** (`_Audit/manifest.json` + `AUDIT.md`) maintained by the
   folder-curation archetype's `audit` job.
-- the wiki's **rationale** (`_Audit/wiki-rationale.md`) and its **acceptance record**, beside the
-  audit pair (see [the core wiki rule](#the-core-wiki-rule)).
+- the wiki's **rationale** (`_Audit/wiki-rationale.md`) and its **acceptance record**
+  (`_Audit/wiki-acceptance.json`, or as the deployment names it), beside the audit pair (see
+  [the core wiki rule](#the-core-wiki-rule)).
 
 Everything else at the root is the owner's source material. The ingest boundary is an exclusion: read
 everything except the system-owned names.
@@ -79,10 +80,10 @@ create one.)
 
 ## Each page declares its own fields and triggers — the Schema page
 
-A wiki's **Schema page** is its constitution: for every page it records the **purpose**, the **page
-contract** (its reader, the questions it answers in priority order, and the fields it carries), the
-page's **professional**, and the **source documents that trigger an update**. That last list is the
-routing: which page a given kind of source touches. It's the authority when you design or audit the
+A wiki's **Schema page** is its constitution: for every section it records the **purpose**, the
+**page contract** (its reader, the questions it answers in priority order, and the fields it carries)
+and the **source documents that trigger an update**, and for every page its **professional**. The
+trigger list is the routing: which page a given kind of source touches. It's the authority when you design or audit the
 wiki, and you extend it whenever you add a page or a field.
 
 A page's contract is small and explicit. For a person page, its fields might be identity documents
@@ -92,10 +93,8 @@ latest figure?") is answered from the wiki without opening the source. When you 
 source, match it to the right existing section/page using the Schema's trigger table; if you can't see
 the Schema body, route from the section/page names you do have plus the source itself.
 
-The Schema keeps its layout, routing and page contracts, and the page professionals of any section
-with several, in tables with fixed headers. A deployment compiles them into a machine-readable twin
-that records the Schema's hash, so an edited Schema makes the twin stale rather than silently wrong.
-The tables' exact format and the twin are in
+The Schema's layout, routing, page contracts and page professionals are tables with fixed headers,
+compiled into a machine-readable twin; the format, the twin and its staleness rule are
 [`pre-onboarding`'s settings reference](../pre-onboarding/references/settings.md). The Schema is the
 authority; the twin is what code reads.
 
@@ -142,8 +141,8 @@ blend of voices.
 
 ### A page contract for every page type
 
-Every page type has a **page contract** in the Schema (one per section in its tables) before its
-first page is written, drafted by its professional with the owner: **who reads it**, the **questions
+Every section (a page type: the pages of a section share its contract) has a **page contract** in the
+Schema before its first page is written, drafted by its professional with the owner: **who reads it**, the **questions
 they need answered, most important first**, and the **fields every page of the type carries**. The
 page answers its questions in that order, the first in its opening lines
 ([page anatomy](#page-anatomy-and-evidence)), and a required field with no evidence shows as **not on
@@ -184,7 +183,8 @@ a tool, never written by hand**: a deterministic renderer turns the table into t
 prepared folder, `pre-onboarding`'s `wiki.py chart`), so the same data always gives the same block. Where
 the data cannot support a visual (a series of fewer than three points, units or currencies mixed with no
 policy, events without dates), or no renderer is at hand, the page keeps the table or a sentence and
-draws nothing. Which chart kinds render in which editor is `productivity:portable-markdown`'s concern.
+draws nothing. Which chart kinds render in which editor belongs in `productivity:portable-markdown`;
+until it records them, check each kind in the owner's editor before relying on it.
 
 ### History pages
 
@@ -240,8 +240,9 @@ acceptance step.
 
 Every later pass writes a page as its professional and to its contract: an ingest puts a new fact where
 that professional would put it, in their words, and a reconcile that folds or corrects keeps the voice.
-A page created during maintenance gets its professional, and a contract if it is a new type, in the
-Schema before it is written. Changing a page's professional or contract is a Schema change the owner
+A page created during maintenance gets its professional, and a contract if it opens a new section, in
+the Schema before it is written; a pass that cannot take them from the Schema proposes the page rather
+than inventing either. Changing a page's professional or contract is a Schema change the owner
 agrees; the page's rationale block records it and the page is accepted again. No pass blends two voices
 on one page or lets a page slide back into generic prose.
 
@@ -268,15 +269,13 @@ Warning callouts are for evidenced overdue, lapsed or expired states.
 - **Actions are typed** (for example pay, decide, chase, renew, file, book), with owner, evidence,
   amount and due date where known. A missing receipt is a record gap, not a payment action without
   evidence of money due. Keep gaps separate from the owner's to-do list.
-- **Lookup rows come from extracts** for identifiers, figures, dates and statuses; owner assertions
-  and deterministic calendars take their declared precedence. Narrative cannot override those rows.
 
 ### Identifiers, series and derived views
 
 The default identifier policy is `stated`: full wherever supported by evidence. An explicit owner
-restriction may choose `last-four` or `home-only` (full at the subject's home). Store typed identifiers with
-holder, kind, home page, source and document status/dates. Masked source values are unresolved suffixes,
-not full identifiers. A structural derivation needs a declared validator and the original source;
+restriction may choose `last-four` or `home-only` (full at the subject's home). Under the rendering
+profile, store typed identifiers with holder, kind, home page, source and document status/dates.
+Masked source values are unresolved suffixes, not full identifiers. A structural derivation needs a declared validator and the original source;
 never guess from a suffix. Current, superseded and expired documents remain distinct, so an old
 passport does not create a new expiry action. Enrichment evidence and guards follow the architecture;
 test dates, decimal amounts, year prefixes, chart data and cited filenames as exclusions.
@@ -286,8 +285,8 @@ Keep distinct periods or components from one document distinct; deduplicate the 
 Extract stated values faithfully; label computations separately with their input evidence and policy.
 Reject impossible readings with a recorded reason rather than allowing them into totals. Every
 cross-page row carries its date and freshness status, using Schema thresholds. Never combine dates,
-currencies or units without an explicit policy; show a missing policy instead of assuming one. Where
-the Schema declares series, chart only those declared live ([rich pages](#rich-pages)). Assessments
+currencies or units without an explicit policy; show a missing policy instead of assuming one. A declared
+series is charted only while it is declared live; other cited tables follow [rich pages](#rich-pages). Assessments
 may follow the reader's perspective, but parent summaries must agree with children or identify the
 conflicting evidence, and are generated after the children.
 
@@ -366,8 +365,8 @@ adopt **deterministic rendering** for some of its pages, which are then produced
 renderer from structured facts rather than written as body text. (Before every page had a contract,
 this profile was called *contract-driven pages*.) For those pages the Schema adds to the contract:
 the evidence sources of each required lookup field, derived sections, history rules and permitted
-action kinds. Assign each rendered page a declared type. Jobs consume the compiled twin of the
-contracts and report drift; the Schema remains the authority. Unknown types or missing contracts fail
+action kinds. Assign each rendered page a declared render type, finer than its section. Jobs consume
+the compiled twin of the contracts and report drift; the Schema remains the authority. Unknown types or missing contracts fail
 for rendered pages, never fall back to generic prose. Pages outside the profile keep the ordinary body
 output, still written to their contract and in their professional's voice.
 
@@ -377,6 +376,8 @@ consumer that has not adopted it: templates request ordinary `body` in that case
 implement the alternate path before enabling it. Durable extraction and cache rules live in
 [the architecture](../../ARCHITECTURE.md#durable-extracts-for-rendered-wikis-opt-in).
 
+- **Lookup rows come from extracts** for identifiers, figures, dates and statuses; owner assertions
+  and deterministic calendars take their declared precedence. Narrative cannot override those rows.
 - **Owner overlays** are separate dated records: page, asserted fields/status, note, date and speaker.
   They do not add a new page-provenance enum. Render their authority visibly, preserve them across
   rebuilds, and supply them to permitted context. Suppress only actions explicitly settled by the
@@ -406,9 +407,8 @@ This is the spine. For **each** item in the inbox / drop folder:
    filename** (rename a meaningless `Scanned Document.pdf` to something like
    `Finance/Bills/<provider> Statement 2026-05-27.pdf`), keeping the extension. **Never create a new
    top-level folder.** Anything you can't place confidently stays put and is flagged for review.
-   An item that seems to belong to another project is filed or flagged here like any other; moving
-   it out is a migration for the owner to approve, never a filing decision (see *Rules that keep it
-   safe*).
+   An item that seems to belong to another project is still filed or flagged here (see *Rules that
+   keep it safe*).
    **On a filename collision, compare content before renaming:** hash the inbox item against the file
    already at the destination (file-preprocessing keys its whole manifest on content hashes for exactly
    this reason). Identical bytes are a duplicate, not a filing problem — don't file it; log it as a
@@ -424,8 +424,10 @@ This is the spine. For **each** item in the inbox / drop folder:
    page already tracks it: the row in the table that holds its kind, the list it extends, the field or
    line it supersedes — correcting that line, not stacking the newer statement beside it. A source does
    not earn a page, or a section, of its own: **synthesise into the existing page first**, and create a
-   page only when no existing page covers the topic, placed where it fits in the layout, with its
-   professional and contract in the Schema before it is written. Write as the page's professional,
+   page only when no existing page covers the topic, placed where it fits in the layout. Where its
+   section has a contract and names one professional, the page takes them; otherwise (a section naming
+   several professionals, or a page needing a new section) the pass proposes the page for review, naming
+   its professional, and writes it only once the owner agrees the Schema entry. Write as the page's professional,
    to its contract ([the core wiki rule](#the-core-wiki-rule)). **Never open a
    heading named for the run, its date or the batch** (`## <date> ingest`, `## Documents added`): it
    strands the facts below the sections they belong to, where the page's own tables and summaries never

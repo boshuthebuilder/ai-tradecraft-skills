@@ -8,18 +8,12 @@ where a professional mostly serves one or the other, the pages they suit say so.
 
 How to use it:
 
-- **One professional per page.** For each page, pick the professional whose ordinary work product is closest to
-  what the page must be. When two fit, choose the one whose first question is the reader's first question. The
-  librarian proposes; the owner agrees.
-- **A row is a starting point, not a contract.** The page's contract, agreed with the owner in the Schema, sets the
-  reader, the questions in priority order and the fields. The deliverable and tone below go into the Schema's page
-  professionals table as written or adapted, and the first questions are a first draft of the contract's.
-- **Tone only.** The professional sets how the page reads and what it answers first. Facts, sources, identifiers
-  and format rules are the same in every voice, and what a professional knows beyond the folder is labelled as
-  outside knowledge.
-- **Visuals only where the data supports them**, drawn by a tool from the page's own cited table
-  ([rich pages](../SKILL.md#rich-pages)). "bar" and "line" are charts of a series, "pie" a chart of shares,
-  "timeline" a matter's dated events and "gantt" how long something runs.
+- **Choosing.** Pick the professional whose ordinary work product is closest to what the page must be. When two
+  fit, choose the one whose first question is the reader's first question.
+- **A row is a starting point, not a contract.** The deliverable and tone go into the Schema's page professionals
+  table as written or adapted, and the first questions are a first draft of the contract's.
+- **Visuals**, when the data supports them ([rich pages](../SKILL.md#rich-pages)): "bar" and "line" are charts of a
+  series, "pie" a chart of shares, "timeline" a matter's dated events and "gantt" how long something runs.
 - **No row fits?** Name the professional the matter needs (a notary, a land agent, an art registrar) and record
   them in the Schema. The catalogue is a menu, not a limit.
 
@@ -33,16 +27,17 @@ How to use it:
 | Credit controller | A company's customers, invoices issued and money owed to it | aged debtors report; firm, factual | 1. Who owes what, and how overdue is it? 2. What has been chased, and when? 3. Who habitually pays late? | table; bar (debt by age band) |
 | Estate agent or property manager | Property owned or let: title, leases, tenants, service charges, valuations, repairs | property schedule; practical, factual | 1. Who holds the property, and on what terms? 2. What is due: rent, renewal, charges or repairs? 3. What is it worth, and what does it cost to run? | table; gantt (lease terms); line (valuations); bar (running costs) |
 | Facilities manager | A company's premises, equipment, safety certificates and maintenance contracts | premises log; practical, compliance first | 1. Which certificates and inspections are due? 2. Which contracts cover the premises and equipment? 3. What has upkeep cost? | table; gantt (certificate validity); bar (costs by year) |
-| Family solicitor | Wills, powers of attorney, marriage and separation, guardianship, trusts, estates | file note; careful, plain, dated | 1. Which documents are in force, and where are the originals? 2. Who is named in each, and in what role? 3. What should be reviewed, and when? | table; timeline |
+| Private client solicitor | Wills, powers of attorney, trusts, estates and probate | file note; careful, plain, dated | 1. Which documents are in force, and where are the originals? 2. Who is named in each, and in what role? 3. What should be reviewed, and when? | table; timeline |
+| Family solicitor | Marriage and separation, children, guardianship | file note; careful, plain, dated | 1. Which orders and agreements are in force? 2. What is due: payments, contact, reviews? 3. Where are the originals? | table; timeline |
 | Financial planner | The owner's overall position: net worth, goals, protection, how the other money pages fit together | financial plan summary; considered, long-term, plain about trade-offs | 1. What does the owner hold and owe overall? 2. Are the goals funded? 3. Is the protection adequate? | table; pie (assets by kind); line (net worth over time) |
 | GP or health adviser | Health: conditions, medication, appointments, results, vaccinations | patient summary; clinical, calm, measured values with units and reference ranges | 1. What is current: conditions, medication, allergies? 2. What comes next: appointments, repeat prescriptions, screening? 3. How have the results moved over time? | table; line (measured values); timeline (encounters) |
 | HR manager | Employees and household staff: contracts, payroll, leave, right to work | personnel file summary; fair, exact, discreet | 1. Who is employed, and on what terms? 2. What is due: pay, reviews, checks, pension enrolment? 3. What leave and changes are on record? | table; gantt (contract terms); bar (pay by period) |
 | Household manager | The home: utilities, bills, local charges, suppliers, services, repairs | household running sheet; practical, short | 1. Which bills are due, and to whom? 2. Which suppliers and contracts are in place, and until when? 3. What needs fixing or renewing? | table; bar (monthly costs); gantt (contract periods) |
 | Immigration adviser | Passports, visas, residence permits, citizenship, residence and travel history for applications | status summary; exact, cautious, every date stated | 1. What is the current status, and when does it expire? 2. What would the next application need? 3. What residence and travel history is on record? | table; gantt (validity periods); timeline |
 | Insurance broker | Policies: home, contents, motor, travel, life, health, business cover | schedule of cover; plain, precise about limits and exclusions | 1. What is covered, by whom, and until when? 2. What does each policy cost a year? 3. Which claims are open or past? | table; gantt (policy periods); bar (premiums by year) |
-| IT manager | Domains, software licences, subscriptions, devices, service accounts (never passwords) | asset and licence register; terse, exact | 1. What renews when, and at what cost? 2. Who administers each service? 3. Which devices are in use, and by whom? | table; gantt (licence periods); bar (costs) |
+| IT manager | Internet domains, software licences, subscriptions, devices, service accounts (never passwords) | asset and licence register; terse, exact | 1. What renews when, and at what cost? 2. Who administers each service? 3. Which devices are in use, and by whom? | table; gantt (licence periods); bar (costs) |
 | Legal counsel | A company's contracts, disputes, intellectual property and regulatory matters | contract register or legal memo; precise, risk first | 1. What is the company bound to, and until when? 2. Which notice periods and renewals apply? 3. Which disputes or claims are open? | table; gantt (contract terms); timeline |
-| Librarian | Schema, Log, reference and reading collections, archives, closed matters kept as history | catalogue; orderly, neutral, complete | 1. What is held, and where? 2. How is it arranged? 3. What is missing? | table |
+| Librarian | Schema, Log, reference and reading collections, archives with no better desk | catalogue; orderly, neutral, complete | 1. What is held, and where? 2. How is it arranged? 3. What is missing? | table |
 | Management accountant | A company's management accounts: budget against actual, costs, margins | monthly management report; analytical, variances first | 1. How does the period compare with budget? 2. Where are costs moving? 3. What is the margin on each line of business? | table; bar (budget against actual); line (trend) |
 | Pensions adviser | Workplace and personal pensions, state pension entitlement, annuities | pension summary; patient, long-term | 1. Which pensions are held, and with whom? 2. What are they worth, and what is paid in? 3. When can benefits be taken? | table; line (value over time); pie (by scheme) |
 | Personal assistant | People and contacts, correspondence, memberships, subscriptions, errands | contact sheet and follow-up list; warm, efficient | 1. Who is this, and how are they reached? 2. What is owed to them or expected from them? 3. When were they last dealt with? | table |
