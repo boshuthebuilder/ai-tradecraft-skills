@@ -86,12 +86,11 @@ A job is **not** a monolith. It is three layers, each with a single home, compos
 The split matters: guidance the model reads (layers 1–2) is prose it can be persuaded against;
 guarantees (layer 3) are code it cannot. Put a rule in the layer that can actually hold it.
 
-**A reviewer is never the author, and code holds that.** Where a page is accepted before the owner
-relies on it ([the core wiki rule's acceptance](skills/wiki-maintenance/SKILL.md#acceptance)), the
-review is played by a model that did not write the page. A prompt can ask for a different reviewer
-but cannot notice it was given the same one, so the code that records a verdict (a preparation tool
-in an interactive session, the deployment's guard for a job) compares the reviewing model with the
-writing one and refuses a verdict whose reviewer is its author.
+**A reviewer is never the author, and code holds that.** The rule is
+[the core wiki rule's acceptance](skills/wiki-maintenance/SKILL.md#acceptance); the design point is
+where it lives. A prompt can ask for a different reviewer but cannot notice it was given the same
+one, so the rule belongs in the code that records a verdict (a preparation tool in an interactive
+session, the deployment's guard for a job), never in the prompt alone.
 
 ## The determinism boundary
 
@@ -388,12 +387,14 @@ Two concepts the archetypes above rest on:
   may access, reads them, and never writes back into them. Isolation is by construction: the
   synthesis job's gather only ever presents the wikis the access rule allows, so a cross-tier leak
   cannot happen downstream of it.
-- **Cross-project migrations are proposed by the user tier and approved by the owner.** Because the
-  user-tier synthesis is the one pass that reads both sides, it is where a file one project holds for
-  another is noticed: it proposes the move as an escalation for the owner to approve or decline
-  (the user-synthesis archetype's optional `migration` field), and never moves a file itself. An
-  approved migration is carried out inside the holding project by its approved curation plan, which
-  stages the files for the other project to collect (`folder-curation`), under that project's guards.
+- **Cross-project migrations are proposed, then approved by the owner.** While a folder is being
+  prepared, a curation round may propose one (`folder-curation`). Once a folder is maintained, the
+  user-tier synthesis proposes them: it is the one pass that reads both sides, so it is where a file
+  one project holds for another is noticed. It raises the move as an escalation for the owner to
+  approve or decline (the user-synthesis archetype's optional `migration` field), and never moves a
+  file itself. An approved migration is carried out inside the holding project by its approved
+  curation plan, under that project's guards
+  ([`folder-curation`'s staging rule](skills/folder-curation/SKILL.md#3-propose-the-only-model-step)).
   No job in either tier moves a file between projects on its own.
 
 Onboarding an *identity* (as opposed to a project) is its own skill — **`user-onboarding`** — because

@@ -138,6 +138,3 @@ land in `02 Ideas/` through the interactive capture surfaces, never by hand in t
   `synthesise`/`reconcile` pair (the twin rule), exactly like file-ingest.
 - **One access rule.** The synthesis reads only the wikis the identity may access — single-homed, never
   re-derived per surface.
-- **Migrations are proposed here, decided by the owner, carried out in the project.** A project files
-  within itself ([`wiki-maintenance`](../wiki-maintenance/SKILL.md#rules-that-keep-it-safe)); the
-  synthesis proposes a cross-project move and never makes one.

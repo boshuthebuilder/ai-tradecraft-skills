@@ -328,7 +328,7 @@ settled.
 
 Citation-derived hubs (people, counterparties or another facet) are valid cross-cutting indexes, not
 new filing homes. The Schema sets their inclusion threshold. Optional `entities` frontmatter may hold
-facets deterministically derived from validated links and parties. Layout below a domain, folder-note
+facets deterministically derived from validated links and parties. Layout below a section, folder-note
 conventions and ordering are Schema choices. Qualify ambiguous links by path; follow portable-markdown
 for table escaping and the target editor's link conventions.
 
@@ -341,7 +341,7 @@ parties unless explicitly in scope. Deduplicate by fact identity, not by the num
 carry history, active conditions, treatment, dated encounters, measured values with units and printed
 reference ranges, and the documented plan. Other subjects carry their complete relevant evidence.
 The Schema declares each page's purpose and sources; clinical content and personal information may
-also appear in relevant domain notes, indexes, family summaries, roll-ups and other authorised pages.
+also appear in relevant section notes, indexes, family summaries, roll-ups and other authorised pages.
 There is no subject-page-only or existence/date ceiling. Summaries remain selective for relevance,
 not because clinical substance is automatically suppressed. Do not invent diagnoses or care plans.
 
@@ -453,7 +453,7 @@ This is the spine. For **each** item in the inbox / drop folder:
 
 **Authored notes — free text with no source document.** An inbox item that is the owner's own words
 (an idea, a brainstorm, a decision) rather than a document to file is an **authored note**: route it
-to the domain the Schema declares for authored content (e.g. an *Ideas* domain), mark the page or
+to the section the Schema declares for authored content (e.g. an *Ideas* section), mark the page or
 block `provenance: manual`, and treat its content as authoritative from then on. Carry the owner's
 text **verbatim** as the note body — synthesis may add a title, date and links around it, never
 replace it: the wiki page becomes the only copy of the owner's words once the inbox item is drained.
@@ -476,7 +476,7 @@ page rather than letting it vanish into chat.
 ## Reconcile — the periodic health pass (the lint)
 
 Reconcile the wiki **to the files** (the golden source): look for contradictions between pages, stale
-claims a newer source supersedes, orphan pages, missing domains, data gaps, and pages that have
+claims a newer source supersedes, orphan pages, missing sections, data gaps, and pages that have
 drifted from their contract or their professional's voice; refresh the Index (most-urgent,
 open-questions, key-facts); record the pass in the log.
 

@@ -129,10 +129,11 @@ tidy or has been prepared (`project-onboarding`), and a person who wants a cross
   interactive session. It audits the folder and tidies it only through plans the owner approves (by
   running `folder-curation`), extracts the full text of every document and writes a summary card for
   each, builds its wiki (by running `wiki-onboarding` under the core wiki rule), checks the result
-  against the **hand-off contract**, and hands it to `project-onboarding`. Ships the tools that do the exact
-  parts (`plugins/ai-os/skills/pre-onboarding/tools/`: standard-library Python, generic and
-  settings-driven), and keeps the folder's settings in machine-readable twins of its rulebook and
-  Schema.
+  against the **hand-off contract**, and hands it to `project-onboarding`. Ships the tools that do
+  the exact parts (`plugins/ai-os/skills/pre-onboarding/tools/`: standard-library Python, with a
+  small Swift helper for Apple Vision and local tools (poppler, tesseract, LibreOffice) where
+  present; generic and settings-driven), and keeps the folder's settings in machine-readable twins of
+  its rulebook and Schema.
 - **`project-onboarding`** (entry point): stand up a self-maintaining folder end to end, in **one
   flow for cold and prepared folders**. It tells which by the hand-off contract, validates a prepared
   folder (never rebuilding it) or creates the wiki a tidy cold folder lacks (via `wiki-onboarding`),

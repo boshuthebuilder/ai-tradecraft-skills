@@ -46,16 +46,19 @@ areas), differing only in **breadth** (the whole vault against all sources, not 
 ## Proposed migrations
 
 A project files every new item within itself, so a file that belongs to another project stays where
-it was filed until the owner moves it (`wiki-maintenance`'s rule that a project files within itself).
-The synthesis is the one pass that reads both projects, so it is where a cross-project **migration**
-is proposed. Both templates return a proposal as an ordinary `needs_a_look` item, one per matter, with
-an optional `migration` field: the two project ids, the files by the folder-relative paths the holding
-project's page cites, and the pages that show it. Its `owner_action` asks the owner to approve or
-decline the move. Most runs propose none, and an item without the field is unchanged.
+it was filed until the owner moves it
+([`wiki-maintenance`'s rule](../../../wiki-maintenance/SKILL.md#rules-that-keep-it-safe)). While a
+folder is being prepared, a curation round may propose a migration (`folder-curation`); once a folder
+is maintained, the synthesis, the one pass that reads both projects, is where a cross-project
+**migration** is proposed. Both templates return a proposal as an ordinary `needs_a_look` item, one
+per matter, with an optional `migration` field: the two project ids, the files by the folder-relative
+paths the holding project's page cites, and the pages that show it. Its `owner_action` asks the
+owner to approve or decline the move. Most runs propose none, and an item without the field is
+unchanged.
 
 The synthesis never moves a file and never writes into a project. An approved migration is carried
-out inside the holding project by its approved curation plan (`folder-curation`, which stages the
-files in the migrations folder for the other project to collect), under that project's guards.
+out inside the holding project by its approved curation plan, under that project's guards
+([`folder-curation`'s staging rule](../../../folder-curation/SKILL.md#3-propose-the-only-model-step)).
 Because a proposal is a `needs_a_look` item, it rides the raised-item ledger: an open or dismissed
 proposal is not raised again, and a declined one stays declined. A deployment that does not read
 `migration` still surfaces the item for the owner's decision; one that does can turn an approval

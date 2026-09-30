@@ -33,6 +33,6 @@ For the optional deterministic-rendering profile, specialise and version the pro
 compiled render declarations and renderer configuration together. `{page_contracts}` is optional
 context: supply an empty block when unsupported. Non-empty context must advertise the supported
 `page_facts` schema; only then may the model replace `body` with that structured alternative for
-assigned pages. Rendered or not, every page is written to its Schema contract and in its
-professional's voice. See `wiki-maintenance` for the single-home rules: the core wiki rule and the
-profile.
+assigned pages. Rendered or not, every page follows
+[the core wiki rule](../../../wiki-maintenance/SKILL.md#the-core-wiki-rule); the profile's rules are
+[`wiki-maintenance`'s](../../../wiki-maintenance/SKILL.md#deterministic-rendering-optional-profile).

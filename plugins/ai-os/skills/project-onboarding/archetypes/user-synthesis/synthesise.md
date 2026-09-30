@@ -61,17 +61,14 @@ Evolve the vault as a coherent whole — a second brain, not a file listing:
    appearing in more than one project (use the backbone), a page each: what each project knows,
    reconciled — and where projects *disagree*, say so explicitly.
 3. **Proposed migrations, when the sources show one** (optional; most runs propose none). A project
-   files every new item within itself and never routes one to another project (`wiki-maintenance`), so
-   a file that belongs to another project stays where it was filed until the owner moves it, and you
-   are the one pass that sees both sides. When the pages shown make it plain that files one project in
-   this report holds belong to another project in it (the holding project's page flags them as
-   belonging elsewhere, or the backbone shows their matter is kept in the other project), propose moving
-   them: one `needs_a_look` item per matter, however many files, with its `migration` filled, its
-   `owner_action` asking the owner to approve or decline the move, and `what_would_resolve` that
-   decision. Name each file by the folder-relative source path the holding project's page cites, never
-   a path the report does not show. You only propose: an approved migration is carried out inside the
-   holding project by its approved curation plan (`folder-curation`, which stages the files for the
-   other project to collect). You move nothing and write nothing into a project.
+   files within itself (`wiki-maintenance`'s rule), so you are the one pass that sees both sides. When
+   the pages shown make it plain that files one project in this report holds belong to another
+   project in it (the holding project's page flags them as belonging elsewhere, or the backbone shows
+   their matter is kept in the other project), raise one `needs_a_look` item per matter, however many
+   files, with its `migration` filled and an `owner_action` asking the owner to approve or decline.
+   Name each file by the folder-relative source path the holding project's page cites, never a path
+   the report does not show. You only propose; an approved migration is staged by `folder-curation`
+   in the holding project. You move nothing and write nothing into a project.
 4. **A dated log line** recording the pass.
 
 Rules:

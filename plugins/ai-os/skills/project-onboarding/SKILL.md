@@ -68,8 +68,8 @@ When onboarding is done, the folder has:
 - optionally an **audit pair** (`_Audit/manifest.json` + `AUDIT.md`) and a **rulebook** at the root
   recording the curation depth, class policy, naming rules and exclusions, when the folder went
   through folder-curation (in preparation, or on its own);
-- on a prepared folder, also the **settings twins** in `.familyai/`
-  ([the settings reference](../pre-onboarding/references/settings.md)) and, in `_Audit/`, an extract
+- on a prepared folder, also the **settings twins** in the settings folder (`.familyai/` by default;
+  [the settings reference](../pre-onboarding/references/settings.md)) and, in `_Audit/`, an extract
   record and a card per document and the wiki's rationale and acceptance record;
 - two jobs declared in the project's config:
   - **`ingest`** — `mode: ingest`, reactive (runs after an inbox or calendar change), drains the inbox;
@@ -91,14 +91,16 @@ need it — don't impose the archetype where the material doesn't justify it.
 
 **Tell the starting state** from what is on disk, never from a description of the folder:
 
-- **Prepared.** A folder carrying `.familyai/rulebook.json` claims to be prepared, and it is prepared
-  when it meets [`pre-onboarding`'s hand-off contract](../pre-onboarding/SKILL.md#the-hand-off-contract).
-  Check it with that skill's `readiness.py` ([the tool reference](../pre-onboarding/references/tools.md#readinesspy)),
-  which is read-only on the folder, or with the deployment's own check of the same contract, and read
-  the whole report rather than only its exit code: some items are reported without failing the run. A
-  finding sends the folder back to `pre-onboarding`, to the step that owns it; it is never repaired
-  here. A named not-verified state (isolation not verified, say) goes on only when the owner accepts
-  it, and that acceptance is recorded with the onboarding.
+- **Prepared.** A folder carrying `rulebook.json` in the settings folder (`.familyai/` by default)
+  claims to be prepared, and it is prepared when it meets
+  [`pre-onboarding`'s hand-off contract](../pre-onboarding/SKILL.md#the-hand-off-contract). Check it
+  with that skill's `readiness.py`, which is read-only on the folder, or with the deployment's own
+  check of the same contract, and read the whole report rather than only its exit code. The findings
+  are the items `readiness.py` exits 1 on and those it reports without failing the run, both listed
+  in [the tool reference](../pre-onboarding/references/tools.md#readinesspy); a deployment's own check
+  treats the same items as findings. A finding sends the folder back to `pre-onboarding`, to the
+  step that owns it; it is never repaired here. A named not-verified state (isolation not verified,
+  say) goes on only when the owner accepts it, and that acceptance is recorded with the onboarding.
 - **Cold and tidy.** No twins, and the scan finds none of the conditions below: go on. A folder with
   an audit pair and a rulebook but no twins (curated by `folder-curation` on its own) is cold; the scan
   decides whether it is tidy.
@@ -116,16 +118,14 @@ that is already there** (adding jobs to a folder that already has a wiki is one 
 and a prepared folder's wiki was drafted from every document and accepted):
 
 - **A prepared folder** → **validate, never rebuild.** Its Schema, pages, rationale and acceptance
-  record stand as the hand-off check found them: do not run wiki-onboarding again, redraft or re-accept
-  a page, or extract or card a document again. Read the Schema, and confirm both settings twins are
-  fresh (`settings.py check` among the preparation tools reports each;
-  [stale twins](../pre-onboarding/references/settings.md#stale-twins) gives the remedy). A stale twin is
-  brought back into line from its source, never edited by hand, and is never a reason to re-onboard.
-- **A cold folder with no wiki / Schema** → run **wiki-onboarding**: a librarian proposes the
-  sections by responsibility, the routing and each page's professional; the owner answers a few key
-  questions and agrees a page contract for every page type; then the **Schema / Index / Log** skeleton
-  is written. What those terms require is [the core wiki rule](../wiki-maintenance/SKILL.md#the-core-wiki-rule),
-  whose home is `wiki-maintenance`.
+  record, and both settings twins, fresh, stand as the hand-off check found them in step 1: do not run
+  wiki-onboarding again, redraft or re-accept a page, or extract or card a document again. Read the
+  Schema. A twin found stale later is a repair for `pre-onboarding`
+  ([stale twins](../pre-onboarding/references/settings.md#stale-twins)), never a reason to re-onboard.
+- **A cold folder with no wiki / Schema** → run **wiki-onboarding**
+  ([its steps 2 to 4](../wiki-onboarding/SKILL.md#2-propose-a-structure-the-librarians-sections-and-each-pages-professional)),
+  under [the core wiki rule](../wiki-maintenance/SKILL.md#the-core-wiki-rule), to write the
+  **Schema / Index / Log** skeleton.
 - **A cold folder with a wiki / Schema** → **do not re-onboard.** Read and validate the existing
   Schema, then go straight to stamping the jobs (step 3).
 
@@ -149,7 +149,8 @@ Copy the archetype from `archetypes/file-ingest/` and fill in the project's spec
   (see the execution-context note in `ARCHITECTURE.md`).
 
 **On a prepared folder, write the config from the settings twins.** `rulebook.json` and
-`wiki-schema.json` in `.familyai/` are the folder's settings in the form code reads
+`wiki-schema.json` in the settings folder (`.familyai/` by default) are the folder's settings in the
+form code reads
 ([the settings reference](../pre-onboarding/references/settings.md)): take the inbox, the wiki folder
 (the templates' `{wiki_dir}`), the migrations folder, the exclusions and the identifier policy from the
 rulebook's twin, and the layout, routing, page contracts and page professionals from the Schema's,
@@ -164,8 +165,8 @@ For a project adopting deterministic rendering
 its compiled render declarations and renderer configuration beside its stamped templates. The
 project's renderer is maintained code, not a script left in one session. Templates carry the optional
 `{page_contracts}` context described by the file-ingest archetype; deployments without the profile
-supply an empty block and retain `body` output. Either way every page is written to its Schema
-contract, in its professional's voice.
+supply an empty block and retain `body` output. Either way every page follows
+[the core wiki rule](../wiki-maintenance/SKILL.md#the-core-wiki-rule).
 
 ### 4. Seed the starting point
 
@@ -173,14 +174,21 @@ A job's first run starts where the folder is, not from nothing.
 
 - **A prepared folder.** Preparation read every document and built the wiki from them, so seed the
   jobs with that state before the first tick, however the deployment records each: the ingest gate
-  holds every live entry of the manifest the hand-off check passed as already ingested, at its content
-  hash; the human-edit guard holds each wiki page as preparation wrote it, so a later owner edit is
-  detected and proposed around rather than overwritten; and the prepared `_Audit/manifest.json` is the
-  `audit` job's previous pass. A file added or edited since the check has a hash the seed does not
-  hold, so the first tick takes it as new. Unseeded, the first ingest takes every document as new and
-  rewrites an accepted wiki from its sources.
-- **A cold folder.** Nothing to seed beyond the skeleton: the first passes fill the wiki from the
-  sources, as the Schema routes them.
+  holds every live entry of the manifest the hand-off check passed as already ingested, at its
+  manifest id (a file's SHA-256; a package's by the manifest's package hash rule,
+  [`manifest-schema.md`](../file-preprocessing/references/manifest-schema.md#added-in-2)); the
+  human-edit guard holds each wiki page as preparation wrote it, so a later owner edit is detected
+  and proposed around rather than overwritten; and the prepared `_Audit/manifest.json` is the `audit`
+  job's previous pass. A file added or edited since the check has an id the seed does not hold, so
+  the first tick takes it as new. Unseeded, the first ingest takes every document as new and rewrites
+  an accepted wiki from its sources.
+- **A cold folder with a wiki already filled** (kept by hand, say, or prepared but with its settings
+  folder lost). Seed the human-edit guard with every page as found, and the ingest gate with every
+  source as it stands, so that ingest takes only what arrives after onboarding; then let the first
+  `reconcile`, not `ingest`, reckon the wiki against the files. Unseeded, the first ingest takes every
+  document as new and rewrites the wiki.
+- **A cold folder with a new skeleton.** Nothing to seed beyond it: the first passes fill the wiki
+  from the sources, as the Schema routes them.
 
 ### 5. Register and declare
 
@@ -194,9 +202,9 @@ A job's first run starts where the folder is, not from nothing.
 
 - **Reactive ingest fires and is cheap when idle.** Drop a test item in the inbox; confirm the next
   gate tick ingests it and files it. With nothing changed, confirm a tick no-ops with no model call.
-- **A prepared folder starts quiet.** With nothing dropped since the hand-off, the first tick
-  re-ingests nothing and rewrites no page, and the first `audit` reports no drift. A tick that takes
-  the whole folder as new means the seed (step 4) did not take.
+- **A seeded folder starts quiet.** With nothing dropped since onboarding, the first tick
+  re-ingests nothing and rewrites no page, and on a prepared folder the first `audit` reports no
+  drift. A tick that takes the whole folder as new means the seed (step 4) did not take.
 - **Reconcile runs on its cadence** and reckons the wiki to the files without touching
   `provenance: manual` content.
 - **Fail-loud holds.** A blocked/unreadable source is surfaced for review with its reason, never

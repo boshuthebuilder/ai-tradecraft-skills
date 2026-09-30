@@ -26,6 +26,8 @@ capabilities:
 
 # Class policy — the deterministic gate applies it; the audit reports per class. Defaults from the
 # folder-curation skill; override per project here.
+# `iwork: read` needs an iWork reader in the deployment's own ingest (a job never depends on a
+# skill's bundled tools); a deployment without one overrides the class, e.g. back to after_convert.
 classes:
   document: {hash: full, ingest: read}
   image:    {hash: full, size_cap_mb: 25, ingest: scans_only}
