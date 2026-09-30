@@ -1,13 +1,14 @@
 ```mermaid
 xychart-beta
-    title "Current account balance, March 2024 (GBP)"
-    x-axis ["2024-03-01", "2024-03-15", "2024-03-31"]
-    y-axis "GBP" 0 --> 5610
-    line [2410, 5610, 4160]
+    title "Synthetic line series (tool input, not fixture data)"
+    x-axis ["2024-01", "2024-02", "2024-03", "2024-04"]
+    y-axis "units" 0 --> 8
+    line [3, 7.5, 5, 8]
 ```
 
-| Period | Value (GBP) | Source |
+| Period | Value (units) | Source |
 | --- | ---: | --- |
-| 2024-03-01 | 2410 | `02 Finance/Bank statement 2024-03.pdf` |
-| 2024-03-15 | 5610 | `02 Finance/Bank statement 2024-03.pdf` |
-| 2024-03-31 | 4160 | `02 Finance/Bank statement 2024-03.pdf` |
+| 2024-01 | 3 | `02 Finance/Bank statement 2024-03.pdf` |
+| 2024-02 | 7.5 | `02 Finance/Bank statement 2024-03.pdf` |
+| 2024-03 | 5 | `02 Finance/Bank statement 2024-03.pdf` |
+| 2024-04 | 8 | `02 Finance/Bank statement 2024-03.pdf` |

@@ -1,12 +1,14 @@
-"""`wiki.py chart`: golden output per chart kind, the refusals, the render probe page and the checker's pairing (K8).
+"""`wiki.py chart`: golden output per chart kind, the refusals, the render probe page and the checker's chart pairing.
 
     python3 -m unittest discover plugins/ai-os/skills/pre-onboarding/tests
     python3 test_charts.py --update      rewrite golden/charts/<kind>.md and probe/render-probe.md (commit with why)
 
 Golden inputs are in golden/charts/ and cite files in the fixture folder, which each chart is rendered against (the
-tool refuses a source that does not exist). The fixture wiki carries the same charts, so its pages are checked here
-to hold the tool's output verbatim.
+tool refuses a source that does not exist). The fixture wiki carries the same charts, except the synthetic line
+(golden/charts/README.md says why), so its pages are checked here to hold the tool's output verbatim.
 """
+import csv
+import io
 import json
 import os
 import shutil
@@ -24,13 +26,14 @@ PROBE = os.path.join(HERE, "probe", "render-probe.md")
 sys.path.insert(0, TOOLS)
 import wiki  # noqa: E402
 
-CASES = [  # kind, golden input, title, the fixture wiki page that carries the chart
+CASES = [  # kind, golden input, title, the fixture wiki page that carries the chart (None: synthetic input)
     ("bar", "bar.csv", "Current account, March 2024 (GBP)", "20 Finance/Bank accounts.md"),
-    ("line", "line.json", "Current account balance, March 2024 (GBP)", "20 Finance/Cash position.md"),
+    ("line", "line.json", "Synthetic line series (tool input, not fixture data)", None),
     ("pie", "pie.csv", "Planned monthly spending (GBP)", "20 Finance/Cash position.md"),
     ("gantt", "gantt.json", "Passport validity", "10 Identity/10 Identity.md"),
     ("timeline", "timeline.csv", "Home", "30 Home/30 Home.md"),
 ]
+FIXTURE_CHARTS = len([c for c in CASES if c[3]])
 PROBE_HEAD = """# Render probe
 
 One chart of each kind `wiki.py chart` renders, each followed by its data table, and one Obsidian callout. Open
@@ -80,26 +83,30 @@ class Charts(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp(prefix="data_", dir=self.tmp)
 
-    def chart(self, kind, data, title, *extra):
-        return run("wiki.py", "chart", "--root", self.root, "--work", self.work, "--read-only-root", "--kind", kind,
-                   "--data", data, "--title", title, *extra)
+    def chart(self, kind, data, title, *extra, root=None):
+        return run("wiki.py", "chart", "--root", root or self.root, "--work", self.work, "--read-only-root",
+                   "--kind", kind, "--data", data, "--title", title, *extra)
 
-    def rendered(self, kind, data, title):
-        code, out, err = self.chart(kind, data, title)
+    def rendered(self, kind, data, title, root=None):
+        code, out, err = self.chart(kind, data, title, root=root)
         self.assertEqual((code, err), (0, ""), err)
         return out
 
     def data(self, name, rows):
         """A data file of `rows`: a list of dicts written as JSON, or a list of lists (header first) as CSV."""
         path = os.path.join(self.dir, name)
-        if name.endswith(".json"):
-            write(path, json.dumps(rows, ensure_ascii=False) if not isinstance(rows, str) else rows)
+        if isinstance(rows, str):
+            write(path, rows)
+        elif name.endswith(".json"):
+            write(path, json.dumps(rows, ensure_ascii=False))
         else:
-            write(path, "".join(",".join(r) + "\n" for r in rows) if not isinstance(rows, str) else rows)
+            text = io.StringIO()
+            csv.writer(text, lineterminator="\n").writerows(rows)
+            write(path, text.getvalue())
         return path
 
     def rows(self, *points, unit="GBP", key="label", src=None):
-        """CSV rows (header first) of a series: `points` are (label or period, value)."""
+        """CSV rows (header first, so data starts on line 2) of a series: `points` are (label or period, value)."""
         return [[key, "value", "unit", "source"]] + [[p, v, unit, src or self.SRC] for p, v in points]
 
     def raw_json(self, *values):
@@ -107,13 +114,18 @@ class Charts(unittest.TestCase):
         return "[%s]" % ", ".join('{"label": "%s", "value": %s, "unit": "GBP", "source": "%s"}'
                                   % (chr(97 + i), v, self.SRC) for i, v in enumerate(values))
 
-    def refused(self, kind, name, rows, title, *expected):
-        code, out, err = self.chart(kind, self.data(name, rows), title)
+    def refused(self, kind, name, rows, title, *expected, root=None):
+        code, out, err = self.chart(kind, self.data(name, rows), title, root=root)
         self.assertEqual(code, 2, (out, err))
         self.assertEqual(out, "")
         for text in expected:
             self.assertIn(text, err)
         return err
+
+    def own_copy(self):
+        root = os.path.join(self.dir, "Alex Personal")
+        shutil.copytree(FIXTURE, root)
+        return root
 
 
 class GoldenTest(Charts):
@@ -130,15 +142,23 @@ class GoldenTest(Charts):
                 path = os.path.join(GOLDEN, data)
                 first = self.rendered(kind, path, title)
                 self.assertEqual(self.rendered(kind, path, title), first)
-                rows = wiki.chart_rows(path)
+                rows, _places = wiki.chart_rows(path)
                 other = (self.data(kind + ".csv", [list(rows[0])] + [list(r.values()) for r in rows])
                          if data.endswith(".json") else self.data(kind + ".json", rows))
                 self.assertEqual(self.rendered(kind, other, title), first)
 
+    def test_byte_order_mark_is_not_data(self):
+        for kind, data, title, _page in (CASES[0], CASES[1]):  # one CSV, one JSON
+            with self.subTest(kind=kind):
+                path = self.data("bom" + os.path.splitext(data)[1], "﻿" + read(os.path.join(GOLDEN, data)))
+                self.assertEqual(read(path, "rb")[:3], b"\xef\xbb\xbf")
+                self.assertEqual(self.rendered(kind, path, title), read(os.path.join(GOLDEN, kind + ".md")))
+
     def test_fixture_pages_carry_the_tool_output(self):
         for kind, _data, _title, page in CASES:
-            with self.subTest(kind=kind):
-                self.assertIn(read(os.path.join(GOLDEN, kind + ".md")), read(os.path.join(WIKI, page)))
+            if page:
+                with self.subTest(kind=kind):
+                    self.assertIn(read(os.path.join(GOLDEN, kind + ".md")), read(os.path.join(WIKI, page)))
 
     def test_probe_page_is_the_tool_output(self):
         outputs = {kind: self.rendered(kind, os.path.join(GOLDEN, data), title) for kind, data, title, _p in CASES}
@@ -177,6 +197,11 @@ class ShapeTest(Charts):
         self.assertIn('x-axis ["2021-22", "2022-23", "2023-24"]', out)
         self.assertIn("| Period | Value (GBP) | Source |", out)
 
+    def test_version_numbers_are_not_dates(self):
+        out = self.rendered("bar", self.data("v.csv", self.rows(("v1.2.34", "1"), ("v1.3.0", "2"), ("40.50.60", "3"))),
+                            "Releases, March 2024")
+        self.assertIn('x-axis ["v1.2.34", "v1.3.0", "40.50.60"]', out)
+
     def test_gantt_sections_keep_row_order(self):
         rows = [["section", "label", "start", "end", "source"],
                 ["Home", "Lease", "2024-05-01", "2025-04-30", "03 Home/Lease renewal.pdf"],
@@ -193,6 +218,14 @@ class ShapeTest(Charts):
         self.assertNotIn("section", plain)
         self.assertIn("| Label | Start | End | Source |", plain)
 
+    def test_gantt_keywords_are_case_sensitive_and_folders_are_sources(self):
+        rows = [["label", "start", "end", "source"],
+                ["Title deed", "2021-05-02", "2021-05-02", "01 Identity/Passport renewal 2021/"],
+                ["Section work", "2024-01-01", "2024-02-01", "04 Study"]]
+        out = self.rendered("gantt", self.data("k.csv", rows), "Packs")
+        self.assertIn("    Title deed :2021-05-02, 2021-05-02\n    Section work :2024-01-01, 2024-02-01\n", out)
+        self.assertIn("`01 Identity/Passport renewal 2021/` |", out)
+
     def test_timeline_rows_with_one_date_share_a_line(self):
         rows = [["date", "label", "source"], ["2024-03-15", "Bill", "03 Home/Utilities /Electricity bill.pdf"],
                 ["2024-03-15", "Meter read", "03 Home/Utilities /Electricity bill.pdf"],
@@ -205,18 +238,23 @@ class ShapeTest(Charts):
 
 
 class RefusalTest(Charts):
-    """Every refusal exits 2, prints nothing on stdout and names the row (or the argument) that broke the rule."""
+    """Every refusal exits 2, prints nothing on stdout and names the row (`line N` of a CSV file, the header on line
+    1; `row N` of a JSON array) or the argument that broke the rule."""
 
     def test_no_source(self):
         self.refused("bar", "a.csv", [["label", "value", "unit"], ["a", "1", "GBP"], ["b", "2", "GBP"],
                                       ["c", "3", "GBP"]], "t", "a.csv: no source column")
         rows = self.rows(("a", "1"), ("b", "2"), ("c", "3"))
         rows[2][3] = ""
-        self.refused("bar", "b.csv", rows, "t", "b.csv row 2: no source")
+        self.refused("bar", "b.csv", rows, "t", "b.csv line 3: no source")
         self.refused("pie", "c.json", [{"label": "a", "value": "1", "unit": "GBP", "source": self.SRC},
                                        {"label": "b", "value": "2", "unit": "GBP"},
                                        {"label": "c", "value": "3", "unit": "GBP", "source": self.SRC}],
                      "t (GBP)", "c.json row 2: columns")
+
+    def test_csv_lines_count_blank_lines(self):
+        text = "label,value,unit,source\n\na,1,GBP,{0}\n\nb,,GBP,{0}\nc,3,GBP,{0}\n".format(self.SRC)
+        self.refused("bar", "n.csv", text, "t", "n.csv line 5: value '' is not a plain decimal")
 
     def test_source_must_be_a_folder_file(self):
         for src, why in (("02 Finance/Missing.pdf", "does not exist"), ("/etc/hosts", "not a folder-relative"),
@@ -224,7 +262,24 @@ class RefusalTest(Charts):
                          ("02 Finance//Bank statement 2024-03.pdf", "not a folder-relative")):
             with self.subTest(src=src):
                 self.refused("bar", "s.csv", self.rows(("a", "1"), ("b", "2"), ("c", "3"), src=src), "t",
-                             "s.csv row 1: source %r" % src, why)
+                             "s.csv line 2: source %r" % src, why)
+
+    def test_source_stays_inside_the_folder_and_off_reserved_names(self):
+        root = self.own_copy()
+        outside = os.path.join(self.dir, "outside")
+        write(os.path.join(outside, "hosts.txt"), "not the folder's\n")
+        os.symlink(outside, os.path.join(root, "escape"))
+        os.symlink(os.path.join(root, "_Audit"), os.path.join(root, "data"))
+        write(os.path.join(root, "_Inbox", "scan.txt"), "waiting to be filed\n")
+        for src, why in (("escape/hosts.txt", "outside"), ("data/wiki-rationale.md", "under _Audit"),
+                         ("_Audit/wiki-rationale.md", "under _Audit"), (".familyai/rulebook.json", "under .familyai"),
+                         ("Alex Personal Wiki/10 Identity/10 Identity.md", "under Alex Personal Wiki"),
+                         ("_Migrations/Other Project/02 Finance/Old invoice.pdf", "under _Migrations"),
+                         ("CLAUDE.md", "under CLAUDE.md"), ("_Inbox/scan.txt", "under _Inbox"),
+                         ("_Inbox/", "under _Inbox")):
+            with self.subTest(src=src):
+                self.refused("bar", "r.csv", self.rows(("a", "1"), ("b", "2"), ("c", "3"), src=src), "t",
+                             "r.csv line 2: source %r" % src, why, root=root)
 
     def test_a_series_needs_three_points(self):
         for kind, key in (("bar", "label"), ("line", "period"), ("pie", "label")):
@@ -236,18 +291,21 @@ class RefusalTest(Charts):
         self.refused("bar", "u.csv", [["label", "value", "source"], ["a", "1", self.SRC]], "t",
                      "a bar chart needs exactly one 'unit' column")
         self.refused("line", "u.csv", self.rows(("2024-01", "1"), ("2024-02", "2"), ("2024-03", "3"), unit="",
-                                                key="period"), "t", "u.csv row 1: no unit")
+                                                key="period"), "t", "u.csv line 2: no unit")
         rows = self.rows(("a", "1"), ("b", "2"), ("c", "3"))
         rows[3][2] = "EUR"
-        self.refused("bar", "u.csv", rows, "t", "u.csv row 3: unit 'EUR' differs from row 1's 'GBP'")
-        self.refused("pie", "u.csv", self.rows(("a", "1"), ("b", "2"), ("c", "3")), "Spending",
-                     "must name the unit 'GBP'")
+        self.refused("bar", "u.csv", rows, "t", "u.csv line 4: unit 'EUR' differs from the first row's 'GBP'")
+        for title in ("Spending", "Spending GBPX", "Spending (xGBP)"):
+            with self.subTest(title=title):
+                self.refused("pie", "u.csv", self.rows(("a", "1"), ("b", "2"), ("c", "3")), title,
+                             "must name the unit 'GBP' as a word")
+        self.rendered("pie", self.data("w.csv", self.rows(("a", "1"), ("b", "2"), ("c", "3"))), "Spending in GBP")
 
     def test_periods_labelled(self):
         self.refused("line", "p.csv", self.rows(("a", "1"), ("b", "2"), ("c", "3")), "t",
                      "a line chart needs exactly one 'period' column")
         self.refused("line", "p.csv", self.rows(("2024-01", "1"), ("", "2"), ("2024-03", "3"), key="period"), "t",
-                     "p.csv row 2: no period")
+                     "p.csv line 3: no period")
         self.refused("bar", "p.csv", [["label", "period", "value", "unit", "source"]], "t",
                      "p.csv: no rows")
         self.refused("bar", "p.csv", [["label", "period", "value", "unit", "source"],
@@ -258,18 +316,26 @@ class RefusalTest(Charts):
         g = [["label", "start", "end", "source"]]
         src = "01 Identity/Passport scan.pdf"
         self.refused("gantt", "d.csv", g + [["P1", "15/07/2021", "2031-07-15", src]], "t",
-                     "d.csv row 1: start '15/07/2021' is not a date written YYYY-MM-DD")
+                     "d.csv line 2: start '15/07/2021' is not a date written YYYY-MM-DD")
         self.refused("gantt", "d.csv", g + [["P1", "2021-07-15", "2031-02-30", src]], "t",
-                     "d.csv row 1: end '2031-02-30' is not a date")
+                     "d.csv line 2: end '2031-02-30' is not a date")
         self.refused("gantt", "d.csv", g + [["P1", "2031-07-15", "2021-07-15", src]], "t",
-                     "d.csv row 1: ends 2021-07-15, before it starts 2031-07-15")
+                     "d.csv line 2: ends 2021-07-15, before it starts 2031-07-15")
         self.refused("timeline", "d.csv", [["date", "label", "source"], ["2024-5-1", "Lease", src]], "t",
-                     "d.csv row 1: date '2024-5-1' is not a date written YYYY-MM-DD")
+                     "d.csv line 2: date '2024-5-1' is not a date written YYYY-MM-DD")
+        for text in ("1/2/24", "01.02.2024", "2 Mar 2024", "March 2, 2024", "12th of March 2024", "2024/03/01"):
+            with self.subTest(text=text):
+                self.refused("timeline", "d.csv", [["date", "label", "source"], ["2024-05-01", "Due " + text, src]],
+                             "t", "d.csv line 2: label 'Due %s' holds the date %r" % (text, text))
         self.refused("line", "d.csv", self.rows(("01/03/2024", "1"), ("2024-03-15", "2"), ("2024-03-31", "3"),
                                                 key="period"), "t",
-                     "d.csv row 1: period '01/03/2024' holds the date '01/03/2024'; write dates YYYY-MM-DD")
-        self.refused("timeline", "d.csv", [["date", "label", "source"], ["2024-05-01", "Renewed to 30.04.2025", src]],
-                     "t", "d.csv row 1: label 'Renewed to 30.04.2025' holds the date '30.04.2025'")
+                     "d.csv line 2: period '01/03/2024' holds the date '01/03/2024'; write dates YYYY-MM-DD")
+        self.refused("line", "d.csv", self.rows(("2024-01", "1"), ("2024-02", "2"), ("2024-03", "3"), key="period",
+                                                unit="GBP at 31.03.2024"), "t",
+                     "d.csv line 2: unit 'GBP at 31.03.2024' holds the date '31.03.2024'")
+        self.refused("gantt", "d.csv", [["section", "label", "start", "end", "source"],
+                                        ["Due 1/2/24", "P1", "2021-07-15", "2031-07-15", src]], "t",
+                     "d.csv line 2: section 'Due 1/2/24' holds the date '1/2/24'")
         self.refused("line", "d.csv", self.rows(("2024-01", "1"), ("2024-02", "2"), ("2024-03", "3"), key="period"),
                      "Balance to 31/03/2024", "--title: title 'Balance to 31/03/2024' holds the date")
 
@@ -285,7 +351,7 @@ class RefusalTest(Charts):
         self.refused("bar", "v.json", [{"label": "a", "value": True, "unit": "GBP", "source": self.SRC}], "t",
                      "v.json row 1: value must be text or a number, not true")
         self.refused("pie", "v.csv", self.rows(("a", "1"), ("b", "0"), ("c", "3")), "t (GBP)",
-                     "v.csv row 2: pie value '0' is not positive")
+                     "v.csv line 3: pie value '0' is not positive")
 
     def test_text_the_chart_cannot_carry(self):
         for label, why in (('The "best"', "'\"'"), ("a | b", "'|'"), ("Item #1", "'#'"), ("a; b", "';'"),
@@ -296,13 +362,37 @@ class RefusalTest(Charts):
                 self.refused("bar", "t.json", rows, "t", "t.json row 1: label %r" % label, why)
         self.refused("gantt", "c.csv", [["label", "start", "end", "source"],
                                         ["Lease: renewed", "2024-05-01", "2025-04-30", "03 Home/Lease renewal.pdf"]],
-                     "t", "c.csv row 1: label 'Lease: renewed' holds ':'")
+                     "t", "c.csv line 2: label 'Lease: renewed' holds ':'")
         self.refused("bar", "c.csv", self.rows(("a", "1"), ("a", "2"), ("c", "3")), "t",
-                     "c.csv row 2: label 'a' repeats row 1's")
+                     "c.csv line 3: label 'a' repeats line 2's")
+
+    def test_gantt_keywords(self):
+        for keyword in wiki.GANTT_KEYWORDS:
+            with self.subTest(keyword=keyword):
+                self.refused("gantt", "k.csv", [["label", "start", "end", "source"],
+                                                [keyword + " deed", "2024-01-01", "2024-02-01", self.SRC]], "t",
+                             "k.csv line 2: label %r starts with the gantt keyword %r" % (keyword + " deed", keyword))
+        self.refused("gantt", "k.csv", [["section", "label", "start", "end", "source"],
+                                        ["todayMarker off", "Lease", "2024-01-01", "2024-02-01", self.SRC]], "t",
+                     "k.csv line 2: section 'todayMarker off' starts with the gantt keyword 'todayMarker'")
+
+    def test_mermaid_comments(self):
+        src, why = self.SRC, "starts with %%, which Mermaid reads as a comment"
+        cases = [("bar", self.rows(("%%a", "1"), ("b", "2"), ("c", "3")), "t", "line 2: label '%%a'"),
+                 ("line", self.rows(("2024-01", "1"), ("%% x", "2"), ("2024-03", "3"), key="period"), "t",
+                  "line 3: period '%% x'"),
+                 ("pie", self.rows(("a", "1"), ("b", "2"), ("c", "3")), "%% (GBP)", "--title: title '%% (GBP)'"),
+                 ("bar", self.rows(("a", "1"), ("b", "2"), ("c", "3"), unit="%%GBP"), "t", "line 2: unit '%%GBP'"),
+                 ("gantt", [["label", "start", "end", "source"], ["%%x", "2024-01-01", "2024-02-01", src]], "t",
+                  "line 2: label '%%x'"),
+                 ("timeline", [["date", "label", "source"], ["2024-01-01", "%%x", src]], "t", "line 2: label '%%x'")]
+        for kind, rows, title, where in cases:
+            with self.subTest(kind=kind, where=where):
+                self.refused(kind, "m.csv", rows, title, where, why)
 
     def test_malformed_input(self):
         self.refused("bar", "m.csv", "label,value,unit,source\na,1,GBP,%s,extra\n" % self.SRC, "t",
-                     "m.csv row 1: 5 cells, but the header has 4")
+                     "m.csv line 2: 5 cells, but the header has 4")
         self.refused("bar", "m.csv", "label,label,unit,source\n", "t", "repeats a column")
         self.refused("bar", "m.json", '{"label": "a"}', "t", "expected a JSON array of objects")
         self.refused("bar", "m.json", '[{"label": "a", "label": "b"}]', "t", "an object repeats a key")
@@ -318,7 +408,7 @@ class RefusalTest(Charts):
 
 
 class CheckerTest(Charts):
-    """K8: `check` counts the chart blocks and names every one not followed by its data table."""
+    """Chart pairing: `check` counts the chart blocks and names every one not followed by its data table."""
 
     def page(self, *parts):
         return "\n".join(parts) + "\n"
@@ -339,7 +429,30 @@ class CheckerTest(Charts):
         self.assertFalse(wiki.chart_blocks(block["bar"] + "\n" + table.replace("`02 Finance", "02 Finance", 1)
                                            .replace(".pdf` |", ".pdf |", 1))[0][2])
         self.assertTrue(wiki.chart_blocks(block["bar"] + "\n" + table.replace("| Label |", "| Period |"))[0][2])
+        extra = table.replace("| Value (GBP) |", "| Value (GBP) | Extra (x) |", 1).replace("| --- | ---: |",
+                                                                                            "| --- | ---: | --- |", 1)
+        self.assertFalse(wiki.chart_blocks(block["bar"] + "\n" + extra)[0][2])
         self.assertEqual(wiki.chart_blocks(self.page(flow, golden["pie"])), [(6, "pie", True)])
+
+    def test_directive_before_the_type(self):
+        pie = read(os.path.join(GOLDEN, "pie.md"))
+        directive = pie.replace("```mermaid\n", "```mermaid\n%%{init: {'theme': 'neutral'}}%%\n", 1)
+        self.assertEqual(wiki.chart_blocks(directive), [(1, "pie", True)])
+
+    def test_quoted_examples_are_not_charts(self):
+        pie = read(os.path.join(GOLDEN, "pie.md"))
+        bare = "```mermaid\npie title x\n```\n"
+        indented = "".join("    " + x + "\n" for x in bare.splitlines())
+        for text in ("# P\n\n````markdown\n" + bare + "````\n", "# P\n\n~~~\n" + bare + "~~~\n",
+                     "# P\n\n" + indented, "~~~~ md\n" + bare + "~~~\nstill quoted\n~~~~\n"):
+            with self.subTest(text=text):
+                self.assertEqual(wiki.chart_blocks(text), [])
+                self.assertEqual(wiki.chart_blocks(text + "\n" + pie)[0][1:], ("pie", True))
+        self.assertEqual(wiki.chart_blocks("# P\n\n````markdown\n```mermaid\npie title x\n```\n````\n"), [])
+        self.assertEqual(wiki.chart_blocks("``` mermaid\npie title x\n```\n"), [(1, "pie", False)])
+        self.assertEqual(wiki.chart_blocks("~~~mermaid\npie title x\n```\n~~~\n"), [(1, "pie", False)])
+        self.assertEqual(wiki.chart_blocks("````mermaid\npie title x\n```\n````\n\n" + pie.split("\n\n", 1)[1]),
+                         [(1, "pie", True)])  # three backticks do not close a four-backtick fence
 
     def check(self, root):
         audit = os.path.join(os.path.dirname(root), "out", "_Audit")
@@ -353,11 +466,10 @@ class CheckerTest(Charts):
     def test_fixture_charts_all_paired(self):
         code, res = self.check(self.root)
         self.assertEqual((code, res["chart_blocks"], res["charts_without_data_table"], res["problems"]),
-                         (0, len(CASES), [], 0))
+                         (0, FIXTURE_CHARTS, [], 0))
 
     def test_chart_without_table_is_a_problem(self):
-        root = os.path.join(self.dir, "Alex Personal")
-        shutil.copytree(FIXTURE, root)
+        root = self.own_copy()
         page = os.path.join(root, "Alex Personal Wiki", "30 Home", "30 Home.md")
         text = read(page)
         table = read(os.path.join(GOLDEN, "timeline.md")).split("\n\n", 1)[1]
@@ -366,7 +478,7 @@ class CheckerTest(Charts):
         line = read(page).split("\n").index("```mermaid") + 1
         code, res = self.check(root)
         self.assertEqual((code, res["chart_blocks"], res["charts_without_data_table"], res["problems"]),
-                         (1, len(CASES), [["30 Home/30 Home.md", line]], 1))
+                         (1, FIXTURE_CHARTS, [["30 Home/30 Home.md", line]], 1))
 
 
 def update():

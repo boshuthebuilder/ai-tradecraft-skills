@@ -1,5 +1,6 @@
 [
- {"period": "2024-03-01", "value": 2410, "unit": "GBP", "source": "02 Finance/Bank statement 2024-03.pdf"},
- {"period": "2024-03-15", "value": 5610, "unit": "GBP", "source": "02 Finance/Bank statement 2024-03.pdf"},
- {"period": "2024-03-31", "value": 4160, "unit": "GBP", "source": "02 Finance/Bank statement 2024-03.pdf"}
+ {"period": "2024-01", "value": 3, "unit": "units", "source": "02 Finance/Bank statement 2024-03.pdf"},
+ {"period": "2024-02", "value": 7.5, "unit": "units", "source": "02 Finance/Bank statement 2024-03.pdf"},
+ {"period": "2024-03", "value": 5, "unit": "units", "source": "02 Finance/Bank statement 2024-03.pdf"},
+ {"period": "2024-04", "value": 8, "unit": "units", "source": "02 Finance/Bank statement 2024-03.pdf"}
 ]
