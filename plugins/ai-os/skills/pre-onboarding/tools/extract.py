@@ -257,7 +257,7 @@ def office_zip(path, ext):
             rows = []
             for row in re.findall(r"<row[^>]*>(.*?)</row>", x, re.S):
                 cells = []
-                for attrs, body in re.findall(r"<c ([^>]*?)(?:/>|>(.*?)</c>)", row, re.S):
+                for attrs, body in re.findall(r"<c(?:\s([^>]*?))?(?:/>|>(.*?)</c>)", row, re.S):
                     v = re.search(r"<v>(.*?)</v>", body or "", re.S)
                     if 't="s"' in attrs and v:
                         try:

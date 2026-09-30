@@ -1,0 +1,838 @@
+"""The curation plan tools on fixture copies: proposals, approval, the executor's guards, deletes to an injected Bin,
+the undo log and the re-audit proof.
+
+Every run of the executor names its own Bin (`--bin`) and runs with a temporary HOME, so nothing here can reach the
+real Bin even by mistake.
+
+    python3 -m unittest discover plugins/ai-os/skills/pre-onboarding/tests
+"""
+import csv
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+TOOLS = os.path.join(HERE, "..", "tools")
+FIXTURE = os.path.join(HERE, "fixture", "Alex Personal")
+EXPECTED = os.path.join(HERE, "expected")
+PAST = 1719748800           # 2024-06-30T12:00:00Z: the frozen clock of a move phase, so its order is not left to luck
+sys.path.insert(0, TOOLS)
+import common  # noqa: E402
+import plan  # noqa: E402
+
+BANK = "02 Finance/Bank statement 2024-03.pdf"
+BANK_COPY = "02 Finance/Bank statement 2024-03 (1).pdf"
+PASSPORT_PACK = "01 Identity/Passport renewal 2021/Passport scan.pdf"
+ESSAY_WORKING = "04 Study/Essay.docx"
+LEASE_PAGES = "03 Home/Lease renewal.pages"
+LEASE_NOTES = "03 Home/Lease notes .txt"
+
+# plan.py with a rename that lands and is then written to, as a sync client might, before the executor re-hashes.
+DRIFTING_RENAME = """
+import os
+import sys
+sys.path.insert(0, sys.argv[1])
+import common
+import plan
+real_rename = os.rename
+
+
+def rename(src, dst):
+    real_rename(src, dst)
+    with open(dst, "ab") as f:
+        f.write(b"!")
+
+
+os.rename = rename
+sys.argv = ["plan.py"] + sys.argv[2:]
+common.run_main(plan.main)
+"""
+
+
+def read(path, mode="r"):
+    with open(path, mode, **({} if "b" in mode else {"encoding": "utf-8"})) as f:
+        return f.read()
+
+
+def write(path, data):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as f:
+        f.write(data.encode("utf-8") if isinstance(data, str) else data)
+
+
+def tree_digest(root, skip=()):
+    """Every file's relative path and bytes (a symlink's target instead of its bytes); `skip` names top-level
+    entries left out."""
+    h = hashlib.sha256()
+    for d, ds, fs in os.walk(root):
+        ds.sort()
+        if d == root:
+            ds[:] = [x for x in ds if x not in skip]
+        for f in sorted(fs + [x for x in ds if os.path.islink(os.path.join(d, x))]):
+            p = os.path.join(d, f)
+            data = b"-> " + os.readlink(p).encode() if os.path.islink(p) else read(p, "rb")
+            h.update(os.path.relpath(p, root).encode() + b"\0" + data + b"\n")
+    return h.hexdigest()
+
+
+def read_rows(path):
+    with open(path, encoding="utf-8", newline="") as f:
+        return list(csv.DictReader(f))
+
+
+def write_rows(path, rows):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=plan.COLS, lineterminator="\n")
+        w.writeheader()
+        for r in rows:
+            w.writerow({c: r.get(c, "") for c in plan.COLS})
+
+
+def row(seq, action, frm="", to="", evidence="", kind="", domain=None, approved="approved", status="pending"):
+    return {"seq": str(seq), "domain": domain or plan.domain_of((frm or to).rstrip("/")), "depth": "light",
+            "action": action, "from": frm, "to": to, "evidence": evidence, "kind": kind, "approved": approved,
+            "status": status}
+
+
+class PlanCase(unittest.TestCase):
+    """A fixture copy audited into its own _Audit/, a plan beside it, an empty Bin and a temporary HOME."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="plan_test_")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.home = os.path.join(self.tmp, "home")
+        self.bin = os.path.join(self.tmp, "Bin")
+        os.makedirs(self.home)
+        os.makedirs(self.bin)
+        self.root = os.path.join(self.tmp, "a", "Alex Personal")
+        shutil.copytree(FIXTURE, self.root)
+        self.prepare()
+        self.manifest_path = os.path.join(self.root, "_Audit", "manifest.json")
+        self.audit()
+        self.plan = os.path.join(self.tmp, "plan", "move-plan.csv")
+
+    def prepare(self):
+        """Changes to the fixture copy before the first audit."""
+
+    def tearDown(self):
+        self.assertFalse(os.path.exists(os.path.join(self.home, ".Trash")), "something used the default Bin")
+
+    def run_tool(self, tool, *args, now=None, script=None):
+        env = dict(os.environ, HOME=self.home)
+        env.pop("PRE_ONBOARDING_NOW", None)
+        if now is not None:
+            env["PRE_ONBOARDING_NOW"] = str(now)
+        cmd = [sys.executable, "-c", script, TOOLS] if script else [sys.executable, os.path.join(TOOLS, tool)]
+        r = subprocess.run(cmd + list(args), capture_output=True, text=True, env=env)
+        return r.returncode, r.stdout, r.stderr
+
+    def run_plan(self, *args, **kw):
+        return self.run_tool("plan.py", *args, **kw)
+
+    def audit(self):
+        code, _o, err = self.run_tool("audit.py", "--root", self.root, "--work", os.path.join(self.tmp, "work"))
+        self.assertEqual(code, 0, err)
+        self.manifest = json.loads(read(self.manifest_path))
+        self.ids = {p: h for p, (h, _k, _o) in plan.live_paths(self.manifest["entries"]).items()}
+        return self.manifest
+
+    def path(self, rel):
+        return os.path.join(self.root, rel)
+
+    def execute(self, *extra, apply=True, now=None, script=None):
+        args = ["execute", "--root", self.root, "--plan", self.plan, "--bin", self.bin] + list(extra)
+        return self.run_plan(*(args + (["--apply"] if apply else [])), now=now, script=script)
+
+    def rows(self):
+        return {r["seq"]: r for r in read_rows(self.plan)}
+
+    def status(self, seq):
+        r = self.rows()[str(seq)]
+        return r["status"], r["note"]
+
+    def undo_lines(self):
+        p = os.path.join(os.path.dirname(self.plan), "undo.log")
+        return [json.loads(x) for x in read(p).splitlines()] if os.path.exists(p) else []
+
+    def bin_names(self):
+        return sorted(os.listdir(self.bin))
+
+    def refused(self, rows, note, seq=1, phase=()):
+        """Execute a plan whose row `seq` must fail with `note`, leaving the folder and the Bin untouched."""
+        write_rows(self.plan, rows)
+        before = tree_digest(self.root)
+        code, out, err = self.execute(*phase)
+        self.assertEqual(code, 1, out + err)
+        self.assertNotIn("Traceback", err)
+        status, got = self.status(seq)
+        self.assertEqual(status, "failed", got)
+        self.assertIn(note, got)
+        self.assertEqual(tree_digest(self.root), before, "a refused row changed the folder")
+        self.assertEqual(self.bin_names(), [])
+
+
+# ---------------------------------------------------------------------------------------------- proposals
+
+class ProposalTest(PlanCase):
+    def test_the_light_plan_is_byte_identical_to_expected(self):
+        code, _o, err = self.run_plan("light", "--root", self.root, "--out", os.path.dirname(self.plan))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(read(self.plan, "rb"), read(os.path.join(EXPECTED, "plan-light.csv"), "rb"))
+
+    def test_deletes_only(self):
+        self.run_plan("light", "--root", self.root, "--out", os.path.dirname(self.plan), "--deletes-only")
+        self.assertEqual([(r["action"], r["from"], r["kind"]) for r in self.rows().values()],
+                         [("delete", BANK_COPY, "redundant"),
+                          ("delete", "05 Archive/Cours de français.pdf", "redundant"),
+                          ("delete", "05 Archive/Slides.pptx", "redundant"),
+                          ("delete", "05 Archive/中文课程.pdf", "redundant")])
+
+    def test_approve_and_decline(self):
+        self.run_plan("light", "--root", self.root, "--out", os.path.dirname(self.plan))
+        code, _o, err = self.run_plan("approve", "--plan", self.plan, "--rows", "1-2,4", "--note", "agreed with Alex")
+        self.assertEqual(code, 0, err)
+        self.run_plan("approve", "--plan", self.plan, "--rows", "3", "--decline", "--note", "keep the space")
+        got = {s: (r["approved"], r["status"], r["note"]) for s, r in self.rows().items()}
+        self.assertEqual(got["1"], ("approved", "pending", "agreed with Alex"))
+        self.assertEqual(got["4"], ("approved", "pending", "agreed with Alex"))
+        self.assertEqual(got["3"], ("declined", "skipped", "keep the space"))
+        self.assertEqual(got["5"], ("", "proposed", ""))
+
+
+class StagedAndRedundantNamesTest(PlanCase):
+    def prepare(self):
+        write(self.path("_Migrations/Other Project/Draft .txt"), "a draft staged for another project")
+        shutil.copy(self.path(BANK), self.path("02 Finance/Bank statement 2024-03 duplicate .pdf"))
+
+    def test_no_name_fix_for_a_staged_file_or_a_redundant_copy(self):
+        self.run_plan("light", "--root", self.root, "--out", os.path.dirname(self.plan))
+        rows = list(self.rows().values())
+        self.assertEqual(sorted(r["from"] for r in rows if r["action"] == "rename"),
+                         ["03 Home/Lease notes .txt", "03 Home/Utilities /"])
+        self.assertIn("02 Finance/Bank statement 2024-03 duplicate .pdf",
+                      [r["from"] for r in rows if r["action"] == "delete"])
+
+
+class RmdirsProposalTest(PlanCase):
+    def test_the_top_most_folders_the_moves_empty(self):
+        write(self.path("06 Work/.DS_Store"), "finder")
+        write_rows(self.plan, [
+            row(1, "move", "06 Work/Essay.docx", "03 Home/Essay.docx", self.ids["06 Work/Essay.docx"]),
+            row(2, "move", "06 Work/Contract.docx", "03 Home/Contract.docx", self.ids["06 Work/Contract.docx"]),
+            row(3, "move", "03 Home/Utilities /Electricity bill.pdf", "03 Home/Electricity bill.pdf",
+                self.ids["03 Home/Utilities /Electricity bill.pdf"]),
+            row(4, "move", "04 Study/Notes.rtf", "03 Home/Notes.rtf", self.ids["04 Study/Notes.rtf"], approved=""),
+        ])
+        for _ in range(2):                           # a second run adds nothing
+            code, _o, err = self.run_plan("rmdirs", "--root", self.root, "--plan", self.plan)
+            self.assertEqual(code, 0, err)
+        added = [(r["seq"], r["action"], r["from"], r["approved"], r["status"]) for r in self.rows().values()
+                 if r["action"] == "rmdir"]
+        self.assertEqual(added, [("5", "rmdir", "03 Home/Utilities /", "", "proposed"),
+                                 ("6", "rmdir", "06 Work/", "", "proposed")])
+
+    def test_a_file_that_stays_keeps_its_folder(self):
+        write(self.path("06 Work/.DS_Store"), "finder")
+        write_rows(self.plan, [row(1, "move", "06 Work/Essay.docx", "04 Study/Essays/Essay.docx",
+                                   self.ids["06 Work/Essay.docx"])])
+        self.run_plan("rmdirs", "--root", self.root, "--plan", self.plan)
+        self.assertEqual([r["action"] for r in self.rows().values()], ["move"])
+
+    def test_a_package_that_stays_keeps_its_folder_and_only_the_top_is_proposed(self):
+        moves = [row(n, "move", rel, "06 Work/" + os.path.basename(rel), self.ids[rel]) for n, rel in enumerate(
+            ("03 Home/Lease renewal.pdf", "03 Home/Lease notes .txt", "03 Home/Utilities /Electricity bill.pdf"), 1)]
+        write_rows(self.plan, moves)
+        self.run_plan("rmdirs", "--root", self.root, "--plan", self.plan)
+        self.assertEqual([r["from"] for r in self.rows().values() if r["action"] == "rmdir"], ["03 Home/Utilities /"])
+        write_rows(self.plan, moves + [row(4, "move", LEASE_PAGES, "06 Work/Lease renewal.pages",
+                                           self.ids[LEASE_PAGES])])
+        self.run_plan("rmdirs", "--root", self.root, "--plan", self.plan)
+        self.assertEqual([r["from"] for r in self.rows().values() if r["action"] == "rmdir"], ["03 Home/"])
+
+    def test_approved_when_the_owner_already_agreed(self):
+        write_rows(self.plan, [row(1, "move", "03 Home/Utilities /Electricity bill.pdf", "03 Home/Bill.pdf",
+                                   self.ids["03 Home/Utilities /Electricity bill.pdf"])])
+        self.run_plan("rmdirs", "--root", self.root, "--plan", self.plan, "--approve-note", "Alex agreed")
+        r = self.rows()["2"]
+        self.assertEqual((r["from"], r["approved"], r["status"], r["note"]),
+                         ("03 Home/Utilities /", "approved", "pending", "Alex agreed"))
+
+
+# ---------------------------------------------------------------------------------------------- moves
+
+class MoveGuardTest(PlanCase):
+    def test_a_move_and_its_undo_record(self):
+        write_rows(self.plan, [row(1, "move", BANK, "02 Finance/Bank/Statement 2024-03.pdf", self.ids[BANK])])
+        code, out, err = self.execute()
+        self.assertEqual(code, 0, out + err)
+        self.assertTrue(os.path.isfile(self.path("02 Finance/Bank/Statement 2024-03.pdf")))
+        self.assertFalse(os.path.exists(self.path(BANK)))
+        self.assertEqual(self.status(1), ("done", "undo.log seq 1"))
+        intent, done = self.undo_lines()
+        self.assertEqual((intent["phase"], intent["op"], intent["from"], intent["sha256"]),
+                         ("intent", "move", BANK, self.ids[BANK]))
+        self.assertEqual((done["phase"], done["undo"]), ("done", {"op": "move", "from": "02 Finance/Bank/Statement "
+                                                                  "2024-03.pdf", "to": BANK}))
+
+    def test_containment(self):
+        outside = os.path.join(self.tmp, "a", "outside.txt")
+        write(outside, "a file beside the folder")
+        cases = {
+            "from outside": row(1, "move", "../outside.txt", "02 Finance/outside.txt",
+                                common.content_id(outside)),
+            "to outside": row(1, "move", BANK, "../Bank statement.pdf", self.ids[BANK]),
+            "to an absolute path": row(1, "move", BANK, os.path.join(self.tmp, "Bank statement.pdf"),
+                                       self.ids[BANK]),
+        }
+        for name, r in cases.items():
+            with self.subTest(name):
+                self.refused([r], "outside the folder")
+                self.assertTrue(os.path.isfile(outside))
+                self.assertEqual(os.listdir(self.tmp).count("Bank statement.pdf"), 0)
+
+    def test_no_symlink_on_either_path(self):
+        os.symlink(self.path("02 Finance"), self.path("Money"))
+        os.symlink(self.path(BANK), self.path("Statement.pdf"))
+        cases = {
+            "a linked folder in the source": (row(1, "move", "Money/Bank statement 2024-03.pdf", "06 Work/Bank.pdf",
+                                                  self.ids[BANK]), "symlink on path: Money"),
+            "a linked source": (row(1, "move", "Statement.pdf", "06 Work/Statement.pdf", self.ids[BANK]),
+                                "symlink on path: Statement.pdf"),
+            "a linked folder in the destination": (row(1, "move", "06 Work/Contract.docx", "Money/Contract.docx",
+                                                       self.ids["06 Work/Contract.docx"]), "symlink on path: Money"),
+        }
+        for name, (r, note) in cases.items():
+            with self.subTest(name):
+                self.refused([r], note)
+
+    def test_a_row_without_a_destination(self):
+        self.refused([row(1, "move", "IMG_0001.jpg", "", self.ids["IMG_0001.jpg"])], "no destination")
+
+    def test_the_source_must_be_an_item(self):
+        self.refused([row(1, "move", "02 Finance/Missing.pdf", "06 Work/Missing.pdf", self.ids[BANK])],
+                     "source missing")
+        folder = common.sha256_package(self.path("06 Work"))       # a plain folder hashes like a package
+        self.refused([row(1, "move", "06 Work", "07 Work", folder)], "source missing")
+
+    def test_never_overwrite(self):
+        self.refused([row(1, "move", BANK, "06 Work/Contract.docx", self.ids[BANK])], "destination exists")
+        self.assertEqual(common.sha256_file(self.path("06 Work/Contract.docx")), self.ids["06 Work/Contract.docx"])
+
+    def test_the_source_hash_before_the_move(self):
+        with open(self.path(BANK), "ab") as f:
+            f.write(b"\n% edited after the audit\n")
+        self.refused([row(1, "move", BANK, "06 Work/Bank.pdf", self.ids[BANK])], "source hash differs from evidence")
+
+    def test_the_destination_hash_after_the_move(self):
+        write_rows(self.plan, [row(1, "move", BANK, "06 Work/Bank.pdf", self.ids[BANK])])
+        code, out, err = self.execute(script=DRIFTING_RENAME)
+        self.assertEqual(code, 1, out + err)
+        self.assertEqual(self.status(1)[0], "failed")
+        self.assertIn("destination hash differs after move", self.status(1)[1])
+        self.assertEqual([x["phase"] for x in self.undo_lines()], ["intent"], "no done line for a failed move")
+
+    def test_a_package_moves_whole_hashed_as_the_audit_hashes_it(self):
+        dst = "03 Home/Lease/Lease renewal.pages"
+        write_rows(self.plan, [row(1, "move", LEASE_PAGES, dst, self.ids[LEASE_PAGES])])
+        code, out, err = self.execute()
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(common.sha256_package(self.path(dst)), self.ids[LEASE_PAGES])
+        self.assertTrue(os.path.isfile(self.path(dst + "/Index/Document.iwa")))
+        self.assertFalse(os.path.exists(self.path(LEASE_PAGES)))
+
+    def test_a_package_with_a_changed_member_stays(self):
+        member = common.sha256_file(self.path(LEASE_PAGES + "/Index/Document.iwa"))
+        self.refused([row(1, "move", LEASE_PAGES, "06 Work/Lease renewal.pages", member)],
+                     "source hash differs from evidence")
+        write(self.path(LEASE_PAGES + "/Data/extra.png"), b"a member added after the audit")
+        self.refused([row(1, "move", LEASE_PAGES, "06 Work/Lease renewal.pages", self.ids[LEASE_PAGES])],
+                     "source hash differs from evidence")
+
+    def test_an_unknown_action(self):
+        self.refused([row(1, "copy", BANK, "06 Work/Bank.pdf", self.ids[BANK])], "action copy not supported")
+
+    def test_create(self):
+        write_rows(self.plan, [row(1, "create", to="07 Travel/"), row(2, "create", to="06 Work/", domain="x")])
+        code, out, err = self.execute()
+        self.assertEqual(code, 0, out + err)
+        self.assertTrue(os.path.isdir(self.path("07 Travel")))
+        self.assertEqual((self.status(1), self.status(2)), (("done", ""), ("done", "")))
+        self.refused([row(1, "create", to="03 Home/Lease notes .txt")], "exists and is not a folder")
+
+
+class RowOrderTest(PlanCase):
+    def test_a_failed_row_stops_its_domain(self):
+        write_rows(self.plan, [
+            row(1, "move", BANK, "02 Finance/Bank.pdf", "0" * 64),
+            row(2, "move", "02 Finance/Tax/Budget final.xlsx", "02 Finance/Budget final.xlsx",
+                self.ids["02 Finance/Tax/Budget final.xlsx"]),
+            row(3, "move", "06 Work/Contract.docx", "06 Work/Employment contract.docx",
+                self.ids["06 Work/Contract.docx"]),
+        ])
+        code, out, err = self.execute()
+        self.assertEqual(code, 1, out + err)
+        self.assertEqual(self.status(1)[0], "failed")
+        self.assertEqual(self.status(2), ("skipped", "earlier row in this domain failed"))
+        self.assertEqual(self.status(3)[0], "done")
+        self.assertTrue(os.path.isfile(self.path("02 Finance/Tax/Budget final.xlsx")))
+        self.assertTrue(os.path.isfile(self.path("06 Work/Employment contract.docx")))
+
+    def test_only_approved_rows_run(self):
+        write_rows(self.plan, [
+            row(1, "move", BANK, "06 Work/Bank.pdf", self.ids[BANK], approved="", status="proposed"),
+            row(2, "move", "06 Work/Contract.docx", "06 Work/C.docx", self.ids["06 Work/Contract.docx"],
+                approved="declined", status="skipped"),
+        ])
+        before = tree_digest(self.root)
+        code, out, err = self.execute()
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(tree_digest(self.root), before)
+        self.assertEqual((self.status(1)[0], self.status(2)[0]), ("skipped", "skipped"))
+
+    def test_a_done_row_is_not_run_again(self):
+        write_rows(self.plan, [row(1, "move", BANK, "06 Work/Bank.pdf", self.ids[BANK])])
+        self.assertEqual(self.execute()[0], 0)
+        code, out, err = self.execute()
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.status(1), ("done", "undo.log seq 1"))
+        self.assertEqual(len(self.undo_lines()), 2)
+
+    def test_delete_rows_wait_for_the_deletes_phase(self):
+        write_rows(self.plan, [row(1, "move", "IMG_0001.jpg", "03 Home/Beach.jpg", self.ids["IMG_0001.jpg"]),
+                               row(2, "delete", BANK_COPY, evidence=self.ids[BANK_COPY], kind="redundant")])
+        code, out, err = self.execute()
+        self.assertEqual(code, 0, out + err)
+        self.assertNotIn("Traceback", err)
+        self.assertEqual((self.status(1)[0], self.status(2)[0]), ("done", "pending"))
+        self.assertTrue(os.path.isfile(self.path(BANK_COPY)))
+        self.assertEqual(self.bin_names(), [])
+
+
+class FolderRenameTest(PlanCase):
+    def test_a_folder_rename_carries_its_files(self):
+        write_rows(self.plan, [row(1, "rename", "03 Home/Utilities /", "03 Home/Utilities/", domain="03 Home")])
+        code, out, err = self.execute()
+        self.assertEqual(code, 0, out + err)
+        self.assertTrue(os.path.isfile(self.path("03 Home/Utilities/Electricity bill.pdf")))
+        self.assertFalse(os.path.exists(self.path("03 Home/Utilities ")))
+        self.assertEqual(self.undo_lines()[1]["undo"], {"op": "rename-folder", "from": "03 Home/Utilities/",
+                                                        "to": "03 Home/Utilities /"})
+
+    def test_the_source_must_be_a_folder(self):
+        self.refused([row(1, "rename", "03 Home/Lease notes .txt/", "03 Home/Lease notes.txt/")],
+                     "source folder missing")
+
+    def test_never_onto_an_existing_folder(self):
+        os.makedirs(self.path("07 Empty"))
+        self.refused([row(1, "rename", "06 Work/", "07 Empty/")], "destination exists")
+
+
+# ---------------------------------------------------------------------------------------------- rmdir
+
+class RmdirTest(PlanCase):
+    def test_a_folder_holding_only_finder_files_goes_to_the_bin(self):
+        write(self.path("07 Old/.DS_Store"), "finder")
+        write(self.path("07 Old/2019/.DS_Store"), "finder")
+        write_rows(self.plan, [row(1, "rmdir", "07 Old/")])
+        code, out, err = self.execute()
+        self.assertEqual(code, 0, out + err)
+        self.assertFalse(os.path.exists(self.path("07 Old")))
+        self.assertEqual(self.bin_names(), ["07 Old"])
+        self.assertTrue(os.path.isfile(os.path.join(self.bin, "07 Old", "2019", ".DS_Store")))
+        self.assertEqual(self.undo_lines()[1]["undo"], {"op": "rename-folder", "from": os.path.join(self.bin, "07 Old"),
+                                                        "to": "07 Old/"})
+
+    def test_anything_else_keeps_the_folder(self):
+        write(self.path("08 Mixed/.DS_Store"), "finder")
+        write(self.path("08 Mixed/Deep/Note.txt"), "a note")
+        write(self.path("09 Hidden/.localized"), "")
+        self.refused([row(1, "rmdir", "08 Mixed/")], "folder not empty")
+        self.refused([row(1, "rmdir", "09 Hidden/")], "folder not empty")
+
+    def test_only_a_folder(self):
+        write(self.path("10 Drafts/Blank.pages/.DS_Store"), "finder")      # a package, not a folder to tidy
+        self.refused([row(1, "rmdir", "03 Home/Lease notes .txt/")], "not a folder")
+        self.refused([row(1, "rmdir", "10 Drafts/Blank.pages/")], "not a folder")
+        self.refused([row(1, "rmdir", "07 Nowhere/")], "not a folder")
+
+    def test_never_overwrite_in_the_bin(self):
+        write(os.path.join(self.bin, "07 Old", "kept.txt"), "already in the Bin")
+        write(self.path("07 Old/.DS_Store"), "finder")
+        write_rows(self.plan, [row(1, "rmdir", "07 Old/")])
+        self.assertEqual(self.execute()[0], 0)
+        self.assertEqual(self.bin_names(), ["07 Old", "07 Old (1)"])
+        self.assertEqual(read(os.path.join(self.bin, "07 Old", "kept.txt")), "already in the Bin")
+
+
+# ---------------------------------------------------------------------------------------------- deletes
+
+class DeleteTest(PlanCase):
+    def test_a_full_round(self):
+        """Propose, approve, move, prove by re-audit, then delete the redundant copies to the Bin."""
+        before = os.path.join(self.tmp, "before.json")
+        shutil.copy(self.manifest_path, before)
+        self.run_plan("light", "--root", self.root, "--out", os.path.dirname(self.plan))
+        rows = read_rows(self.plan)
+        rows[0]["to"] = "03 Home/Beach.jpg"                  # the owner chose where the stray belongs
+        write_rows(self.plan, rows)
+        self.run_plan("approve", "--plan", self.plan, "--rows", "all", "--note", "agreed with Alex")
+        os.utime(self.manifest_path, (PAST - 60, PAST - 60))  # the audit ran before the moves
+        code, out, err = self.execute(now=PAST)
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual([self.status(s)[0] for s in range(1, 8)], ["done"] * 3 + ["pending"] * 4)
+        for rel in ("03 Home/Beach.jpg", "03 Home/Lease notes.txt", "03 Home/Utilities/Electricity bill.pdf"):
+            self.assertTrue(os.path.isfile(self.path(rel)), rel)
+
+        code, _o, err = self.execute("--phase", "deletes")
+        self.assertEqual(code, 2)
+        self.assertIn("re-audit the folder after the moves first", err)
+        self.assertEqual(self.bin_names(), [])
+
+        self.audit()
+        code, out, err = self.run_plan("prove", "--plan", self.plan, "--before", before, "--after",
+                                       self.manifest_path)
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(json.loads(out)["rows_checked"], 3)
+
+        code, out, err = self.execute("--phase", "deletes")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual([self.status(s)[0] for s in range(1, 8)], ["done"] * 7)
+        self.assertEqual(self.bin_names(), sorted(["Bank statement 2024-03 (1).pdf", "Cours de français.pdf",
+                                                   "Slides.pptx", "中文课程.pdf"]))
+        for rel in (BANK, "04 Study/Cours de français.pdf", "04 Study/Slides.pptx", "04 Study/中文课程.pdf",
+                    PASSPORT_PACK, ESSAY_WORKING):
+            self.assertTrue(os.path.isfile(self.path(rel)), rel)
+        self.audit()
+        summary = json.loads(read(os.path.join(self.root, "_Audit", "summary.json")))
+        self.assertEqual(summary["copy_kinds"], {"canonical": 2, "pack": 1, "working_copy": 2})
+
+    def test_deletes_wait_for_every_other_approved_row(self):
+        for status in ("pending", "failed", "skipped"):
+            with self.subTest(status):
+                write_rows(self.plan, [
+                    row(1, "move", "IMG_0001.jpg", "03 Home/Beach.jpg", self.ids["IMG_0001.jpg"], status=status),
+                    row(2, "delete", BANK_COPY, evidence=self.ids[BANK_COPY], kind="redundant"),
+                ])
+                code, _o, err = self.execute("--phase", "deletes")
+                self.assertEqual(code, 2)
+                self.assertIn("approved non-delete rows are not all done", err)
+                self.assertEqual(self.bin_names(), [])
+        write_rows(self.plan, [row(1, "move", "IMG_0001.jpg", "", self.ids["IMG_0001.jpg"], approved="declined",
+                                   status="skipped"),
+                               row(2, "delete", BANK_COPY, evidence=self.ids[BANK_COPY], kind="redundant")])
+        self.assertEqual(self.execute("--phase", "deletes")[0], 0, "a declined row does not hold deletes back")
+
+    def test_deletes_wait_for_a_manifest_newer_than_the_moves(self):
+        write_rows(self.plan, [row(1, "move", "IMG_0001.jpg", "03 Home/Beach.jpg", self.ids["IMG_0001.jpg"]),
+                               row(2, "delete", BANK_COPY, evidence=self.ids[BANK_COPY], kind="redundant")])
+        self.assertEqual(self.execute(now=PAST)[0], 0)
+        for stamp in (PAST - 60, PAST):
+            with self.subTest(manifest_at=stamp - PAST):
+                os.utime(self.manifest_path, (stamp, stamp))
+                code, _o, err = self.execute("--phase", "deletes")
+                self.assertEqual(code, 2)
+                self.assertIn("re-audit", err)
+                self.assertTrue(os.path.isfile(self.path(BANK_COPY)))
+        os.utime(self.manifest_path, (PAST + 60, PAST + 60))
+        self.assertEqual(self.execute("--phase", "deletes")[0], 0)
+        self.assertEqual(self.bin_names(), ["Bank statement 2024-03 (1).pdf"])
+
+    def test_only_paths_the_manifest_marks_redundant(self):
+        cases = {"a pack copy": PASSPORT_PACK, "a working copy": ESSAY_WORKING,
+                 "a canonical copy": "04 Study/Slides.pptx", "a unique file": "06 Work/Contract.docx"}
+        for name, rel in cases.items():
+            with self.subTest(name):
+                self.refused([row(1, "delete", rel, evidence=self.ids[rel], kind="redundant")],
+                             "manifest does not mark this path redundant", phase=("--phase", "deletes"))
+
+    def test_the_row_must_say_redundant(self):
+        for kind in ("", "working_copy", "pack"):
+            with self.subTest(kind=kind):
+                self.refused([row(1, "delete", BANK_COPY, evidence=self.ids[BANK_COPY], kind=kind)],
+                             "only redundant copies are deleted", phase=("--phase", "deletes"))
+
+    def test_the_evidence_must_be_in_the_manifest(self):
+        self.refused([row(1, "delete", BANK_COPY, evidence="f" * 64, kind="redundant")],
+                     "evidence entry not in manifest", phase=("--phase", "deletes"))
+
+    def test_both_copies_are_hashed_again(self):
+        for name, rel in (("the canonical copy", BANK), ("the redundant copy", BANK_COPY)):
+            with self.subTest(name):
+                original = read(self.path(rel), "rb")
+                write(self.path(rel), original + b"\n% edited after the audit\n")
+                self.refused([row(1, "delete", BANK_COPY, evidence=self.ids[BANK_COPY], kind="redundant")],
+                             "hash differs on disk (copy or canonical)", phase=("--phase", "deletes"))
+                write(self.path(rel), original)
+
+    def test_both_copies_must_be_on_disk(self):
+        for rel in (BANK, BANK_COPY):
+            with self.subTest(rel):
+                aside = os.path.join(self.tmp, "aside.pdf")
+                os.rename(self.path(rel), aside)
+                self.refused([row(1, "delete", BANK_COPY, evidence=self.ids[BANK_COPY], kind="redundant")],
+                             "copy or canonical missing on disk", phase=("--phase", "deletes"))
+                os.rename(aside, self.path(rel))
+
+    def test_a_group_without_a_canonical_copy(self):
+        doctored = json.loads(read(self.manifest_path))
+        for c in doctored["entries"][self.ids[BANK]]["copies"]:
+            if c["kind"] == "canonical":
+                c["kind"] = "working_copy"
+        path = os.path.join(self.tmp, "doctored.json")
+        write(path, json.dumps(doctored))
+        self.refused([row(1, "delete", BANK_COPY, evidence=self.ids[BANK_COPY], kind="redundant")],
+                     "no separate canonical copy", phase=("--phase", "deletes", "--manifest", path))
+
+    def test_never_overwrite_in_the_bin(self):
+        write(os.path.join(self.bin, "Bank statement 2024-03 (1).pdf"), "already in the Bin")
+        write_rows(self.plan, [row(1, "delete", BANK_COPY, evidence=self.ids[BANK_COPY], kind="redundant")])
+        self.assertEqual(self.execute("--phase", "deletes")[0], 0)
+        self.assertEqual(self.bin_names(), ["Bank statement 2024-03 (1) (1).pdf", "Bank statement 2024-03 (1).pdf"])
+        self.assertEqual(read(os.path.join(self.bin, "Bank statement 2024-03 (1).pdf")), "already in the Bin")
+        self.assertEqual(common.sha256_file(os.path.join(self.bin, "Bank statement 2024-03 (1) (1).pdf")),
+                         self.ids[BANK_COPY])
+
+
+class PackageDeleteTest(PlanCase):
+    def prepare(self):
+        shutil.copytree(self.path(LEASE_PAGES), self.path("03 Home/Lease renewal (1).pages"))
+
+    def test_a_redundant_package_goes_to_the_bin_whole(self):
+        copy = "03 Home/Lease renewal (1).pages"
+        self.assertEqual(plan.live_paths(self.manifest["entries"])[copy][1], "redundant")
+        write_rows(self.plan, [row(1, "delete", copy, evidence=self.ids[copy], kind="redundant")])
+        code, out, err = self.execute("--phase", "deletes")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.bin_names(), ["Lease renewal (1).pages"])
+        self.assertEqual(common.sha256_package(os.path.join(self.bin, "Lease renewal (1).pages")), self.ids[copy])
+        self.assertTrue(os.path.isdir(self.path(LEASE_PAGES)))
+
+
+# ---------------------------------------------------------------------------------------------- dry run, undo
+
+class DryRunTest(PlanCase):
+    def test_without_apply_nothing_changes(self):
+        write(self.path("07 Old/.DS_Store"), "finder")
+        write_rows(self.plan, [
+            row(1, "create", to="07 Travel/"),
+            row(2, "move", "IMG_0001.jpg", "03 Home/Beach.jpg", self.ids["IMG_0001.jpg"]),
+            row(3, "rename", LEASE_NOTES, "03 Home/Lease notes.txt", self.ids[LEASE_NOTES]),
+            row(4, "rename", "03 Home/Utilities /", "03 Home/Utilities/"),
+            row(5, "rmdir", "07 Old/"),
+            row(6, "delete", BANK_COPY, evidence=self.ids[BANK_COPY], kind="redundant"),
+            row(7, "move", "06 Work/Contract.docx", "06 Work/C.docx", self.ids["06 Work/Contract.docx"], approved="",
+                status="proposed"),
+        ])
+        before, plan_bytes = tree_digest(self.root), read(self.plan, "rb")
+        code, out, err = self.execute(apply=False)
+        self.assertEqual(code, 0, out + err)
+        for word in ("create", "move", "rename", "rename folder", "rmdir"):
+            self.assertIn(word, out)
+        self.assertEqual((tree_digest(self.root), read(self.plan, "rb")), (before, plan_bytes))
+        self.assertEqual((self.undo_lines(), self.bin_names()), ([], []))
+        self.assertFalse(os.path.exists(self.path("07 Travel")), "a dry run created a folder")
+
+    def test_a_dry_run_of_the_deletes(self):
+        write_rows(self.plan, [row(1, "delete", BANK_COPY, evidence=self.ids[BANK_COPY], kind="redundant")])
+        before, plan_bytes = tree_digest(self.root), read(self.plan, "rb")
+        code, out, err = self.execute("--phase", "deletes", apply=False)
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("delete " + BANK_COPY, out)
+        self.assertEqual((tree_digest(self.root), read(self.plan, "rb")), (before, plan_bytes))
+        self.assertEqual((self.undo_lines(), self.bin_names()), ([], []))
+
+
+class UndoLogTest(PlanCase):
+    def test_replaying_the_undo_log_restores_the_folder(self):
+        write(self.path("07 Old/.DS_Store"), "finder")
+        original = tree_digest(self.root, skip=("_Audit",))
+        write_rows(self.plan, [
+            row(1, "move", "IMG_0001.jpg", "03 Home/Beach.jpg", self.ids["IMG_0001.jpg"]),
+            row(2, "rename", LEASE_NOTES, "03 Home/Lease notes.txt", self.ids[LEASE_NOTES]),
+            row(3, "rename", "03 Home/Utilities /", "03 Home/Utilities/"),
+            row(4, "rmdir", "07 Old/"),
+            row(5, "delete", BANK_COPY, evidence=self.ids[BANK_COPY], kind="redundant"),
+        ])
+        os.utime(self.manifest_path, (PAST - 60, PAST - 60))
+        self.assertEqual(self.execute(now=PAST)[0], 0)
+        self.audit()
+        self.assertEqual(self.execute("--phase", "deletes")[0], 0)
+        lines = self.undo_lines()
+        self.assertEqual([(x["seq"], x["phase"]) for x in lines],
+                         [(s, p) for s in "12345" for p in ("intent", "done")])
+        self.assertNotEqual(tree_digest(self.root, skip=("_Audit",)), original)
+        for x in reversed([x for x in lines if x["phase"] == "done"]):
+            src = os.path.join(self.root, x["undo"]["from"].rstrip("/"))
+            dst = os.path.join(self.root, x["undo"]["to"].rstrip("/"))
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            os.rename(src, dst)
+        self.assertEqual(tree_digest(self.root, skip=("_Audit",)), original)
+        self.assertEqual(self.bin_names(), [])
+
+
+# ---------------------------------------------------------------------------------------------- prove, check
+
+class ProveTest(PlanCase):
+    def moved(self):
+        self.before = os.path.join(self.tmp, "before.json")
+        shutil.copy(self.manifest_path, self.before)
+        write_rows(self.plan, [
+            row(1, "move", "IMG_0001.jpg", "03 Home/Beach.jpg", self.ids["IMG_0001.jpg"]),
+            row(2, "rename", "03 Home/Utilities /", "03 Home/Utilities/"),
+            row(3, "move", ESSAY_WORKING, "04 Study/Essays/Essay.docx", self.ids[ESSAY_WORKING]),
+        ])
+        self.assertEqual(self.execute()[0], 0)
+
+    def prove(self, *extra):
+        self.audit()
+        code, out, err = self.run_plan("prove", "--plan", self.plan, "--before", self.before, "--after",
+                                       self.manifest_path, *extra)
+        self.assertIn(code, (0, 1), err)
+        result = json.loads(out)
+        self.assertEqual(code, 0 if result["ok"] else 1)
+        return result
+
+    def test_the_diff_equals_the_rows(self):
+        self.moved()
+        result = self.prove()
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["rows_checked"], 3)
+
+    def test_an_unplanned_change_is_caught(self):
+        self.moved()
+        contract = self.ids["06 Work/Contract.docx"]
+        os.remove(self.path("06 Work/Contract.docx"))
+        write(self.path("06 Work/New.txt"), "added by hand")
+        result = self.prove()
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["gone_unexpected"], [["06 Work/Contract.docx", contract]])
+        self.assertEqual([p for p, _h in result["new_unexpected"]], ["06 Work/New.txt"])
+        self.assertEqual((result["gone_missing"], result["new_missing"]), ([], []))
+
+    def test_a_row_marked_done_that_did_not_happen(self):
+        self.moved()
+        rows = read_rows(self.plan)
+        rows.append(row(4, "move", "06 Work/Contract.docx", "06 Work/C.docx", self.ids["06 Work/Contract.docx"],
+                        status="done"))
+        write_rows(self.plan, rows)
+        result = self.prove()
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["gone_missing"], [["06 Work/Contract.docx", self.ids["06 Work/Contract.docx"]]])
+        self.assertEqual(result["new_missing"], [["06 Work/C.docx", self.ids["06 Work/Contract.docx"]]])
+
+    def test_departures_the_owner_expects(self):
+        self.moved()
+        os.remove(self.path("06 Work/Contract.docx"))           # collected by another project
+        self.assertFalse(self.prove()["ok"])
+        self.assertTrue(self.prove("--allow-departed-under", "06 Work/")["ok"])
+
+
+class CheckTest(PlanCase):
+    def check(self):
+        code, out, err = self.run_plan("check", "--root", self.root, "--plan", self.plan)
+        self.assertIn(code, (0, 1), err)
+        failed = {line.split()[1]: line for line in out.splitlines() if line.startswith("FAIL")}
+        self.assertEqual(code, 1 if failed else 0)
+        return failed
+
+    def test_the_light_plan_with_a_destination_chosen(self):
+        self.run_plan("light", "--root", self.root, "--out", os.path.dirname(self.plan))
+        rows = read_rows(self.plan)
+        rows[0]["to"] = "03 Home/Beach.jpg"
+        write_rows(self.plan, rows)
+        self.assertEqual(self.check(), {})
+
+    def test_every_bad_row_is_named(self):
+        outside = os.path.join(self.tmp, "a", "outside.txt")
+        write(outside, "beside the folder")
+        with open(self.path(ESSAY_WORKING), "ab") as f:
+            f.write(b"edited")
+        os.remove(self.path("04 Study/Slides.pptx"))
+        write_rows(self.plan, [
+            row(1, "delete", PASSPORT_PACK, evidence=self.ids[PASSPORT_PACK], kind="redundant"),
+            row(2, "delete", BANK_COPY, evidence=self.ids[BANK_COPY], kind="working_copy"),
+            row(3, "delete", "05 Archive/Slides.pptx", evidence=self.ids["05 Archive/Slides.pptx"],
+                kind="redundant"),
+            row(4, "delete", BANK_COPY, evidence="f" * 64, kind="redundant"),
+            row(5, "move", BANK, "../Bank.pdf", self.ids[BANK]),
+            row(6, "move", "../outside.txt", "06 Work/outside.txt", common.content_id(outside)),
+            row(7, "move", ESSAY_WORKING, "04 Study/E.docx", self.ids[ESSAY_WORKING]),
+            row(8, "rmdir", "../"),
+            row(9, "delete", BANK_COPY, evidence=self.ids[BANK_COPY], kind="redundant"),
+            row(10, "move", "06 Work/Contract.docx", "06 Work/C.docx", self.ids["06 Work/Contract.docx"]),
+            row(11, "move", "02 Finance/Missing.pdf", "06 Work/Missing.pdf", self.ids[BANK]),
+        ])
+        failed = self.check()
+        self.assertEqual(sorted(failed, key=int), [str(n) for n in range(1, 9)] + ["11"])
+        for seq, reason in (("1", "not redundant"), ("2", "not redundant"), ("3", "missing on disk"),
+                            ("5", "outside the folder"), ("6", "outside the folder"),
+                            ("7", "source missing or hash differs"), ("8", "outside the folder"),
+                            ("11", "source missing or hash differs")):
+            self.assertIn(reason, failed[seq])
+
+    def test_a_changed_copy_or_canonical(self):
+        for rel in (BANK, BANK_COPY):
+            with self.subTest(rel):
+                original = read(self.path(rel), "rb")
+                write(self.path(rel), original + b"edited")
+                write_rows(self.plan, [row(1, "delete", BANK_COPY, evidence=self.ids[BANK_COPY], kind="redundant")])
+                self.assertIn("hash differs", self.check()["1"])
+                write(self.path(rel), original)
+
+
+# ---------------------------------------------------------------------------------------------- migrations
+
+class MigrationRoundTest(PlanCase):
+    def round(self, cmd, paths, out):
+        paths_file = os.path.join(self.tmp, cmd + ".txt")
+        write(paths_file, "# one path per line\n" + "".join(p + "\n" for p in paths))
+        code, _o, err = self.run_plan(cmd, "--root", self.root, "--project", "Household", "--paths-file",
+                                      paths_file, "--out", out)
+        self.assertEqual(code, 0, err)
+        self.plan = os.path.join(out, "move-plan.csv")
+        self.run_plan("approve", "--plan", self.plan, "--rows", "all")
+        before = os.path.join(out, "before.json")
+        shutil.copy(self.manifest_path, before)
+        code, out_, err = self.execute()
+        self.assertEqual(code, 0, out_ + err)
+        self.audit()
+        code, proof, err = self.run_plan("prove", "--plan", self.plan, "--before", before, "--after",
+                                         self.manifest_path)
+        self.assertEqual(code, 0, proof + err)
+        return read(os.path.join(os.path.dirname(self.plan), "review.tsv"))
+
+    def test_stage_for_another_project_and_bring_back(self):
+        original = tree_digest(self.root, skip=("_Audit",))
+        review = self.round("migrate", ["06 Work/", "Missing.pdf"], os.path.join(self.tmp, "round1"))
+        self.assertIn("MISSING\tMissing.pdf", review)
+        self.assertIn("Household\t06 Work/Essay.docx\tcanonical\t04 Study/Essay.docx; 05 Archive/Essay.docx", review)
+        staged = {e["current_path"]: e.get("migration_target") for e in self.manifest["entries"].values()
+                  if "migrating" in e["flags"]}
+        self.assertEqual(staged["_Migrations/Household/06 Work/Contract.docx"], "Household")
+        self.assertEqual(staged["04 Study/Essay.docx"], "Household")      # the staged copy marks its entry
+        self.assertFalse(os.path.exists(self.path("06 Work/Contract.docx")))
+
+        partial = os.path.join(self.tmp, "partial")
+        write(os.path.join(self.tmp, "partial.txt"), "06 Work/Essay.docx\nNowhere.pdf\n")
+        self.run_plan("return", "--root", self.root, "--project", "Household", "--paths-file",
+                      os.path.join(self.tmp, "partial.txt"), "--out", partial)
+        self.assertEqual([(r["action"], r["from"]) for r in read_rows(os.path.join(partial, "move-plan.csv"))],
+                         [("move", "_Migrations/Household/06 Work/Essay.docx")])
+        self.assertIn("MISSING\t_Migrations/Household/Nowhere.pdf", read(os.path.join(partial, "review.tsv")))
+
+        self.round("return", ["06 Work/Essay.docx", "06 Work/Contract.docx"], os.path.join(self.tmp, "round2"))
+        rows = list(self.rows().values())
+        self.assertEqual((rows[-1]["action"], rows[-1]["from"], rows[-1]["status"]),
+                         ("rmdir", "_Migrations/Household/", "done"))
+        self.assertEqual(self.bin_names(), ["Household"])
+        self.assertEqual(tree_digest(self.root, skip=("_Audit",)), original)
+
+
+if __name__ == "__main__":
+    unittest.main()
