@@ -7,10 +7,12 @@ description: >-
   under the owner's approval, from a reviewed move-plan executed under guards and verified by
   re-audit, and hand it to project-onboarding. Propose-only by default; nothing moves without a yes.
   The audit half keeps running afterwards as the project's periodic `audit` job (the folder-curation
-  archetype). Use when a folder people already work in is messy enough that a wiki would inherit its
-  confusion, or when the owner wants a one-time scan and a live drift record without moving anything.
-  For a drop folder of files that belong to no project yet use file-preprocessing; for a folder that
-  is already tidy use project-onboarding directly.
+  archetype), and approved plans are also how files migrate between projects. A component of
+  pre-onboarding: a person preparing a lived-in folder for the system starts there, and it runs this
+  skill's audit and curation rounds with its bundled tools. Use directly when the owner wants a
+  one-time scan and a live drift record without moving anything, or to carry out an approved
+  migration. For a drop folder of files that belong to no project yet use file-preprocessing; for a
+  folder that is already tidy use project-onboarding directly.
 ---
 
 # folder-curation
@@ -40,15 +42,26 @@ first half is what the project keeps running after curation is done. Their **def
 to `file-preprocessing`'s, which is why this is not a mode of that skill: preprocessing is built to
 act on files nobody has organised; curation is built to refuse to act on files somebody has.
 
+**A component of `pre-onboarding`.** A person preparing a lived-in folder for the system starts at
+[`pre-onboarding`](../pre-onboarding/SKILL.md), which runs this skill's audit and curation rounds in an
+interactive session with the preparation tools in [`pre-onboarding/tools/`](../pre-onboarding/tools/),
+then reads, summarises and builds the wiki over the curated result. This skill stays the method those
+tools implement, and the method the folder-curation archetype's jobs keep running after onboarding.
+
 ## When to use
 
-- A folder the owner already works in is being adopted into an AI-OS-style setup, and a read-only scan
+- A folder the owner already works in is being prepared for an AI-OS-style setup, and a read-only scan
   shows overlapping homes for one subject, duplicate trees, strays at the root, or formats the system
-  cannot read. Run this first; hand off to `project-onboarding` when the verify step is clean.
+  cannot read. Start at `pre-onboarding`, which runs this skill first; the folder goes on to
+  `project-onboarding` when the verify step is clean and the rest of the preparation is done.
 - The owner wants a thorough one-time audit and a **live drift record** of a folder without anything
   moving. Run the audit half only; the `audit` job then keeps it current.
 - A project that was onboarded without curation keeps raising filing ambiguities. Run curation
   retroactively; the wiki's existing citations are swept by the rename protocol.
+- Files are to **migrate** between projects. Once a folder is maintained, a migration is proposed by
+  the owner's user-tier synthesis (`wiki-maintenance`'s rule that a project files within itself);
+  during preparation, a curation round may propose one. Either way the owner approves it, and an
+  approved plan of this skill carries it out, staged in `_Migrations/<Project>/` (step 3).
 
 Not for: a drop folder of new files (`file-preprocessing`); a folder that is already tidy
 (`project-onboarding`); a git repository (the `code` archetype); writing the wiki (`wiki-onboarding`).
@@ -65,15 +78,22 @@ Beside the owner's material, named by whatever the deployment declares:
     plans/<YYYY-MM-DD>/    one folder per curation round
       move-plan.csv        the proposal, then the approvals, then the execution record (one file, three columns filled in turn)
       undo.log             every executed row's reverse, appended as it happens
+      review.tsv           for a migration round, each staged path with its copy kind and the copies
+                           left behind; for a migration or return round, a MISSING row for each
+                           listed path the manifest does not know
+  _Migrations/<Project>/   files the owner approved for another project, at their original relative
+                           paths, until that project collects them (only while a migration is open)
   <rulebook>               the folder's standing instructions for any AI session (e.g. CLAUDE.md):
                            the depth the owner chose, the class policy, naming rules, exclusions,
                            where AI outputs land
   <the owner's folders>    unchanged except by approved rows
 ```
 
-Reserved names (`_Audit`, the rulebook, the inbox and wiki names the deployment declares, dotfiles,
-and any `_`-prefixed system folder) are never content. Anything else at the root that is not a
-declared name is a **root stray** and appears in the audit as one.
+Reserved names (`_Audit`, the rulebook, the inbox, migrations and wiki names the deployment declares,
+dotfiles, and any `_`-prefixed system folder) are never content. Anything else at the root that is not
+a declared name is a **root stray** and appears in the audit as one. The migrations folder is the one
+reserved name the audit still walks: a staged file is this folder's until another project collects it,
+so it stays counted and carries the manifest's `migrating` flag.
 
 ## The method
 
@@ -86,6 +106,13 @@ moves, spot edited files and strays, flag departed entries), then compute what a
 
 - **A type class per file**, from the class policy below. Classes decide what is hashed in full,
   what is counted only, and what the later ingest may read.
+- **A package is one item.** An iWork document saved as a package (a folder of member files) is
+  audited as one item and never walked into: its id is computed by the manifest's package hash rule,
+  and its entry carries `package`.
+- **Files staged for another project**: every path under `_Migrations/<Project>/` sets the entry's
+  `migrating` flag, with the project in `migration_target`, and the audit lists them in a section of
+  their own. They leave the audit only when the other project collects them, and the entry is then
+  `departed` (or, if a copy stays behind, simply loses the flag).
 - **Duplicate groups** by content hash, across the whole tree. Copies of the same bytes share one
   manifest entry (the key *is* the hash), so a group is one entry with several `copies`, each path
   tagged by kind:
@@ -103,10 +130,13 @@ moves, spot edited files and strays, flag departed entries), then compute what a
   pair with the count of files on each side.
 - **Generic names**: files whose stem is a device or scanner default (`IMG_`, `Scanned Document`,
   `Screenshot`, `document`, chat-export prefixes), counted per folder.
-- **Unreadable-by-design formats**: proprietary office formats, medical imaging, bundled software,
-  camera originals, message files, counted per class and per folder; never flagged per run. A
-  proprietary file is `unconverted` only when **no export of it can be confidently matched**, and
-  the search is wider than the obvious one: people export to a sibling folder, to an outputs folder,
+- **Unreadable-by-design formats**: proprietary office formats the system cannot open, medical
+  imaging, bundled software, camera originals, message files, counted per class and per folder; never
+  flagged per run. iWork is read directly (the class policy below), yet the audit still pairs each
+  iWork file with its export, because the owner shares and files the export, and a `convert` row that
+  makes a second one is waste. A proprietary file is `unconverted` only when **no export of it can
+  be confidently matched**, and the search is wider than the obvious one: people export to a sibling
+  folder, to an outputs folder,
   and under a modified name ("… final", "… signed", a date appended). Matching only `X.pages`
   against `X.pdf` in the same folder therefore reports as unconverted a document that was converted
   years ago — and the plan's answer to that is a `convert` row that makes a *second* export. So
@@ -144,8 +174,8 @@ moves, spot edited files and strays, flag departed entries), then compute what a
     always for.
 
   **Stay deterministic**: this pass makes no model call, and comparing a proprietary bundle's
-  *contents* to a PDF would need to open the format the class policy says cannot be opened. If a
-  content-level comparison is ever wanted, it belongs in `curate`, which already reads.
+  *contents* to a PDF would mean reading documents, which the audit never does: it hashes and names.
+  If a content-level comparison is ever wanted, it belongs in `curate`, which already reads.
 - **Hygiene defects**: trailing or leading whitespace in a name, hidden system files, names that
   differ only by case, path components over the filesystem's byte limit, obvious misspellings the
   owner may confirm.
@@ -178,14 +208,19 @@ sweep that saw nothing and a healthy folder must never read alike.
 Show the audit, then ask, in this order, and record every answer in the rulebook:
 
 1. **Who will use the maintained folder**, and does that need access boundaries inside it (one
-   project, or split by audience)?
+   project, or split by audience)? **Confirm a boundary with the actual files**, never with a
+   description of them: list, from the manifest, the paths on each side of the line the owner draws,
+   and let them read the list. Owners describe a folder by what they meant it to hold; the files say
+   what it does hold, and a boundary agreed in words moves the wrong ones.
 2. **How far to reorganise**: present the depth ladder below as a comparison with what moves, what
    the owner relearns, reversibility and effort. The owner picks a depth; the plan never exceeds it.
 3. **How new files arrive** today (a scanner to the root, attachments saved into subfolders,
    batches from a desktop), and whether anyone else writes to the folder. This decides the inbox.
 4. **Which folders are closed matters** (ingested once as history, marked superseded) and which are
    live.
-5. **Which formats are working formats**, and whether the owner will convert or export them.
+5. **Which formats are working formats**, and whether the owner will convert or export them. Under
+   the class policy's default iWork is read directly, so an export is the owner's choice for their own
+   use, never a condition of the system reading the document.
 6. **Any explicit exclusions or identifier restrictions.** Full private content is the default
    under `wiki-maintenance`; compile excluded paths and any requested identifier restriction into
    job config. These decisions do not change the separate reorganisation depth selected above.
@@ -205,9 +240,9 @@ reconcile check agreement. Do not create multiple independently maintained ruleb
 From the audit and the answers, emit a **move-plan** (schema:
 [`references/move-plan-schema.md`](references/move-plan-schema.md)). Rules:
 
-- One row per action: `move`, `rename`, `delete`, `convert`, `create`. Each carries the evidence
-  hash of the file or folder it touches, the reason, the depth it belongs to, and the domain, so the
-  owner can approve a domain at a time.
+- One row per action: `move`, `rename`, `delete`, `convert`, `create`, `rmdir`. Each carries the
+  evidence hash of the file it touches (an `rmdir` or folder `rename` row excepted), the reason, the
+  depth it belongs to, and the domain, so the owner can approve a domain at a time.
 - **Never exceed the chosen depth.** Rows above it may be listed under a *later* heading for the
   next round, never mixed into this one.
 - **Delete only redundant duplicates** proven by hash and outside any pack — a row names the
@@ -219,6 +254,20 @@ From the audit and the answers, emit a **move-plan** (schema:
   in-place mode over the listed files, never re-implemented here.
 - **Folder renames** carry the `wiki-maintenance` rename protocol: sweep every consumer of the old
   path in the same round, and log out-of-folder consumers as watch items.
+- **Emptied folders** are removed only by an `rmdir` row, one per top-most folder the approved moves
+  leave empty, proposed once those moves are approved and approved like any other row. It carries no
+  evidence hash; the executor proves the folder empty on disk instead. Where the rulebook keeps empty
+  folders (`keep_empty_folders`, the default), the owner declines the `rmdir` rows the tool proposes
+  among their own folders; only the migrations folder's are approved by default.
+- **Migrations are staged, never sent.** A file bound for another project moves by a `move` row into
+  `_Migrations/<Project>/`, keeping its folder-relative path beneath, so the receiving project
+  collects it from one place and a return is the exact reverse. Before the round, show the owner the
+  actual files the boundary moves (step 2), and list against each staged path the copies that stay
+  behind, so a duplicate is not taken for the file itself. Staging is a curation act, never a filing
+  rule: the rulebook never routes new files into the migrations folder.
+- **Return migrations** bring a staged file the owner decides to keep back to its original path, by a
+  `move` row out of `_Migrations/<Project>/`; a round that returns everything still staged for that
+  project adds an `rmdir` row for the emptied `_Migrations/<Project>/`.
 - **Never invent a taxonomy.** The owner's shape stays; the plan resolves conflicts inside it. A
   full re-taxonomy is a depth the owner must choose, and even then it is proposed as a mapping from
   every existing folder, never as a blank target tree.
@@ -237,31 +286,68 @@ skipped and reported as skipped; it is never executed "because it was obviously 
 
 ### 5. Execute (deterministic; guards, not judgement)
 
-Execute approved rows in order: renames and moves first, conversions next, deletions **last** and
-only after the re-audit of the moves is clean. Every row runs under the move guards the manifest
-reference defines (in-folder containment, symlink refusal, hash-verify after the move, a two-phase
-op log so an interrupted round is resolved by content, an undo entry per row). A `convert` row is
-complete only when the converted file is verified (page or sheet count against the original) and
-the original rests under the archive area the plan names. A failed row stops its domain and is
-reported with its reason; the rest of the plan is not attempted "to finish the job".
+Before anything moves, dry-run every row, delete rows included, under the executor's guards (a
+destination clash excepted, which only the move itself sees), and fix or decline a row that fails.
+Then execute approved rows in `seq` order: renames, moves and `create` rows first, conversions next,
+`rmdir` rows once the moves that empty their folders are done, and deletions **last**, in a phase of
+their own. Every row runs under the move guards the manifest reference defines (in-folder containment,
+symlink refusal, hash-verify after the move, a two-phase op log so an interrupted round is resolved by
+content, an undo entry per row), and two more: a file or package must hash to the row's evidence
+before it moves, and nothing is ever overwritten. A `convert` row is complete only when the converted
+file is verified (page or sheet count against the original) and the original rests under the archive
+area the plan names (a `convert` row is not executed by the preparation tools; it is the owner's or
+the deployment's). A failed row stops its domain and is reported with its reason; the rest of the plan
+is not attempted "to finish the job".
+
+- **The executor hashes exactly as the audit does.** A row's evidence is the manifest's content id,
+  so the executor computes it the same way: a file's SHA-256, and a package's by the manifest's
+  package hash rule. A second definition would refuse every package move as a hash mismatch, or pass
+  one that should have failed.
+- **Nothing is unlinked, and an `rmdir` needs an empty folder.** A deleted copy and a removed folder
+  go to **the Bin**, and the undo entry records where each went, so either is restored by moving it
+  back; an `rmdir` fails on any file left in its folder but `.DS_Store`. The exact rules are the
+  plan schema's ([`rmdir` and the Bin](references/move-plan-schema.md#rmdir-and-the-bin)).
+- **Deletes wait for a clean re-audit of the moves.** The executor refuses the delete phase until
+  every other approved row is done and the folder has been re-audited since the last of them; run the
+  step 6 proof on that re-audit, and start deleting only when it is clean.
+- **Each delete row is re-verified against the fresh manifest**, not the one the plan was proposed
+  from: the path must still be a copy that manifest marks `redundant`, a separate canonical copy must
+  still exist, and both must still hash to the row's evidence on disk. Moves change which copy is
+  canonical and what each copy's folder shares, so a delete judged against the old manifest could
+  remove the copy that is now the one that matters.
 
 On a case-insensitive filesystem, execute a case-only rename via an unused temporary name and
 verify against filesystem identity as well as spelling; a case-sensitive comparison alone reports
 phantom moves. Preserve the existing file on any failed rename.
 
+**Expect a second round of redundancy.** Copy kinds are computed from the folder as it stands, so a
+round changes them: once redundant copies and staged files leave, a folder's remaining files share a
+different proportion with their canonical home, and a copy the last audit called a working copy can
+now be redundant; a move can make another path canonical. Re-audit after every round, and propose the
+redundancy it reveals as a further round, never folded into the round being executed.
+
 ### 6. Verify by re-audit
 
-Run step 1 again. The diff between the baseline and the new manifest must equal the executed rows
-exactly, row for row. Anything else (a file that moved that no row moved, a hash that changed, a
-count that shifted) is a **finding**, reported with the row it should have belonged to. Report the
-round in the terms the counts mean: rows approved, executed, skipped, failed; files moved, renamed,
+Run step 1 again, and prove the moves as a **(path, hash) diff**. Treat each manifest as the set of
+(path, content id) pairs over every live path, copies included. The pairs that disappeared must be
+exactly the executed rows' (`from`, `evidence`), and the pairs that appeared exactly their (`to`,
+`evidence`); a folder rename accounts for every pair under the old path. Departures from
+`_Migrations/<Project>/` after the other project collected its files are expected, and the proof
+takes them only as an explicit allowance for that path, never as a silent pass. Anything else (a file
+that moved that no row moved, a hash that changed, a count that shifted) is a **finding**, reported
+with the row it should have belonged to. After the delete phase, re-audit once more. The (path, hash)
+proof covers moves and renames only, so check the deletes by reading the fresh manifest: each deleted
+path is gone from its entry's `copies`, the canonical path remains, and no other pair changed. Report
+the round in the terms the counts mean: rows approved, executed, skipped, failed; files moved, renamed,
 converted, deleted; findings.
 
 ### 7. Hand off
 
-Point at `project-onboarding`. It finds a folder with a baseline manifest, a rulebook that records
-the chosen depth and rules, and no ambiguity a Schema cannot route. Stamp the **folder-curation
-archetype** (`../project-onboarding/archetypes/folder-curation/`) so the `audit` keeps running on a
+In preparation, the curated folder goes back to `pre-onboarding` for its extraction, cards and wiki,
+and from there to `project-onboarding`. Either way, `project-onboarding` finds a folder with a
+baseline manifest, a rulebook that records the chosen depth and rules, and no ambiguity a Schema
+cannot route. Stamp the **folder-curation archetype**
+(`../project-onboarding/archetypes/folder-curation/`) so the `audit` keeps running on a
 cadence and `curate` can propose the next depth as a later round. The ladder is re-entrant: a
 folder curated at light depth converges on medium one domain at a time, through the same plan and
 approval loop, without a second migration.
@@ -270,7 +356,7 @@ approval loop, without a second migration.
 
 | depth | what moves | what the owner relearns | when it fits |
 |---|---|---|---|
-| **light** | root strays into the inbox or their folder; hygiene defects; AI artefacts out of the sources; redundant duplicates deleted; system layer added | nothing | almost always the first round; the wiki carries the rest |
+| **light** | root strays into the inbox or their folder; hygiene defects; AI artefacts out of the sources; redundant duplicates moved to the Bin; system layer added | nothing | almost always the first round; the wiki carries the rest |
 | **medium** | light, plus: overlapping homes resolved to one canonical home each; working-copy trees consolidated with pointer notes; generic names replaced by descriptive ones (via `file-preprocessing` in place); folder names normalised to the owner's language rule | a handful of moves | when routing ambiguity survives the Schema, one domain at a time |
 | **full** | every folder mapped to a new top-level scheme | everything | rarely; only when the owner asks for it, and only as a mapping from every existing folder |
 
@@ -285,7 +371,8 @@ says not to do, so **full** is offered for completeness and recommended against.
 | `image` | photographs, screenshots, camera originals | hashed in full when under the size cap, else counted | read only when it is a scan of a document |
 | `imaging` | medical or scientific image sets | counted per study | never read; the page notes the study exists |
 | `software` | bundled viewers, installers, libraries beside data | counted per bundle | never read |
-| `iwork` and other proprietary office formats | files the system cannot open | hashed, listed once as unconverted | read after a `convert` row |
+| `iwork` | Pages, Numbers and Keynote documents; a package counts as one item | hashed (a package by the manifest's package hash rule); a confidently matched export recorded, the rest listed once as unconverted | read directly, without the apps; a `convert` row only when the owner wants an export |
+| other proprietary office formats | files the system cannot open | hashed, listed once as unconverted | read after a `convert` row |
 | `email` | message files | hashed in full | read as text |
 | `archive` | compressed bundles | hashed, contents listed when cheap | opened only on request |
 
@@ -297,14 +384,17 @@ so a photograph folder that doubles overnight is visible.
 
 - **Audit first, always.** Nothing moves without a baseline manifest to reverse against.
 - **Propose, approve, execute, verify.** Four separate steps with a record between each; the
-  executor never reads the audit, only the approved plan.
+  executor takes its rows only from the approved plan, and reads the audit for one thing: the fresh
+  manifest it re-verifies delete rows against.
 - **Opposite default to preprocessing.** That skill acts; this one refuses to act. Keep them
   separate skills sharing one manifest.
 - **A copy can be a record.** Deletion is for redundancy proven by hash outside a pack; a
   submission pack is history and stays whole.
+- **Nothing is permanently deleted.** Deleted copies and emptied folders go to the Bin, each with its
+  undo entry, and no copy is deleted until the moves before it are proven.
 - **The owner's shape survives.** Resolve conflicts inside it; never replace it uninvited.
 - **Counts, never silence.** Every audit section reports a number, zero included, and every round
   reports approved, executed, skipped, failed.
 - **Skills describe; code enforces.** The guards named here are the deployment's to hold (the
-  three-layer model in [`ARCHITECTURE.md`](../../ARCHITECTURE.md)); this skill says what they must
-  guarantee.
+  three-layer model in [`ARCHITECTURE.md`](../../ARCHITECTURE.md)), and during preparation the tools
+  in `pre-onboarding/tools/` hold them; this skill says what they must guarantee.
