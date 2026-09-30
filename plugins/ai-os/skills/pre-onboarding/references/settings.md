@@ -156,8 +156,8 @@ Two skip that gate and report instead. `settings.py`: `compile` is the remedy (i
 twin as a hand-off finding (exit 1), reading the settings without trusting them, as `check` does.
 
 An absent twin is not stale: a folder has no `wiki-schema.json` before its wiki exists, and tools fall back to the
-defaults without a `rulebook.json`. The tools that need a twin (`settings.py check`, `wiki.py bundles`, the
-hand-off contract in `readiness.py`) say so.
+defaults without a `rulebook.json`. The tools that need a twin (`settings.py check`, `wiki.py bundles` and
+`brief`, the hand-off contract in `readiness.py`) say so.
 
 ## `settings.py check`
 
