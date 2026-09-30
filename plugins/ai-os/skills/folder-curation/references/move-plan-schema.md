@@ -2,10 +2,10 @@
 
 One file per curation round at `_Audit/plans/<YYYY-MM-DD>/move-plan.csv`, UTF-8, header row,
 RFC 4180 quoting (paths contain commas and quotes). The proposer fills the first eleven columns; the
-owner fills the approval pair; the executor fills the last three. Rows are never deleted or
-reordered; a withdrawn proposal is a row with `approved = declined`. A proposer may seed `status` with
-`proposed`; recording the owner's approval sets it to `pending`, and a decline to `skipped`. A path
-ending in `/` names a folder.
+owner fills the approval pair; the executor fills the last three (the owner's approval also sets
+`status`). Rows are never deleted or reordered; a withdrawn proposal is a row with
+`approved = declined`. A proposer may seed `status` with `proposed`; recording the owner's approval
+sets it to `pending`, and a decline to `skipped`. A path ending in `/` names a folder.
 
 | column | filled by | values |
 |---|---|---|
@@ -15,14 +15,14 @@ ending in `/` names a folder.
 | `action` | proposer | `move`, `rename`, `delete`, `convert`, `create`, `rmdir` |
 | `from` | proposer | folder-relative path today (empty for `create`; for `rmdir`, the folder to remove) |
 | `to` | proposer | folder-relative path after (empty for `delete` and `rmdir`) |
-| `evidence` | proposer | the sha256 id of the file (a package's by the manifest's package hash rule), or of the folder's manifest listing for a folder rename; for a `delete`, the id of the entry whose `copies` list holds the path in `from`; empty for `rmdir`, whose emptiness is proved on disk |
+| `evidence` | proposer | the sha256 id of the file (a package's by the manifest's package hash rule); for a `delete`, the id of the entry whose `copies` list holds the path in `from`; none for a folder rename or an `rmdir` (an `rmdir`'s emptiness is proved on disk) |
 | `reason` | proposer | one sentence, the audit finding it resolves (e.g. `redundant copy of <id> in the same folder`) |
 | `kind` | proposer | for `delete`: `redundant` only (a `working_copy` or `pack` row is never a delete); for `convert`: the target format; for a `move` staging a file for another project: the moved path's copy kind, empty when its entry has one path |
 | `sweep` | proposer | for a folder `rename`: `yes` when the wiki-maintenance rename protocol must run; the consumers found are listed in the execution `note` |
 | `needs_a_look` | proposer | empty, or the reason this row is a proposal the owner must judge rather than a mechanical one |
 | `approved` | owner | `approved`, `declined`, `deferred`; a blank row is treated as `deferred` |
 | `approved_at` | owner | ISO datetime |
-| `status` | executor | `proposed`, `pending`, `done`, `skipped`, `failed`, `reverted` |
+| `status` | proposer (`proposed`), owner (`pending`, `skipped`), executor (the rest) | `proposed`, `pending`, `done`, `skipped`, `failed`, `reverted` |
 | `executed_at` | executor | ISO datetime |
 | `note` | executor | the failure reason, the undo entry's id (which says where in the Bin a removed item went), or the rename sweep's consumer list |
 
@@ -36,8 +36,9 @@ re-verified against.
 
 ## `rmdir` and the Bin
 
-- An `rmdir` row removes a folder only when nothing is left under it but `.DS_Store` files (the
-  folder metadata a desktop file browser leaves behind); anything else under it fails the row.
+- An `rmdir` row removes a folder only when no file is left under it but `.DS_Store` (the folder
+  metadata a desktop file browser leaves behind): any other file under it fails the row, and empty
+  subfolders go to the Bin with it.
 - Nothing is unlinked. A `delete` row's copy and an `rmdir` row's folder move to **the Bin**: the
   user's bin by default, or one the operator names. On a name clash the item takes a number, and the
   row's undo entry records where it went, so it is restored by moving it back.

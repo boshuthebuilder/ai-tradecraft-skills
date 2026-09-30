@@ -21,6 +21,9 @@ a `/1` file treats every added field as absent. The schema string is
 `family-ai-preprocess-manifest/2`. Producers: `file-preprocessing` (either), `folder-curation`
 (always `/2`).
 
+**The extension rule.** Within a version, an optional field may be added; a consumer ignores fields
+it does not know, as it ignores unknown flags.
+
 ## Entry fields
 
 | field | type | meaning |
@@ -88,9 +91,9 @@ verifies a move by hash, and every consumer that matches a package to its entry 
 exactly this way: a second definition makes every package look edited on the next pass, or refuses
 every package move as a hash mismatch.
 
-`package` and `migration_target`, like the `migrating` flag below, were added to `/2` under its
-extension rule: consumers ignore fields and flags they do not know, so the schema string stays
-`family-ai-preprocess-manifest/2` and every earlier `/2` file stays valid.
+`package` and `migration_target`, like the `migrating` flag below, were added to `/2` under the
+extension rule at the top of this file, so the schema string stays `family-ai-preprocess-manifest/2`
+and every earlier `/2` file stays valid.
 
 ## Flags
 
@@ -123,10 +126,11 @@ describe the entry's path — on an entry that has a `copies` list they describe
 the other copies are described by their own `kind`, not by a flag.
 
 **Also in /2:** `migrating` (a live path of the entry lies under the migrations folder's
-`<Project>/`, where an approved curation row staged it for another project; `migration_target` names
-the project). Unlike the three above it holds when **any** of the entry's live paths is staged,
-canonical or not, and the walk recomputes it every pass. A staged path is out of this folder's wiki scope. Once the other project
-collects the file the entry is `departed`, or, where a copy stays behind, loses the flag.
+`<Project>/`, the staging area an approved curation row moves a file into for another project;
+`migration_target` names the project). Unlike the three above it holds when **any** of the entry's live paths is staged,
+canonical or not, and the walk recomputes it every pass. A staged path is out of this folder's wiki
+scope. Once the other project collects the file the entry is `departed`, or, where a copy stays
+behind, loses the flag.
 
 ## The `look` vocabulary
 

@@ -2,15 +2,10 @@
 name: wiki-onboarding
 description: >-
   Bootstrap an in-folder knowledge wiki for a folder that doesn't have one yet (or adopt an existing
-  folder): scan the folder read-only; have a librarian propose sections by responsibility and the one
-  professional best suited to each page; interview the owner on a few key points; agree a page contract
-  for every page type, drafted by that page's professional; write the initial skeleton (the Schema page,
-  the wiki's constitution; the Index dashboard; a Log; the section pages) and, where every document has
-  already been read, draft the pages; then accept each page in the owner's lens and its professional's,
-  through a model that did not write it. Hand off to wiki-maintenance, which thereafter follows the
-  Schema. Use this when there is no Schema/Index yet; if a wiki already exists, use wiki-maintenance
-  instead. A person preparing a lived-in folder for the system starts at pre-onboarding, which runs this
-  skill as its wiki stage.
+  folder): sections by responsibility, a professional per page and a contract per page type, the
+  Schema, Index and Log skeleton, and pages accepted by a model that did not write them; then hand off
+  to wiki-maintenance. Use this when there is no Schema/Index yet; if a wiki already exists, use
+  wiki-maintenance instead. To prepare a lived-in folder for the system, start at pre-onboarding.
 ---
 
 # wiki-onboarding
@@ -24,6 +19,13 @@ has something to follow.
 It is an **interactive** skill — it proposes and asks before it writes. The output that matters is the
 **Schema page**: a small constitution that every later maintenance pass refers to, so the structure
 lives in the wiki itself and never has to be re-derived.
+
+In outline: scan the folder read-only; a librarian proposes sections by responsibility and the one
+professional best suited to each page; interview the owner on a few key points; agree a page contract
+for every page type, drafted by its professionals; write the skeleton (the Schema page, the Index
+dashboard, a Log and the section pages) and, where every document has already been read, draft the
+pages; accept each page in the owner's lens and its professional's, through a model that did not write
+it; then hand off to **wiki-maintenance**, which thereafter follows the Schema.
 
 How a wiki is divided, who writes each page and how a page is accepted is the **core wiki rule**, whose
 one home is [`wiki-maintenance`](../wiki-maintenance/SKILL.md#the-core-wiki-rule). This skill applies it
@@ -59,9 +61,7 @@ A **librarian**, the professional whose trade is arranging a collection, reads t
 prepared folder, the audit and the document cards) and proposes three things together:
 
 - **The sections**, one per area of responsibility, under the core rule's
-  [sections by responsibility](../wiki-maintenance/SKILL.md#sections-by-responsibility): a section
-  follows one of the owner's folders where that folder already is one responsibility, and otherwise
-  follows the responsibility.
+  [sections by responsibility](../wiki-maintenance/SKILL.md#sections-by-responsibility).
 - **The routing**: which of the owner's folders feed which section and page, so every folder the
   material uses maps onto a section. It becomes the Schema's routing table.
 - **Each page's professional**: for every page, the one professional best suited to it, chosen from
@@ -136,17 +136,19 @@ Read them there and ask only what is still open.
 
 Propose, take their answers, and only then write. Never write the skeleton without the owner's nod.
 
-### 3a. Page contracts for every page type, drafted by each page's professional
+### 3a. Page contracts for every page type, drafted by its professionals
 
-Every page type has its **page contract** in the Schema before its first page is written. This is
-mandatory, following the core wiki rule in `wiki-maintenance`
+Every page type (a section: its pages share one contract) has its **page contract** in the Schema
+before its first page is written. This is mandatory, following the core wiki rule in `wiki-maintenance`
 ([a page contract for every page type](../wiki-maintenance/SKILL.md#a-page-contract-for-every-page-type)).
-Ask who will read the wiki and what they need to decide. Then, for each page type the material
-justifies, **the page's professional drafts the contract**: the model briefed as that professional
-starts from the first questions of their catalogue row and proposes the reader, the questions in
-priority order and the fields every page of the type carries, and the owner agrees or corrects it.
-Sections the layout marks `fixed` take the shapes the method gives them. Record the identifier-policy
-rung and any policy for combining currencies, dates or units; record an absent policy explicitly.
+Ask who will read the wiki and what they need to decide. Then, for each section the material
+justifies, **its professional drafts the contract**: the model briefed as that professional starts
+from the first questions of their catalogue row and proposes the reader, the questions in priority
+order and the fields every page of the section carries, and the owner agrees or corrects it. Where a
+section names several professionals, they draft its contract together, each owning the questions for
+the pages they voice. Sections the layout marks `fixed` take the shapes the method gives them. Record
+the identifier-policy rung and any policy for combining currencies, dates or units; record an absent
+policy explicitly.
 
 Put the layout, routing, page contracts and page professionals in the Schema's tables before writing
 those pages, and compile the machine-readable twin through the deployment's tooling (the tables and the
@@ -160,11 +162,12 @@ stays an optional profile, and do not impose case-specific fields.
 
 Create the meta pages and the agreed section pages:
 
-- **Schema**: the constitution. For each page: its **purpose**, its **contract**, its **professional**,
-  and the **source documents that trigger an update**, with the layout, routing, contracts and page
-  professionals in the tables with fixed headers that the settings reference defines. This is the
-  durable artefact every maintenance pass follows; if you choose non-default names or layout, the
-  Schema is where that is recorded and made authoritative. When retrofitting a Schema onto a wiki that already exists, enumerate what is actually
+- **Schema**: the constitution. For each section: its **purpose**, its **contract** and the **source
+  documents that trigger an update**; for each page, its **professional**. The layout, routing,
+  contracts and page professionals go in the tables with fixed headers that the settings reference
+  defines. This is the durable artefact every maintenance pass follows; if you choose non-default
+  names or layout, the Schema is where that is recorded and made authoritative. When retrofitting a
+  Schema onto a wiki that already exists, enumerate what is actually
   there first — top-level files and folders, page counts, frontmatter conformance — and write the
   constitution to describe the country as found, not as remembered: a Schema that omits the bulk of the
   wiki is worse than none, because nothing ever notices.
@@ -194,11 +197,11 @@ runs the drafting:
   map and links only to paths on it; none invents, renames or merges a page. A page the evidence shows
   is missing goes back to the coordinator as a proposal, and the map changes through the Schema.
 - **Fresh bundles.** Each section's evidence is a bundle built from the cards by the Schema's compiled
-  routing. The preparation tools list every document the routing cannot place, and record the hash of
-  the manifest the bundles were built from. Fix the routing until nothing is unplaced, rebuild the
-  bundles after any change to the manifest (a migration or a curation round above all), and draft only
-  from bundles built from the current manifest: a stale bundle cites paths that have moved and misses
-  files that arrived.
+  routing. The preparation tools list every document the routing cannot place or that has no card,
+  and record the hash of the manifest the bundles were built from. Fix the routing, and card what has
+  no card, until that list is empty; rebuild the bundles after any change to the manifest (a migration
+  or a curation round above all), and draft only from bundles built from the current manifest: a stale
+  bundle cites paths that have moved and misses files that arrived.
 - **A persona brief per page.** Brief each page, not each section: its professional, deliverable and
   tone (resolved as
   [the settings reference](../pre-onboarding/references/settings.md#a-pages-professional) sets out),
@@ -233,21 +236,16 @@ the preparing session writes the wiki.
 
 ### 6. Reader acceptance: the owner's lens and the professional's
 
-Every page is accepted before it is first handed to the owner, and again after a change to its
-anatomy, contract or professional. The two lenses and what a verdict records are the core rule's
+When a page is accepted, in which lenses and what a verdict records are the core rule's
 [acceptance](../wiki-maintenance/SKILL.md#acceptance); this step is how to run it.
 
-Commission the review from **a model that did not write the page**, so no page is marked by its
-author. Brief it with the agreed reader, the page's contract and professional, the page and its
-sources, and have it read in both lenses: **as the owner**, what can I still not answer or do, in the
-order I ask? **As the page's professional**, does the page meet its contract, does a sample of its facts
-match their sources, does it stay in scope? Record each verdict with the models that wrote and
-reviewed the page, in the acceptance record beside the audit pair (in a prepared folder,
-`_Audit/wiki-acceptance.json`, which the wiki check reports as recorded or not). Keep each finding with
-a response to it, rebuild the affected pages and review them again. Review parent and Index pages last,
-against their children. This is the acceptance loop described in `coding:iterative-acceptance`;
-automated checks and reader judgement answer different questions, so a passing check never stands in
-for acceptance.
+Commission the review from **a model that did not write the page**. Brief it with the agreed reader,
+the page's contract and professional, the page and its sources, and have it answer in both lenses.
+Write the verdict, with the models that wrote and reviewed the page, to the acceptance record beside
+the audit pair (in a prepared folder, `_Audit/wiki-acceptance.json`, which the wiki check reports as
+recorded or not), with each finding and the response to it. Rebuild what the findings touch and review
+it again, children before parents and the Index last. This is the acceptance loop of
+`coding:iterative-acceptance`; a passing check never stands in for it.
 
 ## Principles
 
@@ -259,5 +257,3 @@ for acceptance.
 - **Start minimal.** Better a tight structure that grows than an elaborate one that's mostly empty.
 - **One writer per file.** A drafting agent writes only its own pages; whatever sections share is the
   coordinator's to write.
-- **No page is accepted by its author.** Acceptance is a second model's reading, never a check that
-  passed.

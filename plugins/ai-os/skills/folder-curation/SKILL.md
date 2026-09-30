@@ -78,7 +78,9 @@ Beside the owner's material, named by whatever the deployment declares:
     plans/<YYYY-MM-DD>/    one folder per curation round
       move-plan.csv        the proposal, then the approvals, then the execution record (one file, three columns filled in turn)
       undo.log             every executed row's reverse, appended as it happens
-      review.tsv           for a migration round: each staged path, its copy kind, the copies left behind
+      review.tsv           for a migration round, each staged path with its copy kind and the copies
+                           left behind; for a migration or return round, a MISSING row for each
+                           listed path the manifest does not know
   _Migrations/<Project>/   files the owner approved for another project, at their original relative
                            paths, until that project collects them (only while a migration is open)
   <rulebook>               the folder's standing instructions for any AI session (e.g. CLAUDE.md):
@@ -239,7 +241,7 @@ From the audit and the answers, emit a **move-plan** (schema:
 [`references/move-plan-schema.md`](references/move-plan-schema.md)). Rules:
 
 - One row per action: `move`, `rename`, `delete`, `convert`, `create`, `rmdir`. Each carries the
-  evidence hash of the file or folder it touches (an `rmdir` row excepted, below), the reason, the
+  evidence hash of the file it touches (an `rmdir` or folder `rename` row excepted), the reason, the
   depth it belongs to, and the domain, so the owner can approve a domain at a time.
 - **Never exceed the chosen depth.** Rows above it may be listed under a *later* heading for the
   next round, never mixed into this one.
@@ -254,8 +256,9 @@ From the audit and the answers, emit a **move-plan** (schema:
   path in the same round, and log out-of-folder consumers as watch items.
 - **Emptied folders** are removed only by an `rmdir` row, one per top-most folder the approved moves
   leave empty, proposed once those moves are approved and approved like any other row. It carries no
-  evidence hash; the executor proves the folder empty on disk instead. Among the owner's folders,
-  propose none where the rulebook keeps empty folders.
+  evidence hash; the executor proves the folder empty on disk instead. Where the rulebook keeps empty
+  folders (`keep_empty_folders`, the default), the owner declines the `rmdir` rows the tool proposes
+  among their own folders; only the migrations folder's are approved by default.
 - **Migrations are staged, never sent.** A file bound for another project moves by a `move` row into
   `_Migrations/<Project>/`, keeping its folder-relative path beneath, so the receiving project
   collects it from one place and a return is the exact reverse. Before the round, show the owner the
@@ -283,16 +286,18 @@ skipped and reported as skipped; it is never executed "because it was obviously 
 
 ### 5. Execute (deterministic; guards, not judgement)
 
-Before anything moves, dry-run every row, delete rows included, under the executor's own guards, and
-fix or decline a row that fails. Then execute approved rows in `seq` order: renames, moves and
-`create` rows first, conversions next, `rmdir` rows once the moves that empty their folders are done,
-and deletions **last**, in a phase of their own. Every row runs under the move guards the manifest
-reference defines (in-folder containment, symlink refusal, hash-verify after the move, a two-phase op
-log so an interrupted round is resolved by content, an undo entry per row), and two more: a file or
-package must hash to the row's evidence before it moves, and nothing is ever overwritten. A `convert`
-row is complete only when the converted file is verified (page or sheet count against the original)
-and the original rests under the archive area the plan names. A failed row stops its domain and is
-reported with its reason; the rest of the plan is not attempted "to finish the job".
+Before anything moves, dry-run every row, delete rows included, under the executor's guards (a
+destination clash excepted, which only the move itself sees), and fix or decline a row that fails.
+Then execute approved rows in `seq` order: renames, moves and `create` rows first, conversions next,
+`rmdir` rows once the moves that empty their folders are done, and deletions **last**, in a phase of
+their own. Every row runs under the move guards the manifest reference defines (in-folder containment,
+symlink refusal, hash-verify after the move, a two-phase op log so an interrupted round is resolved by
+content, an undo entry per row), and two more: a file or package must hash to the row's evidence
+before it moves, and nothing is ever overwritten. A `convert` row is complete only when the converted
+file is verified (page or sheet count against the original) and the original rests under the archive
+area the plan names (a `convert` row is not executed by the preparation tools; it is the owner's or
+the deployment's). A failed row stops its domain and is reported with its reason; the rest of the plan
+is not attempted "to finish the job".
 
 - **The executor hashes exactly as the audit does.** A row's evidence is the manifest's content id,
   so the executor computes it the same way: a file's SHA-256, and a package's by the manifest's
@@ -300,7 +305,7 @@ reported with its reason; the rest of the plan is not attempted "to finish the j
   one that should have failed.
 - **Nothing is unlinked, and an `rmdir` needs an empty folder.** A deleted copy and a removed folder
   go to **the Bin**, and the undo entry records where each went, so either is restored by moving it
-  back; an `rmdir` fails on anything left in its folder but `.DS_Store` files. The exact rules are the
+  back; an `rmdir` fails on any file left in its folder but `.DS_Store`. The exact rules are the
   plan schema's ([`rmdir` and the Bin](references/move-plan-schema.md#rmdir-and-the-bin)).
 - **Deletes wait for a clean re-audit of the moves.** The executor refuses the delete phase until
   every other approved row is done and the folder has been re-audited since the last of them; run the
@@ -330,10 +335,11 @@ exactly the executed rows' (`from`, `evidence`), and the pairs that appeared exa
 `_Migrations/<Project>/` after the other project collected its files are expected, and the proof
 takes them only as an explicit allowance for that path, never as a silent pass. Anything else (a file
 that moved that no row moved, a hash that changed, a count that shifted) is a **finding**, reported
-with the row it should have belonged to. After the delete phase, re-audit once more: the deleted
-copies must be gone from their entries' `copies`, and nothing else may change. Report the round in the
-terms the counts mean: rows approved, executed, skipped, failed; files moved, renamed, converted,
-deleted; findings.
+with the row it should have belonged to. After the delete phase, re-audit once more. The (path, hash)
+proof covers moves and renames only, so check the deletes by reading the fresh manifest: each deleted
+path is gone from its entry's `copies`, the canonical path remains, and no other pair changed. Report
+the round in the terms the counts mean: rows approved, executed, skipped, failed; files moved, renamed,
+converted, deleted; findings.
 
 ### 7. Hand off
 
