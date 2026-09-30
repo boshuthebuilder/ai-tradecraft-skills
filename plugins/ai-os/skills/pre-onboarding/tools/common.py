@@ -9,15 +9,28 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import sys
 import time
 
 SETTINGS_VERSION = 1
 RULEBOOK_FILES = ("CLAUDE.md", "AGENTS.md", "GEMINI.md")
+RULEBOOK_SOURCE = "CLAUDE.md"
+SETTINGS_DIRNAME = ".familyai"
+DEPTHS = ("light", "medium", "full")
+IDENTIFIER_POLICIES = ("stated", "last-four", "home-only")
 
 
 class ToolError(Exception):
     """A named failure a tool reports and exits on; never swallowed."""
+
+
+class StaleTwin(ToolError):
+    """A settings twin that no longer matches its source (`stale`) or records none (`unpinned`)."""
+
+    def __init__(self, state, message):
+        super().__init__("%s: %s" % (state, message))
+        self.state = state
 
 
 def clock():
@@ -131,18 +144,32 @@ def base_args(description, writes=True):
     return ap
 
 
-def resolve(args):
-    """Normalise the common arguments; returns (root, settings_dir, work)."""
+def resolve(args, verify=True):
+    """Normalise the common arguments; returns (root, settings_dir, work). A stale twin is refused here, so every
+    tool refuses it, unless `verify` is off: only for settings.py (compile is the remedy, check the diagnosis) and
+    readiness.py (which reports the twins' freshness as hand-off findings)."""
     root = os.path.realpath(args.root)
     if not os.path.isdir(root):
         raise ToolError("root missing: %s" % root)
-    settings_dir = os.path.realpath(args.settings_dir) if args.settings_dir else os.path.join(root, ".familyai")
+    settings_dir = settings_dir_for(root, args.settings_dir)
     work = os.path.realpath(args.work) if args.work else os.path.join(
         os.path.expanduser("~/.ai-os-pre-onboarding"), re.sub(r"[^A-Za-z0-9._-]+", "-", os.path.basename(root)))
     if work == root or work.startswith(root + os.sep):
         raise ToolError("--work must be outside the folder: %s" % work)
+    if verify:
+        verify_twins(root, settings_dir)
     os.makedirs(work, exist_ok=True)
     return root, settings_dir, work
+
+
+def settings_dir_for(root, given=None):
+    return os.path.realpath(given) if given else os.path.join(root, SETTINGS_DIRNAME)
+
+
+def verify_twins(root, settings_dir):
+    """Refuse a twin in `settings_dir` that is stale, unpinned or malformed; an absent twin is not an error here."""
+    load_rulebook(root, settings_dir)
+    load_wiki_schema(root, settings_dir, required=False)
 
 
 DEFAULTS = {
@@ -171,21 +198,79 @@ DEFAULTS = {
 }
 
 
-def load_rulebook(root, settings_dir, required=False):
-    """The folder's own settings (twin of its rulebook), merged over the generic defaults. A present file with an
-    unknown version or unknown keys fails loud; an absent one is allowed unless `required`."""
+NAME_LISTS = ("reserved", "packs", "working_formats", "active", "finished", "card_categories", "exclude",
+              "pack_keywords")
+WIKI_SCHEMA_KEYS = ("version", "schema_path", "schema_sha256", "sections", "routing", "contracts", "pages")
+
+
+def read_json_object(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except ValueError as e:
+        raise ToolError("%s: not valid JSON (%s)" % (path, e))
+    if not isinstance(data, dict):
+        raise ToolError("%s: expected a JSON object" % path)
+    return data
+
+
+def validate_rulebook(data, path):
+    """Fail loud on a rulebook.json with an unknown version or key, or a value of the wrong shape."""
+    def bad(key, want):
+        raise ToolError("%s: %s must be %s, not %r" % (path, key, want, data[key]))
+
+    def is_text(v):
+        return isinstance(v, str) and v.strip() != ""
+    if data.get("version") != SETTINGS_VERSION:
+        raise ToolError("%s: unsupported version %r" % (path, data.get("version")))
+    unknown = set(data) - set(DEFAULTS) - {"rulebook_sha256"}
+    if unknown:
+        raise ToolError("%s: unknown keys %s" % (path, sorted(unknown)))
+    if "rulebook_sha256" in data and not re.fullmatch(r"[0-9a-f]{64}", str(data["rulebook_sha256"])):
+        bad("rulebook_sha256", "a sha256 hex digest")
+    for k in NAME_LISTS:
+        if k in data and not (isinstance(data[k], list) and all(is_text(x) for x in data[k])):
+            bad(k, "a list of non-empty strings")
+    for k in ("inbox", "migrations_dir"):
+        if k in data and not is_text(data[k]):
+            bad(k, "a non-empty string")
+    if data.get("wiki_dir") is not None and not is_text(data["wiki_dir"]):
+        bad("wiki_dir", "a non-empty string")
+    if "folder_description" in data and not isinstance(data["folder_description"], str):
+        bad("folder_description", "a string")
+    if "depth" in data and data["depth"] not in DEPTHS:
+        bad("depth", "one of %s" % ", ".join(DEPTHS))
+    if "identifiers" in data and data["identifiers"] not in IDENTIFIER_POLICIES:
+        bad("identifiers", "one of %s" % ", ".join(IDENTIFIER_POLICIES))
+    if "keep_empty_folders" in data and not isinstance(data["keep_empty_folders"], bool):
+        bad("keep_empty_folders", "true or false")
+    cap = data.get("image_cap_mb", 1)
+    if isinstance(cap, bool) or not isinstance(cap, (int, float)) or cap <= 0:
+        bad("image_cap_mb", "a positive number")
+    if "boundaries" in data and not isinstance(data["boundaries"], list):
+        bad("boundaries", "a list")
+    if "people" in data and not isinstance(data["people"], list):
+        bad("people", "a list")
+    for i, p in enumerate(data.get("people", [])):
+        ok = (isinstance(p, dict) and set(p) <= {"name", "also", "who"} and is_text(p.get("name"))
+              and isinstance(p.get("also", []), list) and all(is_text(x) for x in p.get("also", []))
+              and isinstance(p.get("who", ""), str))
+        if not ok:
+            raise ToolError("%s: people[%d] must be {\"name\": text, \"also\": [text], \"who\": text}, not %r"
+                            % (path, i, p))
+
+
+def load_rulebook(root, settings_dir, required=False, verify=True):
+    """The folder's own settings (twin of its rulebook), merged over the generic defaults. A present file that is
+    malformed fails loud, and one that is stale or unpinned is refused unless `verify` is off (only a diagnosis
+    reads a twin it does not trust); an absent one is allowed unless `required`."""
     path = os.path.join(settings_dir, "rulebook.json")
     data = {}
     if os.path.exists(path):
-        data = json.load(open(path, encoding="utf-8"))
-        if data.get("version") != SETTINGS_VERSION:
-            raise ToolError("%s: unsupported version %r" % (path, data.get("version")))
-        unknown = set(data) - set(DEFAULTS) - {"rulebook_sha256"}
-        if unknown:
-            raise ToolError("%s: unknown keys %s" % (path, sorted(unknown)))
-        rb = os.path.join(root, "CLAUDE.md")
-        if data.get("rulebook_sha256") and os.path.exists(rb) and sha256_file(rb) != data["rulebook_sha256"]:
-            raise ToolError("stale: %s no longer matches CLAUDE.md; review and update it" % path)
+        data = read_json_object(path)
+        validate_rulebook(data, path)
+        if verify:
+            check_rulebook_pin(root, data, path)
     elif required:
         raise ToolError("missing folder settings: %s" % path)
     merged = dict(DEFAULTS)
@@ -195,20 +280,62 @@ def load_rulebook(root, settings_dir, required=False):
     return merged
 
 
-def load_wiki_schema(settings_dir, root=None, required=True):
+def check_rulebook_pin(root, data, path):
+    src = os.path.join(root, RULEBOOK_SOURCE)
+    fix = "review it against %s, then record that file's sha256 as rulebook_sha256" % src
+    if not data.get("rulebook_sha256"):
+        raise StaleTwin("unpinned", "%s records no rulebook_sha256; %s" % (path, fix))
+    if not os.path.exists(src):
+        raise StaleTwin("stale", "%s is pinned to %s, which is missing" % (path, src))
+    if sha256_file(src) != data["rulebook_sha256"]:
+        raise StaleTwin("stale", "%s no longer matches %s, edited since; %s" % (path, src, fix))
+
+
+def load_wiki_schema(root, settings_dir, required=True):
+    """The compiled twin of the wiki's Schema page, refused when the page has changed or gone since it was
+    compiled; an absent twin is allowed unless `required`."""
     path = os.path.join(settings_dir, "wiki-schema.json")
+    recompile = "recompile it: settings.py compile --root %s" % shlex.quote(root)
     if not os.path.exists(path):
         if required:
-            raise ToolError("missing %s: run settings.py compile" % path)
+            raise ToolError("missing %s; compile it: settings.py compile --root %s" % (path, shlex.quote(root)))
         return None
-    data = json.load(open(path, encoding="utf-8"))
+    data = read_json_object(path)
     if data.get("version") != SETTINGS_VERSION:
-        raise ToolError("%s: unsupported version %r" % (path, data.get("version")))
-    if root and data.get("schema_path") and data.get("schema_sha256"):
-        sp = os.path.join(root, data["schema_path"])
-        if os.path.exists(sp) and sha256_file(sp) != data["schema_sha256"]:
-            raise ToolError("stale: %s no longer matches %s; run settings.py compile" % (path, data["schema_path"]))
+        raise ToolError("%s: unsupported version %r; %s" % (path, data.get("version"), recompile))
+    missing = [k for k in WIKI_SCHEMA_KEYS if k not in data]
+    if missing:
+        raise ToolError("%s: missing %s; %s" % (path, ", ".join(missing), recompile))
+    src = os.path.join(root, data["schema_path"])
+    if not os.path.exists(src):
+        raise StaleTwin("stale", "%s was compiled from %s, which is missing; %s" % (path, src, recompile))
+    if sha256_file(src) != data["schema_sha256"]:
+        raise StaleTwin("stale", "%s no longer matches %s, edited since; %s" % (path, src, recompile))
     return data
+
+
+def reserved_names(rb):
+    """Every top-level name the folder's rulebook reserves: the deployment's rulebook filenames, the settings,
+    audit, inbox, migrations and wiki folders, then the folder's own extras (`reserved`)."""
+    names = list(RULEBOOK_FILES) + [SETTINGS_DIRNAME, "_Audit", rb["inbox"], rb["migrations_dir"], rb["wiki_dir"]]
+    return list(dict.fromkeys(names + rb["reserved"]))
+
+
+def page_voice(ws, page):
+    """The professional, deliverable and tone a wiki page (path relative to the wiki folder) is written in: its
+    row in the Schema's Page professionals table, else its section's professional when the section names exactly
+    one. A page in a section naming several must be listed; that is refused rather than guessed."""
+    if page in ws["pages"]:
+        return dict(ws["pages"][page], source="page")
+    sec = next((s for s in ws["sections"] if page.startswith("%s %s/" % (s["number"], s["name"]))), None)
+    if sec is None:
+        raise ToolError("page %r is in no section of the Schema's Layout" % page)
+    if len(sec["professionals"]) != 1:
+        raise ToolError("page %r is not in the Schema's Page professionals table and section %s %s names %d "
+                        "professionals (%s); list the page" % (page, sec["number"], sec["name"],
+                                                               len(sec["professionals"]),
+                                                               "; ".join(sec["professionals"])))
+    return {"professional": sec["professionals"][0], "deliverable": None, "tone": None, "source": "section"}
 
 
 def parse_json(text):

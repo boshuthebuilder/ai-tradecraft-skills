@@ -3,7 +3,9 @@
 Standard-library Python (3.9+) plus one Swift helper for Apple Vision OCR. Generic and settings-driven: nothing
 here names a folder, a person or a project. Every tool takes `--root <folder>`; most also take `--settings-dir`
 (default `<root>/.familyai`), `--work` (state outside the folder, default `~/.ai-os-pre-onboarding/<folder>`) and
-`--read-only-root` (refuse any write inside the folder, used with `--out` elsewhere to prove a tool).
+`--read-only-root` (refuse any write inside the folder, used with `--out` elsewhere to prove a tool). Every tool
+that takes `--root` refuses a stale settings twin before it reads or writes anything; the twins' formats are in
+[`../references/settings.md`](../references/settings.md).
 
 | Tool | What it does |
 | --- | --- |
@@ -17,7 +19,7 @@ here names a folder, a person or a project. Every tool takes `--root <folder>`; 
 | `isolation.py` | Isolation terms scan and per-engine canary |
 | `cards.py` | One card per document; deterministic whole-chunk join; contamination guard |
 | `refs.py` | Deterministic repair of truncated reference numbers from each card's own source |
-| `settings.py` | Compile `wiki-schema.json` from the Schema's tables; check both twins |
+| `settings.py` | Compile `wiki-schema.json` from the Schema's tables; check both twins and the rulebook's facts |
 | `wiki.py` | Evidence bundles, wiki checks, page moves with link rewriting |
 | `readiness.py` | Hand-off readiness, including the hand-off contract |
 | `common.py` | Shared: settings loading, guarded writes, package hash, JSON parsing, token estimate |

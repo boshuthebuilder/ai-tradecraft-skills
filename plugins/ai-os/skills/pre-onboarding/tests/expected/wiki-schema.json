@@ -1,165 +1,221 @@
 {
  "version": 1,
  "schema_path": "Alex Personal Wiki/90 Schema/90 Schema.md",
- "schema_sha256": "6832133938ed1afbae433d0777912147cd377d10795bc9bbe2291bedf370b16c",
+ "schema_sha256": "b5f1f0b81df3a9f3e7cabe0f8aa96980743d1ffa77e32225b3e38eb51e7694aa",
  "sections": [
   {
-   "section": "00 Index",
    "number": "00",
+   "name": "Index",
+   "kind": "fixed",
+   "derived": false,
    "pages": "dashboard",
-   "professional": "chief of staff",
-   "kind": "fixed"
+   "professionals": [
+    "chief of staff"
+   ]
   },
   {
-   "section": "01 Deadlines",
    "number": "01",
+   "name": "Deadlines",
+   "kind": "fixed",
+   "derived": true,
    "pages": "every forward date, rolled up",
-   "professional": "chief of staff",
-   "kind": "fixed, derived"
+   "professionals": [
+    "chief of staff"
+   ]
   },
   {
-   "section": "02 People",
    "number": "02",
+   "name": "People",
+   "kind": "fixed",
+   "derived": false,
    "pages": "everyone who appears",
-   "professional": "personal assistant",
-   "kind": "fixed"
+   "professionals": [
+    "personal assistant"
+   ]
   },
   {
-   "section": "10 Identity",
    "number": "10",
+   "name": "Identity",
+   "kind": "active",
+   "derived": false,
    "pages": "passport",
-   "professional": "immigration adviser",
-   "kind": "active"
+   "professionals": [
+    "immigration adviser"
+   ]
   },
   {
-   "section": "20 Finance",
    "number": "20",
+   "name": "Finance",
+   "kind": "active",
+   "derived": false,
    "pages": "Bank accounts; Cash position; Tax",
-   "professional": "private banker; CFO; chartered tax adviser",
-   "kind": "active"
+   "professionals": [
+    "private banker",
+    "CFO",
+    "chartered tax adviser"
+   ]
   },
   {
-   "section": "30 Home",
    "number": "30",
+   "name": "Home",
+   "kind": "active",
+   "derived": false,
    "pages": "lease, bills",
-   "professional": "household manager",
-   "kind": "active"
+   "professionals": [
+    "household manager"
+   ]
   },
   {
-   "section": "40 Study",
    "number": "40",
+   "name": "Study",
+   "kind": "history",
+   "derived": false,
    "pages": "courses and certificates",
-   "professional": "academic registrar",
-   "kind": "history"
+   "professionals": [
+    "academic registrar"
+   ]
   },
   {
-   "section": "90 Schema",
    "number": "90",
+   "name": "Schema",
+   "kind": "fixed",
+   "derived": false,
    "pages": "this page",
-   "professional": "librarian",
-   "kind": "fixed"
+   "professionals": [
+    "librarian"
+   ]
   },
   {
-   "section": "91 Log",
    "number": "91",
+   "name": "Log",
+   "kind": "fixed",
+   "derived": false,
    "pages": "append-only history",
-   "professional": "librarian",
-   "kind": "fixed"
+   "professionals": [
+    "librarian"
+   ]
   }
  ],
  "routing": [
   {
-   "prefixes": [
-    "01 Identity/"
-   ],
+   "prefix": "01 Identity/",
    "target": "10 Identity",
    "section": "10"
   },
   {
-   "prefixes": [
-    "02 Finance/Tax/"
-   ],
+   "prefix": "02 Finance/Tax/",
    "target": "20 Tax",
    "section": "20"
   },
   {
-   "prefixes": [
-    "02 Finance/"
-   ],
+   "prefix": "02 Finance/",
    "target": "20 Bank accounts and Cash position",
    "section": "20"
   },
   {
-   "prefixes": [
-    "03 Home/"
-   ],
+   "prefix": "03 Home/",
    "target": "30 Home",
    "section": "30"
   },
   {
-   "prefixes": [
-    "04 Study/",
-    "05 Archive/"
-   ],
+   "prefix": "04 Study/",
    "target": "40 Study",
    "section": "40"
   },
   {
-   "prefixes": [
-    "06 Work/"
-   ],
+   "prefix": "05 Archive/",
+   "target": "40 Study",
+   "section": "40"
+  },
+  {
+   "prefix": "06 Work/",
    "target": "20 Tax (employment income)",
    "section": "20"
   },
   {
-   "prefixes": [
-    "_Inbox/"
-   ],
+   "prefix": "_Inbox/",
    "target": "filed by the routing above",
    "section": null
   }
  ],
  "contracts": [
   {
-   "section": "10 Identity",
    "number": "10",
-   "professional": "immigration adviser",
+   "name": "Identity",
+   "professionals": [
+    "immigration adviser"
+   ],
+   "reader": "Alex",
    "questions": [
     "When does the passport expire?",
     "Which numbers would an application need?"
    ],
-   "fields": "number, issue date, expiry, scan path"
+   "fields": [
+    "number",
+    "issue date",
+    "expiry",
+    "scan path"
+   ]
   },
   {
-   "section": "20 Finance",
    "number": "20",
-   "professional": "private banker; CFO; chartered tax adviser",
+   "name": "Finance",
+   "professionals": [
+    "private banker",
+    "CFO",
+    "chartered tax adviser"
+   ],
+   "reader": "Alex",
    "questions": [
     "Is anything due?",
     "What came in and went out?",
     "What is the tax position?"
    ],
-   "fields": "account, period, balances, tax year, amounts"
+   "fields": [
+    "account",
+    "period",
+    "balances",
+    "tax year",
+    "amounts"
+   ]
   },
   {
-   "section": "30 Home",
    "number": "30",
-   "professional": "household manager",
+   "name": "Home",
+   "professionals": [
+    "household manager"
+   ],
+   "reader": "Alex",
    "questions": [
     "Where does Alex live and on what terms?",
     "What bills are due?"
    ],
-   "fields": "address, landlord, term, rent, bills"
+   "fields": [
+    "address",
+    "landlord",
+    "term",
+    "rent",
+    "bills"
+   ]
   },
   {
-   "section": "40 Study",
    "number": "40",
-   "professional": "academic registrar",
+   "name": "Study",
+   "professionals": [
+    "academic registrar"
+   ],
+   "reader": "Alex",
    "questions": [
     "Which courses and certificates are held?",
     "Where are they?"
    ],
-   "fields": "course, school, dates, result, path"
+   "fields": [
+    "course",
+    "school",
+    "dates",
+    "result",
+    "path"
+   ]
   }
  ],
  "pages": {

@@ -22,7 +22,7 @@ outputs of the deterministic tools, regenerated only on purpose with `python3 ..
 | `IMG_0001.jpg` | a root stray with a generic camera name, read as a photo |
 | `_Migrations/Other Project/02 Finance/Old invoice.pdf` | a file staged for another project (`migrating`) |
 | `CLAUDE.md`, `AGENTS.md`, `.familyai/rulebook.json` | the rulebook, its identical copy and its settings twin |
-| `Alex Personal Wiki/` | a small wiki: Schema with Layout, Page professionals, Routing and Page contracts tables; pages by different professionals (a CFO's cash note beside personal pages); Mermaid `gantt`, `xychart-beta` line and bar, `pie` and `timeline`; an Obsidian callout |
+| `Alex Personal Wiki/` | a small wiki: Schema with Layout, Page professionals, Routing and Page contracts (with a Reader column) tables; pages by different professionals (a CFO's cash note beside personal pages); Mermaid `gantt`, `xychart-beta` line and bar, `pie` and `timeline`; an Obsidian callout |
 | `_Audit/wiki-rationale.md` | one five-line rationale block per page |
 
 The folder is about 470 KB on disk; scans are greyscale JPEG pages inside PDFs to keep it small.

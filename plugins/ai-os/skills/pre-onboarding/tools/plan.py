@@ -299,7 +299,7 @@ def light(a):
     root = os.path.realpath(a.root)
     entries = load_manifest(a.manifest or os.path.join(root, "_Audit", "manifest.json"))
     live = {h: e for h, e in entries.items() if "departed" not in e.get("flags", [])}
-    rb = common.load_rulebook(root, a.settings_dir or os.path.join(root, ".familyai"))
+    rb = common.load_rulebook(root, common.settings_dir_for(root, a.settings_dir))
     migr = rb["migrations_dir"]
     redundant, allpaths = {}, {}
     for h, e in live.items():
@@ -351,7 +351,7 @@ def migrate(a):
     """Stage files for another project under <migrations dir>/<Project>/, keeping their original paths. A listed
     path ending in `/` stands for every live file under it. Copies left behind are listed in review.tsv."""
     root = os.path.realpath(a.root)
-    rb = common.load_rulebook(root, a.settings_dir or os.path.join(root, ".familyai"))
+    rb = common.load_rulebook(root, common.settings_dir_for(root, a.settings_dir))
     entries = load_manifest(a.manifest or os.path.join(root, "_Audit", "manifest.json"))
     where = live_paths(entries)
     rows, seen, review = [], set(), []
@@ -375,7 +375,7 @@ def migrate(a):
 
 def return_(a):
     root = os.path.realpath(a.root)
-    rb = common.load_rulebook(root, a.settings_dir or os.path.join(root, ".familyai"))
+    rb = common.load_rulebook(root, common.settings_dir_for(root, a.settings_dir))
     entries = load_manifest(a.manifest or os.path.join(root, "_Audit", "manifest.json"))
     where = live_paths(entries)
     base = "%s/%s/" % (rb["migrations_dir"], a.project)
@@ -543,6 +543,9 @@ def main():
     p.add_argument("--allow-departed-under", action="append",
                    help="a path prefix whose departures are expected (files the other project collected)")
     a = ap.parse_args()
+    if getattr(a, "root", None):
+        root = os.path.realpath(a.root)
+        common.verify_twins(root, common.settings_dir_for(root, a.settings_dir))
     return {"light": light, "migrate": migrate, "return": return_, "approve": approve, "rmdirs": rmdirs,
             "check": check, "execute": execute, "prove": prove}[a.cmd](a)
 
