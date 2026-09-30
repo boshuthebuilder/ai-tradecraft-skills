@@ -13,8 +13,9 @@
 The executor reads the approved plan; for delete rows it also re-verifies against the freshly re-audited manifest
 and the bytes on disk. Guards per row: both paths inside the folder, no symlinks on the path, source hash equals the
 row's evidence before the move and the destination's after it, never overwrite, an `rmdir` only when the folder
-holds nothing but `.DS_Store`, deletes only of copies the manifest marks `redundant` and only after every other
-approved row is done and the manifest was regenerated after them, deleted items moved to the Bin (never unlinked).
+holds nothing but `.DS_Store`, deletes only of copies the manifest marks `redundant`, never inside a pack, and only
+after every other approved row is done and the manifest was regenerated after them, deleted items moved to the Bin
+(never unlinked).
 Two-phase undo log: an `intent` line before each change and a `done` line with its reverse after. A failed row stops
 its domain.
 """
@@ -31,6 +32,7 @@ import common  # noqa: E402
 COLS = ["seq", "domain", "depth", "action", "from", "to", "evidence", "reason", "kind", "sweep", "needs_a_look",
         "approved", "approved_at", "status", "executed_at", "note"]
 IWORK = {".pages", ".numbers", ".key"}
+PACK_REFUSAL = "inside a pack: copies in a pack are never deleted"
 
 
 def read_plan(path):
@@ -114,6 +116,7 @@ def execute(a):
     bin_dir = os.path.abspath(a.bin or os.path.expanduser("~/.Trash"))
     failed_domains = set()
     man = None
+    in_pack = common.pack_matcher(common.load_rulebook(root, common.settings_dir_for(root, a.settings_dir)))
     if phase == "deletes":
         others = [r for r in rows if r["approved"] == "approved" and r["action"] != "delete"]
         if any(r["status"] != "done" for r in others):
@@ -200,6 +203,8 @@ def execute(a):
             elif act == "delete":
                 if r["kind"] != "redundant":
                     raise ValueError("only redundant copies are deleted")
+                if in_pack(os.path.dirname(r["from"])):
+                    raise ValueError(PACK_REFUSAL)
                 e = man.get(r["evidence"])
                 if not e:
                     raise ValueError("evidence entry not in manifest")
@@ -246,10 +251,13 @@ def check(a):
     root = os.path.realpath(a.root)
     guard = Guard(root)
     man = load_manifest(a.manifest or os.path.join(root, "_Audit", "manifest.json"))
+    in_pack = common.pack_matcher(common.load_rulebook(root, common.settings_dir_for(root, a.settings_dir)))
     ok = bad = 0
     for r in read_plan(a.plan):
         try:
             if r["action"] == "delete":
+                if in_pack(os.path.dirname(r["from"])):
+                    raise ValueError(PACK_REFUSAL)
                 e = man[r["evidence"]]
                 kinds = {c["path"]: c["kind"] for c in e.get("copies", [])}
                 if r["kind"] != "redundant" or kinds.get(r["from"]) != "redundant":
@@ -333,7 +341,10 @@ def light(a):
             n = sum(1 for p in allpaths if p.startswith(old + "/"))
             rows.append(new_row(domain=domain_of(old), action="rename", **{"from": old + "/"}, to=new + "/",
                                 reason="name defect: folder name ends with a space (%d files inside)" % n, sweep="no"))
+    in_pack = common.pack_matcher(rb)
     for p, h in sorted(redundant.items()):
+        if in_pack(os.path.dirname(p)):
+            continue
         canon = next(c["path"] for c in live[h]["copies"] if c["kind"] == "canonical")
         rows.append(new_row(domain=domain_of(p), action="delete", **{"from": p}, evidence=h, kind="redundant",
                             reason="accidental copy; identical bytes kept at " + canon))

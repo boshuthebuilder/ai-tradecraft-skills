@@ -369,6 +369,14 @@ def reserved_names(rb):
     return list(dict.fromkeys(names + rb["reserved"]))
 
 
+def pack_matcher(rb):
+    """A test of whether a folder (relative to the root) lies in a pack: under a folder the rulebook lists in
+    `packs`, or matching its `pack_keywords`. The audit marks copies there `pack`; the plan tools never delete there."""
+    rx = re.compile("(" + "|".join(rb["pack_keywords"]) + ")", re.I)
+    listed = [p.rstrip("/") + "/" for p in rb["packs"]]
+    return lambda folder: bool(rx.search(folder)) or any((folder + "/").startswith(pk) for pk in listed)
+
+
 def page_voice(ws, page):
     """The professional, deliverable and tone a wiki page (path relative to the wiki folder) is written in: its
     row in the Schema's Page professionals table, else its section's professional when the section names exactly

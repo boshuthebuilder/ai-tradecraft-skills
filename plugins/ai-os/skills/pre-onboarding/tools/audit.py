@@ -76,8 +76,7 @@ def main():
     migr = rb["migrations_dir"]
     reserved = BASE_RESERVED | set(rb["reserved"]) | {rb["wiki_dir"]}
     img_cap = int(rb["image_cap_mb"]) * 1024 * 1024
-    pack_rx = re.compile("(" + "|".join(rb["pack_keywords"]) + ")", re.I)
-    packs = [p.rstrip("/") + "/" for p in rb["packs"]]   # the rulebook's packs, beside the keyword rule
+    in_pack = common.pack_matcher(rb)
     log = common.logger(work, "audit")
     folder = os.path.basename(root)
 
@@ -215,7 +214,7 @@ def main():
             pdir = os.path.dirname(p)
             if pdir == cdir:
                 k = "redundant"
-            elif pack_rx.search(pdir) or any((pdir + "/").startswith(pk) for pk in packs):
+            elif in_pack(pdir):
                 k = "pack"
             else:
                 sx, sc = dir_ids[pdir], dir_ids[cdir]
