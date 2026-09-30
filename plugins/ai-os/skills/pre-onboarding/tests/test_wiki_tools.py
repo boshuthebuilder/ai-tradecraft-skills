@@ -9,7 +9,10 @@ manifest is the frozen tests/expected/manifest.json, so the sha256 the bundles r
 machine. In the golden outputs (golden/wiki/), the paths that differ between machines are written <tmp> (the test's
 temporary folder) and <skills> (this repository's skills folder).
 """
+import argparse
+import contextlib
 import hashlib
+import io
 import json
 import os
 import re
@@ -20,6 +23,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 import urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -32,7 +36,9 @@ WIKI = "Alex Personal Wiki"
 BRIEF_PAGES = ("20 Finance/Tax.md", "20 Finance/Cash position.md")
 TEMPLATES = ("readers-interview.md", "structure-brief.md", "contract-brief.md", "page-brief.md", "review-owner.md",
              "review-professional.md")
+RULE = os.path.join(SKILLS, "wiki-maintenance", "SKILL.md")
 sys.path.insert(0, TOOLS)
+import common  # noqa: E402
 import wiki  # noqa: E402
 
 # path: doc_type, party, parties, doc_date, category, language, title, summary, reference numbers, text
@@ -167,6 +173,14 @@ def make_copy(parent):
         write(os.path.join(audit, "cards", eid + ".json"), json.dumps(card, ensure_ascii=False, indent=1))
         write(os.path.join(audit, "extract", eid + ".json"), json.dumps(extract, ensure_ascii=False, indent=1))
     return root
+
+
+def rule_labels():
+    """The five line labels of the rationale block, from the fenced example in the core wiki rule's section "The
+    rationale block" (`wiki-maintenance`)."""
+    section = read(RULE).split("\n### The rationale block\n", 1)[1]
+    example = re.search(r"(?ms)^```markdown\n(.*?)^```$", section).group(1)  # the section's first fenced block
+    return re.findall(r"(?m)^- ([^:]+):", example)
 
 
 def normalise(text, tmp):
@@ -441,12 +455,17 @@ class BriefTest(Copy):
         text = self.brief(*BRIEF_PAGES)
         blocks = text.split("## The rationale blocks\n", 1)[1].strip().split("\n\n")[1:]
         self.assertEqual([b.split("\n")[0] for b in blocks], ["### " + p for p in sorted(BRIEF_PAGES)])
-        labels = ["Reader and use", "Professional lens", "Shape", "Changed from the previous page",
-                  "Left out or flagged"]
+        labels = rule_labels()
+        self.assertEqual(len(labels), 5)
         for b in blocks:
             self.assertEqual([x.split(":")[0] for x in b.split("\n")[1:]], ["- " + x for x in labels])
-        fixture = read(os.path.join(FIXTURE, "_Audit", "wiki-rationale.md"))
-        self.assertEqual(re.findall(r"^- ([^:]+):", fixture, re.M)[:5], labels)
+
+    def test_rationale_labels_follow_the_rule(self):
+        """F5: the skeleton's labels are the rule's, read from its fenced example, so renaming one there fails."""
+        for state, contract in (("planned", {"reader": "Alex", "questions": ["Is anything due?"]}), ("exists", None)):
+            lines = wiki.rationale_skeleton("20 Finance/Tax.md", state, {"professional": "CFO"}, contract).split("\n")
+            self.assertEqual(lines[0], "### 20 Finance/Tax.md")
+            self.assertEqual([x[2:].split(":")[0] for x in lines[1:]], rule_labels())
 
     def test_return_shape_and_checker(self):
         text = self.brief(*BRIEF_PAGES)
@@ -463,8 +482,8 @@ class BriefTest(Copy):
     def test_links_resolve_where_the_brief_is_read(self):
         text = self.brief(*BRIEF_PAGES)
         links = re.findall(r"\]\((/[^)#]+)(#[^)]*)?\)", text)
-        self.assertEqual([urllib.parse.unquote(p) for p, _a in links],
-                         [os.path.join(SKILLS, "wiki-maintenance", "SKILL.md")])
+        self.assertEqual([(urllib.parse.unquote(p), a) for p, a in links],
+                         [(RULE, "#the-core-wiki-rule"), (RULE, "#one-professional-per-page")])
         self.assertTrue(all(os.path.exists(urllib.parse.unquote(p)) for p, _a in links))
 
     def test_page_map_adds_planned_pages(self):
@@ -527,6 +546,15 @@ class MoveTest(Copy):
         self.assertEqual(res, {"moved": 3, "pages_rewritten": 6, "links_rewritten": 4, "folders_removed": ["30 Home"],
                                "rationale_blocks_renamed": 3,
                                "schema_rows_to_update": [["20 Finance/Tax.md", "25 Tax & Duty/Tax & returns.md"]],
+                               "layout_to_update": [
+                                   ["02 People/02 People.md", "02 People/Contacts (all) & 联系人.md",
+                                    "the old path was section 02 People's folder note"],
+                                   ["20 Finance/Tax.md", "25 Tax & Duty/Tax & returns.md",
+                                    "the new path is in no Layout section"],
+                                   ["30 Home/30 Home.md", "30 Home & Garden/30 Home & Garden.md",
+                                    "the new path is in no Layout section"],
+                                   ["30 Home/30 Home.md", "30 Home & Garden/30 Home & Garden.md",
+                                    "the old path was section 30 Home's folder note"]],
                                "dead_links": []})
         self.assertIn("- [Tax](../25%20Tax%20&%20Duty/Tax%20&%20returns.md): the 2022",
                       read(self.page("20 Finance/20 Finance.md")))
@@ -542,8 +570,9 @@ class MoveTest(Copy):
 
     def test_links_from_a_moved_page(self):
         res = self.move({"00 Index/00 Index.md": "00 Index/Dashboards/Home & Index.md",
-                         "20 Finance/20 Finance.md": "20 Finance/Overview.md"})
+                         "20 Finance/20 Finance.md": "20 Finance/Overview.md"}, code=1)
         self.assertEqual((res["dead_links"], res["folders_removed"], res["links_rewritten"]), ([], [], 6))
+        self.assertEqual([x[0] for x in res["layout_to_update"]], ["00 Index/00 Index.md", "20 Finance/20 Finance.md"])
         index = read(self.page("00 Index/Dashboards/Home & Index.md"))
         self.assertIn("[20 Finance](../../20%20Finance/Overview.md)", index)
         self.assertIn("[40 Study](../../40%20Study/40%20Study.md)", index)
@@ -613,6 +642,180 @@ class DriftTest(Copy):
         entries = json.loads(read(os.path.join(self.root, "_Audit", "manifest.json")))["entries"]
         self.assertEqual(sum("departed" in e["flags"] for e in entries.values()), 1)
         self.assertEqual(self.drift()["departed_paths"], 0)
+
+
+class MoveSafetyTest(Copy):
+    """A move is refused whole before it changes anything, written so a late failure strands no link, and it
+    reports the Layout it leaves wrong."""
+
+    def map(self, moves):
+        path = os.path.join(self.tmp, "map.json")
+        write(path, json.dumps(moves, ensure_ascii=False))
+        return path
+
+    def test_a_destination_under_a_file_is_refused_before_any_change(self):
+        """F1: a destination below an existing file, or below a page the same map moves there."""
+        before = tree_digest(self.root)
+        for moves, why in (({"20 Finance/Bank accounts.md": "20 Finance/Tax.md/x.md"},
+                            "lies under 20 Finance/Tax.md, which is a file"),
+                           ({"20 Finance/Bank accounts.md": "25 Money/Accounts.md",
+                             "20 Finance/Cash position.md": "25 Money/Accounts.md/Cash.md"},
+                            "lies under 25 Money/Accounts.md, which is a page this map moves there")):
+            with self.subTest(why=why):
+                self.assertIn(why, self.refused("move", "--map", self.map(moves)))
+                self.assertEqual(tree_digest(self.root), before)
+
+    def test_moved_pages_are_written_first(self):
+        """F1: a run that fails after its first write leaves every link resolving, because the moved page is written
+        before any page linking to it is rewritten."""
+        written = []
+
+        class FailSecond(common.Writer):
+            def text(self, path, text):
+                if path.endswith(".md") and len(written) == 1:
+                    raise common.ToolError("injected failure")
+                written.append(path)
+                super().text(path, text)
+        a = argparse.Namespace(root=self.root, settings_dir=None, work=self.work, manifest=None, read_only_root=False,
+                               map=self.map({"20 Finance/Bank accounts.md": "25 Banking/Bank accounts.md"}))
+        with unittest.mock.patch.object(wiki.common, "Writer", FailSecond):
+            with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(common.ToolError):
+                wiki.move(a)
+        wiki_dir = os.path.join(self.root, WIKI)
+        self.assertEqual(written, [os.path.join(wiki_dir, "25 Banking", "Bank accounts.md")])
+        self.assertEqual(wiki.dead_links(wiki_dir), [])
+        self.assertTrue(os.path.exists(self.page("20 Finance/Bank accounts.md")))
+
+    def test_a_layout_left_wrong_is_reported(self):
+        """F2: a section's folder note moved away and a page moved out of every section are reported, exit 1."""
+        code, out, err = self.wiki("move", "--map", self.map({"30 Home/30 Home.md":
+                                                               "30 Home & Garden/30 Home & Garden.md"}))
+        self.assertEqual(code, 1, out + err)
+        self.assertEqual(json.loads(out)["layout_to_update"], [
+            ["30 Home/30 Home.md", "30 Home & Garden/30 Home & Garden.md", "the new path is in no Layout section"],
+            ["30 Home/30 Home.md", "30 Home & Garden/30 Home & Garden.md",
+             "the old path was section 30 Home's folder note"]])
+        self.assertIn("edit the Layout, then settings.py compile", err)
+
+    def test_a_move_inside_its_section_is_clean(self):
+        write(self.page("30 Home/Bills.md"), "---\nprovenance: derived\nlast-updated: 2024-06-30\nstatus: current\n"
+                                             "---\n# Bills\n\nSee [Home](30%20Home.md).\n")
+        res = json.loads(self.ok("move", "--map", self.map({"30 Home/Bills.md": "30 Home/Utility bills.md"})))
+        self.assertEqual((res["layout_to_update"], res["schema_rows_to_update"], res["dead_links"]), ([], [], []))
+
+    def test_spaces_at_either_end_of_a_part_are_refused(self):
+        """F8: in a destination and in a briefed page."""
+        for new in (" 20 Finance/Tax 2.md", "20 Finance /Tax 2.md", "20 Finance/ Tax 2.md"):
+            with self.subTest(new=new):
+                self.assertIn("not a page path", self.refused("move", "--map", self.map({"20 Finance/Tax.md": new})))
+        self.ok("bundles", code=1)
+        for page in ("20 Finance/ Tax.md", "20 Finance /Tax.md"):
+            with self.subTest(page=page):
+                self.assertIn("not a page path", self.refused("brief", "--page", page))
+
+
+class MalformedInputTest(Copy):
+    """F3: malformed input is refused by name (exit 2), never with a traceback."""
+
+    def setUp(self):
+        super().setUp()
+        self.ok("bundles", code=1)
+        self.meta = os.path.join(self.bundles_dir(), "bundles.json")
+        self.ids = {e["current_path"]: h for h, e in json.loads(read(MANIFEST))["entries"].items()}
+
+    def consumers(self, why):
+        for cmd, args in (("brief", ["--page", BRIEF_PAGES[0]]), ("bundles", ["--reuse"])):
+            with self.subTest(cmd=cmd, why=why):
+                self.assertIn(why, self.refused(cmd, *args))
+
+    def test_bundles_json(self):
+        good = json.loads(read(self.meta))
+        write(self.meta, "[]")
+        self.consumers("expected a JSON object")
+        for key in ("sections", "compact", "files"):
+            write(self.meta, json.dumps({k: v for k, v in good.items() if k != key}))
+            self.consumers("not a bundles.json that wiki.py bundles wrote (%s missing or malformed)" % key)
+        write(self.meta, json.dumps(dict(good, sections={"20": "six"})))
+        self.consumers("(sections missing or malformed)")
+
+    def test_bundles_json_is_a_directory(self):
+        os.remove(self.meta)
+        os.makedirs(self.meta)
+        self.consumers("cannot read %s" % self.meta)
+        self.assertIn("is a directory; bundles.json must be a file", self.refused("bundles"))
+
+    def test_bundles_out_is_a_file(self):
+        path = os.path.join(self.tmp, "a-file")
+        write(path, "x\n")
+        self.assertIn("is a file; bundles go in a directory", self.refused("bundles", "--out", path))
+
+    def test_manifest(self):
+        path = os.path.join(self.root, "_Audit", "manifest.json")
+        entries = json.loads(read(MANIFEST))["entries"]
+        entries[self.ids["06 Work/Contract.docx"]].pop("current_path")
+        for text, why in (("{}", 'has no "entries" object'), ("[]", "expected a JSON object"),
+                          (json.dumps({"entries": entries}), "is malformed: it needs a current_path")):
+            write(path, text)
+            for cmd, args in (("profile", []), ("bundles", []), ("brief", ["--page", BRIEF_PAGES[0]]),
+                              ("drift", []), ("check", [])):
+                with self.subTest(cmd=cmd, why=why):
+                    self.assertIn(why, self.refused(cmd, *args))
+
+    def test_a_card_that_is_not_an_object(self):
+        card = os.path.join(self.root, "_Audit", "cards", self.ids["02 Finance/Bank statement 2024-03.pdf"] + ".json")
+        for text, why in (("[]", "expected a JSON object"), ('{"parties": "Robin"}', "parties must be a list of text")):
+            write(card, text)
+            for cmd in ("profile", "bundles"):
+                with self.subTest(cmd=cmd, why=why):
+                    err = self.refused(cmd)
+                    self.assertIn("malformed card: %s" % card, err)
+                    self.assertIn(why, err)
+
+
+class RebuildTest(Copy):
+    def test_a_failed_rebuild_leaves_no_bundles_json(self):
+        """F7: the rebuild removes bundles.json first, so one failing part way leaves none, and brief refuses."""
+        self.ok("bundles", code=1)
+        self.brief(BRIEF_PAGES[0])
+        ids = {e["current_path"]: h for h, e in json.loads(read(MANIFEST))["entries"].items()}
+        write(os.path.join(self.root, "_Audit", "cards", ids["06 Work/Essay.docx"] + ".json"), "[]")
+        self.assertIn("malformed card", self.refused("bundles"))
+        self.assertFalse(os.path.exists(os.path.join(self.bundles_dir(), "bundles.json")))
+        self.assertIn("no bundles in", self.refused("brief", "--page", BRIEF_PAGES[0]))
+
+    def test_the_rebuild_command_repeats_the_build_arguments(self):
+        """F10: non-default arguments are recorded in bundles.json and echoed in the rebuild command."""
+        audit = os.path.join(self.root, "_Audit")
+        given = [("--settings-dir", os.path.join(self.root, ".familyai")),
+                 ("--manifest", os.path.join(audit, "manifest.json")), ("--cards", os.path.join(audit, "cards")),
+                 ("--extract", os.path.join(audit, "extract")), ("--text-cap", "500")]
+        self.ok("bundles", *[x for kv in given for x in kv], code=1)
+        meta = json.loads(read(os.path.join(self.bundles_dir(), "bundles.json")))
+        self.assertEqual(list(meta["arguments"].items()), given)
+        write(given[1][1], read(given[1][1]) + "\n")
+        command = "rebuild them: wiki.py bundles " + " ".join(shlex.quote(x) for x in [
+            "--root", self.root, "--out", self.bundles_dir()] + [x for kv in given for x in kv])
+        for cmd, args in (("bundles", ["--reuse"]), ("brief", ["--page", BRIEF_PAGES[0]])):
+            with self.subTest(cmd=cmd):
+                self.assertIn(command, self.refused(cmd, *args))
+        self.assertEqual(json.loads(read(os.path.join(GOLDEN, "bundles", "bundles.json")))["arguments"], {})
+
+
+class FenceTest(unittest.TestCase):
+    def test_inline_code_is_not_a_fence(self):
+        """F6: citations opens a fence by the rule chart_blocks reads fences with, and reads code spans of any
+        backtick run."""
+        text = "\n".join([
+            "---", "sources:", '  - "a"', "---", "# P", "",
+            "```inline``` `03 Home/Lease notes .txt`", "",
+            "Later: `03 Home/Lease notes .txt`", "",
+            "````", "```", "`inside a fence`", "````", "",
+            "After: `x/y.pdf`", "",
+            "  ~~~ text", "`in a tilde fence`", "  ~~~", "",
+            "End ``z `pdf` z`` and `z.pdf`", ""])
+        self.assertEqual(wiki.citations(text), [
+            (3, "a"), (7, "03 Home/Lease notes .txt"), (7, "inline"), (9, "03 Home/Lease notes .txt"),
+            (16, "x/y.pdf"), (22, "z `pdf` z"), (22, "z.pdf")])
 
 
 class TemplatesTest(unittest.TestCase):

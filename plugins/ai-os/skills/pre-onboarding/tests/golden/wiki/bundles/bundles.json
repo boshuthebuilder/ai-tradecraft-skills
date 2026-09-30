@@ -1,6 +1,7 @@
 {
  "manifest_sha256": "9bd5c88fd9430483a61ee917026b79744c83bf3f6e329bba3dc4795dde30d66e",
  "routing_sha256": "2304d9b5b9b8a8e8898c23756a89b22df45cd9fe43a03793e9eeaf5dad6a66d4",
+ "arguments": {},
  "text_cap": 12000,
  "sections": {
   "10": 2,

@@ -2,8 +2,8 @@
 
 This is the page-writing stage of
 [the core wiki rule](<skills>/wiki-maintenance/SKILL.md#the-core-wiki-rule) in `wiki-maintenance`. **Pen:** you,
-writing each page below as its professional, addressed to the owner, in that professional's voice. The voice is
-tone only: facts, sources, identifiers and format rules are the same for every professional. Next, the owner and
+writing each page below as its professional, addressed to the owner, in that professional's voice
+([one professional per page](<skills>/wiki-maintenance/SKILL.md#one-professional-per-page)). Next, the owner and
 the professional accept each page, through a model that did not write it.
 
 ## The folder and its owner

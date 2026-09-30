@@ -30,26 +30,13 @@ contributing relative path, NUL, member sha256 hex, newline) is shared with any 
 
 ## Building the wiki: `wiki.py` and the stage templates
 
-The wiki is built in the stages of [the core wiki rule](../../wiki-maintenance/SKILL.md#the-core-wiki-rule) in
-`wiki-maintenance`, each with its own pen. The tools do the exact parts; a template in [`templates/`](templates/)
-briefs each stage's author. The page brief is rendered by `wiki.py brief`; the coordinating agent fills the others.
-
-1. **Readers interview**, `readers-interview.md`. Pen: the owner, answering. Fields: `folder_name`,
-   `owner_context`, `profile_summary` (from `profile`).
-2. **Sections and routing**, then 3. **each page's professional**, `structure-brief.md`. Pen: the librarian
-   proposes; the owner agrees. Fields: `folder_name`, `owner_context`, `readers`, `profile`, `current_schema`.
-   The agreed tables go into the Schema, compiled by `settings.py compile`; then `bundles`.
-4. **The page contract**, `contract-brief.md`, then **the page**, `page-brief.md`. Pen: the page's professional;
-   the owner agrees the contract. Contract fields: `section`, `professional`, `owner_context`, `readers`,
-   `section_rows`, `routing`, `bundle`. The page brief is rendered whole by `brief`; its author draws charts with
-   `chart` and runs `check`.
-5. **Acceptance**, `review-owner.md` and `review-professional.md`. Pen: a model that did not write the page,
-   reading it as the owner, then as its professional. Fields: `page`, `page_text`, `author_model`,
-   `reviewer_model`; for the owner's lens `reader` and `questions`; for the professional's `professional`,
-   `contract`, `root`, `bundle` and `sample` (how many facts to check against their sources).
-
-Each template opens with a comment naming its stage and who fills it (dropped when `brief` renders it); fields are
-in braces and doubled braces are literal, so each fills as a Python format string. Each asks for JSON back.
+The stages and who holds the pen at each are [`wiki-onboarding`](../../wiki-onboarding/SKILL.md)'s and
+[the core wiki rule](../../wiki-maintenance/SKILL.md#the-core-wiki-rule)'s. A template in
+[`templates/`](templates/) briefs each stage's author: `readers-interview.md`, `structure-brief.md` (the librarian),
+`contract-brief.md` and `page-brief.md` (the page's professional), `review-owner.md` and `review-professional.md`.
+Each opens with a comment naming its stage and who fills it: `wiki.py brief` renders the page brief whole and drops
+the comment; the coordinating agent fills the others. Fields are in braces and doubled braces are literal, so each
+fills as a Python format string. Each asks for JSON back.
 
     wiki.py profile --root <folder> [--depth 2] [--parties 5] [--out <file.json>]
     wiki.py bundles --root <folder> [--out <dir>] [--reuse] [--text-cap 12000]
@@ -80,7 +67,9 @@ exit 1. A rebuild removes section files it no longer writes.
 **Staleness.** A consumer checks the bundles before using them: `brief`, and `bundles --reuse`, which reuses fresh
 bundles without rebuilding. Either refuses (exit 2) bundles whose recorded `manifest_sha256` differs from the
 current manifest's, or whose `routing_sha256` differs from the current Schema's, or whose files are missing, and
-names the command to rebuild them. Any migration or curation round ends in a re-audit, which rewrites the manifest,
+names the command to rebuild them, with the non-default arguments the bundles were built with (recorded in
+`bundles.json` as `arguments`). A rebuild removes `bundles.json` before anything else, so one that fails part way
+leaves none to trust. Any migration or curation round ends in a re-audit, which rewrites the manifest,
 so bundles built before it are refused rather than read.
 
 **`brief`** renders `templates/page-brief.md` for a set of pages (sorted, so the order given does not matter):
@@ -100,7 +89,12 @@ out (`../25%20Tax%20&%20Duty/Tax%20&%20returns.md`); links nothing moved under a
 moved pages' rationale headings, removes the folders it empties, reports each moved page the Schema's Page
 professionals table still names (edit the Schema, then compile), then lists every dead link left in the wiki;
 either exits 1. It refuses a missing page, an existing or shared destination, a path outside the wiki and the
-Schema page itself, before it changes anything.
+Schema page itself, before it changes anything. A swap (A to B and B to A) or a chain (A to B and B to C) is
+refused as `destination exists`: make it in two runs, a swap through a temporary name (A to T and B to A, then T to
+B) and a chain from its far end (B to C, then A to B). It also reports, and exits 1 for, each move that leaves the
+Schema's Layout wrong (`layout_to_update`): a page moved out of every Layout section, or a section's folder note
+moved away. Moved pages are written first, so a failure later in a run leaves no link to a page that was not
+moved.
 
 **`drift`** lists `[page, line, path]` for every `sources:` entry and every backticked path in a page body (fenced
 blocks skipped) that cites a departed path (held by a departed entry and by nothing live) or a migrating one
