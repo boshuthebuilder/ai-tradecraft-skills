@@ -383,12 +383,12 @@ The constitution of Alex's wiki (fictional fixture).
 
 ## Page contracts
 
-| Section (professional) | Questions, most important first | Fields every page carries |
-| --- | --- | --- |
-| 10 Identity (immigration adviser) | 1. When does the passport expire? 2. Which numbers would an application need? | number, issue date, expiry, scan path |
-| 20 Finance (private banker; CFO; chartered tax adviser) | 1. Is anything due? 2. What came in and went out? 3. What is the tax position? | account, period, balances, tax year, amounts |
-| 30 Home (household manager) | 1. Where does Alex live and on what terms? 2. What bills are due? | address, landlord, term, rent, bills |
-| 40 Study (academic registrar) | 1. Which courses and certificates are held? 2. Where are they? | course, school, dates, result, path |
+| Section (professional) | Reader | Questions, most important first | Fields every page carries |
+| --- | --- | --- | --- |
+| 10 Identity (immigration adviser) | Alex | 1. When does the passport expire? 2. Which numbers would an application need? | number, issue date, expiry, scan path |
+| 20 Finance (private banker; CFO; chartered tax adviser) | Alex | 1. Is anything due? 2. What came in and went out? 3. What is the tax position? | account, period, balances, tax year, amounts |
+| 30 Home (household manager) | Alex | 1. Where does Alex live and on what terms? 2. What bills are due? | address, landlord, term, rent, bills |
+| 40 Study (academic registrar) | Alex | 1. Which courses and certificates are held? 2. Where are they? | course, school, dates, result, path |
 
 ## Writing rules
 

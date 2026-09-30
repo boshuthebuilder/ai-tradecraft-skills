@@ -69,7 +69,7 @@ def contract(root, rb, settings_dir):
     except common.ToolError as e:
         items["settings_rulebook_json"] = "finding: %s" % e
     try:
-        common.load_wiki_schema(settings_dir, root, required=True)
+        common.load_wiki_schema(root, settings_dir, required=True)
         items["settings_wiki_schema_json"] = "ok"
     except common.ToolError as e:
         items["settings_wiki_schema_json"] = "finding: %s" % e
@@ -82,8 +82,10 @@ def main():
     ap.add_argument("--out")
     ap.add_argument("--manifest")
     a = ap.parse_args()
-    root, settings_dir, _work = common.resolve(a)
-    rb = common.load_rulebook(root, settings_dir)
+    # A diagnosis, not a gate: a stale or unpinned twin is a hand-off finding below, so the settings are read here
+    # without trusting them (as settings.py check does). A malformed rulebook.json still fails loud.
+    root, settings_dir, _work = common.resolve(a, verify=False)
+    rb = common.load_rulebook(root, settings_dir, verify=False)
     audit = os.path.join(root, "_Audit")
     mpath = a.manifest or os.path.join(audit, "manifest.json")
     man = json.load(open(mpath, encoding="utf-8"))

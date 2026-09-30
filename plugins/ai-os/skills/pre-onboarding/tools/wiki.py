@@ -44,11 +44,10 @@ def full_text(r):
 def bundles(a):
     root, settings_dir, _work = common.resolve(a)
     rb = common.load_rulebook(root, settings_dir)
-    ws = common.load_wiki_schema(settings_dir, root)
+    ws = common.load_wiki_schema(root, settings_dir)
     mpath, man = load_manifest(root, a.manifest)
-    kinds = {s["number"]: s["kind"] for s in ws["sections"] if s["number"]}
-    routes = sorted(((p, r["section"]) for r in ws["routing"] for p in r["prefixes"] if r["section"]),
-                    key=lambda x: -len(x[0]))
+    kinds = {s["number"]: s["kind"] for s in ws["sections"]}
+    routes = sorted(((r["prefix"], r["section"]) for r in ws["routing"] if r["section"]), key=lambda x: -len(x[0]))
     cards_dir = os.path.join(root, "_Audit", "cards")
     extract_dir = os.path.join(root, "_Audit", "extract")
     out = os.path.abspath(a.out)
@@ -69,7 +68,7 @@ def bundles(a):
                "pages": xr.get("page_count", 0), "read": xr.get("status")}
         rec.update({k: c.get(k) for k in ("title", "doc_type", "party", "parties", "doc_date", "category",
                                            "language", "sensitive")})
-        active = "active" in (kinds.get(sec) or "")
+        active = kinds.get(sec) == "active"
         if not active and (c.get("category") in ("Reference & Reading", "Photos")
                            or BULK_TYPES.search(c.get("doc_type") or "")):
             compact[sec] += 1
