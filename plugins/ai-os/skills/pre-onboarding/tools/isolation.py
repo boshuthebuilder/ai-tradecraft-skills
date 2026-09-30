@@ -12,9 +12,10 @@ The scan reads every file named, and every model-facing file (prompts, templates
 `config.toml` or `jobs.yaml`) under a folder named; a path that does not exist is an error and a scan that checked
 no file fails. A file with terms is reported as `<n>:<path>`, where n is the index of the --path argument it came
 from and the path is relative to that argument (a named file: its own name), with every term and marker in it
-replaced by `<term>`. A canary asks the engine to list every name in its context besides the prompt; any term in
-the reply fails. Neither writes a term out. The result files are the proof the gate ran; a missing or failed result
-means no real call may start.
+replaced by `<term>`; when two such paths mask alike, the later ones get `#2`, `#3` and so on. A canary asks the
+engine to list every name in its context besides the prompt; any term in the reply fails, and the reply is kept
+with its terms masked. Neither writes a term out. The result files are the proof the gate ran; a missing or failed
+result means no real call may start. agy needs --model.
 """
 import argparse
 import json
@@ -96,7 +97,12 @@ def scan(a):
             with open(f, encoding="utf-8", errors="replace") as fh:
                 h = hits(fh.read(), evidence)
             if h:
-                found["%d:%s" % (n, masked(os.path.relpath(f, base), evidence))] = len(h)
+                key = "%d:%s" % (n, masked(os.path.relpath(f, base), evidence))
+                k = 2
+                while key in found:  # two paths that mask alike
+                    key = "%d:%s#%d" % (n, masked(os.path.relpath(f, base), evidence), k)
+                    k += 1
+                found[key] = len(h)
     res = {"checked_at": common.now_local(), "files_checked": checked, "files_with_terms": found,
            "terms": len(evidence), "pass": checked > 0 and not found}
     if a.out:
@@ -112,9 +118,9 @@ def canary(a):
     try:
         eng = engines.Agy(a.model) if a.engine == "agy" else engines.Codex(a.model, effort="low")
         reply, usage = eng(CANARY, d)
-        res.update(reply=masked(reply.strip()[:2000], evidence), usage=usage, hits=len(hits(reply, evidence)))
+        res.update(reply=masked(reply.strip(), evidence)[:2000], usage=usage, hits=len(hits(reply, evidence)))
     except engines.EngineError as ex:
-        res.update(error=masked(str(ex)[:300], evidence))
+        res.update(error=masked(str(ex), evidence)[:300])
     finally:
         shutil.rmtree(d, True)
     res["pass"] = "reply" in res and res["hits"] == 0
@@ -136,6 +142,8 @@ def main():
     p.add_argument("--model")
     p.add_argument("--out", required=True)
     a = ap.parse_args()
+    if a.cmd == "canary" and a.engine == "agy" and not a.model:
+        raise common.ToolError(engines.AGY_MODEL_REQUIRED)
     return scan(a) if a.cmd == "scan" else canary(a)
 
 

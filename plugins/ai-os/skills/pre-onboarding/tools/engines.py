@@ -35,26 +35,35 @@ import time
 import common
 
 KEY_VARS = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY")
-# Variables an engine must not inherit: keys, tokens, credentials and secrets (the name's ending decides), and base
-# URLs, which would send the prompt to another endpoint than the one the machine's login belongs to.
-SECRET_VAR_RE = re.compile(r"(_API_KEY|_AUTH_TOKEN|_ACCESS_TOKEN|_CREDENTIALS|_SECRET|_SECRET_ACCESS_KEY|_BASE_URL)$",
+# Variables an engine must not inherit (provisional until the isolation spike, issue #91, records what each engine
+# reads): keys, tokens, credentials and secrets, which would sign in or bill some other way than the machine's one
+# login, and base URLs and endpoints, which would send the prompt to another service than the one that login belongs
+# to. The name's ending decides. Proxy settings (HTTPS_PROXY, NO_PROXY, SSL_CERT_FILE) stay: they only route the
+# call to the login's own service through the network this machine needs, and change neither who signs in nor where
+# the prompt goes.
+SECRET_VAR_RE = re.compile(r"(_API_KEY|_TOKEN|_CREDENTIALS|_SECRET|_SECRET_ACCESS_KEY|_BASE_URL|_API_BASE|_ENDPOINT)$",
                            re.I)
+SECRET_VARS = {"GOOGLE_APPLICATION_CREDENTIALS", "GOOGLE_GENAI_USE_VERTEXAI"}
 QUOTA_RE = re.compile(r"\bquota\b|\b429\b|\bexhausted\b|\brate.?limit|resource_exhausted|usage limit|"
                       r"too many requests", re.I)
 # Credential stores are judged by file name. A name is one when a word of it (split at . _ - and spaces) is a
 # credential word, or two words form a credential pair, or its extension is a credential store's; notes (.md and
 # the like), public keys and anything about usage are not. So auth.json, oauth_creds.json, access_token.txt,
-# client_secret.json, api_key.txt, .netrc, .env, id_rsa, password.txt and keychain.db are caught, and tokens.json,
-# token_usage.json, tokenizer.json, oauthflow.md and credential_types.md are not.
-CRED_WORDS = {"auth", "oauth", "creds", "credential", "credentials", "secret", "secrets", "token", "password",
-              "passwords", "passwd", "apikey", "netrc", "keychain"}
-CRED_PAIRS = {("api", "key"), ("private", "key"), ("id", "rsa"), ("id", "ed25519"), ("id", "ecdsa"), ("id", "dsa")}
-CRED_EXTS = {".env", ".netrc", ".keychain", ".keychain-db", ".p12", ".pfx"}
+# tokens.json, cookies.sqlite, client_secret.json, api_key.txt, "API keys.txt", .netrc, .npmrc, .pgpass, .env,
+# id_rsa, server.key, cert.pem, adc.json, password.txt and keychain.db are caught, and token_usage.json,
+# tokenizer.json, access_log.txt, oauthflow.md and credential_types.md are not.
+CRED_WORDS = {"auth", "oauth", "creds", "credential", "credentials", "secret", "secrets", "token", "tokens",
+              "cookies", "password", "passwords", "passwd", "apikey", "netrc", "npmrc", "pgpass", "keychain", "adc"}
+CRED_PAIRS = {("api", "key"), ("api", "keys"), ("private", "key"), ("id", "rsa"), ("id", "ed25519"),
+              ("id", "ecdsa"), ("id", "dsa")}
+CRED_EXTS = {".env", ".netrc", ".keychain", ".keychain-db", ".p12", ".pfx", ".key", ".pem", ".kdbx"}
 NOT_CRED_EXTS = {".md", ".markdown", ".rst", ".html", ".pub"}
-# agy stream events that show a tool at work: an event type or key naming a tool, action, function or call. The
-# names are a fail-closed guess until the isolation spike (issue #91) records agy's real event names.
-AGY_TOOL_RE = re.compile(r"tool|action|function|call", re.I)
+# agy stream events that show a tool at work: an event whose type, or one of whose top-level keys, has tool, action,
+# function or call as a whole word (tool_call, functionCall, action), unless that key's value is empty
+# (`tool_calls: []`). Fail-closed and provisional: the isolation spike (issue #91) records agy's real event names.
+AGY_TOOL_WORDS = {"tool", "tools", "action", "actions", "function", "functions", "call", "calls"}
 KILL_GRACE = 5  # seconds to wait for the pipes after killing a timed-out engine's process group
+AGY_MODEL_REQUIRED = "--model is required for agy (it has no default here; its effort is encoded in the model id)"
 CODEX_OFF = ["shell_tool", "unified_exec", "shell_snapshot", "memories", "apps", "browser_use",
              "browser_use_external", "computer_use", "in_app_browser", "image_generation", "multi_agent", "plugins",
              "remote_plugin", "code_mode_host", "hooks", "goals", "tool_suggest", "skill_mcp_dependency_install",
@@ -91,11 +100,9 @@ class SetupError(EngineError, common.ToolError):
 
 
 def is_secret_var(name):
-    """An environment variable the engine must not see (SECRET_VAR_RE, the named keys, and
-    GOOGLE_APPLICATION_CREDENTIALS). An engine given one could bill, sign in or send the prompt some other way than
-    through the machine's one login."""
-    return (name in KEY_VARS or name.upper() == "GOOGLE_APPLICATION_CREDENTIALS"
-            or SECRET_VAR_RE.search(name) is not None)
+    """An environment variable the engine must not see: SECRET_VAR_RE, the named keys and SECRET_VARS (see the
+    comment above SECRET_VAR_RE)."""
+    return name in KEY_VARS or name.upper() in SECRET_VARS or SECRET_VAR_RE.search(name) is not None
 
 
 def is_credential_name(name):
@@ -110,17 +117,14 @@ def is_credential_name(name):
     return bool(set(words) & CRED_WORDS) or any(p in CRED_PAIRS for p in zip(words, words[1:]))
 
 
+def words(name):
+    """The lower-case words of a name: split at non-alphanumerics and camelCase boundaries (functionCall: function,
+    call)."""
+    return {w.lower() for w in re.findall(r"[A-Z]?[a-z0-9]+|[A-Z]+(?![a-z])", str(name))}
+
+
 def tool_events(lines):
-    """The agy stream events (other than the result) whose type or any key names a tool, action, function or
-    call."""
-    def keys(v):
-        if isinstance(v, dict):
-            for k, x in v.items():
-                yield k
-                yield from keys(x)
-        elif isinstance(v, list):
-            for x in v:
-                yield from keys(x)
+    """The agy stream events (other than the result) that show a tool at work: see AGY_TOOL_WORDS."""
     found = []
     for line in lines:
         try:
@@ -130,8 +134,10 @@ def tool_events(lines):
         if not isinstance(ev, dict):
             continue
         kind = "%s %s" % (ev.get("event", ""), ev.get("type", ""))
-        if AGY_TOOL_RE.search(kind) or any(AGY_TOOL_RE.search(str(k)) for k in keys(ev)):
-            found.append(kind.strip() or "event")
+        named = words(kind) & AGY_TOOL_WORDS
+        keyed = [k for k, v in ev.items() if words(k) & AGY_TOOL_WORDS and v not in (None, "", [], {})]
+        if named or keyed:
+            found.append(kind.strip() or ",".join(keyed))
     return found
 
 
@@ -235,7 +241,7 @@ class Agy:
         if not self.bin:
             raise SetupError("agy not found")
         if not model:
-            raise SetupError("agy needs a model id (its effort is encoded in the id)")
+            raise SetupError(AGY_MODEL_REQUIRED)
 
     def __call__(self, prompt, cwd, schema=None, model=None):
         msg = json.dumps({"event": "user", "message": {"role": "user", "content": prompt}}, ensure_ascii=False)
@@ -261,10 +267,7 @@ class Agy:
         ok = bool(result) and result.get("status") == "SUCCESS"
         response = (result.get("response") or "") if ok else ""
         denied = (result or {}).get("denied_actions") or []
-        used = [] if self.allow_reads else tool_events(other)
-        if used:
-            raise ToolUseError("agy stream shows tool use %s; reply discarded" % sorted(set(used))[:5])
-        if not response.strip():
+        if not response.strip():  # quota, failure or an empty answer first: a quota wait must not become a retry
             text = ((result or {}).get("error") or "") + " " + blob
             if QUOTA_RE.search(text):
                 raise QuotaError(text.strip()[-300:], reset_seconds(text))
@@ -273,6 +276,9 @@ class Agy:
             raise DegenerateError("agy returned an empty answer (denied: %s)" % denied)
         if denied:
             raise ToolUseError("agy was refused %s; reply discarded" % denied)
+        used = [] if self.allow_reads else tool_events(other)
+        if used:
+            raise ToolUseError("agy stream shows tool use %s; reply discarded" % sorted(set(used))[:5])
         return response, result.get("usage")
 
 

@@ -16,10 +16,18 @@ only when it passes three checks, each catching something different:
   unknown id, and two ids swapped while the cards stay in place. It also rejects a correct reply in another order
   (the instructions ask for the order sent), which costs a retry of the chunk.
 - Schema: every card meets the card schema (schemas/card.json).
-- Sibling facts: no card carries a fact (a run of four or more digits, or a key_facts entry) that is in another
-  item's source (its path and text) but not in its own. This catches cards whose contents were crossed while the ids
-  and their order stayed intact, when the documents carry such distinguishing facts. Crossing between documents with
-  nothing distinguishing is not caught by any deterministic check.
+- Sibling identifiers: in a chunk of two or more items, no card carries an identifier that is in another item's
+  source (its path and text) but not in its own. An identifier is a run of digits of five or more once the spaces,
+  hyphens and slashes inside it are removed, that is not an amount (a run with a decimal point or a thousands
+  comma) and not year- or date-shaped (every part a year or at most two digits, or a compact yyyymm, mmyyyy,
+  yyyymmdd or ddmmyyyy); a part of five or more digits inside a longer run counts on its own too. Identifiers are
+  compared as digit strings, so "12-34-56 12345678" matches "123456 12345678"; key_facts count only through the
+  identifiers in them, and `look` is not checked, since it is asked to name other files. This catches a card whose
+  contents were crossed with a sibling's while the ids and their order stayed intact, when either card carries such
+  an identifier (an account, invoice, policy or passport number). It does not catch a crossing distinguished only by
+  names, addresses, dates, amounts or short numbers, and a chunk of one item (a single or sections batch, every
+  --redo batch, the last step of halving) has no siblings, so it is not checked. A crossing is deterministic: the
+  chunk is halved at once instead of being retried at the same size.
 
 Otherwise the chunk is retried, then halved, and never applied in part. Every item of a chunk that still fails is
 recorded in <work>/state/card_err_<id>.txt. Before any card of a batch is written, the contamination guard checks
@@ -43,7 +51,8 @@ import isolation  # noqa: E402
 HERE = os.path.dirname(os.path.abspath(__file__))
 FINAL = {"ok", "partial", "blank", "photo", "listed", "no_reader", "failed"}
 TYPES = {"object": dict, "array": list, "string": str, "boolean": bool}
-DIGITS = re.compile(r"\d{4,}")
+RUN = re.compile(r"\d+(?:[ ,./\-]\d+)*")  # digits, and the single separators that may sit inside one number
+YEAR = re.compile(r"(?:19|20)\d\d$")
 SECTION_PROMPT = """You are reading one section of a long document from a private archive, to help write a
 catalogue card for the whole document later. Document path: {path}. This is section {k} of {n}.
 Reply directly with JSON only: {{"notes": "..."}} where notes (at most 200 words, UK English) record what this
@@ -207,26 +216,78 @@ def validate(card, categories):
     return card
 
 
-def facts(card):
-    """What a card states that can be checked against a source: its runs of four or more digits (outside its id)
-    and its key_facts entries."""
-    found = set(DIGITS.findall(json.dumps({k: v for k, v in card.items() if k != "id"}, ensure_ascii=False)))
-    for v in (card.get("key_facts") or {}).values():
-        found.update(x for x in v if isinstance(x, str) and x.strip())
+class Crossed(ValueError):
+    """A card carries a sibling's identifier. Deterministic: the chunk is halved rather than retried as it is."""
+
+
+def date_shaped(parts):
+    """True for a run whose parts read as a year or a date in the common forms."""
+    def month(g):
+        return len(g) == 2 and 1 <= int(g) <= 12
+
+    def day(g):
+        return len(g) == 2 and 1 <= int(g) <= 31
+    if len(parts) > 1:
+        return all(len(g) <= 2 or YEAR.match(g) for g in parts)
+    g = parts[0]
+    if len(g) == 6:
+        return bool(YEAR.match(g[:4]) and month(g[4:]) or month(g[:2]) and YEAR.match(g[2:]))
+    if len(g) == 8:
+        return bool(YEAR.match(g[:4]) and month(g[4:6]) and day(g[6:])
+                    or day(g[:2]) and month(g[2:4]) and YEAR.match(g[4:]))
+    return bool(YEAR.match(g))
+
+
+def identifiers(text):
+    """The identifier-like digit strings in `text` (see the module docstring)."""
+    found = set()
+    for m in RUN.finditer(text):
+        run = m.group(0)
+        if "," in run or "." in run:
+            continue  # an amount, or a dotted date
+        parts = re.split(r"[ /\-]", run)
+        for digits, shape in [("".join(parts), parts)] + [(g, [g]) for g in parts if len(parts) > 1]:
+            if len(digits) >= 5 and not date_shaped(shape):
+                found.add(digits)
     return found
 
 
+def card_identifiers(card):
+    """The identifiers in every text of a card, except its id and `look` (which is asked to name other files)."""
+    texts = []
+
+    def walk(v):
+        if isinstance(v, str):
+            texts.append(v)
+        elif isinstance(v, dict):
+            for x in v.values():
+                walk(x)
+        elif isinstance(v, list):
+            for x in v:
+                walk(x)
+    walk({k: v for k, v in card.items() if k not in ("id", "look")})
+    return set().union(*(identifiers(t) for t in texts)) if texts else set()
+
+
+def source_digits(item):
+    """Every digit run of an item's source (its path and text), as digit strings, joined by a separator."""
+    text = "%s\n%s" % (item.get("path", ""), item.get("text", ""))
+    return "|".join(re.sub(r"\D", "", m.group(0)) for m in RUN.finditer(text))
+
+
 def crossed(cards, items):
-    """(short id, sibling short id) for the first card carrying a fact that a sibling item's source has and its own
-    lacks, else None. A source is the item's path and text: the model saw both."""
-    sources = {k: "%s\n%s" % (it.get("path", ""), it.get("text", "")) for k, it in items.items()}
+    """(short id, [short ids of the siblings whose sources hold it]) for the first card carrying an identifier that
+    its own source lacks and a sibling's source holds, else None. A chunk of one item has no siblings."""
+    if len(items) < 2:
+        return None
+    sources = {k: source_digits(it) for k, it in items.items()}
     for k, c in cards.items():
-        for f in sorted(facts(c)):
-            if f in sources[k]:
+        for ident in sorted(card_identifiers(c)):
+            if ident in sources[k]:
                 continue
-            sibling = next((j for j, s in sources.items() if j != k and f in s), None)
-            if sibling:
-                return k, sibling
+            holders = [j for j, s in sources.items() if j != k and ident in s]
+            if holders:
+                return k, holders
     return None
 
 
@@ -253,7 +314,8 @@ def call_chunk(engine, instr, items, categories, schema, cwd):
         checked[c["id"]] = card
     hit = crossed(checked, short)
     if hit:
-        raise ValueError("card %s carries a fact from %s's source that its own source lacks" % hit)
+        raise Crossed("card %s carries an identifier that its own source lacks and the source of %s holds"
+                      % (hit[0], ", ".join(hit[1])))
     out = {}
     for k, card in checked.items():
         card["id"] = short[k]["id"]
@@ -272,6 +334,10 @@ def run_items(run, engine, instr, items, schema, log, sink, depth=0):
             return
         except (engines.QuotaError, common.ToolError):
             raise
+        except Crossed as ex:
+            last = str(ex)[:200]
+            log("  attempt %d for %d items: %s; halving at once" % (attempt + 1, len(items), last))
+            break  # the same chunk would cross the same way
         except (engines.EngineError, ValueError) as ex:
             last = str(ex)[:200]
             log("  attempt %d for %d items: %s" % (attempt + 1, len(items), last))
@@ -428,7 +494,7 @@ def work(a):
                 time.sleep(wait)
                 todo = [e for e in todo if not has(e)]
         log("batch %s mode=%s carded in %.0fs" % (bt["name"], bt["mode"], time.time() - t0))
-    with open(os.path.join(run.state, ("redo%d" if a.redo else "cards%d") % wi + ".done"), "w") as f:
+    with open(os.path.join(run.state, ("redo%d" if a.redo else "cards%d") % wi + ".done"), "w", encoding="utf-8") as f:
         f.write(common.now_local())
     log("worker finished")
     return 0
@@ -459,6 +525,8 @@ def main():
     a = ap.parse_args()
     if a.cmd == "work" and not (a.terms or a.no_isolation_terms):
         raise common.ToolError("give --terms (the isolation list) or --no-isolation-terms")
+    if a.cmd == "work" and a.engine == "agy" and not a.model:
+        raise common.ToolError(engines.AGY_MODEL_REQUIRED)
     return build(a) if a.cmd == "build" else work(a)
 
 

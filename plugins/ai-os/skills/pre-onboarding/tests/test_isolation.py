@@ -120,6 +120,17 @@ class ScanTest(Case):
             for form in ("Zarnwick", "zarnwick", "青石湾"):
                 self.assertNotIn(form, text)
 
+    def test_paths_that_mask_alike_keep_their_own_keys(self):
+        d = os.path.join(self.tmp, "prompts")
+        write(os.path.join(d, "Zarnwick.md"), "Zarnwick Farm")
+        write(os.path.join(d, "Other Project.md"), "Other Project and Zarnwick Farm")
+        write(os.path.join(d, "青石湾.md"), "青石湾")
+        code, stdout, err = self.iso("scan", "--terms", self.terms, "--path", d)
+        self.assertEqual(code, 1, err)
+        found = json.loads(stdout)["files_with_terms"]
+        self.assertEqual(sorted(found), ["0:<term>.md", "0:<term>.md#2", "0:<term>.md#3"])
+        self.assertEqual(sorted(found.values()), [1, 1, 2])
+
     def test_a_clean_scan_passes(self):
         d = os.path.join(self.tmp, "prompts")
         write(os.path.join(d, "clean.md"), "Write a card for each document.")
@@ -183,11 +194,22 @@ class CanaryTest(Case):
         self.assertEqual(code, 1)
         self.assertIs(res["pass"], False)
         self.assertIn("usage limit", res["error"])
-        code, res, _stdout, _err = self.canary("agy")
-        self.assertEqual(code, 1)
-        self.assertIs(res["pass"], False)
-        self.assertIn("model", res["error"])
+
+    def test_agy_needs_a_model(self):
+        out = os.path.join(self.tmp, "gate", "canary-agy.json")
+        code, _stdout, err = self.iso("canary", "--terms", self.terms, "--engine", "agy", "--out", out)
+        self.assertEqual(code, 2, err)
+        self.assertIn("error: --model is required for agy", err)
+        self.assertNotIn("Traceback", err)
+        self.assertFalse(os.path.exists(out), "a refused canary must leave no result")
         self.assertEqual(self.fakes.calls("agy"), [])
+
+    def test_the_reply_is_masked_before_it_is_cut(self):
+        self.fakes.script("codex", default={"kind": "text", "text": "x" * 1995 + " Zarnwick Farm."})
+        code, res, _stdout, _err = self.canary("codex")
+        self.assertEqual(code, 1)
+        self.assertNotIn("Zarn", res["reply"], "a cut term leaked into the artefact")  # cut first: "... Zarn"
+        self.assertEqual(len(res["reply"]), 2000)
 
 
 if __name__ == "__main__":

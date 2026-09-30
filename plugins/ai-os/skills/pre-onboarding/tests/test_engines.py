@@ -189,14 +189,14 @@ class AgyTest(FakeEngineCase):
         """A grandchild that calls setsid() survives the group kill and holds the pipes; the wait after the kill is
         bounded by KILL_GRACE (patched from 5 to 1 second to keep the test short)."""
         self.assertEqual(engines.KILL_GRACE, 5)
-        self.fakes.script("agy", default={"kind": "hold", "hold": 20, "seconds": 15})
+        self.fakes.script("agy", default={"kind": "hold", "hold": 30, "seconds": 25})
         self.addCleanup(self.kill_holder)
         t0 = time.time()
         with mock.patch.object(engines, "KILL_GRACE", 1):
             with self.assertRaisesRegex(engines.EngineError, "timeout"):
-                self.agy(timeout=1)("hello", self.cwd())
-        # timeout + grace + slack; without the bound the call lasts as long as the grandchild (20 s)
-        self.assertLess(time.time() - t0, 1 + 1 + 5, "the wait after the kill was not bounded")
+                self.agy(timeout=2)("hello", self.cwd())  # 2 s: time enough for the holder to start first
+        # timeout + grace + slack; without the bound the call lasts as long as the grandchild (30 s)
+        self.assertLess(time.time() - t0, 2 + 1 + 6, "the wait after the kill was not bounded")
         self.assertIsNotNone(self.fakes.read_state("agy", "holder.pid"), "the pipe-holding grandchild never started")
 
     def kill_holder(self):
@@ -210,8 +210,10 @@ class AgyTest(FakeEngineCase):
     def test_tool_events_fail_unless_reads_are_allowed(self):
         cases = {
             "a tool call event": [{"event": "tool_call", "name": "view_file", "args": {"path": "p1.png"}}],
-            "a key naming a function, nested": [{"event": "message", "message": {"functionCall": {"name": "x"}}}],
+            "a top-level key naming a function, camelCase": [{"event": "message", "functionCall": {"name": "x"}}],
+            "a non-empty tool_calls list": [{"event": "message", "tool_calls": [{"name": "run"}]}],
             "an action type": [{"event": "step", "type": "action", "detail": "open"}],
+            "a top-level call id": [{"event": "message", "call_id": "c1"}],
         }
         for name, events in cases.items():
             with self.subTest(name):
@@ -220,9 +222,28 @@ class AgyTest(FakeEngineCase):
                     self.agy()("hello", self.cwd())
                 reply, _usage = self.agy(allow_reads=True)("hello", self.cwd())
                 self.assertEqual(reply, '{"pages": []}')
-        self.fakes.script("agy", default={"kind": "text", "text": "fine",
-                                          "events": [{"event": "thought", "text": "call me later"}]})
-        self.assertEqual(self.agy()("hello", self.cwd())[0], "fine", "an ordinary event was taken for a tool")
+
+    def test_ordinary_events_are_not_tools(self):
+        cases = {
+            "free text naming a call": {"event": "thought", "text": "call me later"},
+            "an empty tool_calls list": {"event": "message", "tool_calls": []},
+            "a nested call id": {"event": "message", "message": {"call_id": "c1", "content": "x"}},
+            "interaction_start": {"event": "interaction_start", "interaction_start": "now"},
+            "locally": {"event": "message", "locally": True},
+            "redaction": {"event": "message", "redaction": "none"},
+        }
+        for name, event in cases.items():
+            with self.subTest(name):
+                self.fakes.script("agy", default={"kind": "text", "text": "fine", "events": [event]})
+                self.assertEqual(self.agy()("hello", self.cwd())[0], "fine")
+
+    def test_quota_is_checked_before_tool_events(self):
+        for rc in (0, 1):
+            with self.subTest(rc=rc):
+                self.fakes.script("agy", default={"kind": "quota", "rc": rc, "message": "429 Too Many Requests",
+                                                  "events": [{"event": "tool_call", "tool_calls": [{"id": 1}]}]})
+                with self.assertRaises(engines.QuotaError):
+                    self.agy()("hello", self.cwd())
 
     def test_failures_that_only_look_like_quota(self):
         for message in ("request 14290 failed", "quotation marks unbalanced", "quota_project_id is not set",
@@ -415,10 +436,12 @@ class HelpersTest(unittest.TestCase):
     def test_credential_names(self):
         caught = ["auth.json", "oauth_creds.json", "access_token.txt", "credentials.db", ".netrc", "client_secret.json",
                   "secrets.json", "api_key.txt", "apikey", ".env", ".env.local", "prod.env", "id_rsa", "id_ed25519",
-                  "password.txt", "keychain.db", "login.keychain-db", "refresh-token", "msal_token_cache.json"]
-        ordinary = ["tokens.json", "token_usage.json", "tokenizer.json", "oauthflow.md", "credential_types.md",
+                  "password.txt", "keychain.db", "login.keychain-db", "refresh-token", "msal_token_cache.json",
+                  "cookies.sqlite", "cookies.json", "tokens.json", "access_tokens.db", "api_keys.txt", "API keys.txt",
+                  ".npmrc", ".pgpass", "master.key", "server.key", "cert.pem", "adc.json", "vault.kdbx"]
+        ordinary = ["token_usage.json", "tokenizer.json", "oauthflow.md", "credential_types.md", "access_log.txt",
                     "history.jsonl", "rollout-2024.jsonl", "settings.json", "config.toml", "installation_id",
-                    "author.txt", "id_rsa.pub", "keyboard.json", "environment.json", "passport.pdf"]
+                    "author.txt", "id_rsa.pub", "keyboard.json", "environment.json", "passport.pdf", "hotkeys.json"]
         for name in caught:
             with self.subTest(caught=name):
                 self.assertTrue(engines.is_credential_name(name))
@@ -437,8 +460,8 @@ class HelpersTest(unittest.TestCase):
         for name in SECRETS:
             with self.subTest(secret=name):
                 self.assertTrue(engines.is_secret_var(name))
-        for name in ("PATH", "HOME", "LANG", "TMPDIR", "HTTPS_PROXY", "NO_PROXY", "SSL_CERT_FILE",
-                     "TOKENIZERS_PARALLELISM", "SECRET_SANTA_LIST", "API_KEY_HELP"):
+        for name in ("PATH", "HOME", "LANG", "TMPDIR", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "SSL_CERT_FILE",
+                     "TOKENIZERS_PARALLELISM", "SECRET_SANTA_LIST", "API_KEY_HELP", "ENDPOINT_NOTES"):
             with self.subTest(ordinary=name):
                 self.assertFalse(engines.is_secret_var(name))
 

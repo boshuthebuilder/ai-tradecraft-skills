@@ -72,7 +72,8 @@ class StubEngine:
                            "ids": [it["id"] for it in items], "schema": schema})
         if self.error:
             raise self.error
-        out = [card_for(it["id"], it["path"]) for it in items]
+        # an honest card quotes its own document's text
+        out = [card_for(it["id"], it["path"], summary="About %s. %s" % (it["path"], it["text"])) for it in items]
         if self.mangle:
             out = self.mangle(out)
         return json.dumps({"items": out}), {"input_tokens": 1}
@@ -81,6 +82,16 @@ class StubEngine:
 def swap_first_two(cs):
     if len(cs) >= 2:
         cs[0]["id"], cs[1]["id"] = cs[1]["id"], cs[0]["id"]
+    return cs
+
+
+def cross_contents(cs):
+    """Contents rotated one place, ids and order intact."""
+    if len(cs) >= 2:
+        ids = [c["id"] for c in cs]
+        cs = cs[1:] + cs[:1]
+        for c, i in zip(cs, ids):
+            c["id"] = i
     return cs
 
 
@@ -195,15 +206,35 @@ class JoinTest(unittest.TestCase):
                              CATEGORIES, None, self.cwd)
 
 
+BANK, PASSPORT, INVOICE, BILL, LEASE, BUDGET, TAX, POLICY = range(8)
+
+
 class SiblingFactsTest(unittest.TestCase):
-    """call_chunk: a card carrying a fact (4+ digits, or a key fact) from a sibling's source, not its own, is a
-    crossed card: the chunk is rejected even though ids and order are intact."""
+    """call_chunk: a card carrying an identifier (5+ digits once separators are removed, not an amount, a year or a
+    date) that a sibling's source holds and its own lacks is a crossed card, even with ids and order intact. Honest
+    cards written as templates/card-instructions.md asks must pass."""
 
     ITEMS = [{"id": eid(path), "path": path, "class": "document", "page_count": 1, "read": "text_layer",
               "text": text} for path, text in [
-                  ("02 Finance/Statement.pdf", "Statement for account 55501234, period 2024-03."),
-                  ("03 Home/Council tax.pdf", "Council tax bill, reference 77709876, sort 20-00-00."),
-                  ("02 Finance/Receipt 2024-05.pdf", "Receipt, no numbers here.")]]
+                  ("02 Finance/Bank statement 2024-03.pdf",
+                   "Example Bank plc\nStatement for Alex Example\nAccount 12345678, sort code 01-02-03\n"
+                   "Card and account 123456 12345678\nPeriod 1 March 2024 to 31 March 2024\n"
+                   "Rent to Example Lettings GBP 1,450.00\nDirect debit to Example Insurance, policy 88123456"),
+                  ("01 Identity/Passport renewal 2021/Application form.docx",
+                   "Passport renewal application for Alex Example\nSubmitted 2021-05-02\nPrevious passport P0987654"),
+                  ("02 Finance/Old invoice.pdf",
+                   "Invoice 2022-117 from Robin Trading Ltd to Alex Example\nConsulting, February 2022, GBP 800.00\n"
+                   "Paid 2022-03-01"),
+                  ("03 Home/Utilities /Electricity bill.pdf",
+                   "Example Energy Ltd\nElectricity bill for Alex Example\nBill date 15 March 2O24\n"
+                   "Meter read 15/03/24"),
+                  ("03 Home/Lease renewal.pages",
+                   "Lease renewal for 3 Example Road, signed by Alex Example\n\n"
+                   "The new term runs from 1 May 2024 to 30 April 2025 at 1,450 per month"),
+                  ("02 Finance/Tax/Budget.numbers",
+                   "Household budget prepared by Alex Example\n\nRent 1,450 per month and utilities about 150"),
+                  ("02 Finance/Tax/Tax return 2023.pdf", "Self assessment summary for Alex Example"),
+                  ("02 Finance/Insurance policy 88123456.pdf", "Home insurance schedule for Alex Example")]]
 
     def setUp(self):
         self.cwd = tempfile.mkdtemp(prefix="facts_test_")
@@ -212,47 +243,67 @@ class SiblingFactsTest(unittest.TestCase):
     def join(self, mangle):
         return cards.call_chunk(StubEngine(mangle), "I", self.ITEMS, CATEGORIES, None, self.cwd)
 
-    def test_crossed_contents_are_rejected(self):
-        def cross(cs):
-            cs[0]["summary"], cs[1]["summary"] = "Council tax, reference 77709876.", "Account 55501234."
+    @staticmethod
+    def edit(i, key, value, sub=None):
+        def mangle(cs):
+            if sub:
+                cs[i]["key_facts"][sub] = value
+            else:
+                cs[i][key] = value
             return cs
+        return mangle
 
-        def crossed_key_fact(cs):
-            cs[2]["key_facts"]["reference_numbers"] = ["reference 77709876"]
-            return cs
-
-        def crossed_date(cs):
-            cs[1]["key_facts"]["dates"] = ["period 2024-03"]
-            return cs
-
-        def crossed_short_digits(cs):
-            cs[0]["key_facts"]["reference_numbers"] = ["sort 20-00-00"]  # no run of four digits: the key fact alone
-            return cs
-        for name, mangle in (("digits", cross), ("a key fact", crossed_key_fact), ("a dated key fact", crossed_date),
-                             ("a key fact without four digits in a row", crossed_short_digits)):
-            with self.subTest(name):
-                with self.assertRaisesRegex(ValueError, "from d\\d's source"):
-                    self.join(mangle)
-
-    def test_facts_of_its_own_or_of_nobody_are_accepted(self):
-        def own(cs):
-            cs[0]["key_facts"]["reference_numbers"] = ["account 55501234"]
-            cs[0]["summary"] = "Statement for account 55501234."
-            return cs
-
-        def nobody(cs):
-            cs[2]["summary"] = "Receipt from 2019, total 4999."
-            return cs
-
-        def from_its_path(cs):
-            cs[2]["title"] = "Receipt of May 2024"  # the year is in its own path, and in a sibling's text
-            return cs
-        for name, mangle in (("its own", own), ("nobody's", nobody), ("its own path", from_its_path)):
+    def test_honest_edits_are_accepted(self):
+        e = self.edit
+        cases = {
+            "an ISO date from OCR text '15 March 2O24'": e(BILL, "doc_date", "2024-03-15"),
+            "an ISO date from '15/03/24'": e(BILL, None, ["meter read 2024-03-15"], "dates"),
+            "a currency the source lacks": e(LEASE, None, ["GBP 1,450 per month"], "amounts"),
+            "a year inferred from context": e(BUDGET, "summary", "Household budget for 2023."),
+            "a year alone": e(BUDGET, None, ["2024"], "dates"),
+            "look naming a sibling, with its number": e(INVOICE, "look", "Paid from account 12345678; see the "
+                                                                         "Bank statement 2024-03.pdf."),
+            "a key fact in another case": e(PASSPORT, None, ["PASSPORT p0987654"], "reference_numbers"),
+            "a key fact with other separators": e(BANK, None, ["account 1234-5678 sort 01 02 03"],
+                                                  "reference_numbers"),
+            "digits compared as digits": e(BANK, None, ["card and account 12-34-56 12345678"], "reference_numbers"),
+            "an invoice number with another separator": e(INVOICE, None, ["invoice 2022/117"], "reference_numbers"),
+            "amounts and dates": e(INVOICE, None, ["GBP 800.00 paid 2022-03-01", "February 2022"], "amounts"),
+            "a date from its own path": e(TAX, "doc_date", "2023"),
+            "an identifier only its own file name shows (a sibling's text has it too)":
+                e(POLICY, None, ["policy 88123456"], "reference_numbers"),
+        }
+        for name, mangle in cases.items():
             with self.subTest(name):
                 got, _usage = self.join(mangle)
-                self.assertEqual(len(got), 3)
+                self.assertEqual(len(got), len(self.ITEMS))
 
-    def test_a_fact_both_sources_carry_is_accepted(self):
+    def test_a_real_crossing_is_rejected(self):
+        e = self.edit
+        cases = {
+            "an account number from a sibling": (e(INVOICE, "summary", "Paid from account 12345678."), "d3", "d1"),
+            "a passport number from a sibling": (e(BANK, None, ["passport P0987654"], "reference_numbers"),
+                                                 "d1", "d2"),
+            "an invoice number from a sibling": (e(PASSPORT, None, ["invoice 2022-117"], "reference_numbers"),
+                                                 "d2", "d3"),
+        }
+        for name, (mangle, card, sibling) in cases.items():
+            with self.subTest(name):
+                with self.assertRaisesRegex(cards.Crossed, "card %s carries an identifier that its own source lacks "
+                                                           "and the source of %s holds" % (card, sibling)):
+                    self.join(mangle)
+
+    def test_crossings_without_an_identifier_slip_through(self):
+        """Documented limits: a sort code (date-shaped), a name or an amount carries no identifier."""
+        e = self.edit
+        for name, mangle in (("a sort code", e(INVOICE, None, ["sort code 01-02-03"], "reference_numbers")),
+                             ("a name", e(BILL, "party", "Example Lettings")),
+                             ("an amount", e(PASSPORT, None, ["GBP 800.00"], "amounts"))):
+            with self.subTest(name):
+                got, _usage = self.join(mangle)
+                self.assertEqual(len(got), len(self.ITEMS))
+
+    def test_an_identifier_both_sources_carry_is_accepted(self):
         items = [dict(it, text=it["text"] + " Customer 99990000.") for it in self.ITEMS[:2]]
 
         def shared(cs):
@@ -260,6 +311,20 @@ class SiblingFactsTest(unittest.TestCase):
             return cs
         got, _usage = cards.call_chunk(StubEngine(shared), "I", items, CATEGORIES, None, self.cwd)
         self.assertEqual(len(got), 2)
+
+    def test_a_single_item_is_not_checked(self):
+        mangle = self.edit(0, "summary", "Invoice 2022-117 and passport P0987654.")
+        got, _usage = cards.call_chunk(StubEngine(mangle), "I", self.ITEMS[:1], CATEGORIES, None, self.cwd)
+        self.assertEqual(len(got), 1)
+
+    def test_identifiers(self):
+        cases = {"2024-03-15": [], "15/03/24": [], "15 March 2O24": [], "GBP 1,450 per month": [], "for 2023": [],
+                 "sort code 01-02-03": [], "202403": [], "20240315": [], "GBP 2,410.00": [], "15.03.2024": [],
+                 "P0987654": ["0987654"], "Invoice 2022-117": ["2022117"], "123456": ["123456"],
+                 "12-34-56 12345678": ["12345612345678", "12345678"]}
+        for text, want in cases.items():
+            with self.subTest(text):
+                self.assertEqual(sorted(cards.identifiers(text)), want)
 
 
 class RunItemsTest(unittest.TestCase):
@@ -287,6 +352,15 @@ class RunItemsTest(unittest.TestCase):
         self.assertTrue(all(c["listing"] == [] for c in engine.calls), "a working folder was not empty")
         self.assertFalse(any(os.path.exists(d) for d in cwds), "a working folder was left behind")
         self.assertEqual([f for f in os.listdir(self.tmp) if f.startswith("card_err")], [])
+
+    def test_a_crossing_is_halved_at_once_without_same_size_retries(self):
+        items = [dict(it, text="Reference 5550%04d." % i) for i, it in enumerate(self.items(4))]
+        engine, sink = StubEngine(cross_contents), {}
+        cards.run_items(self.run_, engine, "I", items, None, self.log.append, sink)
+        self.assertEqual([c["n"] for c in engine.calls], [4, 2, 1, 1, 2, 1, 1])
+        for it in items:
+            self.assertIn(it["text"], sink[it["id"]]["summary"])
+        self.assertTrue(any("halving at once" in line for line in self.log))
 
     def test_a_chunk_that_never_joins_writes_no_card_and_records_every_item(self):
         for depth in (0, 6):
@@ -432,15 +506,16 @@ class WorkTest(CardsCliCase):
                 self.assertEqual(os.path.basename(schema), "card_codex.json" if engine == "codex" else "card.json")
 
     def test_a_crossing_engine_is_rejected_and_halved_and_never_written(self):
-        """Ids and order intact, contents crossed: only the sibling-facts check can see it."""
+        """Ids and order intact, contents crossed: only the sibling-identifier check can see it, and it halves at
+        once (a same-size retry would cross the same way)."""
         a, b = self.two_docs("Rent for the flat, reference 55501234.", "Council tax bill, account 77709876.")
         self.fakes.script("codex", default={"kind": "text", "cross": True}, watch=self.cards)
         code, _out, err = self.work_run("codex", "--terms", self.terms)
         self.assertEqual(code, 0, err)
         calls = self.fakes.calls("codex")
-        self.assertEqual([item_count(c) for c in calls], [2, 2, 2, 1, 1])
+        self.assertEqual([item_count(c) for c in calls], [2, 1, 1])
         self.assertTrue(all(c["watch"] == [] for c in calls), "a card was written mid-batch")
-        self.assertIn("carries a fact from", err)
+        self.assertIn("carries an identifier that its own source lacks", err)
         got = self.written()
         self.assertEqual(got[a]["key_facts"]["reference_numbers"], ["ref 55501234"])
         self.assertEqual(got[b]["key_facts"]["reference_numbers"], ["ref 77709876"])
@@ -480,6 +555,95 @@ class WorkTest(CardsCliCase):
         self.assertEqual(code, 2)
         self.assertIn("--no-isolation-terms", err)
         self.assertEqual(self.fakes.calls("codex"), [])
+
+    def test_agy_needs_a_model(self):
+        self.two_docs()
+        code, _out, err = self.cards_py("work", "--engine", "agy", "--terms", self.terms)
+        self.assertEqual(code, 2, err)
+        self.assertIn("error: --model is required for agy", err)
+        self.assertNotIn("Traceback", err)
+        self.assertEqual(self.fakes.calls("agy"), [])
+
+
+def fixture_batch():
+    """The fixture's text records (tests/expected/extract.json: the pages read by text layer, office or iWork
+    readers), as extract records."""
+    with open(os.path.join(HERE, "expected", "extract.json"), encoding="utf-8") as f:
+        view = json.load(f)
+    out = {}
+    for path, r in view.items():
+        pages = [{"n": n + 1, "tier": tier, "text": text} for n, (tier, text) in enumerate(zip(r["tiers"], r["text"]))
+                 if text]
+        if pages and r["status"] == "ok":
+            out[path] = pages
+    return out
+
+
+# Honest cards for the fixture batch, written as templates/card-instructions.md asks, including the edits a model
+# makes that the source does not show verbatim: ISO dates, a currency, a year from context, a key fact in another
+# case or with other separators, and `look` naming a sibling.
+HONEST = {
+    "02 Finance/Bank statement 2024-03.pdf": {
+        "doc_date": "2024-03-31", "summary": "March 2024 statement for account 12345678.",
+        "key_facts": {"dates": ["period 2024-03-01 to 2024-03-31"],
+                      "amounts": ["opening GBP 2,410.00", "closing GBP 4,160.00", "rent GBP 1,450.00"],
+                      "reference_numbers": ["ACCOUNT 1234-5678 sort code 01-02-03"]}},
+    "01 Identity/Passport renewal 2021/Application form.docx": {
+        "doc_date": "2021-05-02", "key_facts": {"dates": ["submitted 2021-05-02"], "amounts": [],
+                                                "reference_numbers": ["previous passport p0987654"]}},
+    "_Migrations/Other Project/02 Finance/Old invoice.pdf": {
+        "doc_date": "2022-02", "key_facts": {"dates": ["paid 2022-03-01"], "amounts": ["GBP 800.00"],
+                                             "reference_numbers": ["invoice 2022/117"]},
+        "look": "Paid into account 12345678? Check the Bank statement 2024-03.pdf."},
+    "03 Home/Utilities /Electricity bill.pdf": {"doc_date": "2024-03-15"},
+    "03 Home/Lease renewal.pages": {
+        "key_facts": {"dates": ["term 2024-05-01 to 2025-04-30"], "amounts": ["GBP 1,450 per month"],
+                      "reference_numbers": []},
+        "look": "Appears to be the same lease as Lease renewal.pdf."},
+    "02 Finance/Tax/Budget.numbers": {"summary": "Household budget for 2023, rent GBP 1,450 a month.",
+                                      "key_facts": {"dates": ["2023"], "amounts": ["rent GBP 1,450 per month"],
+                                                    "reference_numbers": []}},
+    "04 Study/Slides.pptx": {"key_facts": {"dates": ["exams 2024-06"], "amounts": [], "reference_numbers": []}},
+    "06 Work/Contract.docx": {"key_facts": {"dates": ["start 2022-05-01"], "amounts": [], "reference_numbers": []}},
+    "02 Finance/Tax/Budget final.xlsx": {"look": "A later version of Budget.numbers for 2023?"},
+}
+
+
+# The whole batch is rejected once and halved at once (no same-size retries); the two crossed documents fall into
+# different halves (by id order), so each half is carded in one call: 3 calls, 26 items sent.
+CROSSING_CALLS = [13, 6, 7]
+
+
+class FixtureBatchTest(CardsCliCase):
+    """The cost of the join on the fixture's 13-item text batch: honest cards take one call; a crossing between the
+    two documents that carry identifiers is halved until they are apart, and never written."""
+
+    def setUp(self):
+        super().setUp()
+        self.ids = {path: self.record(path, [p["text"] for p in pages]) for path, pages in fixture_batch().items()}
+        code, _out, err = self.cards_py("build")
+        self.assertEqual(code, 0, err)
+        self.assertEqual([len(bt["items"]) for bt in self.batches().values()], [13])
+
+    def run_batch(self, **reply):
+        self.fakes.script("codex", default=dict(kind="text", cards_by_path=HONEST, **reply), watch=self.cards)
+        code, _out, err = self.work_run("codex", "--no-isolation-terms")
+        self.assertEqual(code, 0, err)
+        written = self.written()
+        self.assertEqual(sorted(written), sorted(self.ids.values()))
+        for path, i in self.ids.items():
+            self.assertEqual(written[i]["title"], "Card of " + path, "a card was written onto another document")
+        return [item_count(c) for c in self.fakes.calls("codex")]
+
+    def test_honest_cards_take_one_call(self):
+        self.assertEqual(len(self.ids), 13)
+        self.assertEqual(self.run_batch(), [13])
+
+    def test_a_crossing_is_halved_until_apart(self):
+        calls = self.run_batch(cross_paths=["02 Finance/Bank statement 2024-03.pdf",
+                                            "01 Identity/Passport renewal 2021/Application form.docx"])
+        self.assertEqual(calls, CROSSING_CALLS)
+        self.assertTrue(all(c["watch"] == [] for c in self.fakes.calls("codex")), "a card was written mid-batch")
 
 
 class ContaminationTest(CardsCliCase):

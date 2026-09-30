@@ -109,6 +109,33 @@ class RefsTest(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertEqual(json.loads(out).get("forms_restored", 0), 0, "a second run found something to restore")
 
+    def test_a_tail_the_source_shows_masked_is_never_restored(self):
+        """The source masks the card number (****1234) and holds a different full number ending 1234: the tail is
+        left unresolved and listed for re-carding, not completed from the coincidence."""
+        forms = ("****1234", "xxxx-xxxx-1234", "•••• 1234", "…1234", "XXXX XXXX 1234")
+        for n, masked_form in enumerate(forms):
+            with self.subTest(masked_form):
+                path = "02 Finance/Card %d.pdf" % n
+                self.card(path, "Card %s. Account 55551234." % masked_form, refs=["card ending 1234"])
+                code, out, err = self.refs("--apply")
+                self.assertEqual(code, 0, err)
+                self.assertEqual(json.loads(out).get("forms_masked_in_source"), 1)
+                c = json.loads(read(os.path.join(self.cards, self.ids[path] + ".json")))
+                self.assertEqual(c["key_facts"]["reference_numbers"], ["card ending 1234"])
+                self.assertIn(self.ids[path], read(os.path.join(self.work, "state", "redo_refs.txt")).split())
+                os.remove(os.path.join(self.cards, self.ids[path] + ".json"))
+
+    def test_a_mask_of_another_tail_does_not_block_a_repair(self):
+        path = "02 Finance/Card and account.pdf"
+        # a lone x (a frame 30 x 1234 mm, a PO Box 1234) is not a mask
+        self.card(path, "Card ****9999. Account 55551234. Frame 30 x 1234 mm, PO Box 1234.",
+                  refs=["account ending 1234"])
+        code, out, err = self.refs("--apply")
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("forms_masked_in_source", json.loads(out))
+        c = json.loads(read(os.path.join(self.cards, self.ids[path] + ".json")))
+        self.assertEqual(c["key_facts"]["reference_numbers"], ["account 55551234"])
+
     def test_other_identifier_policies_are_refused(self):
         write(os.path.join(self.root, "CLAUDE.md"), "# Alex Personal\n\nReference numbers: last four only.\n")
         rb = {"version": 1, "identifiers": "last-four",

@@ -11,8 +11,10 @@ because the codex adapter passes the engine only a short allowlist of environmen
 
 Card replies are built from the items in the prompt: each card names its own document's path and carries the first
 run of four or more digits in that document's text, so a reply that swaps ids or crosses contents is visible in what
-gets written. Options change that: `swap` (two ids exchanged, cards in place), `cross` (contents rotated, ids and
-order intact), `reorder` (a correct reply in reverse order), `drop`, `extra`, `invalid`, `suffix`.
+gets written. `cards_by_path` replaces fields of a document's card (an honest card written as the instructions
+ask). Options change that: `swap` (two ids exchanged, cards in place), `cross` (contents rotated, ids and order
+intact), `cross_paths` (two named documents' cards trade contents when both are in the call), `reorder` (a correct
+reply in reverse order), `drop`, `extra`, `invalid`, `suffix`.
 """
 import json
 import os
@@ -47,12 +49,14 @@ def items_in(prompt):
 
 def card(it, r):
     nums = re.findall(r"\d{4,}", it.get("text", ""))[:1]
-    return {"id": it["id"], "doc_type": "Letter", "party": "Alex", "parties": [], "doc_date": "",
-            "title": "Card of " + it["path"],
-            "summary": "About " + it["path"] + "." + "".join(" Ref " + n + "." for n in nums) + r.get("suffix", ""),
-            "key_facts": {"dates": [], "amounts": [], "reference_numbers": ["ref " + n for n in nums]},
-            "category": "Other", "language": "en", "sensitive": False, "confidence": "high", "look": "",
-            "proposed_name": ""}
+    c = {"id": it["id"], "doc_type": "Letter", "party": "Alex", "parties": [], "doc_date": "",
+         "title": "Card of " + it["path"],
+         "summary": "About " + it["path"] + "." + "".join(" Ref " + n + "." for n in nums) + r.get("suffix", ""),
+         "key_facts": {"dates": [], "amounts": [], "reference_numbers": ["ref " + n for n in nums]},
+         "category": "Other", "language": "en", "sensitive": False, "confidence": "high", "look": "",
+         "proposed_name": ""}
+    c.update((r.get("cards_by_path") or {}).get(it["path"], {}))  # an honest card, as the instructions ask
+    return c
 
 
 def answer(prompt, r):
@@ -68,6 +72,10 @@ def answer(prompt, r):
             cards = cards[1:] + cards[:1]
             for c, i in zip(cards, ids):
                 c["id"] = i
+        pos = [i for i, it in enumerate(items) if it["path"] in (r.get("cross_paths") or [])]
+        if len(pos) == 2:  # these two documents' cards trade contents, ids and order intact
+            a, b = pos
+            cards[a], cards[b] = dict(cards[b], id=cards[a]["id"]), dict(cards[a], id=cards[b]["id"])
         if r.get("reorder"):
             cards = cards[::-1]
         if r.get("drop") and len(cards) >= 2:
@@ -151,6 +159,8 @@ def main():
 def agy(r, kind, text):
     usage = r.get("usage", {"input_tokens": 100, "output_tokens": 20})
     if kind in ("quota", "fail"):
+        for ev in r.get("events", []):
+            print(json.dumps(ev))
         sys.stderr.write(r.get("message", "") + "\n")
         if r.get("result_error") is not None:
             print(json.dumps({"event": "result", "result": {"status": "ERROR", "error": r["result_error"]}}))
@@ -257,4 +267,6 @@ def tool_env(base, fakes, **extra):
 SECRETS = {"OPENAI_API_KEY": "sk-fake-not-a-key", "GEMINI_API_KEY": "fake", "ANTHROPIC_API_KEY": "fake",
            "GOOGLE_API_KEY": "fake", "OTHERVENDOR_API_KEY": "fake", "GOOGLE_APPLICATION_CREDENTIALS": "/nowhere.json",
            "CLOUDSDK_AUTH_ACCESS_TOKEN": "fake", "ANTHROPIC_AUTH_TOKEN": "fake", "AWS_SECRET_ACCESS_KEY": "fake",
-           "SERVICE_CLIENT_SECRET": "fake", "OPENAI_BASE_URL": "http://127.0.0.1:9/", "Mixed_Case_Api_Key": "fake"}
+           "SERVICE_CLIENT_SECRET": "fake", "OPENAI_BASE_URL": "http://127.0.0.1:9/", "Mixed_Case_Api_Key": "fake",
+           "SOMEHUB_TOKEN": "fake", "OPENAI_API_BASE": "http://127.0.0.1:9/", "SERVICE_ENDPOINT": "http://127.0.0.1:9/",
+           "GOOGLE_GENAI_USE_VERTEXAI": "true"}
