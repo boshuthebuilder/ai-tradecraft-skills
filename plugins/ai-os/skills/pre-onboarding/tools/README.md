@@ -77,7 +77,8 @@ each page's professional, deliverable and tone (`common.page_voice`) and its sec
 questions, fields; a `fixed` section takes the method's shape, and any other section without a contract is
 refused), the routing into its section and its bundle; the owner context from `rulebook.json` (folder
 description, people with aliases, identifier policy, boundaries); the page map; each page's rationale block with
-what the Schema fixes filled in; the JSON a drafting agent returns (each page's full text and rationale block);
+what the Schema fixes filled in; the JSON a drafting agent returns (what `wiki-onboarding` step 4a names: each
+page's full text, rationale block and Index entry, the agent's open questions and its check result);
 and the checker command every drafting agent runs, `python3 <tools>/wiki.py check --root <root> --work <work>`.
 The page map is every page under the wiki folder, every page in the Schema's Page professionals table, each Layout
 section's folder note (`<NN Name>/<NN Name>.md`) and the pages briefed, each marked `exists` or `planned`. The
@@ -88,13 +89,20 @@ link to or from a moved page, percent-encoded with `/` and `&` literal as `produ
 out (`../25%20Tax%20&%20Duty/Tax%20&%20returns.md`); links nothing moved under are left as written. It renames the
 moved pages' rationale headings, removes the folders it empties, reports each moved page the Schema's Page
 professionals table still names (edit the Schema, then compile), then lists every dead link left in the wiki;
-either exits 1. It refuses a missing page, an existing or shared destination, a path outside the wiki and the
-Schema page itself, before it changes anything. A swap (A to B and B to A) or a chain (A to B and B to C) is
-refused as `destination exists`: make it in two runs, a swap through a temporary name (A to T and B to A, then T to
-B) and a chain from its far end (B to C, then A to B). It also reports, and exits 1 for, each move that leaves the
-Schema's Layout wrong (`layout_to_update`): a page moved out of every Layout section, or a section's folder note
-moved away. Moved pages are written first, so a failure later in a run leaves no link to a page that was not
-moved.
+either exits 1. It refuses, before it changes anything, a missing page, an existing or shared destination, one
+under a file, one differing only in case from a page, another destination or a folder (a case-only rename of the
+page itself stays possible where the file system allows it), a path outside the wiki and the Schema page itself.
+Every destination is checked against the pages as they are before the run, so a swap (A to B and B to A) or a
+chain (A to B and B to C) is refused as `destination exists`: make a swap in three runs through a temporary name
+(A to T, then B to A, then T to B) and a chain in two from its far end (B to C, then A to B). It also reports, and
+exits 1 for, each move that leaves the Schema's Layout wrong (`layout_to_update`): a page moved out of every Layout
+section, or a section's folder note moved away.
+
+A run writes every moved page at its destination, then rewrites the pages that link to them, and only then removes
+the old pages. A failure part way therefore leaves every old page in place and every unmoved page's links resolving,
+but a moved page already written may link to another moved page not yet written, and a rerun of the same map is
+refused (`destination exists`). To recover, delete the pages the failed run wrote at the map's destinations, then
+run the same map again.
 
 **`drift`** lists `[page, line, path]` for every `sources:` entry and every backticked path in a page body (fenced
 blocks skipped) that cites a departed path (held by a departed entry and by nothing live) or a migrating one

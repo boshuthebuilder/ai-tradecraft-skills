@@ -42,7 +42,8 @@ source files are named by folder-relative path in backticks. `move` refuses a ma
 before writing anything, writes the moved pages before rewriting links to them, rewrites only links whose page or
 target moved, removes the folders it empties and renames the pages' rationale headings. It names each moved page
 the Schema's Page professionals table lists and each move that leaves the Layout wrong (exit 1, with any dead link
-left in the wiki: edit the Schema, then compile). A swap or a chain is refused; make it in two runs.
+left in the wiki: edit the Schema, then compile). A swap or a chain is refused: tools/README.md gives the runs
+that make one.
 
 Drift: a departed path is one a departed entry held that no live entry holds; a migrating path is one staged under
 the migrations folder or the path it was staged from, when nothing live holds it. The Log's pages are history and
@@ -175,9 +176,14 @@ def load_extract(extract_dir, h, card_path):
     if not os.path.exists(path):
         raise common.ToolError("card %s has no extract record %s; extract the document again" % (card_path, path))
     xr = read_object(path)
-    if not (isinstance(xr.get("pages", []), list) and all(isinstance(p, dict) for p in xr.get("pages", []))):
-        raise common.ToolError("malformed extract record %s: pages must be a list of objects; extract the document "
-                               "again" % path)
+    pages = xr.get("pages", [])
+    if not isinstance(pages, list):
+        raise common.ToolError("malformed extract record %s: pages must be a list; extract the document again" % path)
+    for i, p in enumerate(pages, 1):
+        n, text = (p.get("n"), p.get("text")) if isinstance(p, dict) else (None, None)
+        if not (isinstance(p, dict) and (n is None or type(n) is int) and (text is None or isinstance(text, str))):
+            raise common.ToolError("malformed extract record %s: page %d must be an object whose n is a whole number "
+                                   "and whose text is text or null; extract the document again" % (path, i))
     return xr
 
 
@@ -198,9 +204,10 @@ def wiki_pages(wiki):
 
 
 def is_page_path(p):
-    """A page path relative to the wiki folder: `/` separated, ending in .md, no part empty, hidden (a dot first) or
-    with a space at either end."""
+    """A page path relative to the wiki folder: `/` separated, ending in .md, no part empty, hidden (a dot first),
+    with a space at either end or holding a control character (below U+0020, or U+007F)."""
     return (isinstance(p, str) and p.endswith(".md") and "\\" not in p
+            and not any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in p)
             and all(x and x == x.strip() and not x.startswith(".") for x in p.split("/")))
 
 
@@ -219,8 +226,15 @@ def working_file(root, path, what):
 
 
 def cards_dirs(a, root):
-    return (os.path.realpath(a.cards) if a.cards else os.path.join(root, "_Audit", "cards"),
-            os.path.realpath(a.extract) if a.extract else os.path.join(root, "_Audit", "extract"))
+    """The cards and extract folders, refused by name when either is a file."""
+    out = []
+    for given, flag, default, kind in ((a.cards, "--cards", "cards", "card"),
+                                       (a.extract, "--extract", "extract", "extract")):
+        path = os.path.realpath(given) if given else os.path.join(root, "_Audit", default)
+        if os.path.exists(path) and not os.path.isdir(path):
+            raise common.ToolError("%s %s is a file, not a folder of %s records" % (flag, path, kind))
+        out.append(path)
+    return tuple(out)
 
 
 # ------------------------------------------------------------------------------------ profile
@@ -351,10 +365,15 @@ def bundles_command(verb, root, bdir, arguments):
     return "%s them: wiki.py bundles %s" % (verb, " ".join(shlex.quote(x) for x in args))
 
 
-def fresh_bundles(root, bdir, mpath, ws, arguments):
+REUSE_ARGS = ("--cards", "--extract", "--text-cap")  # what `bundles --reuse` must have been built with, as asked
+
+
+def fresh_bundles(root, bdir, mpath, ws, arguments, reuse=False):
     """bundles.json in `bdir`, refused unless it is one `bundles` wrote, built from the current manifest and routing,
     with every section's file there. The rebuild command repeats the arguments the bundles were built with
-    (`arguments`, the caller's, when none are recorded)."""
+    (`arguments`, the caller's, when none are recorded). With `reuse`, the caller's --cards, --extract and
+    --text-cap (defaults included) must be those the bundles were built with."""
+    caller = arguments
     meta_path = os.path.join(bdir, "bundles.json")
     if not os.path.lexists(meta_path):
         raise common.ToolError("no bundles in %s; %s" % (bdir, bundles_command("build", root, bdir, arguments)))
@@ -382,6 +401,14 @@ def fresh_bundles(root, bdir, mpath, ws, arguments):
                      if not (isinstance(f, str) and BUNDLE_FILE.fullmatch(f) and os.path.isfile(os.path.join(bdir, f))))
     if missing:
         raise common.ToolError("incomplete bundles in %s: %s missing; %s" % (bdir, ", ".join(missing), rebuild))
+    if reuse:
+        defaults = {"--cards": os.path.join(root, "_Audit", "cards"),
+                    "--extract": os.path.join(root, "_Audit", "extract"), "--text-cap": str(TEXT_CAP)}
+        for flag in REUSE_ARGS:
+            built, asked = arguments.get(flag, defaults[flag]), caller.get(flag, defaults[flag])
+            if built != asked:
+                raise common.ToolError("bundles in %s were built with %s %s, not %s; %s"
+                                       % (bdir, flag, built, asked, bundles_command("rebuild", root, bdir, caller)))
     return meta
 
 
@@ -403,7 +430,7 @@ def bundles(a):
     writer = common.Writer(root)
     arguments = build_arguments(a)
     if a.reuse:
-        meta = fresh_bundles(root, out, mpath, ws, arguments)
+        meta = fresh_bundles(root, out, mpath, ws, arguments, reuse=True)
         print(json.dumps(bundle_summary(meta), ensure_ascii=False))
         return 1 if meta["unrouted"] or meta["uncarded"] else 0
     meta_path = os.path.join(out, "bundles.json")
@@ -527,12 +554,16 @@ def rationale_skeleton(p, state, voice, contract):
 
 
 def return_shape(pages):
+    """The JSON a drafting agent returns: what `wiki-onboarding` step 4a names (the pages it wrote, each page's
+    rationale block, its Index entry, its open questions and its check result), one entry per page."""
     shape = {"pages": [{"path": p, "text": "<the page exactly as written to the wiki folder, frontmatter first>",
-                        "rationale": "<its rationale block: the heading and five lines above, joined by \\n>"}
+                        "rationale": "<its rationale block: the heading and five lines given below, joined by \\n>",
+                        "index_entry": "<the page's line in the Index: what it holds, in a few words>"}
                        for p in pages],
-             "check_problems_on_these_pages": 0,
-             "flags": ["<for the owner or the coordinating agent: a gap, sources that disagree, a dated rule "
-                       "left unchecked, a finding the checker names on another page>"]}
+             "open_questions": ["<for the owner or the coordinating agent: a gap, sources that disagree, a dated "
+                                "rule left unchecked, a page the evidence shows is missing>"],
+             "check_result": {"problems_on_these_pages": 0,
+                              "findings_on_other_pages": ["<a finding the checker names on a page not yours>"]}}
     return json.dumps(shape, ensure_ascii=False, indent=1)
 
 
@@ -749,8 +780,8 @@ def check_moves(wiki, moves, pages, schema):
                                    "and recompile" % old)
         if not is_page_path(new):
             raise common.ToolError("destination %r is not a page path inside the wiki folder (relative, `/` "
-                                   "separated, ending in .md, no part empty, hidden or with a space at either end)"
-                                   % new)
+                                   "separated, ending in .md, no part empty, hidden, with a space at either end or "
+                                   "holding a control character)" % new)
         if new in pages or os.path.lexists(os.path.join(wiki, *new.split("/"))):
             raise common.ToolError("destination exists: %s" % new)
         parts = new.split("/")
@@ -763,6 +794,38 @@ def check_moves(wiki, moves, pages, schema):
     twice = sorted(n for n, k in collections.Counter(moves.values()).items() if k > 1)
     if twice:
         raise common.ToolError("two pages moved to one destination: %s" % ", ".join(twice))
+    case_clashes(wiki, moves, pages)
+
+
+def case_clashes(wiki, moves, pages):
+    """Refuse a destination that differs only in case from an existing page (other than the page moved there, so a
+    case-only rename stays possible where the file system allows it), from another destination, or, in a folder, from
+    an existing folder or another destination's folder: a case-insensitive file system would merge what a
+    case-sensitive one keeps apart."""
+    folders = collections.defaultdict(set)
+    for d, ds, _fs in os.walk(wiki):
+        ds[:] = sorted(x for x in ds if not x.startswith("."))
+        for x in ds:
+            rel = os.path.relpath(os.path.join(d, x), wiki).replace(os.sep, "/")
+            folders[rel.casefold()].add(rel)
+    for new in moves.values():
+        parts = new.split("/")[:-1]
+        for i in range(1, len(parts) + 1):
+            folders["/".join(parts[:i]).casefold()].add("/".join(parts[:i]))
+    for old, new in sorted(moves.items()):
+        parts = new.split("/")
+        for i in range(1, len(parts)):
+            rel = "/".join(parts[:i])
+            other = sorted(folders[rel.casefold()] - {rel})
+            if other:
+                raise common.ToolError("destination %s: its folder %s differs only in case from the folder %s"
+                                       % (new, rel, other[0]))
+        page = next((p for p in pages if p != old and p != new and p.casefold() == new.casefold()), None)
+        if page:
+            raise common.ToolError("destination %s differs only in case from the page %s" % (new, page))
+        dest = next((n for n in sorted(moves.values()) if n != new and n.casefold() == new.casefold()), None)
+        if dest:
+            raise common.ToolError("destinations %s and %s differ only in case" % (new, dest))
 
 
 def layout_findings(ws, moves):
@@ -1301,7 +1364,8 @@ def main():
     p.add_argument("--parties", type=int, default=5, help="top parties listed per folder (default 5)")
     p.add_argument("--out")
     p = card_args(common_args(sub.add_parser("bundles")))
-    p.add_argument("--out", help="the bundles directory (default <work>/bundles; never inside the folder)")
+    p.add_argument("--out", help="the bundles directory, the tool's own: a rebuild removes bundles.json and "
+                   "bundle_*.jsonl there (default <work>/bundles; never inside the folder)")
     p.add_argument("--text-cap", type=int, default=TEXT_CAP)
     p.add_argument("--reuse", action="store_true", help="use the bundles already built, refused when stale")
     p = common_args(sub.add_parser("brief"))

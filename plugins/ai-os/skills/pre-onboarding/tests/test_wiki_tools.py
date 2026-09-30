@@ -37,6 +37,14 @@ BRIEF_PAGES = ("20 Finance/Tax.md", "20 Finance/Cash position.md")
 TEMPLATES = ("readers-interview.md", "structure-brief.md", "contract-brief.md", "page-brief.md", "review-owner.md",
              "review-professional.md")
 RULE = os.path.join(SKILLS, "wiki-maintenance", "SKILL.md")
+ONBOARDING = os.path.join(SKILLS, "wiki-onboarding", "SKILL.md")
+STEP_4A = {  # what wiki-onboarding step 4a says a drafting agent returns: where the brief's JSON shape carries each
+    "the pages it wrote": ("page", "text"),
+    "each page's rationale block": ("page", "rationale"),
+    "its Index entry": ("page", "index_entry"),
+    "its open questions": ("return", "open_questions"),
+    "its check result": ("return", "check_result"),
+}
 sys.path.insert(0, TOOLS)
 import common  # noqa: E402
 import wiki  # noqa: E402
@@ -175,12 +183,28 @@ def make_copy(parent):
     return root
 
 
-def rule_labels():
+def rule_labels(test):
     """The five line labels of the rationale block, from the fenced example in the core wiki rule's section "The
-    rationale block" (`wiki-maintenance`)."""
-    section = read(RULE).split("\n### The rationale block\n", 1)[1]
-    example = re.search(r"(?ms)^```markdown\n(.*?)^```$", section).group(1)  # the section's first fenced block
-    return re.findall(r"(?m)^- ([^:]+):", example)
+    rationale block" (`wiki-maintenance`); `test` fails, naming the rule file, when that section or example moves."""
+    text = read(RULE)
+    heading = "\n### The rationale block\n"
+    test.assertIn(heading, text, "%s has no section headed 'The rationale block'" % RULE)
+    example = re.search(r"(?ms)^```markdown\n(.*?)^```$", text.split(heading, 1)[1])  # the section's first fence
+    test.assertIsNotNone(example, "%s: 'The rationale block' has no ```markdown example" % RULE)
+    labels = re.findall(r"(?m)^- ([^:]+):", example.group(1))
+    test.assertEqual(len(labels), 5, "%s: the rationale block example should have five labelled lines" % RULE)
+    return labels
+
+
+def step_4a_items(test):
+    """The items of step 4a's sentence "An agent returns JSON, not prose: ...", in `wiki-onboarding`; `test` fails,
+    naming the file, when the step or the sentence moves."""
+    text = read(ONBOARDING)
+    test.assertIn("\n### 4a. ", text, "%s has no step 4a" % ONBOARDING)
+    step = " ".join(text.split("\n### 4a. ", 1)[1].split("\n### ", 1)[0].split())
+    m = re.search(r"returns JSON, not prose: (.+?)\.(?:\s|$)", step)
+    test.assertIsNotNone(m, "%s step 4a no longer says what a drafting agent returns as JSON" % ONBOARDING)
+    return re.split(r",\s*|\s+and\s+", m.group(1))
 
 
 def normalise(text, tmp):
@@ -455,8 +479,7 @@ class BriefTest(Copy):
         text = self.brief(*BRIEF_PAGES)
         blocks = text.split("## The rationale blocks\n", 1)[1].strip().split("\n\n")[1:]
         self.assertEqual([b.split("\n")[0] for b in blocks], ["### " + p for p in sorted(BRIEF_PAGES)])
-        labels = rule_labels()
-        self.assertEqual(len(labels), 5)
+        labels = rule_labels(self)
         for b in blocks:
             self.assertEqual([x.split(":")[0] for x in b.split("\n")[1:]], ["- " + x for x in labels])
 
@@ -465,19 +488,33 @@ class BriefTest(Copy):
         for state, contract in (("planned", {"reader": "Alex", "questions": ["Is anything due?"]}), ("exists", None)):
             lines = wiki.rationale_skeleton("20 Finance/Tax.md", state, {"professional": "CFO"}, contract).split("\n")
             self.assertEqual(lines[0], "### 20 Finance/Tax.md")
-            self.assertEqual([x[2:].split(":")[0] for x in lines[1:]], rule_labels())
+            self.assertEqual([x[2:].split(":")[0] for x in lines[1:]], rule_labels(self))
 
     def test_return_shape_and_checker(self):
         text = self.brief(*BRIEF_PAGES)
         shape = json.loads(re.search(r"```json\n(.*?)```", text, re.S).group(1))
         self.assertEqual([p["path"] for p in shape["pages"]], sorted(BRIEF_PAGES))
-        self.assertEqual(set(shape["pages"][0]), {"path", "text", "rationale"})
+        self.assertEqual(set(shape["pages"][0]), {"path", "text", "rationale", "index_entry"})
+        self.assertEqual(set(shape), {"pages", "open_questions", "check_result"})
         line = next(x.strip() for x in text.splitlines() if " check --root " in x)
         cmd = shlex.split(line)
         self.assertEqual((cmd[0], cmd[1], cmd[2]), ("python3", os.path.join(TOOLS, "wiki.py"), "check"))
         r = subprocess.run([sys.executable] + cmd[1:], capture_output=True, text=True, encoding="utf-8")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(json.loads(r.stdout)["problems"], 0)
+
+    def test_return_shape_carries_what_step_4a_names(self):
+        """wiki-onboarding step 4a lists what a drafting agent returns; the brief's JSON shape carries each item."""
+        items = step_4a_items(self)
+        self.assertEqual(sorted(items), sorted(STEP_4A), "%s step 4a's return list changed: carry each item in "
+                                                         "wiki.return_shape and map it in STEP_4A" % ONBOARDING)
+        text = self.brief(*BRIEF_PAGES)
+        shape = json.loads(re.search(r"```json\n(.*?)```", text, re.S).group(1))
+        for item in items:
+            where, key = STEP_4A[item]
+            with self.subTest(item=item):
+                for holder in (shape["pages"] if where == "page" else [shape]):
+                    self.assertIn(key, holder)
 
     def test_links_resolve_where_the_brief_is_read(self):
         text = self.brief(*BRIEF_PAGES)
@@ -703,6 +740,58 @@ class MoveSafetyTest(Copy):
         res = json.loads(self.ok("move", "--map", self.map({"30 Home/Bills.md": "30 Home/Utility bills.md"})))
         self.assertEqual((res["layout_to_update"], res["schema_rows_to_update"], res["dead_links"]), ([], [], []))
 
+    def test_control_characters_are_refused(self):
+        """Re-review 2: a NUL, tab or newline in any part of a page path."""
+        before = tree_digest(self.root)
+        for new in ("20 Finance/Tax\u00002.md", "20 Finance/Tax\t2.md", "20 Fin\nance/Tax 2.md",
+                    "20 Finance/Tax\x7f.md"):
+            with self.subTest(new=repr(new)):
+                err = self.refused("move", "--map", self.map({"20 Finance/Tax.md": new}))
+                self.assertIn("holding a control character", err)
+        self.assertEqual(tree_digest(self.root), before)
+        self.ok("bundles", code=1)
+        self.assertIn("not a page path", self.refused("brief", "--page", "20 Finance/Tax\t.md"))
+
+    def test_a_swap_takes_three_runs(self):
+        """Re-review 3: the README's swap, A to T, then B to A, then T to B; the old two-run recipe is refused."""
+        self.assertIn("(A to T, then B to A, then T to B)", read(os.path.join(TOOLS, "README.md")))
+        head = "---\nprovenance: derived\nlast-updated: 2024-06-30\nstatus: current\n---\n"
+        write(self.page("30 Home/Bills.md"), head + "# Bills\n\n[Repairs](Repairs.md)\n")
+        write(self.page("30 Home/Repairs.md"), head + "# Repairs\n\n[Bills](Bills.md)\n")
+        a, b, t = "30 Home/Bills.md", "30 Home/Repairs.md", "30 Home/Swap.md"
+        self.assertIn("destination exists: %s" % b, self.refused("move", "--map", self.map({a: b, b: a})))
+        self.assertIn("destination exists: %s" % a, self.refused("move", "--map", self.map({a: t, b: a})))
+        for step in ({a: t}, {b: a}, {t: b}):
+            res = json.loads(self.ok("move", "--map", self.map(step)))
+            self.assertEqual(res["dead_links"], [])
+        self.assertEqual((read(self.page(a)).split("---\n")[2], read(self.page(b)).split("---\n")[2]),
+                         ("# Repairs\n\n[Bills](Repairs.md)\n", "# Bills\n\n[Repairs](Bills.md)\n"))
+        self.assertFalse(os.path.exists(self.page(t)))
+
+    def test_case_only_clashes_are_refused(self):
+        """Re-review 4: a destination differing only in case from a page, another destination or a folder."""
+        before = tree_digest(self.root)
+        acc, cash = "20 Finance/Bank accounts.md", "20 Finance/Cash position.md"
+        for moves, why in (({acc: "20 Finance/tax.md"}, "20 Finance/tax.md differs only in case from the page "
+                                                        "20 Finance/Tax.md"),
+                           ({acc: "25 Tax/A.md", cash: "25 Tax/a.md"}, "destinations 25 Tax/A.md and 25 Tax/a.md "
+                                                                       "differ only in case"),
+                           ({acc: "25 Tax/A.md", cash: "25 tax/B.md"}, "its folder 25 Tax differs only in case "
+                                                                       "from the folder 25 tax"),
+                           ({acc: "20 finance/Accounts.md"}, "its folder 20 finance differs only in case from the "
+                                                             "folder 20 Finance")):
+            with self.subTest(why=why):
+                self.assertIn(why, self.refused("move", "--map", self.map(moves)))
+        self.assertEqual(tree_digest(self.root), before)
+        write(self.page("30 Home/Bills.md"), "---\nprovenance: derived\nlast-updated: 2024-06-30\nstatus: current\n"
+                                             "---\n# Bills\n")
+        if os.path.exists(self.page("30 Home/bills.md")):  # a case-insensitive file system: the name is taken
+            self.assertIn("destination exists", self.refused("move", "--map", self.map(
+                {"30 Home/Bills.md": "30 Home/bills.md"})))
+        else:  # a case-only rename of the page itself stays possible
+            self.ok("move", "--map", self.map({"30 Home/Bills.md": "30 Home/bills.md"}))
+            self.assertEqual(sorted(os.listdir(self.page("30 Home"))), ["30 Home.md", "bills.md"])
+
     def test_spaces_at_either_end_of_a_part_are_refused(self):
         """F8: in a destination and in a briefed page."""
         for new in (" 20 Finance/Tax 2.md", "20 Finance /Tax 2.md", "20 Finance/ Tax 2.md"):
@@ -771,6 +860,29 @@ class MalformedInputTest(Copy):
                     self.assertIn("malformed card: %s" % card, err)
                     self.assertIn(why, err)
 
+    def test_an_extract_page_of_the_wrong_shape(self):
+        """Re-review 1: a page whose n is not a whole number or whose text is not text or null."""
+        path = os.path.join(self.root, "_Audit", "extract", self.ids["06 Work/Contract.docx"] + ".json")
+        for page in ({"n": 1, "text": 123}, {"n": "1", "text": "hi"}, {"n": True, "text": "hi"}, "page one"):
+            with self.subTest(page=page):
+                write(path, json.dumps({"id": "x", "pages": [{"n": 1, "text": "fine"}, page]}))
+                err = self.refused("bundles")
+                self.assertIn("malformed extract record %s: page 2 must be an object whose n is a whole number" % path,
+                              err)
+                self.assertIn("extract the document again", err)
+        write(path, json.dumps({"id": "x", "pages": [{"text": None}, {"n": 2, "text": "Contract"}]}))
+        self.ok("bundles", code=1)
+
+    def test_cards_or_extract_naming_a_file(self):
+        """Re-review 7."""
+        path = os.path.join(self.tmp, "a-file")
+        write(path, "x\n")
+        for cmd, flag, kind in (("profile", "--cards", "card"), ("bundles", "--cards", "card"),
+                                ("bundles", "--extract", "extract")):
+            with self.subTest(cmd=cmd, flag=flag):
+                self.assertIn("%s %s is a file, not a folder of %s records" % (flag, path, kind),
+                              self.refused(cmd, flag, path))
+
 
 class RebuildTest(Copy):
     def test_a_failed_rebuild_leaves_no_bundles_json(self):
@@ -799,6 +911,22 @@ class RebuildTest(Copy):
             with self.subTest(cmd=cmd):
                 self.assertIn(command, self.refused(cmd, *args))
         self.assertEqual(json.loads(read(os.path.join(GOLDEN, "bundles", "bundles.json")))["arguments"], {})
+
+    def test_reuse_refuses_other_cards_extract_or_text_cap(self):
+        """Re-review 6: bundles --reuse compares the caller's --cards, --extract and --text-cap with the build's."""
+        self.ok("bundles", code=1)
+        audit = os.path.join(self.root, "_Audit")
+        other = os.path.join(self.tmp, "other")
+        os.makedirs(other)
+        for args, why in ((["--text-cap", "500"], "built with --text-cap 12000, not 500"),
+                          (["--cards", other], "built with --cards %s, not %s" % (os.path.join(audit, "cards"), other)),
+                          (["--extract", other], "built with --extract %s, not %s"
+                           % (os.path.join(audit, "extract"), other))):
+            with self.subTest(args=args):
+                err = self.refused("bundles", "--reuse", *args)
+                self.assertIn(why, err)
+                self.assertIn("rebuild them: wiki.py bundles", err)
+        self.ok("bundles", "--reuse", "--cards", os.path.join(audit, "cards"), "--text-cap", "12000", code=1)
 
 
 class FenceTest(unittest.TestCase):

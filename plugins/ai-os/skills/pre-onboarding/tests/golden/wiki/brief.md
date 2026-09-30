@@ -98,7 +98,8 @@ is not enough.
        python3 <skills>/pre-onboarding/tools/wiki.py check --root '<tmp>/a/Alex Personal' --work <tmp>/a/work
 
 4. Fill each page's rationale block (below).
-5. Reply with JSON only, in this shape, one entry per page:
+5. Reply with JSON only, in this shape: per page its text, rationale block and Index entry; then your open
+   questions and the checker's result.
 
 ```json
 {
@@ -106,18 +107,25 @@ is not enough.
   {
    "path": "20 Finance/Cash position.md",
    "text": "<the page exactly as written to the wiki folder, frontmatter first>",
-   "rationale": "<its rationale block: the heading and five lines above, joined by \\n>"
+   "rationale": "<its rationale block: the heading and five lines given below, joined by \\n>",
+   "index_entry": "<the page's line in the Index: what it holds, in a few words>"
   },
   {
    "path": "20 Finance/Tax.md",
    "text": "<the page exactly as written to the wiki folder, frontmatter first>",
-   "rationale": "<its rationale block: the heading and five lines above, joined by \\n>"
+   "rationale": "<its rationale block: the heading and five lines given below, joined by \\n>",
+   "index_entry": "<the page's line in the Index: what it holds, in a few words>"
   }
  ],
- "check_problems_on_these_pages": 0,
- "flags": [
-  "<for the owner or the coordinating agent: a gap, sources that disagree, a dated rule left unchecked, a finding the checker names on another page>"
- ]
+ "open_questions": [
+  "<for the owner or the coordinating agent: a gap, sources that disagree, a dated rule left unchecked, a page the evidence shows is missing>"
+ ],
+ "check_result": {
+  "problems_on_these_pages": 0,
+  "findings_on_other_pages": [
+   "<a finding the checker names on a page not yours>"
+  ]
+ }
 }
 ```
 

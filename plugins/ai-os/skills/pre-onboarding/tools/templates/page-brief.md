@@ -41,7 +41,8 @@ is not enough.
        {checker}
 
 4. Fill each page's rationale block (below).
-5. Reply with JSON only, in this shape, one entry per page:
+5. Reply with JSON only, in this shape: per page its text, rationale block and Index entry; then your open
+   questions and the checker's result.
 
 ```json
 {return_shape}
