@@ -8,6 +8,7 @@ import csv
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -24,6 +25,34 @@ sys.path.insert(0, TOOLS)
 import audit  # noqa: E402
 import common  # noqa: E402
 
+# audit.py shown one file under a long name: argv is tools dir, long name, the file's name on disk, audit arguments.
+LONG_NAME = """
+import builtins
+import os
+import sys
+sys.path.insert(0, sys.argv[1])
+import audit
+import common
+long_name, short_name = sys.argv[2], sys.argv[3]
+real_walk, real_stat, real_open = os.walk, os.stat, builtins.open
+
+
+def disk(p):
+    return p[:-len(long_name)] + short_name if isinstance(p, str) and p.endswith(long_name) else p
+
+
+def walk(top, *a, **k):
+    for d, ds, fs in real_walk(top, *a, **k):
+        yield d, ds, [long_name if f == short_name else f for f in fs]
+
+
+os.walk = walk
+os.stat = lambda p, *a, **k: real_stat(disk(p), *a, **k)
+builtins.open = lambda p, *a, **k: real_open(disk(p), *a, **k)
+sys.argv = ["audit.py"] + sys.argv[4:]
+common.run_main(audit.main)
+"""
+
 
 def read(path, mode="r"):
     with open(path, mode, **({} if "b" in mode else {"encoding": "utf-8"})) as f:
@@ -36,10 +65,14 @@ def write(path, data):
         f.write(data.encode("utf-8") if isinstance(data, str) else data)
 
 
-def run(tool, *args, now=NOW):
-    env = dict(os.environ, PRE_ONBOARDING_NOW=str(now))
-    r = subprocess.run([sys.executable, os.path.join(TOOLS, tool)] + list(args), capture_output=True, text=True,
-                       env=env)
+def run(tool, *args, now=NOW, script=None):
+    """Run a tool (or a `script` driving it) with a frozen clock and every ResourceWarning an error; a file it leaves
+    open fails the test."""
+    env = dict(os.environ, PRE_ONBOARDING_NOW=str(now), PYTHONWARNINGS="error::ResourceWarning")
+    cmd = [sys.executable, "-c", script, TOOLS] if script else [sys.executable, os.path.join(TOOLS, tool)]
+    r = subprocess.run(cmd + list(args), capture_output=True, text=True, env=env)
+    if "ResourceWarning" in r.stderr:
+        raise AssertionError("%s left a file open:\n%s" % (tool, r.stderr[-2000:]))
     return r.returncode, r.stdout, r.stderr
 
 
@@ -209,6 +242,15 @@ class CopyKindsTest(AuditCase):
         self.assertEqual(k["Letters/Visa application 2023/Form.pdf"], "pack")
         self.assertEqual(k["Letters/Holiday 2023/Form.pdf"], "working_copy")
 
+    def test_the_pack_keywords_are_generic_and_a_folder_can_add_its_own(self):
+        self.assertEqual(common.DEFAULTS["pack_keywords"],
+                         ["application", "passport", "renew", "visa", "submission", "evidence"])
+        files = {"Letters/Form.pdf": "form", "Letters/Settlement 2020/Form.pdf": "form"}
+        self.assertEqual(kinds(self.audit(self.folder(files, parent="plain")))["Letters/Settlement 2020/Form.pdf"],
+                         "working_copy")
+        own = dict(self.pinned(pack_keywords=["settlement"]), **files)
+        self.assertEqual(kinds(self.audit(self.folder(own, parent="own")))["Letters/Settlement 2020/Form.pdf"], "pack")
+
     def loan_letters(self, parent, packs):
         """Three payslips, copied into a loan pack named without a keyword and into a folder named like it."""
         files = self.pinned(packs=packs)
@@ -362,6 +404,48 @@ class HygieneTest(AuditCase):
             self.assertEqual(e["D/clean.txt"]["look_reason"], "case_only_name_clash")
         else:
             self.assertNotIn("look_reason", e["D/Clean.txt"])
+
+    def test_a_name_over_255_bytes(self):
+        """A Mac allows 255 characters in a name, so 90 Chinese characters (274 bytes) can arrive in a folder; no Linux
+        filesystem stores that, so a driver shows the audit such a name for a file kept under a short one."""
+        root = self.folder({"A/short.txt": "a letter filed under a very long name"})
+        long_name = "中" * 90 + ".txt"
+        self.assertGreater(len(long_name.encode()), 255)
+        code, _o, err = run("audit.py", long_name, "short.txt", "--root", root, "--work",
+                            os.path.join(os.path.dirname(root), "work"), "--out", self.out(root), "--read-only-root",
+                            script=LONG_NAME)
+        self.assertEqual(code, 0, err)
+        e = by_path(json.loads(read(os.path.join(self.out(root), "manifest.json"))))
+        self.assertEqual(list(e), ["A/" + long_name])
+        self.assertEqual((e["A/" + long_name]["look_reason"], e["A/" + long_name]["flags"]),
+                         ("component_over_255_bytes", ["hygiene"]))
+        self.assertEqual(self.summary(root)["hygiene"], {"component_over_255_bytes": 1})
+
+
+class PackSettingsTest(AuditCase):
+    """A `packs` entry the audit could never match fails loud when the rulebook is read."""
+
+    def loan(self, parent, packs):
+        return self.folder(dict(self.pinned(packs=packs), **{"Letters/Loan 2022/Payslip.pdf": "payslip"}),
+                           parent=parent)
+
+    def test_malformed_entries_are_refused_by_name(self):
+        entries = ("/Letters/Loan 2022", "./Letters/Loan 2022", "Letters/../Letters/Loan 2022", "Letters//Loan 2022",
+                   "Letters/Loan 2022 ", " Letters/Loan 2022", ".", "/")
+        for n, entry in enumerate(entries):
+            with self.subTest(entry=entry):
+                root = self.loan("bad%d" % n, [entry])
+                with self.assertRaisesRegex(common.ToolError, re.escape("packs entry %r" % entry)):
+                    common.load_rulebook(root, os.path.join(root, ".familyai"))
+        code, _o, err = run("audit.py", "--root", root, "--work", os.path.join(self.tmp, "work"), "--out",
+                            self.out(root), "--read-only-root")
+        self.assertEqual(code, 2)
+        self.assertIn("packs entry '/'", err)
+        self.assertFalse(os.path.exists(os.path.join(self.out(root), "manifest.json")))
+
+    def test_a_trailing_slash_is_dropped(self):
+        root = self.loan("slash", ["Letters/Loan 2022/"])
+        self.assertEqual(common.load_rulebook(root, os.path.join(root, ".familyai"))["packs"], ["Letters/Loan 2022"])
 
 
 class WalkTest(AuditCase):

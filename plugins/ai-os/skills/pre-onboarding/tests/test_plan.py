@@ -124,12 +124,14 @@ class PlanCase(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.home, ".Trash")), "something used the default Bin")
 
     def run_tool(self, tool, *args, now=None, script=None):
-        env = dict(os.environ, HOME=self.home)
+        """Run a tool with a temporary HOME and every ResourceWarning an error; a file it leaves open fails."""
+        env = dict(os.environ, HOME=self.home, PYTHONWARNINGS="error::ResourceWarning")
         env.pop("PRE_ONBOARDING_NOW", None)
         if now is not None:
             env["PRE_ONBOARDING_NOW"] = str(now)
         cmd = [sys.executable, "-c", script, TOOLS] if script else [sys.executable, os.path.join(TOOLS, tool)]
         r = subprocess.run(cmd + list(args), capture_output=True, text=True, env=env)
+        self.assertNotIn("ResourceWarning", r.stderr, "%s left a file open" % tool)
         return r.returncode, r.stdout, r.stderr
 
     def run_plan(self, *args, **kw):
@@ -198,11 +200,16 @@ class ProposalTest(PlanCase):
         code, _o, err = self.run_plan("approve", "--plan", self.plan, "--rows", "1-2,4", "--note", "agreed with Alex")
         self.assertEqual(code, 0, err)
         self.run_plan("approve", "--plan", self.plan, "--rows", "3", "--decline", "--note", "keep the space")
+        self.run_plan("approve", "--plan", self.plan, "--rows", "5", "--defer", "--note", "next round")
         got = {s: (r["approved"], r["status"], r["note"]) for s, r in self.rows().items()}
         self.assertEqual(got["1"], ("approved", "pending", "agreed with Alex"))
         self.assertEqual(got["4"], ("approved", "pending", "agreed with Alex"))
         self.assertEqual(got["3"], ("declined", "skipped", "keep the space"))
-        self.assertEqual(got["5"], ("", "proposed", ""))
+        self.assertEqual(got["5"], ("deferred", "skipped", "next round"))
+        self.assertEqual(got["6"], ("", "proposed", ""))
+        code, _o, err = self.run_plan("approve", "--plan", self.plan, "--rows", "6", "--decline", "--defer")
+        self.assertEqual(code, 2, err)
+        self.assertEqual(self.rows()["6"]["approved"], "")
 
 
 class StagedAndRedundantNamesTest(PlanCase):
@@ -388,12 +395,35 @@ class RowOrderTest(PlanCase):
             row(1, "move", BANK, "06 Work/Bank.pdf", self.ids[BANK], approved="", status="proposed"),
             row(2, "move", "06 Work/Contract.docx", "06 Work/C.docx", self.ids["06 Work/Contract.docx"],
                 approved="declined", status="skipped"),
+            row(3, "move", ESSAY_WORKING, "04 Study/E.docx", self.ids[ESSAY_WORKING], approved="deferred",
+                status="skipped"),
         ])
         before = tree_digest(self.root)
         code, out, err = self.execute()
         self.assertEqual(code, 0, out + err)
         self.assertEqual(tree_digest(self.root), before)
-        self.assertEqual((self.status(1)[0], self.status(2)[0]), ("skipped", "skipped"))
+        self.assertEqual([self.status(s)[0] for s in (1, 2, 3)], ["skipped"] * 3)
+
+    def test_a_convert_row_is_left_to_the_owner(self):
+        """A convert row is not executed by these tools: it stays pending, is named in the output, does not stop its
+        domain and does not hold the deletes back."""
+        numbers, final = "02 Finance/Tax/Budget.numbers", "02 Finance/Tax/Budget final.xlsx"
+        write_rows(self.plan, [
+            row(1, "convert", numbers, "02 Finance/Tax/Budget.xlsx", self.ids[numbers], kind="xlsx"),
+            row(2, "move", final, "02 Finance/Budget final.xlsx", self.ids[final]),
+            row(3, "delete", BANK_COPY, evidence=self.ids[BANK_COPY], kind="redundant"),
+        ])
+        os.utime(self.manifest_path, (PAST - 60, PAST - 60))
+        code, out, err = self.execute(now=PAST)
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("convert %s -> not executed by these tools" % numbers, out)
+        self.assertEqual((self.status(1), self.status(2)[0]), (("pending", ""), "done"))
+        self.assertTrue(os.path.isfile(self.path("02 Finance/Budget final.xlsx")))
+        self.audit()
+        code, out, err = self.execute("--phase", "deletes")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual((self.status(1)[0], self.status(3)[0]), ("pending", "done"))
+        self.assertEqual(self.bin_names(), ["Bank statement 2024-03 (1).pdf"])
 
     def test_a_done_row_is_not_run_again(self):
         write_rows(self.plan, [row(1, "move", BANK, "06 Work/Bank.pdf", self.ids[BANK])])
@@ -614,9 +644,25 @@ class PackageDeleteTest(PlanCase):
         self.assertTrue(os.path.isdir(self.path(LEASE_PAGES)))
 
 
+def list_pack_in_rulebook(case, pack):
+    """Name one more pack in the fixture copy's rulebook (its `- Packs:` line) and twin, and re-pin the twin, as a
+    preparing agent would."""
+    for name in ("CLAUDE.md", "AGENTS.md"):
+        lines = read(case.path(name)).split("\n")
+        at = [i for i, line in enumerate(lines) if line.startswith("- Packs:")]
+        case.assertEqual(len(at), 1, name)
+        lines[at[0]] += " `%s` is one too." % pack
+        write(case.path(name), "\n".join(lines))
+    twin = json.loads(read(case.path(".familyai/rulebook.json")))
+    twin["packs"].append(pack)
+    twin["rulebook_sha256"] = common.sha256_file(case.path("CLAUDE.md"))
+    write(case.path(".familyai/rulebook.json"), json.dumps(twin, ensure_ascii=False, indent=1))
+
+
 class PackDuplicateTest(PlanCase):
-    """Two identical files in one folder inside a pack: the audit calls the second `redundant` (a same-folder copy),
-    but nothing inside a pack is proposed for deletion or deleted, whether the pack is listed or named by keyword."""
+    """Two identical files in one folder inside a pack: the audit calls both copies' second file a `pack`, and the
+    plan tools refuse a delete inside a pack even when a manifest (an older audit's, or one edited by hand) says
+    `redundant`, whether the pack is listed or named by keyword."""
 
     LOAN_COPY = "02 Finance/Loan 2022/Payslip (1).pdf"
     FORM_COPY = "01 Identity/Passport renewal 2021/Application form (1).docx"
@@ -625,55 +671,110 @@ class PackDuplicateTest(PlanCase):
         write(self.path("02 Finance/Loan 2022/Payslip.pdf"), "a payslip sent with the loan papers")
         shutil.copy(self.path("02 Finance/Loan 2022/Payslip.pdf"), self.path(self.LOAN_COPY))
         shutil.copy(self.path("01 Identity/Passport renewal 2021/Application form.docx"), self.path(self.FORM_COPY))
-        old = "- Packs: `01 Identity/Passport renewal 2021` is a submission record; copies inside it are never deleted."
-        new = ("- Packs: `01 Identity/Passport renewal 2021` and `02 Finance/Loan 2022` are submission records; copies "
-               "inside them are never deleted.")
-        for name in ("CLAUDE.md", "AGENTS.md"):
-            text = read(self.path(name))
-            self.assertEqual(text.count(old), 1)
-            write(self.path(name), text.replace(old, new))
-        twin = json.loads(read(self.path(".familyai/rulebook.json")))
-        twin["packs"].append("02 Finance/Loan 2022")
-        twin["rulebook_sha256"] = common.sha256_file(self.path("CLAUDE.md"))
-        write(self.path(".familyai/rulebook.json"), json.dumps(twin, ensure_ascii=False, indent=1))
+        list_pack_in_rulebook(self, "02 Finance/Loan 2022")
+
+    def doctored(self):
+        """The manifest with the copies inside the packs marked `redundant`."""
+        m = json.loads(read(self.manifest_path))
+        for e in m["entries"].values():
+            for c in e.get("copies", []):
+                if c["path"] in (self.LOAN_COPY, self.FORM_COPY, PASSPORT_PACK):
+                    c["kind"] = "redundant"
+        path = os.path.join(self.tmp, "doctored.json")
+        write(path, json.dumps(m))
+        return path
 
     def delete_rows(self):
         return [row(1, "delete", self.LOAN_COPY, evidence=self.ids[self.LOAN_COPY], kind="redundant", domain="loan"),
                 row(2, "delete", self.FORM_COPY, evidence=self.ids[self.FORM_COPY], kind="redundant", domain="form"),
-                row(3, "delete", BANK_COPY, evidence=self.ids[BANK_COPY], kind="redundant", domain="bank")]
+                row(3, "delete", BANK_COPY, evidence=self.ids[BANK_COPY], kind="redundant", domain="bank"),
+                row(4, "delete", PASSPORT_PACK, evidence=self.ids[PASSPORT_PACK], kind="redundant", domain="pp")]
 
-    def test_the_audit_calls_them_redundant_and_light_proposes_no_delete(self):
+    def light_deletes(self, *manifest):
+        self.run_plan("light", "--root", self.root, "--out", os.path.dirname(self.plan), *manifest)
+        return [r["from"] for r in self.rows().values() if r["action"] == "delete"]
+
+    def test_the_audit_calls_them_packs_and_light_proposes_no_delete(self):
         kinds = {p: k for p, (_h, k, _o) in plan.live_paths(self.manifest["entries"]).items()}
-        self.assertEqual((kinds[self.LOAN_COPY], kinds[self.FORM_COPY]), ("redundant", "redundant"))
-        self.run_plan("light", "--root", self.root, "--out", os.path.dirname(self.plan))
-        deletes = [r["from"] for r in self.rows().values() if r["action"] == "delete"]
-        self.assertNotIn(self.LOAN_COPY, deletes)
-        self.assertNotIn(self.FORM_COPY, deletes)
-        self.assertIn(BANK_COPY, deletes)
+        self.assertEqual((kinds[self.LOAN_COPY], kinds[self.FORM_COPY]), ("pack", "pack"))
+        deletes = self.light_deletes()
+        self.assertEqual([p for p in (self.LOAN_COPY, self.FORM_COPY, BANK_COPY) if p in deletes], [BANK_COPY])
+
+    def test_light_proposes_no_delete_inside_a_pack_whatever_the_manifest_says(self):
+        deletes = self.light_deletes("--manifest", self.doctored())
+        self.assertEqual([p for p in (self.LOAN_COPY, self.FORM_COPY, PASSPORT_PACK, BANK_COPY) if p in deletes],
+                         [BANK_COPY])
 
     def test_check_refuses_a_delete_inside_a_pack(self):
         write_rows(self.plan, self.delete_rows())
-        code, out, err = self.run_plan("check", "--root", self.root, "--plan", self.plan)
+        code, out, err = self.run_plan("check", "--root", self.root, "--plan", self.plan, "--manifest", self.doctored())
         self.assertEqual(code, 1, out + err)
         failed = {line.split()[1]: line for line in out.splitlines() if line.startswith("FAIL")}
-        self.assertEqual(sorted(failed), ["1", "2"])
-        for seq in ("1", "2"):
+        self.assertEqual(sorted(failed), ["1", "2", "4"])
+        for seq in ("1", "2", "4"):
             self.assertIn(plan.PACK_REFUSAL, failed[seq])
 
     def test_execute_refuses_a_delete_inside_a_pack(self):
+        doctored = self.doctored()
         for rel in (self.LOAN_COPY, self.FORM_COPY, PASSPORT_PACK):
             with self.subTest(rel):
                 self.refused([row(1, "delete", rel, evidence=self.ids[rel], kind="redundant")], plan.PACK_REFUSAL,
-                             phase=("--phase", "deletes"))
+                             phase=("--phase", "deletes", "--manifest", doctored))
 
     def test_a_duplicate_outside_any_pack_is_still_deleted(self):
         write_rows(self.plan, self.delete_rows())
-        code, out, err = self.execute("--phase", "deletes")
+        code, out, err = self.execute("--phase", "deletes", "--manifest", self.doctored())
         self.assertEqual(code, 1, out + err)
-        self.assertEqual([self.status(s)[0] for s in (1, 2, 3)], ["failed", "failed", "done"])
+        self.assertEqual([self.status(s)[0] for s in (1, 2, 3, 4)], ["failed", "failed", "done", "failed"])
         self.assertEqual(self.bin_names(), ["Bank statement 2024-03 (1).pdf"])
-        self.assertTrue(os.path.isfile(self.path(self.LOAN_COPY)))
-        self.assertTrue(os.path.isfile(self.path(self.FORM_COPY)))
+        for rel in (self.LOAN_COPY, self.FORM_COPY, PASSPORT_PACK):
+            self.assertTrue(os.path.isfile(self.path(rel)), rel)
+
+
+class PackListingTest(PlanCase):
+    """A listed pack that names no existing folder would match nothing and leave its copies deletable, so every tool
+    that relies on packs refuses to run until rulebook.json is put right."""
+
+    def packs(self, *packs):
+        twin = json.loads(read(self.path(".familyai/rulebook.json")))
+        twin["packs"] = list(packs)
+        write(self.path(".familyai/rulebook.json"), json.dumps(twin, ensure_ascii=False, indent=1))
+
+    def assert_refused(self, code, err, pack):
+        self.assertEqual(code, 2, err)
+        self.assertIn("packs entry %r" % pack, err)
+        self.assertIn("update rulebook.json packs", err)
+        self.assertNotIn("Traceback", err)
+
+    def test_every_tool_refuses_a_listed_pack_that_is_not_a_folder(self):
+        write_rows(self.plan, [row(1, "delete", BANK_COPY, evidence=self.ids[BANK_COPY], kind="redundant")])
+        cases = {"absent": "02 Finance/Loan 2022", "a wrong case": "01 identity/Passport Renewal 2021", "a file": BANK}
+        for name, pack in cases.items():
+            self.packs("01 Identity/Passport renewal 2021", pack)
+            commands = {
+                "audit": lambda: self.run_tool("audit.py", "--root", self.root, "--work", os.path.join(self.tmp, "w")),
+                "light": lambda: self.run_plan("light", "--root", self.root, "--out", os.path.join(self.tmp, "lp")),
+                "check": lambda: self.run_plan("check", "--root", self.root, "--plan", self.plan),
+                "execute": lambda: self.execute("--phase", "deletes"),
+            }
+            for cmd, go in commands.items():
+                with self.subTest(name, cmd=cmd):
+                    code, _out, err = go()
+                    self.assert_refused(code, err, pack)
+        self.assertEqual(self.bin_names(), [])
+        self.assertTrue(os.path.isfile(self.path(BANK_COPY)))
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "lp")))
+
+    def test_a_pack_renamed_by_an_approved_row_stops_the_deletes(self):
+        write_rows(self.plan, [row(1, "rename", "01 Identity/Passport renewal 2021/", "01 Identity/Passport 2021/"),
+                               row(2, "delete", BANK_COPY, evidence=self.ids[BANK_COPY], kind="redundant")])
+        os.utime(self.manifest_path, (PAST - 60, PAST - 60))
+        self.assertEqual(self.execute(now=PAST)[0], 0)
+        code, _out, err = self.execute("--phase", "deletes")
+        self.assert_refused(code, err, "01 Identity/Passport renewal 2021")
+        code, _out, err = self.run_tool("audit.py", "--root", self.root, "--work", os.path.join(self.tmp, "work"))
+        self.assert_refused(code, err, "01 Identity/Passport renewal 2021")
+        self.assertEqual(self.bin_names(), [])
 
 
 # ---------------------------------------------------------------------------------------------- dry run, undo
@@ -793,6 +894,51 @@ class ProveTest(PlanCase):
         os.remove(self.path("06 Work/Contract.docx"))           # collected by another project
         self.assertFalse(self.prove()["ok"])
         self.assertTrue(self.prove("--allow-departed-under", "06 Work/")["ok"])
+
+    def only(self, result, component):
+        """The proof failed on `component` alone."""
+        self.assertFalse(result["ok"], result)
+        parts = ("gone_unexpected", "new_unexpected", "gone_missing", "new_missing")
+        self.assertEqual([k for k in parts if result[k]], [component], result)
+
+    def done_row(self, frm, to):
+        rows = read_rows(self.plan)
+        rows.append(row(4, "move", frm, to, self.ids[frm], status="done"))
+        write_rows(self.plan, rows)
+
+    def test_a_file_added_by_hand_alone(self):
+        self.moved()
+        write(self.path("06 Work/New.txt"), "added by hand")
+        self.only(self.prove(), "new_unexpected")
+
+    def test_a_source_copied_not_moved(self):
+        self.moved()
+        shutil.copy(self.path("06 Work/Contract.docx"), self.path("06 Work/C.docx"))
+        self.done_row("06 Work/Contract.docx", "06 Work/C.docx")
+        self.only(self.prove(), "gone_missing")
+
+    def test_a_moved_file_that_never_arrived(self):
+        self.moved()
+        os.remove(self.path("06 Work/Contract.docx"))
+        self.done_row("06 Work/Contract.docx", "06 Work/C.docx")
+        self.only(self.prove(), "new_missing")
+
+    def test_a_proof_across_the_moves_and_the_deletes(self):
+        """A whole light round, moves then deletes, proved from the first manifest to the last."""
+        shutil.copy(self.manifest_path, os.path.join(self.tmp, "before.json"))
+        self.before = os.path.join(self.tmp, "before.json")
+        self.run_plan("light", "--root", self.root, "--out", os.path.dirname(self.plan))
+        rows = read_rows(self.plan)
+        rows[0]["to"] = "03 Home/Beach.jpg"
+        write_rows(self.plan, rows)
+        self.run_plan("approve", "--plan", self.plan, "--rows", "all")
+        os.utime(self.manifest_path, (PAST - 60, PAST - 60))
+        self.assertEqual(self.execute(now=PAST)[0], 0)
+        self.audit()
+        self.assertEqual(self.execute("--phase", "deletes")[0], 0)
+        result = self.prove()
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["rows_checked"], 7)
 
 
 class CheckTest(PlanCase):

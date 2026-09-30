@@ -27,8 +27,11 @@ FIXTURE = os.path.join(HERE, "fixture", "Alex Personal")
 EXPECTED = os.path.join(HERE, "expected", "extract.json")
 NOW = 1719748800
 sys.path.insert(0, TOOLS)
+import common  # noqa: E402
 import extract  # noqa: E402
 import iwa  # noqa: E402
+
+FOUR = ["zh-Hans", "zh-Hant", "en-GB", "fr-FR"]     # the fixture folder's ocr_languages
 
 HAVE = {n: bool(extract.which(n)) for n in ("pdftotext", "pdfinfo", "pdftoppm", "tesseract", "textutil", "soffice")}
 _OCR_BIN = os.path.join(TOOLS, "page-ocr")
@@ -58,9 +61,12 @@ def write(path, data):
 
 
 def run(tool, *args, now=NOW):
-    env = dict(os.environ, PRE_ONBOARDING_NOW=str(now))
+    """Run a tool with a frozen clock and every ResourceWarning an error; a file it leaves open fails the test."""
+    env = dict(os.environ, PRE_ONBOARDING_NOW=str(now), PYTHONWARNINGS="error::ResourceWarning")
     r = subprocess.run([sys.executable, os.path.join(TOOLS, tool)] + list(args), capture_output=True, text=True,
                        env=env)
+    if "ResourceWarning" in r.stderr:
+        raise AssertionError("%s left a file open:\n%s" % (tool, r.stderr[-2000:]))
     return r.returncode, r.stdout, r.stderr
 
 
@@ -212,9 +218,9 @@ def stand_in_tools(pages, count=True, render=True):
 
 
 class PageTierTest(Tmp):
-    def ctx(self, *present, ocr=None):
+    def ctx(self, *present, ocr=None, langs=("en-GB",)):
         c = extract.Ctx(argparse.Namespace(ocr_bin=None), os.path.join(self.tmp, "root"),
-                        os.path.join(self.tmp, "work"), os.path.join(self.tmp, "out"))
+                        os.path.join(self.tmp, "work"), os.path.join(self.tmp, "out"), langs)
         self.addCleanup(shutil.rmtree, c.tmp, True)
         c.bins = {n: ("/stand-in/" + n if n in present else None) for n in c.bins}
         c.ocr = ocr or extract.OCR(None)
@@ -260,32 +266,50 @@ class PageTierTest(Tmp):
         rec = self.pdf(self.ctx("pdftotext", "pdfinfo"), [STATEMENT, STATEMENT], count=False)
         self.assertEqual(rec["page_count"], 2)
 
+    def test_vision_passes_and_tesseract_languages(self):
+        self.assertEqual(extract.vision_passes(["en-GB"]), ("en-GB", None))
+        self.assertEqual(extract.vision_passes(["fr-FR", "de-DE"]), ("fr-FR,de-DE", None))
+        self.assertEqual(extract.vision_passes(["zh-Hans"]), ("zh-Hans", None))
+        self.assertEqual(extract.vision_passes(FOUR), ("zh-Hans,zh-Hant,en-GB", "en-GB,fr-FR"))
+        self.assertEqual(extract.vision_passes(["ja-JP", "fr-FR"]), ("ja-JP", "fr-FR"))
+        self.assertEqual(extract.tesseract_langs(FOUR), "chi_sim+chi_tra+eng+fra")
+        self.assertEqual(extract.tesseract_langs(["en-GB", "en-US", "zh-Hans-CN", "de-DE", "es-ES"]),
+                         "eng+chi_sim+deu+spa")
+        for code in ("ja-JP", "zh", "ko-KR"):
+            with self.subTest(code):
+                with self.assertRaisesRegex(common.ToolError, re.escape("ocr_languages entry %r" % code)):
+                    extract.tesseract_langs(["en-GB", code])
+
     def test_language_routing(self):
         img = self.file("page.png", b"a rendered page")
-        zh = StandInOcr({extract.ZH: {"text": ZH_CERTIFICATE, "confidence": 0.9}})
-        page = extract.ocr_page(self.ctx(ocr=zh), img, 1)
+        first, second = extract.vision_passes(FOUR)
+        zh = StandInOcr({first: {"text": ZH_CERTIFICATE, "confidence": 0.9}})
+        page = extract.ocr_page(self.ctx(ocr=zh, langs=FOUR), img, 1)
         self.assertEqual((page["tier"], page["engine"], page["conf"], page["text"]),
                          ("local_ocr", "vision", 0.9, ZH_CERTIFICATE))
-        self.assertEqual(zh.calls, [extract.ZH], "a page with Chinese is not read again")
-        fr = StandInOcr({extract.ZH: {"text": "Cours de fran ais niveau", "confidence": 0.3},
-                         extract.LATIN: {"text": FRENCH, "confidence": 0.95}})
-        page = extract.ocr_page(self.ctx(ocr=fr), img, 1)
+        self.assertEqual(zh.calls, [first], "a page with Chinese is not read again")
+        fr = StandInOcr({first: {"text": "Cours de fran ais niveau", "confidence": 0.3},
+                         second: {"text": FRENCH, "confidence": 0.95}})
+        page = extract.ocr_page(self.ctx(ocr=fr, langs=FOUR), img, 1)
         self.assertEqual((page["tier"], page["text"]), ("local_ocr", FRENCH))
-        self.assertEqual(fr.calls, [extract.ZH, extract.LATIN])
-        unsure = StandInOcr({extract.ZH: {"text": FRENCH, "confidence": 0.3}})
-        self.assertEqual(extract.ocr_page(self.ctx(ocr=unsure), img, 1)["tier"], "pending_vision")
+        self.assertEqual(fr.calls, [first, second])
+        unsure = StandInOcr({first: {"text": FRENCH, "confidence": 0.3}})
+        self.assertEqual(extract.ocr_page(self.ctx(ocr=unsure, langs=FOUR), img, 1)["tier"], "pending_vision")
+        one = StandInOcr({"en-GB": {"text": FRENCH, "confidence": 0.9}})
+        self.assertEqual(extract.ocr_page(self.ctx(ocr=one), img, 1)["text"], FRENCH)
+        self.assertEqual(one.calls, ["en-GB"], "the default reads each page once")
 
     def test_images(self):
         img = self.file("root/IMG_0002.jpg", b"a photo")
         e = {"id": "entry", "current_path": "IMG_0002.jpg", "class": "image"}
         rec = extract.process(self.ctx(), e)
         self.assertEqual((rec["status"], rec["pages"][0]["tier"]), ("photo", "photo"))
-        beach = StandInOcr({extract.LATIN: {"text": "Beach", "confidence": 0.9}})
+        beach = StandInOcr({"en-GB": {"text": "Beach", "confidence": 0.9}})
         self.assertEqual(extract.process(self.ctx(ocr=beach), e)["status"], "photo")
-        letter = StandInOcr({extract.LATIN: {"text": STATEMENT + "\n" + STATEMENT, "confidence": 0.9}})
+        letter = StandInOcr({"en-GB": {"text": STATEMENT + "\n" + STATEMENT, "confidence": 0.9}})
         rec = extract.process(self.ctx(ocr=letter), e)
         self.assertEqual((rec["status"], rec["pages"][0]["tier"]), ("ok", "local_ocr"))
-        smudged = StandInOcr({extract.LATIN: {"text": STATEMENT + "\n" + GARBAGE * 3, "confidence": 0.9}})
+        smudged = StandInOcr({"en-GB": {"text": STATEMENT + "\n" + GARBAGE * 3, "confidence": 0.9}})
         rec = extract.process(self.ctx(ocr=smudged), e)
         self.assertEqual((rec["status"], rec["pages"][0]["tier"]), ("needs_vision", "pending_vision"))
         self.assertTrue(os.path.isfile(img))
@@ -299,6 +323,45 @@ class PageTierTest(Tmp):
             with self.subTest(path):
                 with self.assertRaisesRegex(RuntimeError, pattern):
                     extract.process(c, {"id": "entry", "current_path": path, "class": "document"})
+
+
+class OcrLanguagesTest(Tmp):
+    """The languages local OCR reads in come from the folder's rulebook.json (`ocr_languages`)."""
+
+    def folder(self, **settings):
+        root = os.path.join(self.tmp, "Alex Papers")
+        rulebook = "# Rules\n\nThe owner's rules for this folder.\n"
+        write(os.path.join(root, "CLAUDE.md"), rulebook)
+        write(os.path.join(root, "Notes.txt"), "Robin's notes on the move.")
+        self.settings(root, **settings)
+        return root
+
+    def settings(self, root, **settings):
+        pin = hashlib.sha256(read(os.path.join(root, "CLAUDE.md"), "rb")).hexdigest()
+        write(os.path.join(root, ".familyai", "rulebook.json"),
+              json.dumps(dict(settings, version=1, rulebook_sha256=pin)))
+
+    def test_the_default_and_the_shape(self):
+        root = self.folder()
+        settings_dir = os.path.join(root, ".familyai")
+        self.assertEqual(common.load_rulebook(root, settings_dir)["ocr_languages"], ["en-GB"])
+        for value, pattern in (("en-GB", "a list of non-empty strings"), ([], "a non-empty list"),
+                               (["en GB"], "BCP 47"), (["english"], "BCP 47"), (["en_GB"], "BCP 47")):
+            with self.subTest(value=value):
+                self.settings(root, ocr_languages=value)
+                with self.assertRaisesRegex(common.ToolError, pattern):
+                    common.load_rulebook(root, settings_dir)
+
+    def test_a_code_tesseract_cannot_read_stops_extraction_before_it_writes(self):
+        root = self.folder(ocr_languages=["en-GB", "ko-KR"])
+        work, audit_out, out = (os.path.join(self.tmp, n) for n in ("work", "audit", "extract"))
+        code, _o, err = run("audit.py", "--root", root, "--work", work, "--out", audit_out, "--read-only-root")
+        self.assertEqual(code, 0, err)
+        code, _o, err = run("extract.py", "--root", root, "--work", work, "--manifest",
+                            os.path.join(audit_out, "manifest.json"), "--out", out, "--read-only-root")
+        self.assertEqual(code, 2, err)
+        self.assertIn("ocr_languages entry 'ko-KR'", err)
+        self.assertFalse(os.path.exists(out))
 
 
 # ------------------------------------------------------------------------ office zip readers
@@ -326,6 +389,13 @@ class OfficeZipTest(Tmp):
         self.assertEqual(extract.office_zip(p, ".xlsx"),
                          [{"n": 1, "tier": "text_layer", "text": "Item\tMonthly\nRent & bills\t1450\t\n"
                                                                     "Savings\t400\na < b"}])
+
+    def test_cell_types_in_single_quotes(self):
+        sheet = ("<worksheet><sheetData><row><c r='A1' t='s'><v>0</v></c><c t='inlineStr'><is><t>monthly</t></is></c>"
+                 "<c><v>1450</v></c></row></sheetData></worksheet>")
+        p = self.file("Quoted.xlsx", zip_bytes([("xl/sharedStrings.xml", "<sst><si><t>Rent</t></si></sst>"),
+                                                ("xl/worksheets/sheet1.xml", sheet)]))
+        self.assertEqual(extract.office_zip(p, ".xlsx")[0]["text"], "Rent\tmonthly\t1450")
 
     def test_sheets_and_slides_in_number_order(self):
         sheets = [("xl/worksheets/sheet%d.xml" % n, "<worksheet><sheetData><row><c><v>%d</v></c></row></sheetData>"
@@ -420,7 +490,8 @@ class FixtureRun:
         cls.work, cls.manifest = os.path.join(cls.tmp, "work"), os.path.join(cls.tmp, "audit", "manifest.json")
         code, _o, err = run("audit.py", "--root", cls.root, "--work", cls.work, "--out", os.path.dirname(cls.manifest),
                             "--read-only-root")
-        assert code == 0, err
+        if code != 0:
+            raise RuntimeError("the audit of the fixture copy failed (%d): %s" % (code, err))
         cls.out = os.path.join(cls.tmp, "extract")
         cls.codes = [cls.extract(cls.out, "--lane", lane)[0] for lane in ("main", "apps")]
         cls.records = cls.load(cls.out)
@@ -567,7 +638,8 @@ class StatusTest(unittest.TestCase):
             write(os.path.join(cls.root, rel), data)
         work, out = os.path.join(cls.tmp, "work"), os.path.join(cls.tmp, "audit")
         code, _o, err = run("audit.py", "--root", cls.root, "--work", work, "--out", out, "--read-only-root")
-        assert code == 0, err
+        if code != 0:
+            raise RuntimeError("the audit of the synthetic folder failed (%d): %s" % (code, err))
         manifest = os.path.join(out, "manifest.json")
         m = json.loads(read(manifest))
         for e in m["entries"].values():

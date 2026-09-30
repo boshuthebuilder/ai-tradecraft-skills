@@ -48,5 +48,11 @@
  "boundaries": [],
  "folder_description": "Alex Example's personal papers: identity, money, home and language study.",
  "exclude": [],
- "keep_empty_folders": true
+ "keep_empty_folders": true,
+ "ocr_languages": [
+  "zh-Hans",
+  "zh-Hant",
+  "en-GB",
+  "fr-FR"
+ ]
 }

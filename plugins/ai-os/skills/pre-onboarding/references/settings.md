@@ -27,7 +27,7 @@ An unknown version, an unknown key or a value of the wrong shape fails loud.
 | `wiki_dir` | folder name | `<folder name> Wiki` | the wiki folder; must be exactly `<folder name> Wiki` |
 | `reserved` | list of names | `[]` | top-level names reserved beyond the fixed set below |
 | `depth` | `light`, `medium` or `full` | `light` | the reorganisation depth the owner chose (`folder-curation`'s ladder) |
-| `packs` | list of folder paths | `[]` | submission records, whose copies are never deleted, in addition to the folders the audit's pack keywords match |
+| `packs` | list of folder paths | `[]` | submission records, whose copies are never deleted, in addition to the folders the audit's pack keywords match; each an existing folder, relative and named exactly, or the tools refuse to run |
 | `working_formats` | list of extensions | `[]` | formats the owner keeps working in, such as `.pages` |
 | `active`, `finished` | lists of folder paths | `[]` | live matters, and closed matters ingested once as history |
 | `people` | list of `{name, also, who}` | `[]` | each person or organisation: canonical name, every other name or script it appears under, and one line on who they are |
@@ -37,7 +37,8 @@ An unknown version, an unknown key or a value of the wrong shape fails loud.
 | `folder_description` | text | `""` | one line on what the folder holds, for the card engine's brief |
 | `exclude` | list of paths | `[]` | paths the owner excluded from reading |
 | `keep_empty_folders` | `true` or `false` | `true` | whether emptied folders stay |
-| `image_cap_mb`, `pack_keywords` | number, list of patterns | `25`, a generic list | audit tunables; rarely set |
+| `image_cap_mb`, `pack_keywords` | number, list of patterns | `25`; `application`, `passport`, `renew`, `visa`, `submission`, `evidence` | audit tunables; a folder whose packs go by other words lists its own patterns |
+| `ocr_languages` | list of BCP 47 codes | `["en-GB"]` | the languages local OCR reads in, most likely first; tesseract knows `en`, `zh-Hans`, `zh-Hant`, `fr`, `de` and `es`, and any other code fails loud |
 
 **Reserved names.** The rulebook must name every top-level name the system reserves: `CLAUDE.md`, `AGENTS.md`,
 `GEMINI.md`, `.familyai`, `_Audit`, the inbox, the migrations folder, the wiki folder, then anything in `reserved`.

@@ -2,9 +2,9 @@
 """Full text of every live document in the manifest, every page, from local tools only (no model calls).
 
 Per page the first clean reading wins: the PDF text layer (unless it is broken, with spaces decoded as `)` or `!`),
-then Apple Vision through `page-ocr` (language-routed: Chinese and English first, English and French when a page
-has no Chinese), then tesseract. A page none of them reads cleanly is queued for the model vision lane
-(`vision.py`) and marked `pending_vision`. Office zip formats are parsed directly, rtf/doc/odt/html through
+then Apple Vision through `page-ocr`, then tesseract, both in the languages the folder's rulebook.json lists as
+`ocr_languages` (`vision_passes` says how Vision is routed). A page none of them reads cleanly is queued for the model
+vision lane (`vision.py`) and marked `pending_vision`. Office zip formats are parsed directly, rtf/doc/odt/html through
 `textutil`, iWork through the `.iwa` reader (`iwa.py`) with the preview image as a fallback, legacy .ppt/.xls through
 LibreOffice when it is installed. Resumable: an existing record is never rewritten unless `--retry-failed`.
 
@@ -39,9 +39,33 @@ TEXTUTIL = {".doc", ".rtf", ".odt", ".html", ".htm", ".webarchive"}
 OFFICE_ZIP = {".docx", ".pptx", ".xlsx", ".ppsx", ".potx"}
 PLAIN = {".txt", ".md", ".csv"}
 PHOTO_MIN_CHARS = 80
-ZH = "zh-Hans,zh-Hant,en-US"
-LATIN = "en-GB,fr-FR"
+CJK_LANGS = ("zh", "ja", "ko", "yue")
+TESSERACT_LANGS = {"en": "eng", "zh-Hans": "chi_sim", "zh-Hant": "chi_tra", "fr": "fra", "de": "deu", "es": "spa"}
 SEARCH = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin"]
+
+
+def vision_passes(langs):
+    """The language sets Vision reads a page with: the Chinese, Japanese or Korean codes with the English ones, then,
+    for a page on which that finds no Chinese text, the other codes; one pass with every code when the list has no
+    such code or nothing else. Vision is not given Chinese beside a language other than English."""
+    cjk_codes = [c for c in langs if c.split("-")[0].lower() in CJK_LANGS]
+    other = [c for c in langs if c not in cjk_codes]
+    if not cjk_codes or not other:
+        return ",".join(langs), None
+    return ",".join(cjk_codes + [c for c in other if c.split("-")[0].lower() == "en"]), ",".join(other)
+
+
+def tesseract_langs(langs):
+    """tesseract's `-l` value for BCP 47 codes: by language and script, then language; an unknown code fails loud."""
+    out = []
+    for code in langs:
+        parts = code.split("-")
+        key = next((k for k in ("-".join(parts[:2]), parts[0]) if k in TESSERACT_LANGS), None)
+        if key is None:
+            raise common.ToolError("ocr_languages entry %r has no tesseract language (known: %s)"
+                                   % (code, ", ".join(sorted(TESSERACT_LANGS))))
+        out.append(TESSERACT_LANGS[key])
+    return "+".join(dict.fromkeys(out))
 
 
 def which(name, explicit=None):
@@ -52,8 +76,9 @@ def which(name, explicit=None):
 
 
 class Ctx:
-    def __init__(self, a, root, work, out):
+    def __init__(self, a, root, work, out, langs=tuple(common.DEFAULTS["ocr_languages"])):
         self.root, self.work, self.out = root, work, out
+        self.langs, self.tesseract_langs = list(langs), tesseract_langs(langs)
         self.queue = os.path.join(work, "vision_queue")
         self.tmp = tempfile.mkdtemp(prefix="extract_")
         self.bins = {n: which(n) for n in ("pdftotext", "pdfinfo", "pdftoppm", "tesseract", "textutil", "sips",
@@ -100,12 +125,24 @@ class OCR:
                         return json.loads(line)
             except (OSError, ValueError):
                 pass
+            self.close()
+        return {"text": "", "confidence": 0.0, "error": "ocr stalled"}
+
+    def close(self):
+        """Stop the process, if one is running, and close its pipes."""
+        if self.p is None:
+            return
+        for stream in (self.p.stdin, self.p.stdout):
             try:
-                self.p.kill()
+                stream.close()
             except OSError:
                 pass
-            self.p = None
-        return {"text": "", "confidence": 0.0, "error": "ocr stalled"}
+        try:
+            self.p.kill()
+        except OSError:
+            pass
+        self.p.wait()
+        self.p = None
 
 
 def quality(s):
@@ -141,10 +178,11 @@ def cjk(t):
 
 
 def vision(ctx, img):
-    a = ctx.ocr.read(img, ZH)
-    if cjk(a.get("text", "")) >= 5:
+    first, second = vision_passes(ctx.langs)
+    a = ctx.ocr.read(img, first)
+    if second is None or cjk(a.get("text", "")) >= 5:
         return a.get("text", ""), float(a.get("confidence") or 0)
-    b = ctx.ocr.read(img, LATIN)
+    b = ctx.ocr.read(img, second)
     best = max((a, b), key=lambda r: (float(r.get("confidence") or 0) * min(1, len(r.get("text", "")) / 40.0)))
     return best.get("text", ""), float(best.get("confidence") or 0)
 
@@ -152,7 +190,7 @@ def vision(ctx, img):
 def tesseract(ctx, img):
     if not ctx.bins["tesseract"]:
         return ""
-    o, _rc, _ = run([ctx.bins["tesseract"], img, "stdout", "-l", "eng+chi_sim+fra"], 300)
+    o, _rc, _ = run([ctx.bins["tesseract"], img, "stdout", "-l", ctx.tesseract_langs], 300)
     return o
 
 
@@ -259,12 +297,12 @@ def office_zip(path, ext):
                 cells = []
                 for attrs, body in re.findall(r"<c(?:\s([^>]*?))?(?:/>|>(.*?)</c>)", row, re.S):
                     v = re.search(r"<v>(.*?)</v>", body or "", re.S)
-                    if 't="s"' in attrs and v:
+                    if re.search(r"""\bt=["']s["']""", attrs) and v:
                         try:
                             cells.append(shared[int(v.group(1))])
                         except (IndexError, ValueError):
                             cells.append("")
-                    elif 't="inlineStr"' in attrs:
+                    elif re.search(r"""\bt=["']inlineStr["']""", attrs):
                         cells.append(xml_text(body or ""))
                     else:
                         cells.append(html.unescape(v.group(1)) if v else "")
@@ -307,7 +345,8 @@ def iwork_preview(ctx, src):
     if os.path.isdir(src):
         for n in ("preview.jpg", "QuickLook/Thumbnail.jpg"):
             if os.path.exists(os.path.join(src, n)):
-                blob = open(os.path.join(src, n), "rb").read()
+                with open(os.path.join(src, n), "rb") as f:
+                    blob = f.read()
                 break
     elif zipfile.is_zipfile(src):
         z = zipfile.ZipFile(src)
@@ -320,7 +359,8 @@ def iwork_preview(ctx, src):
     d = tempfile.mkdtemp(dir=ctx.tmp)
     try:
         p = os.path.join(d, "p.jpg")
-        open(p, "wb").write(blob)
+        with open(p, "wb") as f:
+            f.write(blob)
         pg = ocr_page(ctx, p, 1)
         pg["via"] = "preview_image"
         return [pg]
@@ -375,12 +415,14 @@ def process(ctx, e):
             raise RuntimeError("textutil failed: " + err.strip()[:200])
         pages = [{"n": 1, "tier": "text_layer", "text": tidy(o)}]
     elif ext in PLAIN:
-        pages = [{"n": 1, "tier": "text_layer", "text": tidy(decode(open(path, "rb").read()))}]
+        with open(path, "rb") as f:
+            pages = [{"n": 1, "tier": "text_layer", "text": tidy(decode(f.read()))}]
     elif cls == "archive" and zipfile.is_zipfile(path):
         names = zipfile.ZipFile(path).namelist()
         pages, status = [{"n": 1, "tier": "listing", "text": "\n".join(names)}], "listed"
     else:
-        b = open(path, "rb").read(2_000_000)
+        with open(path, "rb") as f:
+            b = f.read(2_000_000)
         t = decode(b)
         if len(b) < 2_000_000 and quality(t) > 0.95 and len(t.strip()) > 20:
             pages = [{"n": 1, "tier": "text_layer", "text": tidy(t)}]
@@ -417,16 +459,19 @@ def main():
     ap.add_argument("--out", help="default <root>/_Audit/extract")
     ap.add_argument("--ocr-bin", help="path to the built page-ocr binary")
     a = ap.parse_args()
-    root, _settings_dir, work = common.resolve(a)
+    root, settings_dir, work = common.resolve(a)
+    langs = common.load_rulebook(root, settings_dir)["ocr_languages"]
+    tesseract_langs(langs)          # an unknown code fails loud before anything is written
     out = os.path.realpath(a.out) if a.out else os.path.join(root, "_Audit", "extract")
     writer = common.Writer(root if a.read_only_root else None)
     writer.makedirs(out)
-    ctx = Ctx(a, root, work, out)
+    ctx = Ctx(a, root, work, out, langs)
     wi, wn = [int(x) for x in a.worker.split("/")]
     tag = "%s%d" % (a.lane, wi)
     log = common.logger(work, "extract_" + tag)
     log("tools:", {k: bool(v) for k, v in ctx.bins.items()})
-    man = json.load(open(a.manifest or os.path.join(root, "_Audit", "manifest.json"), encoding="utf-8"))
+    with open(a.manifest or os.path.join(root, "_Audit", "manifest.json"), encoding="utf-8") as f:
+        man = json.load(f)
     todo = []
     for e in sorted(man["entries"].values(), key=lambda x: x["id"]):
         if not e.get("hashed") or "departed" in e.get("flags", []):
@@ -447,7 +492,8 @@ def main():
         outp = os.path.join(out, e["id"] + ".json")
         if os.path.exists(outp):
             try:
-                st = json.load(open(outp, encoding="utf-8")).get("status")
+                with open(outp, encoding="utf-8") as f:
+                    st = json.load(f).get("status")
             except (OSError, ValueError):
                 st = "failed"
             if st != "failed" or not a.retry_failed:
@@ -469,10 +515,13 @@ def main():
         done += 1
         log("%d/%d %s %s pages=%d %.1fs" % (i + 1, len(todo), rec["status"], e["id"][:12], rec["page_count"],
                                             time.time() - t1))
+    idx.close()
+    ctx.ocr.close()
     shutil.rmtree(ctx.tmp, True)
     log("finished done=%d failed=%d skipped=%d in %.0fs" % (done, failed, skipped, time.time() - t0))
     os.makedirs(os.path.join(work, "state"), exist_ok=True)
-    open(os.path.join(work, "state", "extract_%s.done" % tag), "w").write(common.now_local())
+    with open(os.path.join(work, "state", "extract_%s.done" % tag), "w") as f:
+        f.write(common.now_local())
     return 1 if failed else 0
 
 

@@ -4,6 +4,7 @@ Standard library only (Python 3.9+). Every tool that writes goes through `Writer
 in one place: with it set, any write under the folder being prepared is refused before it happens.
 """
 import argparse
+import atexit
 import datetime
 import hashlib
 import json
@@ -125,6 +126,7 @@ class Writer:
 def logger(work, name):
     os.makedirs(os.path.join(work, "logs"), exist_ok=True)
     fh = open(os.path.join(work, "logs", name + ".log"), "a", encoding="utf-8")
+    atexit.register(fh.close)
 
     def log(*parts):
         line = time.strftime("%m-%d %H:%M:%S ") + " ".join(str(p) for p in parts)
@@ -195,13 +197,13 @@ DEFAULTS = {
     "exclude": [],
     "keep_empty_folders": True,
     "image_cap_mb": 25,
-    "pack_keywords": ["visa", r"\bilr\b", "passport", "application", "renew", "settlement", r"\bbrp\b",
-                      "申请", "签证", "护照", "身份证"],
+    "pack_keywords": ["application", "passport", "renew", "visa", "submission", "evidence"],
+    "ocr_languages": ["en-GB"],       # BCP 47 codes local OCR reads in, most likely first
 }
 
 
 NAME_LISTS = ("reserved", "packs", "working_formats", "active", "finished", "card_categories", "exclude",
-              "pack_keywords")
+              "pack_keywords", "ocr_languages")
 SCHEMA_PAGES = ("90 Schema/90 Schema.md", "09 Schema/09 Schema.md")  # in order of precedence
 WIKI_SCHEMA_KEYS = ("version", "schema_path", "schema_sha256", "sections", "routing", "contracts", "pages")
 WIKI_SCHEMA_ROWS = {
@@ -241,6 +243,16 @@ def validate_rulebook(data, path):
     for k in NAME_LISTS:
         if k in data and not (isinstance(data[k], list) and all(is_text(x) for x in data[k])):
             bad(k, "a list of non-empty strings")
+    for p in data.get("packs", []):
+        if p != p.strip() or p.startswith("/") or any(x in ("", ".", "..") for x in p.rstrip("/").split("/")):
+            raise ToolError("%s: packs entry %r must be a folder path relative to the folder, with no leading or "
+                            "trailing space, no leading /, and no empty, . or .. parts" % (path, p))
+    if data.get("ocr_languages") == []:
+        bad("ocr_languages", "a non-empty list")
+    for code in data.get("ocr_languages", []):
+        if not re.fullmatch(r"[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*", code):
+            raise ToolError("%s: ocr_languages entry %r is not a BCP 47 language code such as en-GB or zh-Hans"
+                            % (path, code))
     for k in ("inbox", "migrations_dir"):
         if k in data and not is_text(data[k]):
             bad(k, "a non-empty string")
@@ -286,6 +298,7 @@ def load_rulebook(root, settings_dir, required=False, verify=True):
     merged = dict(DEFAULTS)
     merged.update(data)
     merged["wiki_dir"] = merged.get("wiki_dir") or os.path.basename(root) + " Wiki"
+    merged["packs"] = [p.rstrip("/") for p in merged["packs"]]
     merged["_source"] = path if data else None
     return merged
 
@@ -369,11 +382,25 @@ def reserved_names(rb):
     return list(dict.fromkeys(names + rb["reserved"]))
 
 
-def pack_matcher(rb):
+def pack_matcher(root, rb):
     """A test of whether a folder (relative to the root) lies in a pack: under a folder the rulebook lists in
-    `packs`, or matching its `pack_keywords`. The audit marks copies there `pack`; the plan tools never delete there."""
+    `packs`, or matching its `pack_keywords`. The audit marks every copy there `pack`, even a duplicate beside its
+    canonical copy, and the plan tools never propose or execute a delete there. A listed pack that is not an existing
+    folder under `root`, named exactly (each part compared with its folder's listing, case included), fails loud:
+    it would match nothing and leave its copies deletable without a word."""
+    for p in rb["packs"]:
+        cur = root
+        for part in p.split("/"):
+            if not (os.path.isdir(cur) and part in os.listdir(cur)):
+                break
+            cur = os.path.join(cur, part)
+        else:
+            if os.path.isdir(cur):
+                continue
+        raise ToolError("%s: packs entry %r is not an existing folder under %s (names compared exactly); update "
+                        "rulebook.json packs" % (rb.get("_source") or "rulebook.json", p, root))
     rx = re.compile("(" + "|".join(rb["pack_keywords"]) + ")", re.I)
-    listed = [p.rstrip("/") + "/" for p in rb["packs"]]
+    listed = [p + "/" for p in rb["packs"]]
     return lambda folder: bool(rx.search(folder)) or any((folder + "/").startswith(pk) for pk in listed)
 
 

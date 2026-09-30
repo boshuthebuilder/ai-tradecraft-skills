@@ -76,7 +76,7 @@ def main():
     migr = rb["migrations_dir"]
     reserved = BASE_RESERVED | set(rb["reserved"]) | {rb["wiki_dir"]}
     img_cap = int(rb["image_cap_mb"]) * 1024 * 1024
-    in_pack = common.pack_matcher(rb)
+    in_pack = common.pack_matcher(root, rb)
     log = common.logger(work, "audit")
     folder = os.path.basename(root)
 
@@ -141,9 +141,15 @@ def main():
     # ---- hash (with cache) ------------------------------------------------------------
     cache_p = a.cache or os.path.join(work, "hashcache.json")
     try:
-        cache = json.load(open(cache_p, encoding="utf-8"))
+        with open(cache_p, encoding="utf-8") as f:
+            cache = json.load(f)
     except (OSError, ValueError):
         cache = {}
+
+    def save_cache():
+        with open(cache_p + ".tmp", "w", encoding="utf-8") as f:
+            json.dump(newcache, f)
+        os.replace(cache_p + ".tmp", cache_p)
     newcache = {}
     meta = {}
     done_bytes = 0
@@ -182,10 +188,8 @@ def main():
         done_bytes += meta[rel]["size"]
         if i % 250 == 0:
             log("hashed %d/%d  %.1f GB" % (i, len(items), done_bytes / 1e9))
-            json.dump(newcache, open(cache_p + ".tmp", "w", encoding="utf-8"))
-            os.replace(cache_p + ".tmp", cache_p)
-    json.dump(newcache, open(cache_p + ".tmp", "w", encoding="utf-8"))
-    os.replace(cache_p + ".tmp", cache_p)
+            save_cache()
+    save_cache()
     log("hashing done in %.0fs" % (time.time() - t0))
 
     # ---- group, canonical, copy kinds -------------------------------------------------
@@ -212,10 +216,10 @@ def main():
         kinds = [{"path": c, "kind": "canonical"}]
         for p in paths[1:]:
             pdir = os.path.dirname(p)
-            if pdir == cdir:
-                k = "redundant"
-            elif in_pack(pdir):
+            if in_pack(pdir):
                 k = "pack"
+            elif pdir == cdir:
+                k = "redundant"
             else:
                 sx, sc = dir_ids[pdir], dir_ids[cdir]
                 k = "redundant" if len(sx) >= 3 and len(sx & sc) / len(sx) >= 0.8 else "working_copy"
@@ -298,7 +302,8 @@ def main():
     mpath = os.path.join(out, "manifest.json")
     prev = {}
     if os.path.exists(mpath):
-        pm = json.load(open(mpath, encoding="utf-8"))
+        with open(mpath, encoding="utf-8") as f:
+            pm = json.load(f)
         if pm.get("schema") not in (SCHEMA, "family-ai-preprocess-manifest/1"):
             raise common.ToolError("foreign manifest schema: %r" % pm.get("schema"))
         prev = pm.get("entries", {})
