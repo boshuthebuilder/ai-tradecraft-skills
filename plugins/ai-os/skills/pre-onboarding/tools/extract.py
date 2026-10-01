@@ -10,6 +10,7 @@ LibreOffice when it is installed. Resumable: an existing record is never rewritt
 
     python3 extract.py --root R --lane main --worker 0/4
     python3 extract.py --root R --lane apps
+    python3 extract.py repath --root R [--apply]     after a round moved documents: paths from the manifest, by hash
 
 Record: id, path, class, status (ok, partial, blank, photo, listed, no_reader, needs_vision, failed), page_count,
 tiers, chars, extractor, extracted_at, pages[{n, text, tier, engine?, conf?}], notes?. A tier whose tool is missing
@@ -539,5 +540,89 @@ def main():
     return 1 if failed else 0
 
 
+# ------------------------------------------------------------------------------------ repath
+
+def repath_unsettled(entries):
+    """{id: why} for each live entry whose paths the manifest's canonical choice does not settle: no current path,
+    copies naming no canonical copy, more than one, or one other than the current path, and a current path another
+    live entry also holds. Repathing any record of one would guess."""
+    out, holders = {}, collections.defaultdict(list)
+    for h, e in entries.items():
+        if "departed" in e.get("flags", []):
+            continue
+        cur, copies = e.get("current_path"), e.get("copies") or []
+        canon = [c.get("path") for c in copies if isinstance(c, dict) and c.get("kind") == "canonical"]
+        if not isinstance(cur, str) or not cur:
+            out[h] = "no current path"
+        elif copies and canon != [cur]:
+            out[h] = "%d live paths, canonical %s, current path %r" % (len(copies), canon or "none", cur)
+        else:
+            holders[cur].append(h)
+    for cur, hs in holders.items():
+        for h in hs if len(hs) > 1 else []:
+            out[h] = "current path %r is also held by %s" % (cur, ", ".join(x[:12] for x in hs if x != h))
+    return out
+
+
+def repath(argv):
+    """`extract.py repath`: rewrite each extract record's `path` to its document's current path in the manifest,
+    matched by content hash (the record's id). No document is read again and no model is called; nothing else in a
+    record changes. A dry run by default; --apply writes, through the guarded writer (--read-only-root refuses a
+    write inside the folder before any is made). Records of departed documents, and records whose id the manifest
+    does not hold, are left as they are and listed. When any record's document has paths the manifest's canonical
+    choice does not settle (`repath_unsettled`), it refuses, naming each, and writes nothing (exit 2)."""
+    ap = common.base_args("Repath extract records from the manifest by content hash (no re-read)")
+    ap.prog = "extract.py repath"
+    ap.add_argument("--manifest", help="default <root>/_Audit/manifest.json")
+    ap.add_argument("--out", help="the extract records (default <root>/_Audit/extract)")
+    ap.add_argument("--apply", action="store_true", help="write the repathed records (default: a dry run)")
+    a = ap.parse_args(argv)
+    root, _settings_dir, _work = common.resolve(a)
+    records = os.path.realpath(a.out) if a.out else os.path.join(root, "_Audit", "extract")
+    mpath = a.manifest or os.path.join(root, "_Audit", "manifest.json")
+    try:
+        with open(mpath, encoding="utf-8") as f:
+            entries = json.load(f)["entries"]
+        names = sorted(n for n in os.listdir(records) if n.endswith(".json"))
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        raise common.ToolError("cannot repath: %s" % e)
+    unsettled, moves, left, unknown, current = repath_unsettled(entries), [], [], [], 0
+    refused = []
+    for n in names:
+        path = os.path.join(records, n)
+        try:
+            with open(path, encoding="utf-8") as f:
+                rec = json.load(f)
+        except (OSError, ValueError) as e:
+            raise common.ToolError("cannot repath: %s: %s" % (path, e))
+        eid = n[:-5]
+        if not (isinstance(rec, dict) and rec.get("id") == eid and isinstance(rec.get("path"), str)):
+            raise common.ToolError("cannot repath: %s is not an extract record for %s (an id and a path)" % (path, eid))
+        e = entries.get(eid)
+        if e is None:
+            unknown.append([eid, rec["path"]])
+        elif "departed" in e.get("flags", []):
+            left.append([eid, rec["path"]])
+        elif eid in unsettled:
+            refused.append("%s (%s): %s" % (eid, rec["path"], unsettled[eid]))
+        elif rec["path"] != e["current_path"]:
+            moves.append((path, rec, rec["path"], e["current_path"]))
+        else:
+            current += 1
+    if refused:
+        raise common.ToolError("refused, nothing written: the manifest does not settle where %d record(s) belong: %s"
+                               % (len(refused), "; ".join(refused)))
+    writer = common.Writer(root if a.read_only_root else None)
+    if a.apply:  # the records share one folder, so a refused write is refused at the first, before any is made
+        for path, rec, _old, new in moves:
+            rec["path"] = new
+            writer.json(path, rec)
+    print(json.dumps(collections.OrderedDict([
+        ("records", len(names)), ("applied", a.apply), ("paths_changed", len(moves)),
+        ("already_current", current), ("moves", [[rec["id"], old, new] for _p, rec, old, new in moves]),
+        ("departed_left", left), ("not_in_manifest", unknown)]), ensure_ascii=False, indent=1))
+    return 0
+
+
 if __name__ == "__main__":
-    common.run_main(main)
+    common.run_main(lambda: repath(sys.argv[2:]) if sys.argv[1:2] == ["repath"] else main())

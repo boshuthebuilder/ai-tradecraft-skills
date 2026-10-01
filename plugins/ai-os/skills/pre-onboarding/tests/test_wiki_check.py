@@ -3,9 +3,10 @@
     python3 -m unittest discover plugins/ai-os/skills/pre-onboarding/tests
 
 Each test works on its own copy of the fixture, with the frozen tests/expected/manifest.json as its manifest and the
-Schema compiled into the copy; the committed fixture is never touched. The fixture has no cards, so the copy gets a
-few synthetic ones (CARDS below) for the review prompts' facts. Each defect the checker looks for is planted once in
-a fresh copy and must be reported exactly once, as the only problem.
+Schema compiled into the copy; the committed fixture is never touched. The copy starts before review: the fixture's
+prepared records (its extracts, cards and acceptance record, which readiness reads) are removed, and a few synthetic
+cards (CARDS below) carry the review prompts' facts. Each defect the checker looks for is planted once in a fresh
+copy and must be reported exactly once, as the only problem.
 """
 import hashlib
 import json
@@ -93,6 +94,9 @@ def make_copy(parent):
     """A fixture copy under `parent` with the frozen manifest, a compiled Schema twin and CARDS; returns its root."""
     root = os.path.join(parent, "Alex Personal")
     shutil.copytree(FIXTURE, root)
+    for name in ("extract", "cards"):
+        shutil.rmtree(os.path.join(root, "_Audit", name))
+    os.remove(os.path.join(root, ACCEPTANCE))
     shutil.copy(MANIFEST, os.path.join(root, "_Audit", "manifest.json"))
     compile_schema(root, os.path.join(parent, "work"))
     ids = {e["current_path"]: h for h, e in json.loads(read(MANIFEST))["entries"].items()}

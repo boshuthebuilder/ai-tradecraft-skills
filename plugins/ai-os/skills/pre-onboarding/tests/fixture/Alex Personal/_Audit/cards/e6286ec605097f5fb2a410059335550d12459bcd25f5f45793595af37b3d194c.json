@@ -1,0 +1,28 @@
+{
+ "id": "e6286ec605097f5fb2a410059335550d12459bcd25f5f45793595af37b3d194c",
+ "doc_type": "Transcript",
+ "party": "Alex Example",
+ "parties": [
+  "École d'Exemple"
+ ],
+ "doc_date": "",
+ "title": "French B1 term transcript (Cours de français)",
+ "summary": "The term transcript of the B1 French course at École d'Exemple, Paris: written comprehension 16/20, speaking 14/20. The teacher recommends moving up to B2 in September.",
+ "key_facts": {
+  "dates": [],
+  "amounts": [],
+  "reference_numbers": []
+ },
+ "category": "Language Study",
+ "language": "fr",
+ "sensitive": false,
+ "confidence": "high",
+ "look": "",
+ "proposed_name": "",
+ "card_meta": {
+  "model": "fixture",
+  "via": "fixture",
+  "batch": "fixture",
+  "created_at": "2024-06-30T12:00:00+0000"
+ }
+}

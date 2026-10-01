@@ -78,7 +78,7 @@ def produce(tmp, with_extract):
         "summary.json": open(os.path.join(out, "_Audit", "summary.json"), encoding="utf-8").read(),
         "wiki-schema.json": open(os.path.join(root, ".familyai", "wiki-schema.json"), encoding="utf-8").read(),
         "wiki-check.json": run("wiki.py", "check", *common, "--manifest", manifest, env=env),
-        "readiness.json": run("readiness.py", *common, "--manifest", manifest, env=env),
+        "readiness.json": run("readiness.py", *common, "--manifest", manifest, env=env, ok=(0,)),  # green, or fail
         "plan-light.csv": None,
     }
     run("plan.py", "light", "--root", root, "--manifest", manifest, "--out", os.path.join(out, "plan"), env=env,

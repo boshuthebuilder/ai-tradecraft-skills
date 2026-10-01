@@ -1,0 +1,30 @@
+{
+ "id": "ba3c651ccc2bac0b3b4dbfa547ea7f045c292a68734b11af3ff84bcf891c4b8c",
+ "doc_type": "Spreadsheet",
+ "party": "Alex Example",
+ "parties": [],
+ "doc_date": "",
+ "title": "Household budget, final",
+ "summary": "Planned monthly spending: rent 1450, utilities 150 and savings 400.",
+ "key_facts": {
+  "dates": [],
+  "amounts": [
+   "rent 1450 per month",
+   "utilities 150 per month",
+   "savings 400 per month"
+  ],
+  "reference_numbers": []
+ },
+ "category": "Finance & Tax",
+ "language": "en",
+ "sensitive": false,
+ "confidence": "high",
+ "look": "It appears to be an export of Budget.numbers under another name.",
+ "proposed_name": "",
+ "card_meta": {
+  "model": "fixture",
+  "via": "fixture",
+  "batch": "fixture",
+  "created_at": "2024-06-30T12:00:00+0000"
+ }
+}

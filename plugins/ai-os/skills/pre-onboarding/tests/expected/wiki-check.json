@@ -36,72 +36,72 @@
   "blocks_malformed": [],
   "professional_not_named": []
  },
- "acceptance": "not recorded",
+ "acceptance": "accepted",
  "acceptance_counts": {
-  "accepted": 0,
-  "not recorded": 12,
+  "accepted": 12,
+  "not recorded": 0,
   "refused": 0
  },
  "acceptance_pages": [
   [
    "00 Index/00 Index.md",
-   "not recorded",
-   "no verdict recorded"
+   "accepted",
+   "both lenses accepted this version"
   ],
   [
    "01 Deadlines/01 Deadlines.md",
-   "not recorded",
-   "no verdict recorded"
+   "accepted",
+   "both lenses accepted this version"
   ],
   [
    "02 People/02 People.md",
-   "not recorded",
-   "no verdict recorded"
+   "accepted",
+   "both lenses accepted this version"
   ],
   [
    "10 Identity/10 Identity.md",
-   "not recorded",
-   "no verdict recorded"
+   "accepted",
+   "both lenses accepted this version"
   ],
   [
    "20 Finance/20 Finance.md",
-   "not recorded",
-   "no verdict recorded"
+   "accepted",
+   "both lenses accepted this version"
   ],
   [
    "20 Finance/Bank accounts.md",
-   "not recorded",
-   "no verdict recorded"
+   "accepted",
+   "both lenses accepted this version"
   ],
   [
    "20 Finance/Cash position.md",
-   "not recorded",
-   "no verdict recorded"
+   "accepted",
+   "both lenses accepted this version"
   ],
   [
    "20 Finance/Tax.md",
-   "not recorded",
-   "no verdict recorded"
+   "accepted",
+   "both lenses accepted this version"
   ],
   [
    "30 Home/30 Home.md",
-   "not recorded",
-   "no verdict recorded"
+   "accepted",
+   "both lenses accepted this version"
   ],
   [
    "40 Study/40 Study.md",
-   "not recorded",
-   "no verdict recorded"
+   "accepted",
+   "both lenses accepted this version"
   ],
   [
    "90 Schema/90 Schema.md",
-   "not recorded",
-   "no verdict recorded"
+   "accepted",
+   "both lenses accepted this version"
   ],
   [
    "91 Log/91 Log.md",
-   "not recorded",
-   "no verdict recorded"
+   "accepted",
+   "both lenses accepted this version"
   ]
  ],
  "acceptance_not_verified": [],
