@@ -21,12 +21,98 @@ twins' formats are in [`../references/settings.md`](../references/settings.md).
 | `cards.py` | One card per document; deterministic whole-chunk join; contamination guard |
 | `refs.py` | Deterministic repair of truncated reference numbers from each card's own source |
 | `settings.py` | Compile `wiki-schema.json` from the Schema's tables; check both twins and the rulebook's facts |
-| `wiki.py` | Evidence bundles, wiki checks, page moves with link rewriting, charts from cited rows |
+| `wiki.py` | Folder profile, evidence bundles, drafting briefs, checks, page moves, drift, charts from cited rows |
 | `readiness.py` | Hand-off readiness, including the hand-off contract |
 | `common.py` | Shared: settings loading, guarded writes, package hash, JSON parsing, token estimate |
 
 The package hash (sha256 over an iWork package's members in walk order, directories and files sorted, each member
 contributing relative path, NUL, member sha256 hex, newline) is shared with any deployment that reads the manifest.
+
+## Building the wiki: `wiki.py` and the stage templates
+
+The stages and who holds the pen at each are [`wiki-onboarding`](../../wiki-onboarding/SKILL.md)'s and
+[the core wiki rule](../../wiki-maintenance/SKILL.md#the-core-wiki-rule)'s. A template in
+[`templates/`](templates/) briefs each stage's author: `readers-interview.md`, `structure-brief.md` (the librarian),
+`contract-brief.md` and `page-brief.md` (the page's professional), `review-owner.md` and `review-professional.md`.
+Each opens with a comment naming its stage and who fills it: `wiki.py brief` renders the page brief whole and drops
+the comment; the coordinating agent fills the others. Fields are in braces and doubled braces are literal, so each
+fills as a Python format string. Each asks for JSON back.
+
+    wiki.py profile --root <folder> [--depth 2] [--parties 5] [--out <file.json>]
+    wiki.py bundles --root <folder> [--out <dir>] [--reuse] [--text-cap 12000]
+    wiki.py brief   --root <folder> --page <page> [--page <page> ...] [--bundles <dir>] [--out <file.md>]
+    wiki.py move    --root <folder> --map <file.json>
+    wiki.py drift   --root <folder> [--out <file.json>]
+
+Each also takes `--settings-dir`, `--work` and `--manifest` (default `<root>/_Audit/manifest.json`); `profile` and
+`bundles` take `--cards` and `--extract` (default `<root>/_Audit/cards` and `<root>/_Audit/extract`). Bundles and
+briefs are working files, refused inside the folder; `profile` and `drift` print JSON, also to `--out` where
+`--read-only-root` allows.
+
+**`profile`** gives the librarian, per top-level folder and subfolder down to `--depth`, its live documents (by
+current path), the copies held there (and the folders their documents live in), the documents' cards by
+category, the span of their `doc_date`s and their top parties, aliases folded to the rulebook's canonical names.
+Migrating and departed entries are counted, not profiled. For example, a folder that only mirrors others:
+
+    {"folder": "05 Archive", "documents": 0, "copies": 4, "copies_of": {"04 Study": 3, "06 Work": 1},
+     "carded": 0, "categories": {}, "dated": 0, "earliest": null, "latest": null, "parties": []}
+
+**`bundles`** routes every live manifest entry outside the migrations folder by the compiled routing (longest
+prefix; a note row routes nothing) and writes one `bundle_<NN>.jsonl` per section: a line per document with its
+path, copies and card, and the full text (capped) for an active section; in any other section, reading, photos
+and other bulk material is listed compact, without summary. `bundles.json` records `manifest_sha256`,
+`routing_sha256` (the routing rows and section kinds), the counts, and the `unrouted` and `uncarded` paths, which
+exit 1. A rebuild removes section files it no longer writes.
+
+**Staleness.** A consumer checks the bundles before using them: `brief`, and `bundles --reuse`, which reuses fresh
+bundles without rebuilding. Either refuses (exit 2) bundles whose recorded `manifest_sha256` differs from the
+current manifest's, or whose `routing_sha256` differs from the current Schema's, or whose files are missing, and
+names the command to rebuild them, with the non-default arguments the bundles were built with (recorded in
+`bundles.json` as `arguments`). A rebuild removes `bundles.json` before anything else, so one that fails part way
+leaves none to trust. Any migration or curation round ends in a re-audit, which rewrites the manifest,
+so bundles built before it are refused rather than read.
+
+**`brief`** renders `templates/page-brief.md` for a set of pages (sorted, so the order given does not matter):
+each page's professional, deliverable and tone (`common.page_voice`) and its section's contract (reader,
+questions, fields; a `fixed` section takes the method's shape, and any other section without a contract is
+refused), the routing into its section and its bundle; the owner context from `rulebook.json` (folder
+description, people with aliases, identifier policy, boundaries); the page map; each page's rationale block with
+what the Schema fixes filled in; the JSON a drafting agent returns (what `wiki-onboarding` step 4a names: each
+page's full text, rationale block and Index entry, the agent's open questions and its check result);
+and the checker command every drafting agent runs, `python3 <tools>/wiki.py check --root <root> --work <work>`.
+The page map is every page under the wiki folder, every page in the Schema's Page professionals table, each Layout
+section's folder note (`<NN Name>/<NN Name>.md`) and the pages briefed, each marked `exists` or `planned`. The
+same inputs render the same bytes.
+
+**`move`** moves pages (`{"20 Finance/Tax.md": "25 Tax & Duty/Tax & returns.md"}`) and rewrites every relative
+link to or from a moved page, percent-encoded with `/` and `&` literal as `productivity:portable-markdown` sets
+out (`../25%20Tax%20&%20Duty/Tax%20&%20returns.md`); links nothing moved under are left as written. It renames the
+moved pages' rationale headings, removes the folders it empties, reports each moved page the Schema's Page
+professionals table still names (edit the Schema, then compile), then lists every dead link left in the wiki;
+either exits 1. It refuses, before it changes anything, a missing page, an existing or shared destination, one
+under a file, one differing only in case from a page, another destination or a folder (a case-only rename of the
+page itself stays possible where the file system allows it), a path outside the wiki and the Schema page itself.
+Every destination is checked against the pages as they are before the run, so a swap (A to B and B to A) or a
+chain (A to B and B to C) is refused as `destination exists`: make a swap in three runs through a temporary name
+(A to T, then B to A, then T to B) and a chain in two from its far end (B to C, then A to B). It also reports, and
+exits 1 for, each move that leaves the Schema's Layout wrong (`layout_to_update`): a page moved out of every Layout
+section, or a section's folder note moved away.
+
+A run writes every moved page at its destination, then rewrites the pages that link to them, and only then removes
+the old pages. A failure part way therefore leaves every old page in place and every unmoved page's links resolving,
+but a moved page already written may link to another moved page not yet written, and a rerun of the same map is
+refused (`destination exists`). To recover, delete the pages the failed run wrote at the map's destinations, then
+run the same map again.
+
+**`drift`** lists `[page, line, path]` for every `sources:` entry and every backticked path in a page body (fenced
+blocks skipped) that cites a departed path (held by a departed entry and by nothing live) or a migrating one
+(staged under the migrations folder, or the path it was staged from). The Log is history and is not read. Every
+count is reported, zero included, and any citation exits 1. After `03 Home/Lease notes .txt` leaves the fixture
+and a re-audit marks it departed:
+
+    {"wiki": "Alex Personal Wiki", "pages_read": 11, "departed_paths": 1, "migrating_paths": 2,
+     "citing_departed": 1, "citing_migrating": 0, "pages_citing": 1,
+     "departed": [["30 Home/30 Home.md", 31, "03 Home/Lease notes .txt"]], "migrating": []}
 
 ## Charts: `wiki.py chart`
 

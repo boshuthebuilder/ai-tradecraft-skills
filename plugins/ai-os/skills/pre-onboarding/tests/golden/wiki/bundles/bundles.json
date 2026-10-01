@@ -1,0 +1,25 @@
+{
+ "manifest_sha256": "9bd5c88fd9430483a61ee917026b79744c83bf3f6e329bba3dc4795dde30d66e",
+ "routing_sha256": "2304d9b5b9b8a8e8898c23756a89b22df45cd9fe43a03793e9eeaf5dad6a66d4",
+ "arguments": {},
+ "text_cap": 12000,
+ "sections": {
+  "10": 2,
+  "20": 6,
+  "30": 4,
+  "40": 4
+ },
+ "compact": {
+  "40": 2
+ },
+ "files": {
+  "10": "bundle_10.jsonl",
+  "20": "bundle_20.jsonl",
+  "30": "bundle_30.jsonl",
+  "40": "bundle_40.jsonl"
+ },
+ "unrouted": [
+  "IMG_0001.jpg"
+ ],
+ "uncarded": []
+}

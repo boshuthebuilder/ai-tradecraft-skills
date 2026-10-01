@@ -1,15 +1,56 @@
 #!/usr/bin/env python3
-"""Wiki tools for drafting and checking a folder's wiki.
+"""Wiki tools for proposing, drafting and checking a folder's wiki.
 
-    wiki.py bundles --root R --out <dir>       per-section evidence bundles for drafting agents (JSONL), from cards
-    wiki.py check   --root R [--out <json>]    deterministic checks; every item a count, zero included
-    wiki.py move    --root R --map <json>      move pages ({"old rel": "new rel"}) and rewrite every relative link
+    wiki.py profile --root R [--depth 2] [--out <json>]   per-folder documents, copies, cards by category, date span
+                                                           and top parties, for the librarian's structure proposal
+    wiki.py bundles --root R [--out <dir>] [--reuse]      per-section evidence bundles (JSONL) for drafting agents,
+                                                           in <work>/bundles/ by default, never in the folder
+    wiki.py brief   --root R --page P [--page P ...] [--out <md>]
+                                                           the drafting brief for a set of pages, from
+                                                           templates/page-brief.md
+    wiki.py check   --root R [--out <json>]                deterministic checks; every item a count, zero included
+    wiki.py move    --root R --map <json>                  move pages ({"old rel": "new rel"}), rewrite every
+                                                           relative link to or from them
+    wiki.py drift   --root R [--out <json>]                page lines and `sources:` entries citing a departed or
+                                                           migrating path
     wiki.py chart   --root R --kind K --data <rows.csv|rows.json> --title T [--out <md>]
-                                               a Mermaid chart and its data table, from cited rows
+                                                           a Mermaid chart and its data table, from cited rows
 
-Bundles are routed by the compiled Schema routing (longest prefix wins) and record the manifest's sha256; a bundle
-older than the manifest is refused (bundles go stale after any migration). Pages link only to other pages
-(relative, spaces as %20, `&` literal); source files are named by folder-relative path in backticks.
+Every subcommand takes --settings-dir, --work, --manifest (default <root>/_Audit/manifest.json) and
+--read-only-root; profile and bundles also take --cards and --extract (default <root>/_Audit/cards, .../extract).
+Page paths are relative to the wiki folder, source paths to the folder. Bundles and briefs are working files, never
+written inside the folder; profile, check and drift print JSON and write --out where --read-only-root allows.
+
+Bundles: each live manifest entry outside the migrations folder routes by the compiled Schema routing, its
+longest matching prefix (a note row, with no section, routes nothing). A routed entry with a card joins its
+section's `bundle_<NN>.jsonl`; entries with no route, or routed but with no card, are listed as `unrouted` and
+`uncarded`. `bundles.json` records the manifest's sha256, a digest of the routing and section kinds the bundles
+were built by, and the non-default arguments they were built with. A consumer (`brief`, and `bundles --reuse`)
+refuses bundles whose recorded digests differ from the current manifest's and routing's: bundles go stale after any
+migration, re-audit or routing change, and are rebuilt by the command the refusal names. A rebuild removes
+bundles.json first, so one that fails part way leaves none to trust.
+
+Brief: the pages' professionals, deliverables and tones (`common.page_voice`), their sections' contracts, the owner
+context from rulebook.json, the page map, the bundle paths (refused when stale), each page's rationale block to
+fill, the JSON a drafting agent returns and the checker command it runs. The page map is every page that exists
+(each .md file under the wiki folder, dot folders skipped) or is planned: each page in the Schema's Page
+professionals table, each Layout section's folder note `<NN Name>/<NN Name>.md`, and the pages being briefed.
+The same inputs render the same bytes.
+
+Links: pages link only to other pages, by relative path percent-encoded with `/` and `&` literal (spaces as %20);
+source files are named by folder-relative path in backticks. `move` refuses a map it could not carry out whole
+before writing anything, writes the moved pages before rewriting links to them, rewrites only links whose page or
+target moved, removes the folders it empties and renames the pages' rationale headings. It names each moved page
+the Schema's Page professionals table lists and each move that leaves the Layout wrong (exit 1, with any dead link
+left in the wiki: edit the Schema, then compile). A swap or a chain is refused: tools/README.md gives the runs
+that make one.
+
+Drift: a departed path is one a departed entry held that no live entry holds; a migrating path is one staged under
+the migrations folder or the path it was staged from, when nothing live holds it. The Log's pages are history and
+are not read. Fences open and close as `chart_blocks` reads them; line numbers count from the page's first line.
+
+Malformed input (a manifest, card, extract record or bundles.json of the wrong shape, a file where a folder must
+be) is refused by name, exit 2.
 
 Charts: `--data` is a CSV file with a header row or a JSON array of objects, rows kept in order, every row with the
 same columns: bar `label` (or `period`), `value`, `unit`, `source`; line `period`, `value`, `unit`, `source`; pie
@@ -25,14 +66,20 @@ import collections
 import csv
 import datetime
 import decimal
+import functools
 import glob
+import hashlib
 import json
 import os
+import posixpath
 import re
+import shlex
 import sys
 import urllib.parse
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import cards  # noqa: E402
 import common  # noqa: E402
 
 BULK_TYPES = re.compile(r"(?i)reading|course material|lecture|book|textbook|journal|article|paper|photo|slides|"
@@ -41,11 +88,103 @@ BULK_TYPES = re.compile(r"(?i)reading|course material|lecture|book|textbook|jour
 LINK = re.compile(r"\]\(([^)\s]+?\.md)(#[^)]*)?\)")
 EM_DASH = "\u2014"
 REQUIRED_FM = ("provenance", "last-updated", "status")
+TEMPLATES = os.path.join(HERE, "templates")
+LOG_DIR = "91 Log"  # the Log section: its lines are history, so drift (like check) does not read them
+BUNDLE_FILE = re.compile(r"bundle_.+\.jsonl")
+DOC_DATE = re.compile(r"[0-9]{4}(-[0-9]{2}(-[0-9]{2})?)?")
+TEXT_CAP = 12000  # characters of a document's text an active section's bundle carries
+
+
+def read_text(path):
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+
+def read_json(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except OSError as e:
+        raise common.ToolError("cannot read %s (%s)" % (path, e.strerror or e))
+    except ValueError as e:
+        raise common.ToolError("%s: not valid JSON (%s)" % (path, e))
+
+
+def read_object(path):
+    """The JSON object in `path` (`common.read_json_object`), an unreadable file named rather than a traceback."""
+    try:
+        return common.read_json_object(path)
+    except OSError as e:
+        raise common.ToolError("cannot read %s (%s)" % (path, e.strerror or e))
+
+
+def os_errors(fn):
+    """A subcommand whose OS errors (a file where a folder must be, a folder where a file must be, no permission)
+    exit as named errors, never as tracebacks."""
+    @functools.wraps(fn)
+    def run(a):
+        try:
+            return fn(a)
+        except OSError as e:
+            raise common.ToolError("%s: %s" % (e.filename or fn.__name__, e.strerror or e))
+    return run
 
 
 def load_manifest(root, path=None):
+    """The manifest's entries, refused unless each is an object with a current path, and flags and copies (when
+    present) are lists."""
     p = path or os.path.join(root, "_Audit", "manifest.json")
-    return p, json.load(open(p, encoding="utf-8"))["entries"]
+    if not os.path.exists(p):
+        raise common.ToolError("manifest missing: %s; run audit.py first" % p)
+    entries = read_object(p).get("entries")
+    if not isinstance(entries, dict):
+        raise common.ToolError("%s has no \"entries\" object; it is not a manifest audit.py wrote" % p)
+    for h, e in sorted(entries.items()):
+        ok = (isinstance(e, dict) and isinstance(e.get("current_path"), str) and e["current_path"] != ""
+              and isinstance(e.get("flags", []), list) and isinstance(e.get("copies", []), list)
+              and all(isinstance(c, dict) and isinstance(c.get("path"), str) for c in e.get("copies", [])))
+        if not ok:
+            raise common.ToolError("%s: entry %s is malformed: it needs a current_path, and its flags and copies "
+                                   "must be lists (copies of {path, kind}); re-run audit.py" % (p, h))
+    return p, entries
+
+
+CARD_TYPES = {"doc_type": str, "party": str, "parties": list, "doc_date": str, "title": str, "summary": str,
+              "key_facts": dict, "category": str, "language": str, "sensitive": bool}
+
+
+def load_card(cards_dir, h):
+    """The card for entry `h`, None when it has none; refused, named, when it is not an object or a field it has
+    is of the wrong type (profile and bundles read cards alike)."""
+    path = os.path.join(cards_dir, h + ".json")
+    if not os.path.exists(path):
+        return None
+    try:
+        card = read_object(path)
+    except common.ToolError as e:
+        raise common.ToolError("malformed card: %s; re-card it (cards.py work --redo)" % e)
+    for key, kind in CARD_TYPES.items():
+        if key in card and not (isinstance(card[key], kind)
+                                and (key != "parties" or all(isinstance(x, str) for x in card[key]))):
+            raise common.ToolError("malformed card: %s: %s must be %s; re-card it (cards.py work --redo)"
+                                   % (path, key, "a list of text" if key == "parties" else kind.__name__))
+    return card
+
+
+def load_extract(extract_dir, h, card_path):
+    path = os.path.join(extract_dir, h + ".json")
+    if not os.path.exists(path):
+        raise common.ToolError("card %s has no extract record %s; extract the document again" % (card_path, path))
+    xr = read_object(path)
+    pages = xr.get("pages", [])
+    if not isinstance(pages, list):
+        raise common.ToolError("malformed extract record %s: pages must be a list; extract the document again" % path)
+    for i, p in enumerate(pages, 1):
+        n, text = (p.get("n"), p.get("text")) if isinstance(p, dict) else (None, None)
+        if not (isinstance(p, dict) and (n is None or type(n) is int) and (text is None or isinstance(text, str))):
+            raise common.ToolError("malformed extract record %s: page %d must be an object whose n is a whole number "
+                                   "and whose text is text or null; extract the document again" % (path, i))
+    return xr
 
 
 def full_text(r):
@@ -53,31 +192,269 @@ def full_text(r):
                        for p in r.get("pages", []) if (p.get("text") or "").strip() and p.get("tier") != "photo")
 
 
+def wiki_pages(wiki):
+    """Every page under the wiki folder, relative to it with `/` separators, sorted; dot folders and files (an
+    editor's settings) are skipped, as `check` skips them."""
+    out = []
+    for d, ds, fs in os.walk(wiki):
+        ds[:] = sorted(x for x in ds if not x.startswith("."))
+        out += [os.path.relpath(os.path.join(d, f), wiki).replace(os.sep, "/") for f in fs
+                if f.endswith(".md") and not f.startswith(".")]
+    return sorted(out)
+
+
+def is_page_path(p):
+    """A page path relative to the wiki folder: `/` separated, ending in .md, no part empty, hidden (a dot first),
+    with a space at either end or holding a control character (below U+0020, or U+007F)."""
+    return (isinstance(p, str) and p.endswith(".md") and "\\" not in p
+            and not any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in p)
+            and all(x and x == x.strip() and not x.startswith(".") for x in p.split("/")))
+
+
+def schema_rel(root, rb, ws):
+    """The Schema page relative to the wiki folder, or None."""
+    rel = ws["schema_path"] if ws else common.schema_page(root, rb["wiki_dir"])
+    return rel[len(rb["wiki_dir"]) + 1:] if rel else None
+
+
+def working_file(root, path, what):
+    """`path`, refused when it is inside the folder: `what` is a working file, kept in the work dir or elsewhere."""
+    real = os.path.realpath(path)
+    if real == root or real.startswith(root + os.sep):
+        raise common.ToolError("%s are working files, never written inside the folder: %s" % (what, path))
+    return real
+
+
+def cards_dirs(a, root):
+    """The cards and extract folders, refused by name when either is a file."""
+    out = []
+    for given, flag, default, kind in ((a.cards, "--cards", "cards", "card"),
+                                       (a.extract, "--extract", "extract", "extract")):
+        path = os.path.realpath(given) if given else os.path.join(root, "_Audit", default)
+        if os.path.exists(path) and not os.path.isdir(path):
+            raise common.ToolError("%s %s is a file, not a folder of %s records" % (flag, path, kind))
+        out.append(path)
+    return tuple(out)
+
+
+# ------------------------------------------------------------------------------------ profile
+
+def people_names(rb):
+    """Every name and alias the rulebook records, lower-cased, to its canonical name."""
+    names = {}
+    for p in rb["people"]:
+        for n in [p["name"]] + p.get("also", []):
+            names.setdefault(n.strip().lower(), p["name"])
+    return names
+
+
+@os_errors
+def profile(a):
+    """Per folder, for the folder and each subfolder down to --depth: live documents (by current path), copies
+    held there of documents whose current path is elsewhere or beside them, and from the documents' cards the
+    categories, the doc_date span and the top parties (aliases folded to the rulebook's canonical names; each
+    document counts a party once)."""
+    if a.depth < 1 or a.parties < 1:
+        raise common.ToolError("--depth and --parties count from 1")
+    root, settings_dir, _work = common.resolve(a)
+    rb = common.load_rulebook(root, settings_dir)
+    _mp, man = load_manifest(root, a.manifest)
+    cards_dir, _x = cards_dirs(a, root)
+    names = people_names(rb)
+    migr = rb["migrations_dir"] + "/"
+    rows = collections.defaultdict(lambda: {"documents": 0, "copies": 0, "copies_of": collections.Counter(),
+                                            "carded": 0, "categories": collections.Counter(), "dates": [],
+                                            "parties": collections.Counter()})
+    total = {"documents": 0, "carded": 0, "copies": 0, "migrating": 0, "departed": 0}
+    categories = collections.Counter()
+
+    def folders(path):
+        parts = path.split("/")[:-1]
+        return ["/".join(parts[:i]) for i in range(1, min(len(parts), a.depth) + 1)] if parts else ["(root)"]
+
+    for h, e in sorted(man.items(), key=lambda x: x[1]["current_path"]):
+        p = e["current_path"]
+        if "departed" in e.get("flags", []):
+            total["departed"] += 1
+            continue
+        if p.startswith(migr):
+            total["migrating"] += 1
+            continue
+        card = load_card(cards_dir, h)
+        total["documents"] += 1
+        parties = set()
+        if card:
+            total["carded"] += 1
+            categories[card.get("category") or "Other"] += 1
+            for n in [card.get("party") or ""] + list(card.get("parties") or []):
+                n = n.strip()
+                if n and n.lower() != "unknown":
+                    parties.add(names.get(n.lower(), n))
+        for f in folders(p):
+            r = rows[f]
+            r["documents"] += 1
+            if card:
+                r["carded"] += 1
+                r["categories"][card.get("category") or "Other"] += 1
+                if DOC_DATE.fullmatch(card.get("doc_date") or ""):
+                    r["dates"].append(card["doc_date"])
+                r["parties"].update(parties)
+        for c in e.get("copies", []):
+            if c["path"] == p or c["path"].startswith(migr):
+                continue
+            total["copies"] += 1
+            for f in folders(c["path"]):
+                rows[f]["copies"] += 1
+                rows[f]["copies_of"][folders(p)[0]] += 1
+
+    def ranked(counter, n=None):
+        return [[k, v] for k, v in sorted(counter.items(), key=lambda x: (-x[1], x[0]))][:n]
+
+    out = collections.OrderedDict(folder=os.path.basename(root), depth=a.depth, **total)
+    out["uncarded"] = total["documents"] - total["carded"]
+    out["categories"] = dict(ranked(categories))
+    out["folders"] = [collections.OrderedDict(
+        folder=f, documents=r["documents"], copies=r["copies"], copies_of=dict(sorted(r["copies_of"].items())),
+        carded=r["carded"], categories=dict(ranked(r["categories"])), dated=len(r["dates"]),
+        earliest=min(r["dates"]) if r["dates"] else None, latest=max(r["dates"]) if r["dates"] else None,
+        parties=ranked(r["parties"], a.parties)) for f, r in sorted(rows.items())]
+    text = json.dumps(out, ensure_ascii=False, indent=1) + "\n"
+    if a.out:
+        common.Writer(root if a.read_only_root else None).text(a.out, text)
+    sys.stdout.write(text)
+    return 0
+
+
 # ------------------------------------------------------------------------------------ bundles
 
+def route(ws, path):
+    """The section number a folder-relative path routes to: its longest matching prefix's, or None when no prefix
+    matches or that prefix's row is a note (no section)."""
+    best = None
+    for r in ws["routing"]:
+        if path.startswith(r["prefix"]) and (best is None or len(r["prefix"]) > len(best["prefix"])):
+            best = r
+    return best["section"] if best else None
+
+
+def routing_digest(ws):
+    """sha256 of what routing a bundle depends on: every routing row's prefix and section, and each section's kind."""
+    basis = {"routing": [[r["prefix"], r["section"]] for r in ws["routing"]],
+             "kinds": {s["number"]: s["kind"] for s in ws["sections"]}}
+    return hashlib.sha256(json.dumps(basis, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+BUILD_ARGS = (("settings_dir", "--settings-dir"), ("manifest", "--manifest"), ("cards", "--cards"),
+              ("extract", "--extract"))
+BUNDLES_META = {"manifest_sha256": str, "routing_sha256": str, "arguments": dict, "sections": dict, "compact": dict,
+                "files": dict, "unrouted": list, "uncarded": list}
+
+
+def build_arguments(a):
+    """The non-default arguments `bundles` was given (absolute paths, and --text-cap when not the default), so a
+    rebuild command can repeat them."""
+    out = collections.OrderedDict((flag, os.path.realpath(getattr(a, key))) for key, flag in BUILD_ARGS
+                                  if getattr(a, key, None))
+    if getattr(a, "text_cap", TEXT_CAP) != TEXT_CAP:
+        out["--text-cap"] = str(a.text_cap)
+    return out
+
+
+def bundles_command(verb, root, bdir, arguments):
+    args = ["--root", root, "--out", bdir] + [x for kv in arguments.items() for x in kv]
+    return "%s them: wiki.py bundles %s" % (verb, " ".join(shlex.quote(x) for x in args))
+
+
+REUSE_ARGS = ("--cards", "--extract", "--text-cap")  # what `bundles --reuse` must have been built with, as asked
+
+
+def fresh_bundles(root, bdir, mpath, ws, arguments, reuse=False):
+    """bundles.json in `bdir`, refused unless it is one `bundles` wrote, built from the current manifest and routing,
+    with every section's file there. The rebuild command repeats the arguments the bundles were built with
+    (`arguments`, the caller's, when none are recorded). With `reuse`, the caller's --cards, --extract and
+    --text-cap (defaults included) must be those the bundles were built with."""
+    caller = arguments
+    meta_path = os.path.join(bdir, "bundles.json")
+    if not os.path.lexists(meta_path):
+        raise common.ToolError("no bundles in %s; %s" % (bdir, bundles_command("build", root, bdir, arguments)))
+    meta = read_object(meta_path)
+    recorded = meta.get("arguments")
+    texts = isinstance(recorded, dict) and all(isinstance(x, str) for kv in recorded.items() for x in kv)
+    if texts:
+        arguments = recorded
+    rebuild = bundles_command("rebuild", root, bdir, arguments)
+    bad = sorted(k for k, kind in BUNDLES_META.items() if not isinstance(meta.get(k), kind)
+                 or (k in ("sections", "compact") and not all(type(v) is int for v in meta[k].values()))
+                 or (k == "arguments" and not texts))
+    if bad:
+        raise common.ToolError("%s is not a bundles.json that wiki.py bundles wrote (%s missing or malformed); %s"
+                               % (meta_path, ", ".join(bad), rebuild))
+    have = common.sha256_file(mpath)
+    if meta.get("manifest_sha256") != have:
+        raise common.ToolError("stale bundles: %s records manifest sha256 %s, but %s is now %s (bundles go stale "
+                               "after any migration or re-audit); %s"
+                               % (meta_path, meta.get("manifest_sha256"), mpath, have, rebuild))
+    if meta.get("routing_sha256") != routing_digest(ws):
+        raise common.ToolError("stale bundles: %s was routed by another Schema routing or section kinds; %s"
+                               % (meta_path, rebuild))
+    missing = sorted(str(f) for f in meta["files"].values()
+                     if not (isinstance(f, str) and BUNDLE_FILE.fullmatch(f) and os.path.isfile(os.path.join(bdir, f))))
+    if missing:
+        raise common.ToolError("incomplete bundles in %s: %s missing; %s" % (bdir, ", ".join(missing), rebuild))
+    if reuse:
+        defaults = {"--cards": os.path.join(root, "_Audit", "cards"),
+                    "--extract": os.path.join(root, "_Audit", "extract"), "--text-cap": str(TEXT_CAP)}
+        for flag in REUSE_ARGS:
+            built, asked = arguments.get(flag, defaults[flag]), caller.get(flag, defaults[flag])
+            if built != asked:
+                raise common.ToolError("bundles in %s were built with %s %s, not %s; %s"
+                                       % (bdir, flag, built, asked, bundles_command("rebuild", root, bdir, caller)))
+    return meta
+
+
+def bundle_summary(meta):
+    return {"routed": sum(meta["sections"].values()), "sections": meta["sections"], "compact": meta["compact"],
+            "unrouted": meta["unrouted"], "uncarded": meta["uncarded"]}
+
+
+@os_errors
 def bundles(a):
-    root, settings_dir, _work = common.resolve(a)
+    root, settings_dir, work = common.resolve(a)
     rb = common.load_rulebook(root, settings_dir)
     ws = common.load_wiki_schema(root, settings_dir)
     mpath, man = load_manifest(root, a.manifest)
-    kinds = {s["number"]: s["kind"] for s in ws["sections"]}
-    routes = sorted(((r["prefix"], r["section"]) for r in ws["routing"] if r["section"]), key=lambda x: -len(x[0]))
-    cards_dir = os.path.join(root, "_Audit", "cards")
-    extract_dir = os.path.join(root, "_Audit", "extract")
-    out = os.path.abspath(a.out)
+    digest = common.sha256_file(mpath)
+    out = working_file(root, a.out, "bundles") if a.out else os.path.join(work, "bundles")
+    if os.path.exists(out) and not os.path.isdir(out):
+        raise common.ToolError("--out %s is a file; bundles go in a directory" % out)
     writer = common.Writer(root)
-    bund, unrouted, counts, compact = collections.defaultdict(list), [], collections.Counter(), collections.Counter()
+    arguments = build_arguments(a)
+    if a.reuse:
+        meta = fresh_bundles(root, out, mpath, ws, arguments, reuse=True)
+        print(json.dumps(bundle_summary(meta), ensure_ascii=False))
+        return 1 if meta["unrouted"] or meta["uncarded"] else 0
+    meta_path = os.path.join(out, "bundles.json")
+    if os.path.isdir(meta_path):
+        raise common.ToolError("%s is a directory; bundles.json must be a file, so remove it" % meta_path)
+    if os.path.lexists(meta_path):
+        os.remove(writer.check(meta_path))  # first: a rebuild that fails anywhere leaves no bundles.json to trust
+    kinds = {s["number"]: s["kind"] for s in ws["sections"]}
+    cards_dir, extract_dir = cards_dirs(a, root)
+    bund, unrouted, uncarded = collections.defaultdict(list), [], []
+    counts, compact = collections.Counter(), collections.Counter()
     for h, e in sorted(man.items(), key=lambda x: x[1]["current_path"]):
         p = e["current_path"]
         if "departed" in e.get("flags", []) or p.startswith(rb["migrations_dir"] + "/"):
             continue
-        sec = next((s for pre, s in routes if p.startswith(pre)), None)
-        cp = os.path.join(cards_dir, h + ".json")
-        if sec is None or not os.path.exists(cp):
+        sec = route(ws, p)
+        if sec is None:
             unrouted.append(p)
             continue
-        c = json.load(open(cp, encoding="utf-8"))
-        xr = json.load(open(os.path.join(extract_dir, h + ".json"), encoding="utf-8"))
+        c = load_card(cards_dir, h)
+        if c is None:
+            uncarded.append(p)
+            continue
+        xr = load_extract(extract_dir, h, os.path.join(cards_dir, h + ".json"))
         rec = {"id": h[:12], "path": p, "copies": [x["path"] for x in e.get("copies", []) if x["path"] != p],
                "pages": xr.get("page_count", 0), "read": xr.get("status")}
         rec.update({k: c.get(k) for k in ("title", "doc_type", "party", "parties", "doc_date", "category",
@@ -95,15 +472,158 @@ def bundles(a):
                                                 if len(t) > a.text_cap else "")
         bund[sec].append(rec)
         counts[sec] += 1
-    for sec, rows in bund.items():
-        writer.text(os.path.join(out, "bundle_%s.jsonl" % sec),
-                    "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
-    writer.json(os.path.join(out, "bundles.json"), {"manifest_sha256": common.sha256_file(mpath),
-                                                    "sections": dict(counts), "compact": dict(compact),
-                                                    "unrouted": unrouted}, indent=1)
-    print(json.dumps({"routed": sum(counts.values()), "sections": dict(sorted(counts.items())),
-                      "compact": dict(compact), "unrouted": len(unrouted)}, ensure_ascii=False))
-    return 1 if unrouted else 0
+    writer.makedirs(out)
+    files = {sec: "bundle_%s.jsonl" % sec for sec in sorted(bund)}
+    for sec, name in files.items():
+        writer.text(os.path.join(out, name), "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in bund[sec]))
+    for name in sorted(os.listdir(out)):
+        if BUNDLE_FILE.fullmatch(name) and name not in files.values():
+            os.remove(writer.check(os.path.join(out, name)))
+    meta = collections.OrderedDict(
+        manifest_sha256=digest, routing_sha256=routing_digest(ws), arguments=arguments, text_cap=a.text_cap,
+        sections=dict(sorted(counts.items())), compact=dict(sorted(compact.items())), files=files,
+        unrouted=unrouted, uncarded=uncarded)
+    writer.text(meta_path, json.dumps(meta, ensure_ascii=False, indent=1) + "\n")
+    print(json.dumps(bundle_summary(meta), ensure_ascii=False))
+    return 1 if unrouted or uncarded else 0
+
+
+# ------------------------------------------------------------------------------------ brief
+
+def owner_context(root, rb):
+    people = "\n".join("- %s%s%s" % (p["name"], " (also %s)" % ", ".join(p["also"]) if p.get("also") else "",
+                                      ": " + p["who"] if p.get("who") else "") for p in rb["people"])
+    bounds = "\n".join("- %s" % (b if isinstance(b, str) else json.dumps(b, ensure_ascii=False, sort_keys=True))
+                       for b in rb["boundaries"])
+    return "\n".join([
+        "The folder `%s`: %s" % (os.path.basename(root), rb["folder_description"] or "no description recorded."),
+        "", "People and organisations, each with the other names they appear under:", "",
+        people or "- none recorded", "",
+        "Identifiers (`%s`): reference numbers %s. Passwords and activation codes are never written, under any "
+        "policy." % (rb["identifiers"], cards.identifier_rule(rb)), "",
+        "Boundaries inside the folder:", "", bounds or "- none recorded"])
+
+
+def section_of(ws, page):
+    return next(s for s in ws["sections"] if page.startswith("%s %s/" % (s["number"], s["name"])))
+
+
+def page_map(ws, wiki, briefed):
+    """{page: "exists" | "planned"}: see the module docstring."""
+    have = set(wiki_pages(wiki))
+    planned = set(ws["pages"]) | {"%s %s/%s %s.md" % ((s["number"], s["name"]) * 2) for s in ws["sections"]}
+    return {p: "exists" if p in have else "planned" for p in sorted(have | planned | set(briefed))}
+
+
+def page_entry(p, state, sec, voice, contract, ws, bundle):
+    lines = ["### %s" % p, "",
+             "- Status: %s" % ("exists (revise it)" if state == "exists" else "planned (write it)"),
+             "- Section: %s %s, %s%s" % (sec["number"], sec["name"], sec["kind"],
+                                         ", derived" if sec["derived"] else ""),
+             "- Professional: %s (%s)" % (voice["professional"], "the page's row in the Page professionals table"
+                                          if voice["source"] == "page" else "the section's one professional"),
+             "- Deliverable: %s" % (voice["deliverable"] or "not recorded; the professional's usual deliverable"),
+             "- Tone: %s" % (voice["tone"] or "not recorded; the professional's usual tone")]
+    if contract:
+        lines += ["- Reader: %s" % (contract["reader"] or "not recorded in the Schema"),
+                  "- Questions, most important first:"]
+        lines += ["  %d. %s" % (i, q) for i, q in enumerate(contract["questions"], 1)]
+        lines.append("- Fields every page carries: %s" % ", ".join(contract["fields"]))
+    else:
+        lines.append("- Contract: the method's own, as a fixed section (`wiki-onboarding` and `wiki-maintenance` "
+                     "give its shape)")
+    routes = [r for r in ws["routing"] if r["section"] == sec["number"]]
+    lines.append("- Files routed to the section:%s" % ("" if routes else " none"))
+    lines += ["  - `%s`: %s" % (r["prefix"], r["target"]) for r in routes]
+    lines.append("- Bundle: %s" % bundle)
+    return "\n".join(lines)
+
+
+def rationale_skeleton(p, state, voice, contract):
+    reader = contract["reader"] if contract and contract["reader"] else "<who reads the page>"
+    asks = (" ".join("%d. %s" % (i, q) for i, q in enumerate(contract["questions"], 1)) if contract
+            else "<the questions the page answers, numbered in its order>")
+    return "\n".join([
+        "### %s" % p,
+        "- Reader and use: %s, <what they use the page for>" % reader,
+        "- Professional lens: %s; questions answered in order: %s" % (voice["professional"], asks),
+        "- Shape: <the page's structure and visuals and why, or \"as the Schema sets out\">",
+        "- Changed from the previous page: %s" % ("first version" if state == "planned"
+                                                  else "<what this version changed>"),
+        "- Left out or flagged: <what was left out and why, and what was flagged for the owner, or \"nothing\">"])
+
+
+def return_shape(pages):
+    """The JSON a drafting agent returns: what `wiki-onboarding` step 4a names (the pages it wrote, each page's
+    rationale block, its Index entry, its open questions and its check result), one entry per page."""
+    shape = {"pages": [{"path": p, "text": "<the page exactly as written to the wiki folder, frontmatter first>",
+                        "rationale": "<its rationale block: the heading and five lines given below, joined by \\n>",
+                        "index_entry": "<the page's line in the Index: what it holds, in a few words>"}
+                       for p in pages],
+             "open_questions": ["<for the owner or the coordinating agent: a gap, sources that disagree, a dated "
+                                "rule left unchecked, a page the evidence shows is missing>"],
+             "check_result": {"problems_on_these_pages": 0,
+                              "findings_on_other_pages": ["<a finding the checker names on a page not yours>"]}}
+    return json.dumps(shape, ensure_ascii=False, indent=1)
+
+
+def render_template(name, **fields):
+    """A template in tools/templates, its leading comment dropped, its relative links made absolute (so they still
+    resolve wherever the rendered text is read) and its fields filled."""
+    text = re.sub(r"\A<!--.*?-->\n+", "", read_text(os.path.join(TEMPLATES, name)), flags=re.S)
+
+    def absolute(m):
+        path, _hash, anchor = m.group(1).partition("#")
+        return "](%s%s)" % (urllib.parse.quote(os.path.normpath(os.path.join(TEMPLATES, path)), safe="/&"),
+                            "#" + anchor if anchor else "")
+    return re.sub(r"\]\((\.\.?/[^)\s]*)\)", absolute, text).format(**fields)
+
+
+@os_errors
+def brief(a):
+    root, settings_dir, work = common.resolve(a)
+    rb = common.load_rulebook(root, settings_dir)
+    ws = common.load_wiki_schema(root, settings_dir)
+    mpath, _man = load_manifest(root, a.manifest)
+    bdir = os.path.realpath(a.bundles) if a.bundles else os.path.join(work, "bundles")
+    meta = fresh_bundles(root, bdir, mpath, ws, build_arguments(a))
+    wiki = os.path.join(root, rb["wiki_dir"])
+    pages = sorted(set(a.page))
+    for p in pages:
+        if not is_page_path(p):
+            raise common.ToolError("--page %r is not a page path relative to the wiki folder, like "
+                                   "'<NN Section>/<Page>.md'" % p)
+    voices = {p: common.page_voice(ws, p) for p in pages}
+    contracts = {c["number"]: c for c in ws["contracts"]}
+    pmap = page_map(ws, wiki, pages)
+    entries, skeletons = [], []
+    for p in pages:
+        sec = section_of(ws, p)
+        contract = contracts.get(sec["number"])
+        if contract is None and sec["kind"] != "fixed":
+            raise common.ToolError("section %s %s has no page contract in the Schema; its professional drafts one "
+                                   "first (templates/contract-brief.md)" % (sec["number"], sec["name"]))
+        f = meta["files"].get(sec["number"])
+        n, k = meta["sections"].get(sec["number"], 0), meta["compact"].get(sec["number"], 0)
+        bundle = ("`%s` (%d document%s%s)" % (os.path.join(bdir, f), n, "" if n == 1 else "s",
+                                              ", %d of them compact: listed without summary or text" % k if k else "")
+                  if f else "none: no carded document routes to this section")
+        entries.append(page_entry(p, pmap[p], sec, voices[p], contract, ws, bundle))
+        skeletons.append(rationale_skeleton(p, pmap[p], voices[p], contract))
+    checker = ["python3", os.path.join(HERE, "wiki.py"), "check", "--root", root, "--work", work]
+    checker += ["--settings-dir", settings_dir] if a.settings_dir else []
+    checker += ["--manifest", os.path.realpath(mpath)] if a.manifest else []
+    text = render_template(
+        "page-brief.md", folder_name=os.path.basename(root), owner_context=owner_context(root, rb),
+        pages="\n\n".join(entries),
+        page_map="\n".join("- `%s` (%s%s)" % (p, s, ", in this brief" if p in pages else "") for p, s in pmap.items()),
+        bundles_dir=bdir, wiki_dir=wiki, schema_path=os.path.join(root, ws["schema_path"]),
+        checker=" ".join(shlex.quote(x) for x in checker), return_shape=return_shape(pages),
+        rationale="\n\n".join(skeletons))
+    if a.out:
+        common.Writer(root).text(working_file(root, a.out, "briefs"), text)
+    sys.stdout.write(text)
+    return 0
 
 
 # ------------------------------------------------------------------------------------ check
@@ -227,45 +747,281 @@ def check(a):
 
 # ------------------------------------------------------------------------------------ move
 
+def local_link(lk):
+    """True for a link to a file by relative path: no scheme (http:, mailto:, obsidian:) and not rooted at /."""
+    return not (lk.startswith("/") or re.match(r"[A-Za-z][A-Za-z0-9+.-]*:", lk))
+
+
+def link_target(page, lk):
+    """The page a relative link on `page` points at, relative to the wiki folder."""
+    return posixpath.normpath(posixpath.join(posixpath.dirname(page), urllib.parse.unquote(lk)))
+
+
+def link_to(page, target):
+    """The relative link from `page` to `target`, percent-encoded with `/` and `&` literal."""
+    return urllib.parse.quote(posixpath.relpath(target, posixpath.dirname(page) or "."), safe="/&")
+
+
+def dead_links(wiki):
+    return [[p, lk] for p in wiki_pages(wiki) for lk, _a in LINK.findall(read_text(os.path.join(wiki, p)))
+            if local_link(lk) and not os.path.exists(os.path.join(wiki, *link_target(p, lk).split("/")))]
+
+
+def check_moves(wiki, moves, pages, schema):
+    """Refuse, before anything is written, a map that could not be carried out whole."""
+    if not (isinstance(moves, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in moves.items())):
+        raise common.ToolError("--map must be a JSON object of page path to new page path")
+    targets = set(moves.values())
+    for old, new in sorted(moves.items()):
+        if old not in pages:
+            raise common.ToolError("page not found: %s" % old)
+        if old == schema:
+            raise common.ToolError("%s is the Schema page, which the settings twin is compiled from; move it by hand "
+                                   "and recompile" % old)
+        if not is_page_path(new):
+            raise common.ToolError("destination %r is not a page path inside the wiki folder (relative, `/` "
+                                   "separated, ending in .md, no part empty, hidden, with a space at either end or "
+                                   "holding a control character)" % new)
+        if new in pages or os.path.lexists(os.path.join(wiki, *new.split("/"))):
+            raise common.ToolError("destination exists: %s" % new)
+        parts = new.split("/")
+        for i in range(1, len(parts)):
+            above = "/".join(parts[:i])
+            path = os.path.join(wiki, *parts[:i])
+            if above in targets or (os.path.lexists(path) and not os.path.isdir(path)):
+                raise common.ToolError("destination %s lies under %s, which is a %s, not a folder"
+                                       % (new, above, "page this map moves there" if above in targets else "file"))
+    twice = sorted(n for n, k in collections.Counter(moves.values()).items() if k > 1)
+    if twice:
+        raise common.ToolError("two pages moved to one destination: %s" % ", ".join(twice))
+    case_clashes(wiki, moves, pages)
+
+
+def case_clashes(wiki, moves, pages):
+    """Refuse a destination that differs only in case from an existing page (other than the page moved there, so a
+    case-only rename stays possible where the file system allows it), from another destination, or, in a folder, from
+    an existing folder or another destination's folder: a case-insensitive file system would merge what a
+    case-sensitive one keeps apart."""
+    folders = collections.defaultdict(set)
+    for d, ds, _fs in os.walk(wiki):
+        ds[:] = sorted(x for x in ds if not x.startswith("."))
+        for x in ds:
+            rel = os.path.relpath(os.path.join(d, x), wiki).replace(os.sep, "/")
+            folders[rel.casefold()].add(rel)
+    for new in moves.values():
+        parts = new.split("/")[:-1]
+        for i in range(1, len(parts) + 1):
+            folders["/".join(parts[:i]).casefold()].add("/".join(parts[:i]))
+    for old, new in sorted(moves.items()):
+        parts = new.split("/")
+        for i in range(1, len(parts)):
+            rel = "/".join(parts[:i])
+            other = sorted(folders[rel.casefold()] - {rel})
+            if other:
+                raise common.ToolError("destination %s: its folder %s differs only in case from the folder %s"
+                                       % (new, rel, other[0]))
+        page = next((p for p in pages if p != old and p != new and p.casefold() == new.casefold()), None)
+        if page:
+            raise common.ToolError("destination %s differs only in case from the page %s" % (new, page))
+        dest = next((n for n in sorted(moves.values()) if n != new and n.casefold() == new.casefold()), None)
+        if dest:
+            raise common.ToolError("destinations %s and %s differ only in case" % (new, dest))
+
+
+def layout_findings(ws, moves):
+    """[old, new, why] for each move that leaves the Schema's Layout wrong: a page moved out of every Layout section,
+    or a section's folder note moved away."""
+    if not ws:
+        return []
+    homes = {"%s %s" % (s["number"], s["name"]) for s in ws["sections"]}
+    out = []
+    for old, new in sorted(moves.items()):
+        if new.split("/")[0] not in homes or "/" not in new:
+            out.append([old, new, "the new path is in no Layout section"])
+        folder = old.split("/")[0]
+        if folder in homes and old == "%s/%s.md" % (folder, folder):
+            out.append([old, new, "the old path was section %s's folder note" % folder])
+    return out
+
+
+@os_errors
 def move(a):
     root, settings_dir, _work = common.resolve(a)
     rb = common.load_rulebook(root, settings_dir)
+    ws = common.load_wiki_schema(root, settings_dir, required=False)
     wiki = os.path.join(root, rb["wiki_dir"])
     writer = common.Writer(root if a.read_only_root else None)
-    moves = json.load(open(a.map, encoding="utf-8"))
-    pages = sorted(os.path.relpath(p, wiki) for p in glob.glob(os.path.join(wiki, "**", "*.md"), recursive=True))
-    for old in moves:
-        if old not in pages:
-            raise common.ToolError("page not found: %s" % old)
-        if moves[old] in pages:
-            raise common.ToolError("destination exists: %s" % moves[old])
-    out = {}
+    moves = read_json(a.map)
+    pages = wiki_pages(wiki)
+    check_moves(wiki, moves, pages, schema_rel(root, rb, ws))
+    out, links = {}, 0
     for old in pages:
         new = moves.get(old, old)
-        txt = open(os.path.join(wiki, old), encoding="utf-8").read()
+        txt = read_text(os.path.join(wiki, old))
 
         def fix(m, old=old, new=new):
+            nonlocal links
             lk, anchor = m.group(1), m.group(2) or ""
-            if lk.startswith("http"):
+            if not local_link(lk):
                 return m.group(0)
-            tgt = os.path.normpath(os.path.join(os.path.dirname(old), urllib.parse.unquote(lk)))
-            tgt = moves.get(tgt, tgt)
-            rel = os.path.relpath(tgt, os.path.dirname(new) or ".")
-            return "](" + urllib.parse.quote(rel, safe="/&") + anchor + ")"
+            tgt = link_target(old, lk)
+            if new == old and tgt not in moves:
+                return m.group(0)
+            link = "](" + link_to(new, moves.get(tgt, tgt)) + anchor + ")"
+            links += link != m.group(0)
+            return link
         new_txt = LINK.sub(fix, txt)
         if new != old or new_txt != txt:
             out[new] = new_txt
-    for new, txt in out.items():
-        writer.text(os.path.join(wiki, new), txt)
-    for old in moves:
-        writer.check(os.path.join(wiki, old))
-        os.remove(os.path.join(wiki, old))
-    dead = [[p, lk] for p in glob.glob(os.path.join(wiki, "**", "*.md"), recursive=True)
-            for lk, _ in LINK.findall(open(p, encoding="utf-8").read())
-            if not lk.startswith("http") and not os.path.exists(
-                os.path.normpath(os.path.join(os.path.dirname(p), urllib.parse.unquote(lk))))]
-    print(json.dumps({"moved": len(moves), "rewritten": len(out), "dead_links": dead}, ensure_ascii=False))
-    return 1 if dead else 0
+    # moved pages first: a failure while rewriting the others then leaves no link to a page that was not moved
+    moved = set(moves.values())
+    for new, txt in sorted(out.items(), key=lambda x: (x[0] not in moved, x[0])):
+        writer.text(os.path.join(wiki, *new.split("/")), txt)
+    emptied = set()
+    for old in sorted(moves):
+        os.remove(writer.check(os.path.join(wiki, *old.split("/"))))
+        parts = old.split("/")[:-1]
+        emptied.update("/".join(parts[:i]) for i in range(1, len(parts) + 1))
+    removed = []
+    for d in sorted(emptied, key=lambda x: -x.count("/")):  # deepest first; a folder a move emptied goes
+        path = os.path.join(wiki, *d.split("/"))
+        if os.path.isdir(path) and not os.listdir(path):
+            os.rmdir(writer.check(path))
+            removed.append(d)
+    renamed = 0
+    rat = os.path.join(root, "_Audit", "wiki-rationale.md")
+    if moves and os.path.exists(rat):
+        text = read_text(rat)
+
+        def rename(m):
+            nonlocal renamed
+            if m.group(1) not in moves:
+                return m.group(0)
+            renamed += 1
+            return "### " + moves[m.group(1)]
+        new_text = re.sub(r"^### (.+?\.md)[ \t]*$", rename, text, flags=re.M)
+        if new_text != text:
+            writer.text(rat, new_text)
+    named = [[old, moves[old]] for old in sorted(moves) if ws and old in ws["pages"]]
+    layout = layout_findings(ws, moves)
+    dead = dead_links(wiki)
+    print(json.dumps({"moved": len(moves), "pages_rewritten": len(out), "links_rewritten": links,
+                      "folders_removed": sorted(removed), "rationale_blocks_renamed": renamed,
+                      "schema_rows_to_update": named, "layout_to_update": layout, "dead_links": dead},
+                     ensure_ascii=False))
+    if named:
+        print("the Schema's Page professionals table names %d moved page(s) by the old path; edit those rows, then "
+              "settings.py compile" % len(named), file=sys.stderr)
+    if layout:
+        print("the Schema's Layout no longer matches %d move(s) (layout_to_update); edit the Layout, then "
+              "settings.py compile" % len(layout), file=sys.stderr)
+    return 1 if dead or named or layout else 0
+
+
+# ------------------------------------------------------------------------------------ drift
+
+def drift_paths(rb, man):
+    """{folder-relative path: "departed" | "migrating"}: see the module docstring."""
+    live = set()
+    for e in man.values():
+        if "departed" not in e.get("flags", []):
+            live.add(e["current_path"])
+            live.update(c["path"] for c in e.get("copies", []))
+    migr = rb["migrations_dir"] + "/"
+    out = {}
+    for e in man.values():
+        held = [e["current_path"]] + [c["path"] for c in e.get("copies", [])]
+        if "departed" in e.get("flags", []):
+            out.update({p: "departed" for p in held if p not in live and p not in out})
+        elif "migrating" in e.get("flags", []):
+            for p in held:
+                if p.startswith(migr):
+                    out[p] = "migrating"
+                    staged_from = p[len(migr):].split("/", 1)[1:]
+                    if staged_from and staged_from[0] not in live:
+                        out[staged_from[0]] = "migrating"
+    return out
+
+
+def fence_opened(line):
+    """The fence `line` opens, by the rule `chart_blocks` reads fences with (FENCE_OPEN: 0 to 3 spaces, then three
+    or more backticks or tildes; a backtick fence's info string holds no backtick), or None."""
+    m = FENCE_OPEN.fullmatch(line)
+    return m.group(1) if m and not (m.group(1)[0] == "`" and "`" in m.group(2)) else None
+
+
+def fence_closed(line, fence):
+    m = FENCE_CLOSE.fullmatch(line)
+    return bool(m) and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence)
+
+
+CODE_SPAN = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)", re.S)  # a run of n backticks closes at the next run of n
+
+
+def citations(text):
+    """[(line, path)]: every `sources:` entry in the page's frontmatter, and every code span in its body (fenced
+    blocks skipped; a span may wrap onto the next line, read as one space), with the line it starts on."""
+    lines = text.split("\n")
+    found, body = [], 0
+    if lines and lines[0] == "---" and "---" in lines[1:]:
+        body = lines.index("---", 1) + 1
+        key = None
+        for n in range(1, body - 1):
+            m = re.match(r"^([A-Za-z_-]+):", lines[n])
+            if m:
+                key = m.group(1)
+                continue
+            m = re.match(r"^\s+-\s+(.*?)\s*$", lines[n])
+            if m and key == "sources":
+                found.append((n + 1, m.group(1).strip('"').strip("'")))
+    fence, rest = None, []
+    for line in lines[body:]:
+        if fence:
+            fence = None if fence_closed(line, fence) else fence
+            rest.append("")
+            continue
+        fence = fence_opened(line)
+        rest.append("" if fence else line)
+    i = 0
+    while i < len(rest):
+        if not rest[i].strip():
+            i += 1
+            continue
+        j = i
+        while j < len(rest) and rest[j].strip():
+            j += 1
+        para = "\n".join(rest[i:j])
+        for m in CODE_SPAN.finditer(para):
+            found.append((body + i + para.count("\n", 0, m.start()) + 1, re.sub(r"[ \t]*\n[ \t]*", " ", m.group(2))))
+        i = j
+    return sorted(found)
+
+
+@os_errors
+def drift(a):
+    root, settings_dir, _work = common.resolve(a)
+    rb = common.load_rulebook(root, settings_dir)
+    _mp, man = load_manifest(root, a.manifest)
+    wiki = os.path.join(root, rb["wiki_dir"])
+    paths = drift_paths(rb, man)
+    kinds = collections.Counter(paths.values())
+    pages = [p for p in wiki_pages(wiki) if not p.startswith(LOG_DIR + "/")]
+    cited = {"departed": [], "migrating": []}
+    for p in pages:
+        for line, path in citations(read_text(os.path.join(wiki, *p.split("/")))):
+            if path in paths:
+                cited[paths[path]].append([p, line, path])
+    res = collections.OrderedDict(
+        wiki=rb["wiki_dir"], pages_read=len(pages), departed_paths=kinds["departed"],
+        migrating_paths=kinds["migrating"], citing_departed=len(cited["departed"]),
+        citing_migrating=len(cited["migrating"]),
+        pages_citing=len({c[0] for cs in cited.values() for c in cs}), departed=cited["departed"],
+        migrating=cited["migrating"])
+    text = json.dumps(res, ensure_ascii=False, indent=1) + "\n"
+    if a.out:
+        common.Writer(root if a.read_only_root else None).text(a.out, text)
+    sys.stdout.write(text)
+    return 1 if res["citing_departed"] or res["citing_migrating"] else 0
 
 
 # ------------------------------------------------------------------------------------ chart
@@ -598,20 +1354,38 @@ def main():
         p.add_argument("--read-only-root", action="store_true")
         return p
 
-    p = common_args(sub.add_parser("bundles"))
-    p.add_argument("--out", required=True)
-    p.add_argument("--text-cap", type=int, default=12000)
+    def card_args(p):
+        p.add_argument("--cards", help="card records (default <root>/_Audit/cards)")
+        p.add_argument("--extract", help="extract records (default <root>/_Audit/extract)")
+        return p
+
+    p = card_args(common_args(sub.add_parser("profile")))
+    p.add_argument("--depth", type=int, default=2, help="folder levels profiled (default 2)")
+    p.add_argument("--parties", type=int, default=5, help="top parties listed per folder (default 5)")
+    p.add_argument("--out")
+    p = card_args(common_args(sub.add_parser("bundles")))
+    p.add_argument("--out", help="the bundles directory, the tool's own: a rebuild removes bundles.json and "
+                   "bundle_*.jsonl there (default <work>/bundles; never inside the folder)")
+    p.add_argument("--text-cap", type=int, default=TEXT_CAP)
+    p.add_argument("--reuse", action="store_true", help="use the bundles already built, refused when stale")
+    p = common_args(sub.add_parser("brief"))
+    p.add_argument("--page", action="append", required=True, help="a page to brief, relative to the wiki folder")
+    p.add_argument("--bundles", help="the bundles directory (default <work>/bundles)")
+    p.add_argument("--out", help="also write the brief here (never inside the folder)")
     p = common_args(sub.add_parser("check"))
     p.add_argument("--out")
     p = common_args(sub.add_parser("move"))
     p.add_argument("--map", required=True)
+    p = common_args(sub.add_parser("drift"))
+    p.add_argument("--out")
     p = common_args(sub.add_parser("chart"))
     p.add_argument("--kind", required=True, choices=list(CHART_COLUMNS))
     p.add_argument("--data", required=True)
     p.add_argument("--title", required=True)
     p.add_argument("--out")
     a = ap.parse_args()
-    return {"bundles": bundles, "check": check, "move": move, "chart": chart}[a.cmd](a)
+    return {"profile": profile, "bundles": bundles, "brief": brief, "check": check, "move": move, "drift": drift,
+            "chart": chart}[a.cmd](a)
 
 
 if __name__ == "__main__":
