@@ -5,12 +5,15 @@
  "frontmatter_bad": [],
  "superseded_pages": 0,
  "dead_source_paths": [],
- "backticked_paths_unchecked": 0,
+ "backticked_paths_unchecked": 1,
  "dead_page_links": [],
+ "links_outside_page_map": [],
  "em_dash_lines": 0,
  "em_dash_where": [],
  "chart_blocks": 4,
  "charts_without_data_table": [],
+ "charts_not_renderable": [],
+ "chart_sources_bad": [],
  "deadlines": [
   [
    "2025-04-30",
@@ -24,10 +27,84 @@
  "documents_in_scope": 17,
  "documents_not_covered": 0,
  "not_covered_sample": [],
+ "pages_without_single_professional": [],
  "rationale": {
   "blocks": 12,
-  "pages_without_block": []
+  "pages_without_block": [],
+  "blocks_without_page": [],
+  "blocks_repeated": [],
+  "blocks_malformed": [],
+  "professional_not_named": []
  },
  "acceptance": "not recorded",
+ "acceptance_counts": {
+  "accepted": 0,
+  "not recorded": 12,
+  "refused": 0
+ },
+ "acceptance_pages": [
+  [
+   "00 Index/00 Index.md",
+   "not recorded",
+   "no verdict recorded"
+  ],
+  [
+   "01 Deadlines/01 Deadlines.md",
+   "not recorded",
+   "no verdict recorded"
+  ],
+  [
+   "02 People/02 People.md",
+   "not recorded",
+   "no verdict recorded"
+  ],
+  [
+   "10 Identity/10 Identity.md",
+   "not recorded",
+   "no verdict recorded"
+  ],
+  [
+   "20 Finance/20 Finance.md",
+   "not recorded",
+   "no verdict recorded"
+  ],
+  [
+   "20 Finance/Bank accounts.md",
+   "not recorded",
+   "no verdict recorded"
+  ],
+  [
+   "20 Finance/Cash position.md",
+   "not recorded",
+   "no verdict recorded"
+  ],
+  [
+   "20 Finance/Tax.md",
+   "not recorded",
+   "no verdict recorded"
+  ],
+  [
+   "30 Home/30 Home.md",
+   "not recorded",
+   "no verdict recorded"
+  ],
+  [
+   "40 Study/40 Study.md",
+   "not recorded",
+   "no verdict recorded"
+  ],
+  [
+   "90 Schema/90 Schema.md",
+   "not recorded",
+   "no verdict recorded"
+  ],
+  [
+   "91 Log/91 Log.md",
+   "not recorded",
+   "no verdict recorded"
+  ]
+ ],
+ "acceptance_not_verified": [],
+ "acceptance_records_for_no_page": [],
  "problems": 0
 }

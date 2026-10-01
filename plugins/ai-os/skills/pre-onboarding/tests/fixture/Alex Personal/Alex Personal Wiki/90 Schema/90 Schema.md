@@ -29,6 +29,7 @@ The constitution of Alex's wiki (fictional fixture).
 
 | Page | Professional | Deliverable | Tone |
 | --- | --- | --- | --- |
+| 20 Finance/20 Finance.md | private banker | finance overview | measured |
 | 20 Finance/Bank accounts.md | private banker | accounts schedule | measured |
 | 20 Finance/Cash position.md | CFO | cash note | numerate, brief |
 | 20 Finance/Tax.md | chartered tax adviser | annual tax position letter | exact, dated |

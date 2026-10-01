@@ -365,6 +365,7 @@ The constitution of Alex's wiki (fictional fixture).
 
 | Page | Professional | Deliverable | Tone |
 | --- | --- | --- | --- |
+| 20 Finance/20 Finance.md | private banker | finance overview | measured |
 | 20 Finance/Bank accounts.md | private banker | accounts schedule | measured |
 | 20 Finance/Cash position.md | CFO | cash note | numerate, brief |
 | 20 Finance/Tax.md | chartered tax adviser | annual tax position letter | exact, dated |
@@ -551,17 +552,29 @@ French to B1 and a Chinese intermediate certificate, 2023 to 2024.
 | `04 Study/` | 5 | certificates, slides, essay, notes |
 | `05 Archive/` | 4 | copies of the study files |
 """))
+    # Each page's one professional (common.page_voice) and its questions: its section's contract's, in order, or
+    # for a fixed section the page's own.
+    finance = "1. Is anything due? 2. What came in and went out? 3. What is the tax position?"
     blocks = []
-    for rel, prof in [("00 Index/00 Index.md", "chief of staff"), ("01 Deadlines/01 Deadlines.md", "chief of staff"),
-                      ("02 People/02 People.md", "personal assistant"), ("10 Identity/10 Identity.md",
-                      "immigration adviser"), ("20 Finance/20 Finance.md", "private banker"),
-                      ("20 Finance/Bank accounts.md", "private banker"), ("20 Finance/Cash position.md", "CFO"),
-                      ("20 Finance/Tax.md", "chartered tax adviser"), ("30 Home/30 Home.md", "household manager"),
-                      ("40 Study/40 Study.md", "academic registrar"), ("90 Schema/90 Schema.md", "librarian"),
-                      ("91 Log/91 Log.md", "librarian")]:
+    for rel, prof, asks in [
+            ("00 Index/00 Index.md", "chief of staff", "1. What needs attention now? 2. Where is each matter kept?"),
+            ("01 Deadlines/01 Deadlines.md", "chief of staff", "1. What is due next? 2. What falls due later?"),
+            ("02 People/02 People.md", "personal assistant",
+             "1. Who is each person or organisation? 2. Which other names do they appear under?"),
+            ("10 Identity/10 Identity.md", "immigration adviser",
+             "1. When does the passport expire? 2. Which numbers would an application need?"),
+            ("20 Finance/20 Finance.md", "private banker", finance),
+            ("20 Finance/Bank accounts.md", "private banker", finance), ("20 Finance/Cash position.md", "CFO", finance),
+            ("20 Finance/Tax.md", "chartered tax adviser", finance),
+            ("30 Home/30 Home.md", "household manager",
+             "1. Where does Alex live and on what terms? 2. What bills are due?"),
+            ("40 Study/40 Study.md", "academic registrar",
+             "1. Which courses and certificates are held? 2. Where are they?"),
+            ("90 Schema/90 Schema.md", "librarian", "1. How is the wiki divided? 2. Where does each file go?"),
+            ("91 Log/91 Log.md", "librarian", "1. What changed, and when?")]:
         blocks.append("### %s\n- Reader and use: Alex, checking this matter.\n- Professional lens: %s; questions "
-                      "answered in order: 1. what is due 2. what is held\n- Shape: as the Schema sets out\n- Changed "
-                      "from the previous page: first version\n- Left out or flagged: nothing\n" % (rel, prof))
+                      "answered in order: %s\n- Shape: as the Schema sets out\n- Changed from the previous page: "
+                      "first version\n- Left out or flagged: nothing\n" % (rel, prof, asks))
     w(R("_Audit", "wiki-rationale.md"), "# Wiki rationale\n\n" + "\n".join(blocks))
     rb_sha = hashlib.sha256(RULEBOOK.encode("utf-8")).hexdigest()
     w(R(".familyai", "rulebook.json"), json.dumps({

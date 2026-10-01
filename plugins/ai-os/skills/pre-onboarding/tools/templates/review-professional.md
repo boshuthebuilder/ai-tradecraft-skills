@@ -1,5 +1,5 @@
-<!-- Stage 5, acceptance in the professional's lens. Filled by the coordinating agent: replace every field in
-braces; doubled braces are literal. -->
+<!-- Stage 5, acceptance in the professional's lens. Rendered by `wiki.py review-prompts`, which fills every field
+in braces and drops this comment; doubled braces are literal. -->
 # Professional review: {page}
 
 The acceptance stage of [the core wiki rule](../../../wiki-maintenance/SKILL.md#the-core-wiki-rule) in
@@ -10,31 +10,48 @@ page ({author_model} wrote it), reading it as {professional}. You judge the page
 
 {contract}
 
+## Its scope
+
+{scope}
+
 ## The page
+
+`{page}` in `{wiki_dir}`, as it stands (sha256 `{page_sha256}`):
 
 {page_text}
 
 ## Its sources
 
-The folder is `{root}`; the page names each source by its folder-relative path. The section's evidence, one JSON
-line per document (from `wiki.py bundles`): `{bundle}`
+The folder is `{root}`; the page names each source by its folder-relative path:
+
+{sources}
+
+## Facts to check
+
+{sampled} facts from the cards of the documents the page cites, chosen by a fixed rule, so a second review of
+this page checks the same ones. Open each source and confirm the fact there, then check whether the page states it
+as the source does:
+
+{facts}
 
 ## Judge
 
 In the professional's lens, as the rule's *Acceptance* sets it out:
 
 1. Does it meet its contract: every question answered in order, every field carried or shown as **not on file**?
-2. Do its facts match their sources? Check at least {sample} of them against the files they cite.
-3. Does it stay in scope and in {professional}'s voice, with outside knowledge labelled and dated rules checked
+2. Do its facts match their sources: the facts above, and any other figure on the page you doubt?
+3. Does it stay in its scope and in {professional}'s voice, with outside knowledge labelled and dated rules checked
    against their official source?
 
 ## Reply
 
-JSON only; the verdict is `accept` or `revise`, and every finding says where on the page it is:
+JSON only. The verdict is `accepted`, or `changes` with at least one finding; every finding says where on the page
+it is. Copy the page's sha256 as given: it ties your verdict to the version you read.
 
 ```json
-{{"page": "{page}", "lens": "professional", "author": "{author_model}", "reviewer": "{reviewer_model}",
- "verdict": "<accept or revise>",
- "facts_checked": [{{"fact": "<as the page states it>", "source": "<path>", "matches": true}}],
+{{"page": "{page}", "page_sha256": "{page_sha256}", "lens": "professional", "author": "{author_model}",
+ "reviewer": "{reviewer_model}", "verdict": "<accepted or changes>",
+ "facts_checked": [{{"fact": "<as the source states it>", "source": "<path>",
+                    "on_page": "<as the page states it, or not stated>", "matches": true}}],
  "findings": [{{"where": "<heading or line>", "finding": "<what breaks the contract, a source or the scope>"}}]}}
 ```
