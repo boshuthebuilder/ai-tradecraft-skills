@@ -9,15 +9,36 @@ budget are read section by section into cached notes, then carded from the notes
 `templates/card-instructions.md`, filled from the folder's own settings (people, description, categories,
 identifier policy).
 
-The join is deterministic: each call issues short ids (d1, d2, ...) for the items it sends; the reply's ids must
-equal that set exactly, with every card valid, or the chunk is retried, then halved, and never applied in part.
-A single item that still fails is recorded in <work>/state/card_err_<id>.txt. Before a card is written, the
-contamination guard checks it: a term from the operator's isolation list that the card names but its own source
-text does not carry writes <work>/state/ALERT and stops every worker.
+The join is deterministic: each call issues short ids (d1, d2, ...) for the items it sends, and a reply is applied
+only when it passes three checks, each catching something different:
+
+- Ids: the reply's ids are exactly the ids sent, in the order sent. This catches a missing, extra, duplicated or
+  unknown id, and two ids swapped while the cards stay in place. It also rejects a correct reply in another order
+  (the instructions ask for the order sent), which costs a retry of the chunk.
+- Schema: every card meets the card schema (schemas/card.json).
+- Sibling identifiers: in a chunk of two or more items, no card carries an identifier that is in another item's
+  source (its path and text) but not in its own. An identifier is a run of digits of five or more once the spaces,
+  hyphens and slashes inside it are removed, that is not an amount (a run with a decimal point or a thousands
+  comma) and not year- or date-shaped (every part a year or at most two digits, or a compact yyyymm, mmyyyy,
+  yyyymmdd or ddmmyyyy); a part of five or more digits inside a longer run counts on its own too. Identifiers are
+  compared as digit strings, so "12-34-56 12345678" matches "123456 12345678"; key_facts count only through the
+  identifiers in them, and `look` is not checked, since it is asked to name other files. This catches a card whose
+  contents were crossed with a sibling's while the ids and their order stayed intact, when either card carries such
+  an identifier (an account, invoice, policy or passport number). It does not catch a crossing distinguished only by
+  names, addresses, dates, amounts or short numbers, and a chunk of one item (a single or sections batch, every
+  --redo batch, the last step of halving) has no siblings, so it is not checked. A crossing is deterministic: the
+  chunk is halved at once instead of being retried at the same size.
+
+Otherwise the chunk is retried, then halved, and never applied in part. Every item of a chunk that still fails is
+recorded in <work>/state/card_err_<id>.txt. Before any card of a batch is written, the contamination guard checks
+them all: a term from the operator's isolation list that a card names but its own source text does not carry
+writes <work>/state/ALERT, writes none of them and stops every worker. With --redo, an id counts as redone only once
+its card is written.
 """
 import glob
 import json
 import os
+import re
 import shutil
 import sys
 import time
@@ -28,9 +49,10 @@ import engines  # noqa: E402
 import isolation  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-KEYS = ["id", "doc_type", "party", "parties", "doc_date", "title", "summary", "key_facts", "category",
-        "language", "sensitive", "confidence", "look", "proposed_name"]
 FINAL = {"ok", "partial", "blank", "photo", "listed", "no_reader", "failed"}
+TYPES = {"object": dict, "array": list, "string": str, "boolean": bool}
+RUN = re.compile(r"\d+(?:[ ,./\-]\d+)*")  # digits, and the single separators that may sit inside one number
+YEAR = re.compile(r"(?:19|20)\d\d$")
 SECTION_PROMPT = """You are reading one section of a long document from a private archive, to help write a
 catalogue card for the whole document later. Document path: {path}. This is section {k} of {n}.
 Reply directly with JSON only: {{"notes": "..."}} where notes (at most 200 words, UK English) record what this
@@ -39,6 +61,16 @@ is and why it is in this folder. {identifier_rule} Do not create plans or files 
 
 SECTION TEXT:
 {text}"""
+
+
+def load_json(path):
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def read_text(path):
+    with open(path, encoding="utf-8") as f:
+        return f.read()
 
 
 class Budget:
@@ -79,7 +111,7 @@ def identifier_rule(rb):
 def instructions(rb):
     people = "\n".join("- %s (also: %s): %s" % (p.get("name"), ", ".join(p.get("also", [])) or "none",
                                                   p.get("who", "")) for p in rb["people"]) or "- none recorded"
-    t = open(os.path.join(HERE, "templates", "card-instructions.md"), encoding="utf-8").read()
+    t = read_text(os.path.join(HERE, "templates", "card-instructions.md"))
     return t.format(folder_description=rb["folder_description"] or "No description recorded.", people=people,
                     categories=", ".join(rb["card_categories"]), identifier_rule=identifier_rule(rb))
 
@@ -98,7 +130,7 @@ class Run:
         self.budget = Budget(a)
 
     def record(self, eid):
-        return json.load(open(os.path.join(self.extract, eid + ".json"), encoding="utf-8"))
+        return load_json(os.path.join(self.extract, eid + ".json"))
 
     def payload(self, eid, text_override=None):
         r = self.record(eid)
@@ -111,7 +143,7 @@ def build(a):
     b = run.budget
     os.makedirs(run.batches, exist_ok=True)
     planned = {it["id"] for f in glob.glob(os.path.join(run.batches, "*.json"))
-               for it in json.load(open(f, encoding="utf-8"))["items"]}
+               for it in load_json(f)["items"]}
     buckets = {0: [], 1: [], 2: [], 3: []}
     waiting = 0
     for f in sorted(os.listdir(run.extract)):
@@ -120,7 +152,7 @@ def build(a):
         eid = f[:-5]
         if eid in planned or os.path.exists(os.path.join(run.cards, eid + ".json")):
             continue
-        r = json.load(open(os.path.join(run.extract, f), encoding="utf-8"))
+        r = load_json(os.path.join(run.extract, f))
         if r.get("status") not in FINAL:
             waiting += 1
             continue
@@ -133,7 +165,8 @@ def build(a):
         cur, cur_chars = [], 0
         for it in sorted(buckets[bk], key=lambda x: x["id"]) + [None]:
             flush = it is None or (it["chars"] <= b.small_chars and cur and (
-                len(cur) >= (b.textless_batch if bk == 1 else b.batch_items) or cur_chars + it["chars"] > b.batch_chars))
+                len(cur) >= (b.textless_batch if bk == 1 else b.batch_items)
+                or cur_chars + it["chars"] > b.batch_chars))
             if flush and cur:
                 common.Writer().json(os.path.join(run.batches, "%d_%05d.json" % (bk, seq)),
                                      {"bucket": bk, "mode": "group", "items": cur})
@@ -152,21 +185,115 @@ def build(a):
     return 0
 
 
+def schema_problems(value, schema, where="card"):
+    """How `value` breaks `schema`, in the subset of JSON Schema the card schemas use (type, properties, required,
+    items)."""
+    want = TYPES.get(schema.get("type"))
+    if want and not isinstance(value, want):
+        return ["%s is not %s" % (where, schema["type"])]
+    out = []
+    if isinstance(value, dict):
+        out += ["%s.%s is missing" % (where, k) for k in schema.get("required", []) if k not in value]
+        out += [p for k, sub in schema.get("properties", {}).items() if k in value
+                for p in schema_problems(value[k], sub, "%s.%s" % (where, k))]
+    if isinstance(value, list) and "items" in schema:
+        out += [p for i, x in enumerate(value) for p in schema_problems(x, schema["items"], "%s[%d]" % (where, i))]
+    return out
+
+
+with open(os.path.join(HERE, "schemas", "card.json"), encoding="utf-8") as _f:
+    CARD_SCHEMA = json.load(_f)["properties"]["items"]["items"]
+
+
 def validate(card, categories):
-    if not isinstance(card, dict):
+    """The card when it meets the card schema, else None. A category outside the folder's list becomes Other, with
+    the model's word kept as category_raw."""
+    if schema_problems(card, CARD_SCHEMA):
         return None
-    for k in KEYS:
-        card.setdefault(k, [] if k == "parties" else "")
-    if not isinstance(card.get("key_facts"), dict):
-        card["key_facts"] = {"dates": [], "amounts": [], "reference_numbers": []}
-    if card.get("category") not in categories:
-        card["category_raw"] = card.get("category")
+    if card["category"] not in categories:
+        card["category_raw"] = card["category"]
         card["category"] = "Other"
     return card
 
 
+class Crossed(ValueError):
+    """A card carries a sibling's identifier. Deterministic: the chunk is halved rather than retried as it is."""
+
+
+def date_shaped(parts):
+    """True for a run whose parts read as a year or a date in the common forms."""
+    def month(g):
+        return len(g) == 2 and 1 <= int(g) <= 12
+
+    def day(g):
+        return len(g) == 2 and 1 <= int(g) <= 31
+    if len(parts) > 1:
+        return all(len(g) <= 2 or YEAR.match(g) for g in parts)
+    g = parts[0]
+    if len(g) == 6:
+        return bool(YEAR.match(g[:4]) and month(g[4:]) or month(g[:2]) and YEAR.match(g[2:]))
+    if len(g) == 8:
+        return bool(YEAR.match(g[:4]) and month(g[4:6]) and day(g[6:])
+                    or day(g[:2]) and month(g[2:4]) and YEAR.match(g[4:]))
+    return bool(YEAR.match(g))
+
+
+def identifiers(text):
+    """The identifier-like digit strings in `text` (see the module docstring)."""
+    found = set()
+    for m in RUN.finditer(text):
+        run = m.group(0)
+        if "," in run or "." in run:
+            continue  # an amount, or a dotted date
+        parts = re.split(r"[ /\-]", run)
+        for digits, shape in [("".join(parts), parts)] + [(g, [g]) for g in parts if len(parts) > 1]:
+            if len(digits) >= 5 and not date_shaped(shape):
+                found.add(digits)
+    return found
+
+
+def card_identifiers(card):
+    """The identifiers in every text of a card, except its id and `look` (which is asked to name other files)."""
+    texts = []
+
+    def walk(v):
+        if isinstance(v, str):
+            texts.append(v)
+        elif isinstance(v, dict):
+            for x in v.values():
+                walk(x)
+        elif isinstance(v, list):
+            for x in v:
+                walk(x)
+    walk({k: v for k, v in card.items() if k not in ("id", "look")})
+    return set().union(*(identifiers(t) for t in texts)) if texts else set()
+
+
+def source_digits(item):
+    """Every digit run of an item's source (its path and text), as digit strings, joined by a separator."""
+    text = "%s\n%s" % (item.get("path", ""), item.get("text", ""))
+    return "|".join(re.sub(r"\D", "", m.group(0)) for m in RUN.finditer(text))
+
+
+def crossed(cards, items):
+    """(short id, [short ids of the siblings whose sources hold it]) for the first card carrying an identifier that
+    its own source lacks and a sibling's source holds, else None. A chunk of one item has no siblings."""
+    if len(items) < 2:
+        return None
+    sources = {k: source_digits(it) for k, it in items.items()}
+    for k, c in cards.items():
+        for ident in sorted(card_identifiers(c)):
+            if ident in sources[k]:
+                continue
+            holders = [j for j, s in sources.items() if j != k and ident in s]
+            if holders:
+                return k, holders
+    return None
+
+
 def call_chunk(engine, instr, items, categories, schema, cwd):
-    """One call for `items`. Returns {real id: card} only when the reply covers exactly the ids sent."""
+    """One call for `items`. Returns {real id: card} only when the reply passes the three checks in the module
+    docstring: ids, schema and sibling facts."""
     short = {"d%d" % (i + 1): it for i, it in enumerate(items)}
     sent = [dict(it, id=k) for k, it in short.items()]
     prompt = engines.NO_TOOLS + instr + "\n\nInput items (JSON, %d items):\n" % len(sent) + json.dumps(
@@ -176,15 +303,22 @@ def call_chunk(engine, instr, items, categories, schema, cwd):
     arr = obj.get("items") if isinstance(obj, dict) else obj
     if not isinstance(arr, list):
         raise ValueError("reply has no items list")
-    ids = [c.get("id") for c in arr if isinstance(c, dict)]
-    if len(ids) != len(arr) or len(set(ids)) != len(ids) or set(ids) != set(short):
-        raise ValueError("reply ids %s do not match the ids sent" % sorted(set(ids) ^ set(short))[:6])
-    out = {}
+    ids = [c.get("id") if isinstance(c, dict) else None for c in arr]
+    if ids != list(short):
+        raise ValueError("reply ids %s are not the ids sent, in order (%s)" % (ids[:8], list(short)[:8]))
+    checked = {}
     for c in arr:
         card = validate(dict(c), categories)
         if card is None:
-            raise ValueError("invalid card for %s" % c.get("id"))
-        card["id"] = short[c["id"]]["id"]
+            raise ValueError("invalid card for %s: %s" % (c["id"], "; ".join(schema_problems(c, CARD_SCHEMA)[:3])))
+        checked[c["id"]] = card
+    hit = crossed(checked, short)
+    if hit:
+        raise Crossed("card %s carries an identifier that its own source lacks and the source of %s holds"
+                      % (hit[0], ", ".join(hit[1])))
+    out = {}
+    for k, card in checked.items():
+        card["id"] = short[k]["id"]
         out[card["id"]] = card
     return out, usage
 
@@ -198,8 +332,12 @@ def run_items(run, engine, instr, items, schema, log, sink, depth=0):
             sink.update(got)
             log("  %d items ok usage=%s" % (len(items), json.dumps(usage)))
             return
-        except engines.QuotaError:
+        except (engines.QuotaError, common.ToolError):
             raise
+        except Crossed as ex:
+            last = str(ex)[:200]
+            log("  attempt %d for %d items: %s; halving at once" % (attempt + 1, len(items), last))
+            break  # the same chunk would cross the same way
         except (engines.EngineError, ValueError) as ex:
             last = str(ex)[:200]
             log("  attempt %d for %d items: %s" % (attempt + 1, len(items), last))
@@ -210,7 +348,9 @@ def run_items(run, engine, instr, items, schema, log, sink, depth=0):
         run_items(run, engine, instr, items[:h], schema, log, sink, depth + 1)
         run_items(run, engine, instr, items[h:], schema, log, sink, depth + 1)
         return
-    open(os.path.join(run.state, "card_err_%s.txt" % items[0]["id"]), "w").write(last)
+    for it in items:
+        with open(os.path.join(run.state, "card_err_%s.txt" % it["id"]), "w", encoding="utf-8") as f:
+            f.write(last)
 
 
 def sections_text(run, engine_light, eid, log, engine_name):
@@ -236,7 +376,8 @@ def sections_text(run, engine_light, eid, log, engine_name):
     for k, c in enumerate(chunks, 1):
         cp = os.path.join(cache, "%s_%s_%d_%d.txt" % (eid[:16], engine_name, k, len(chunks)))
         if os.path.exists(cp):
-            notes.append(open(cp, encoding="utf-8").read())
+            with open(cp, encoding="utf-8") as f:
+                notes.append(f.read())
             continue
         for attempt in range(3):
             d = engines.fresh_dir("sections_")
@@ -245,10 +386,11 @@ def sections_text(run, engine_light, eid, log, engine_name):
                     path=it["path"], k=k, n=len(chunks), text=c,
                     identifier_rule="Write reference numbers %s." % identifier_rule(run.rb)), d)
                 note = "[section %d of %d] %s" % (k, len(chunks), common.parse_json(resp).get("notes", ""))
-                open(cp, "w", encoding="utf-8").write(note)
+                with open(cp, "w", encoding="utf-8") as f:
+                    f.write(note)
                 notes.append(note)
                 break
-            except engines.QuotaError:
+            except (engines.QuotaError, common.ToolError):
                 raise
             except (engines.EngineError, ValueError) as ex:
                 log("  section %d/%d attempt %d failed: %s" % (k, len(chunks), attempt + 1, str(ex)[:160]))
@@ -261,15 +403,18 @@ def sections_text(run, engine_light, eid, log, engine_name):
 
 
 def write_cards(run, cards, batch_name, evidence, meta, log):
+    """Every card is checked before any is written: one alert writes none of them."""
     for eid, c in cards.items():
         src = full_text(run.record(eid))
         blob = json.dumps(c, ensure_ascii=False)
         bad = isolation.contamination(blob, src, evidence) if evidence else []
         if bad:
-            open(run.alert, "w").write("contamination: card %s names %d isolation term(s) absent from its source\n"
-                                       % (eid, len(bad)))
+            with open(run.alert, "w", encoding="utf-8") as f:
+                f.write("contamination: card %s names %d isolation term(s) absent from its source\n"
+                        % (eid, len(bad)))
             log("ALERT: card %s names isolation terms absent from its source" % eid[:12])
-            raise common.ToolError("contamination alert; every worker stops")
+            raise common.ToolError("contamination alert; no card of this batch written; every worker stops")
+    for eid, c in cards.items():
         c["card_meta"] = dict(meta, batch=batch_name, created_at=common.now_local())
         run.writer.json(os.path.join(run.cards, eid + ".json"), c, indent=1)
 
@@ -295,21 +440,30 @@ def work(a):
     instr = instructions(run.rb)
     run.writer.makedirs(run.cards)
     if a.redo:
-        ids = [l.strip() for l in open(a.redo) if l.strip()]
+        ids = [x.strip() for x in read_text(a.redo).splitlines() if x.strip()]
         batches = [{"name": "redo_%d" % i, "mode": "group", "items": [{"id": x}]} for i, x in enumerate(ids)
                    if i % wn == wi]
         done_p = os.path.join(run.state, "redo_done_%d.txt" % wi)
-        redone = set(l.strip() for l in open(done_p)) if os.path.exists(done_p) else set()
+        redone = {x.strip() for x in read_text(done_p).splitlines()} if os.path.exists(done_p) else set()
 
         def has(e):
             return e in redone
+
+        def written(cards):
+            """Record ids as redone only once write_cards has written their cards."""
+            with open(done_p, "a", encoding="utf-8") as fh:
+                for eid in cards:
+                    fh.write(eid + "\n")
+                    redone.add(eid)
     else:
         files = sorted(glob.glob(os.path.join(run.batches, "*.json")))
-        batches = [dict(json.load(open(f, encoding="utf-8")), name=os.path.basename(f)[:-5])
-                   for i, f in enumerate(files) if i % wn == wi]
+        batches = [dict(load_json(f), name=os.path.basename(f)[:-5]) for i, f in enumerate(files) if i % wn == wi]
 
         def has(e):
             return os.path.exists(os.path.join(run.cards, e + ".json"))
+
+        def written(cards):
+            pass
     for bt in batches:
         if os.path.exists(run.alert):
             log("ALERT present, stopping")
@@ -330,21 +484,18 @@ def work(a):
                     items = [run.payload(e) for e in todo]
                 run_items(run, engine, instr, items, schema, log, sink)
                 write_cards(run, sink, bt["name"], evidence, meta, log)
+                written(sink)
                 todo = []
             except engines.QuotaError as ex:
                 write_cards(run, sink, bt["name"], evidence, meta, log)
+                written(sink)
                 wait = min(5 * 3600, (ex.reset_seconds or (1800 if a.engine == "codex" else 600)) + 90)
                 log("quota on %s; sleeping %d min" % (bt["name"], wait // 60))
                 time.sleep(wait)
                 todo = [e for e in todo if not has(e)]
-            finally:
-                if a.redo:
-                    with open(done_p, "a") as fh:
-                        for eid in sink:
-                            fh.write(eid + "\n")
-                            redone.add(eid)
         log("batch %s mode=%s carded in %.0fs" % (bt["name"], bt["mode"], time.time() - t0))
-    open(os.path.join(run.state, ("redo%d" if a.redo else "cards%d") % wi + ".done"), "w").write(common.now_local())
+    with open(os.path.join(run.state, ("redo%d" if a.redo else "cards%d") % wi + ".done"), "w", encoding="utf-8") as f:
+        f.write(common.now_local())
     log("worker finished")
     return 0
 
@@ -374,6 +525,8 @@ def main():
     a = ap.parse_args()
     if a.cmd == "work" and not (a.terms or a.no_isolation_terms):
         raise common.ToolError("give --terms (the isolation list) or --no-isolation-terms")
+    if a.cmd == "work" and a.engine == "agy" and not a.model:
+        raise common.ToolError(engines.AGY_MODEL_REQUIRED)
     return build(a) if a.cmd == "build" else work(a)
 
 

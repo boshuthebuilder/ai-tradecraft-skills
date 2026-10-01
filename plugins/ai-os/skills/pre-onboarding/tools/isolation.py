@@ -5,11 +5,17 @@ The operator supplies a terms file (never committed, never inside the folder, ne
 line, optionally `Term|marker|marker`, where the markers are shorter forms that, when present in a document's own
 text, show the term is genuine content of that document. Lines starting with `#` are comments.
 
-    isolation.py scan   --terms F --path <file or dir> [...]   every model-facing file checked for the terms
+    isolation.py scan   --terms F --path <file or dir> [...] [--out <result.json>]   model-facing files checked
     isolation.py canary --terms F --engine agy|codex [--model M] --out <result.json>
 
-A canary asks the engine to list every name in its context besides the prompt; any term in the reply fails. The
-result file is the proof the gate ran; a missing or failed result means no real call may start.
+The scan reads every file named, and every model-facing file (prompts, templates, schemas, code, config such as
+`config.toml` or `jobs.yaml`) under a folder named; a path that does not exist is an error and a scan that checked
+no file fails. A file with terms is reported as `<n>:<path>`, where n is the index of the --path argument it came
+from and the path is relative to that argument (a named file: its own name), with every term and marker in it
+replaced by `<term>`; when two such paths mask alike, the later ones get `#2`, `#3` and so on. A canary asks the
+engine to list every name in its context besides the prompt; any term in the reply fails, and the reply is kept
+with its terms masked. Neither writes a term out. The result files are the proof the gate ran; a missing or failed
+result means no real call may start. agy needs --model.
 """
 import argparse
 import json
@@ -33,7 +39,9 @@ def load_terms(path):
     if not path or not os.path.exists(path):
         raise common.ToolError("isolation terms file missing: %s" % path)
     out = {}
-    for line in open(path, encoding="utf-8"):
+    with open(path, encoding="utf-8") as f:
+        lines = f.read().splitlines()
+    for line in lines:
         line = line.strip()
         if not line or line.startswith("#"):
             continue
@@ -64,19 +72,43 @@ def contamination(card_text, source_text, evidence):
     return [t for t in hits(card_text, evidence) if not term_in_source(t, source_text, evidence)]
 
 
+def masked(text, evidence):
+    """`text` with every term and marker replaced by `<term>` (longest first, ignoring case)."""
+    forms = sorted({m for ms in evidence.values() for m in ms}, key=len, reverse=True)
+    for m in forms:
+        text = re.sub(re.escape(m), "<term>", text, flags=re.I)
+    return text
+
+
 def scan(a):
     evidence = load_terms(a.terms)
-    found = {}
-    for p in a.path:
-        files = [p] if os.path.isfile(p) else [os.path.join(d, f) for d, _, fs in os.walk(p) for f in fs]
+    found, checked = {}, 0
+    for n, p in enumerate(a.path):
+        if os.path.isfile(p):
+            base, files = os.path.dirname(p), [p]
+        elif os.path.isdir(p):
+            base = p
+            files = [os.path.join(d, f) for d, _, fs in os.walk(p) for f in fs
+                     if re.search(r"\.(md|json|py|txt|sh|swift|csv|jsonl|toml|yaml|yml)$", f)]
+        else:
+            raise common.ToolError("scan path missing (argument %d)" % n)
         for f in files:
-            if not re.search(r"\.(md|json|py|txt|sh|swift|csv|jsonl)$", f):
-                continue
-            h = hits(open(f, encoding="utf-8", errors="replace").read(), evidence)
+            checked += 1
+            with open(f, encoding="utf-8", errors="replace") as fh:
+                h = hits(fh.read(), evidence)
             if h:
-                found[f] = len(h)
-    print(json.dumps({"files_with_terms": found, "terms": len(evidence)}, indent=1))
-    return 1 if found else 0
+                key = "%d:%s" % (n, masked(os.path.relpath(f, base), evidence))
+                k = 2
+                while key in found:  # two paths that mask alike
+                    key = "%d:%s#%d" % (n, masked(os.path.relpath(f, base), evidence), k)
+                    k += 1
+                found[key] = len(h)
+    res = {"checked_at": common.now_local(), "files_checked": checked, "files_with_terms": found,
+           "terms": len(evidence), "pass": checked > 0 and not found}
+    if a.out:
+        common.Writer().json(a.out, res, indent=1)
+    print(json.dumps(res, indent=1))
+    return 0 if res["pass"] else 1
 
 
 def canary(a):
@@ -86,9 +118,9 @@ def canary(a):
     try:
         eng = engines.Agy(a.model) if a.engine == "agy" else engines.Codex(a.model, effort="low")
         reply, usage = eng(CANARY, d)
-        res.update(reply=reply.strip()[:2000], usage=usage, hits=len(hits(reply, evidence)))
+        res.update(reply=masked(reply.strip(), evidence)[:2000], usage=usage, hits=len(hits(reply, evidence)))
     except engines.EngineError as ex:
-        res.update(error=str(ex)[:300])
+        res.update(error=masked(str(ex), evidence)[:300])
     finally:
         shutil.rmtree(d, True)
     res["pass"] = "reply" in res and res["hits"] == 0
@@ -103,12 +135,15 @@ def main():
     p = sub.add_parser("scan")
     p.add_argument("--terms", required=True)
     p.add_argument("--path", action="append", required=True)
+    p.add_argument("--out", help="also write the result here, as the gate's liveness artefact")
     p = sub.add_parser("canary")
     p.add_argument("--terms", required=True)
     p.add_argument("--engine", choices=["agy", "codex"], required=True)
     p.add_argument("--model")
     p.add_argument("--out", required=True)
     a = ap.parse_args()
+    if a.cmd == "canary" and a.engine == "agy" and not a.model:
+        raise common.ToolError(engines.AGY_MODEL_REQUIRED)
     return scan(a) if a.cmd == "scan" else canary(a)
 
 
