@@ -26,14 +26,17 @@ capabilities:
 
 # Class policy — the deterministic gate applies it; the audit reports per class. Defaults from the
 # folder-curation skill; override per project here.
+# `iwork: read` needs an iWork reader in the deployment's own ingest (a job never depends on a
+# skill's bundled tools); a deployment without one overrides the class, e.g. back to after_convert.
 classes:
   document: {hash: full, ingest: read}
   image:    {hash: full, size_cap_mb: 25, ingest: scans_only}
   imaging:  {hash: count_only, ingest: never}
   software: {hash: count_only, ingest: never}
-  iwork:    {hash: full, ingest: after_convert}
+  iwork:    {hash: full, ingest: read}         # read directly, without the apps; a package is one item
   email:    {hash: full, ingest: read}
   archive:  {hash: full, ingest: on_request}
+  other:    {hash: full, ingest: after_convert}  # other proprietary formats: read only once a `convert` row has made an export
 
 # Deterministic exclude list — paths the gate never presents to a model, whatever the class.
 # (The folder-curation interview's sensitivity answers land here.)

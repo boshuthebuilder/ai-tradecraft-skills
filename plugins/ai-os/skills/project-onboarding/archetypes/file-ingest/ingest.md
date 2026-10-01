@@ -33,16 +33,19 @@ cross-project connections belong solely in a separate user-level wiki, never her
 
 {project_rulebook}
 
-## Optional page contracts
+## Optional deterministic rendering
 
 {page_contracts}
 
 An empty block retains the ordinary `body` output below. When this block explicitly advertises a
 structured renderer, follow its per-type contract for assigned pages and return `page_facts` in the
 advertised schema, with `page_type`, instead of `body` for those pages. Do not invent a generic
-contract or write raw prose over a contract-driven page. Other pages keep their existing shape.
+contract or write raw prose over a rendered page. Other pages keep their existing shape.
 Owner overlays are read-only evidence. Follow `wiki-maintenance` for anatomy and typed facts; the
 deployment validates and renders them. Unknown placeholders must be resolved before a job runs.
+Either way, every page is still written to its contract in the Schema (its reader, its questions in
+order, its fields) and in the voice of its professional, as `wiki-maintenance`'s core wiki rule sets
+out; this block changes only how assigned pages are produced.
 
 ## The wiki's existing structure (write into the right existing section — do not invent a parallel layout)
 

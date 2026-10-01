@@ -266,8 +266,9 @@ From the audit and the answers, emit a **move-plan** (schema:
   behind, so a duplicate is not taken for the file itself. Staging is a curation act, never a filing
   rule: the rulebook never routes new files into the migrations folder.
 - **Return migrations** bring a staged file the owner decides to keep back to its original path, by a
-  `move` row out of `_Migrations/<Project>/`; a round that returns everything still staged for that
-  project adds an `rmdir` row for the emptied `_Migrations/<Project>/`.
+  `move` row out of `_Migrations/<Project>/`. When the approved return moves empty
+  `_Migrations/<Project>/`, its `rmdir` row is proposed then, as for any emptied folder (above), and
+  never in the same proposal as the moves, so a declined return cannot leave an `rmdir` that fails.
 - **Never invent a taxonomy.** The owner's shape stays; the plan resolves conflicts inside it. A
   full re-taxonomy is a depth the owner must choose, and even then it is proposed as a mapping from
   every existing folder, never as a blank target tree.
@@ -335,9 +336,10 @@ exactly the executed rows' (`from`, `evidence`), and the pairs that appeared exa
 `_Migrations/<Project>/` after the other project collected its files are expected, and the proof
 takes them only as an explicit allowance for that path, never as a silent pass. Anything else (a file
 that moved that no row moved, a hash that changed, a count that shifted) is a **finding**, reported
-with the row it should have belonged to. After the delete phase, re-audit once more. The (path, hash)
-proof covers moves and renames only, so check the deletes by reading the fresh manifest: each deleted
-path is gone from its entry's `copies`, the canonical path remains, and no other pair changed. Report
+with the row it should have belonged to. After the delete phase, re-audit once more and run the same
+proof again from the same baseline: each done `delete` row's (`from`, `evidence`) pair is expected to
+disappear too, so the proof then covers the whole round, and a canonical path that went with its
+copy, or any other pair that changed, is a finding. Report
 the round in the terms the counts mean: rows approved, executed, skipped, failed; files moved, renamed,
 converted, deleted; findings.
 

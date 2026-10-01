@@ -7,8 +7,9 @@ description: >-
   project-onboarding, which onboards a folder of documents. Covers the storage-ownership handshake
   (the user owns the folder and shares it into the worker), the type-1 vault skeleton it scaffolds,
   and stamping the user-synthesis archetype (an incremental `synthesise` plus its periodic `reconcile`
-  twin). For a document folder use project-onboarding; for the synthesis archetype details see
-  project-onboarding/archetypes/user-synthesis.
+  twin), which also proposes cross-project migrations for the owner to approve. For a document
+  folder use project-onboarding (after pre-onboarding for a lived-in one); for the synthesis archetype
+  details see project-onboarding/archetypes/user-synthesis.
 ---
 
 # user-onboarding
@@ -32,7 +33,10 @@ twin rule, storage ownership).
 - You are setting up a new identity in an AI-OS-style deployment.
 
 For a folder of documents, use **project-onboarding**. For the ongoing maintenance conventions the
-jobs follow, use **wiki-maintenance**.
+jobs follow, use **wiki-maintenance**. The projects a synthesis reads are onboarded first, each as
+its own project: a tidy folder through `project-onboarding`, a lived-in one prepared through
+[`pre-onboarding`](../pre-onboarding/SKILL.md) and then onboarded (the sequence is in
+[`ARCHITECTURE.md`](../../ARCHITECTURE.md#preparing-a-folder-before-onboarding)).
 
 ## The shape of an onboarded identity
 
@@ -48,6 +52,10 @@ When onboarding is done:
   may read (the one access rule, single-homed in the deployment);
 - the **user-synthesis archetype** is stamped: a reactive `synthesise` job and its periodic `reconcile`
   twin, both declaring `wiki-maintenance` as their capability;
+- the synthesis is where **cross-project migrations are proposed**: when the wikis it reads show that
+  files one project holds belong to another, it raises the move for the owner to approve or decline,
+  and the owner's approved curation plan in the holding project carries it out (the archetype's
+  [proposed migrations](../project-onboarding/archetypes/user-synthesis/README.md#proposed-migrations));
 - a first synthesis has run, so `00 Index/` and `01 Knowledge/` hold a real starting view.
 
 ## The method
@@ -69,7 +77,10 @@ quota). A deployment that *creates* the folder on the worker has inverted the mo
 
 Decide which projects this identity may access — the synthesis will read **only** those wikis. This is
 the same access rule the deployment enforces everywhere (do the requester's tags intersect the
-target's?). Record the scope in the deployment's config; never widen it implicitly.
+target's?). Record the scope in the deployment's config; never widen it implicitly. An identity needs
+no model login of its own: each engine is logged in once per machine, and what isolates one
+identity's synthesis from another's is the scoped gather and each call's own context
+([one login per machine](../../ARCHITECTURE.md#execution-context-constraints-why-the-indirection-exists)).
 
 ### 3. Scaffold the type-1 skeleton
 

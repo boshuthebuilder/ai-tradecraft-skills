@@ -29,8 +29,10 @@ These templates are generic by design: they name no real owner, host, or platfor
 supplies the timer, the storage, the model runner, and the deterministic write-guards that the
 templates *describe* but do not themselves enforce (see the three-layer model in `ARCHITECTURE.md`).
 
-For the optional contract-driven profile, specialise and version the project's templates, compiled
-contracts and renderer configuration together. `{page_contracts}` is optional context: supply an empty
-block when unsupported. Non-empty context must advertise the supported `page_facts` schema; only then
-may the model replace `body` with that structured alternative for assigned pages. See
-`wiki-maintenance` for the single-home contract rules.
+For the optional deterministic-rendering profile, specialise and version the project's templates,
+compiled render declarations and renderer configuration together. `{page_contracts}` is optional
+context: supply an empty block when unsupported. Non-empty context must advertise the supported
+`page_facts` schema; only then may the model replace `body` with that structured alternative for
+assigned pages. Rendered or not, every page follows
+[the core wiki rule](../../../wiki-maintenance/SKILL.md#the-core-wiki-rule); the profile's rules are
+[`wiki-maintenance`'s](../../../wiki-maintenance/SKILL.md#deterministic-rendering-optional-profile).
