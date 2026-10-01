@@ -379,10 +379,11 @@ What a deployment relies on when it onboards a prepared folder, and what `readin
   unreadable is a finding of its own.
 - **Derived pages hold nothing hand-written**
   ([deadlines are derived](../wiki-maintenance/SKILL.md#rules-that-keep-it-safe)). Every date on `01 Deadlines` comes
-  from a page's frontmatter, superseded pages left out, its own `last-updated` (a build stamp) aside; it shows every
-  deadline of the pages the sweeps read that is not before that stamp; a date that recurs is a `recurring:` entry,
-  `{date: MM-DD, note}`, in its page's frontmatter, shown by its own `MM-DD`; and an empty roll-up says why. Any
-  other derived page, such as an open-questions list, is reported as not verified.
+  from a page's frontmatter, superseded pages left out, its own `last-updated` (a build stamp, never after today)
+  aside; it shows every deadline of the pages the sweeps read that is not before that stamp; a date that recurs is
+  a `recurring:` entry, `{date: MM-DD, note}`, in its page's frontmatter, shown by its own `MM-DD`; and a roll-up
+  with nothing to show says why. Any other derived page, such as an open-questions list, is reported as not
+  verified.
 - **The rulebook**: `CLAUDE.md` present, valid UTF-8 and identical to `AGENTS.md`; naming the wiki folder; reserving
   the deployment's rulebook filenames, `GEMINI.md` included; routing no new file to the migrations folder, which
   leaves migrations to the owner's user-tier synthesis.
