@@ -159,7 +159,7 @@ state, in its log, that there is genuinely nothing to list; the skill's step 5 s
 
 `isolation.py scan` checks every file a model will be shown for the terms, and `isolation.py canary` asks each
 engine to list every name in its context ([the tool reference](tools.md#isolationpy)). `cards.py` does not read the
-canary's result; running it first is the operator's step.
+canary's result (only `readiness.py` does, at hand-off); running it first is the operator's step.
 
 ### Every card, before it is written
 
@@ -173,8 +173,9 @@ anywhere). Every card of a batch is checked before any is written: the first con
 
 ### At hand-off
 
-`readiness.py --terms <file>` runs the same guard over every live document's card (its `card_meta` aside) and
-reports how many are contaminated; without `--terms` it reports the check as not verified.
+`readiness.py --terms <file>` runs the same guard over the card of every live document `extract.py` reads (its
+`card_meta` aside) and reports how many are contaminated, a count above zero being one finding; without `--terms`
+it reports the check as not verified ([`records`](tools.md#readinesspy)).
 
 ## Repair from the card's own source
 

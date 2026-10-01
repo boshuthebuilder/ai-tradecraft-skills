@@ -211,6 +211,7 @@ and again, on the same before-manifest, after the delete phase's.
 
     extract.py --root <folder> --lane main|apps [--worker <k>/<N>] [--retry-failed] [--manifest <file>]
                [--out <dir>] [--ocr-bin <file>]
+    extract.py repath --root <folder> [--manifest <file>] [--out <dir>] [--apply]
 
 The full text of every live, hashed document in the manifest (images over the size cap are not read; staged files
 are), every page, with local tools only. Records go to `--out` (default `<root>/_Audit/extract`), one
@@ -263,6 +264,26 @@ confidence of at least 0.45.
 | `extractor`, `extracted_at` | the tool's version and the time |
 | `notes` | a local OCR tool that was missing where a page needed it, or an iWork read that failed |
 | `error` | on a `failed` record, why |
+
+### `repath`
+
+    extract.py repath --root <folder> [--manifest <file>] [--out <extract dir>] [--apply]
+
+An extract record carries the path its document had when it was read, so a curation round after extraction leaves
+it behind. Once the round's re-audit is proved, `repath` rewrites each record's `path` to its document's
+`current_path` in the manifest, matched by content hash (the record's id, its file name); nothing is read again, no
+model is called and nothing else in a record changes. It prints `records`, `applied`, `paths_changed`,
+`already_current`, `moves` (`[id, old path, new path]`), `departed_left` and `not_in_manifest` (`[id, path]`:
+records of departed documents, and of ids the manifest does not hold, left as they are), and exits 0.
+
+It is a dry run unless `--apply`. It refuses (exit 2, nothing written), naming each: a manifest `wiki.py` would
+refuse; a record whose `id` is not its file name; a record whose document's paths the manifest's canonical choice
+does not settle (copies naming no canonical copy, several, or one other than the current path, or a current path
+another live entry holds); and a move to a current path that is not in the folder, since the manifest is then older
+than the folder: re-audit first. `--apply` writes every repathed record to a temporary file beside it, through the
+guarded writer (with `--read-only-root`, records inside the folder are refused; `--out` names records kept
+elsewhere), and only then replaces the records. A failure part way exits 2 naming the records already replaced,
+and leaves no temporary file. Cards need no repair: they hold no path, only their document's id.
 
 ## `iwa.py` and `page_ocr.swift`
 
@@ -346,9 +367,10 @@ Keeps other projects out of model-facing context. The terms file's format is in
   usage, hits, pass}` (or `error`) to `--out`, the reply and any error with their terms masked, and prints it
   without the reply; `pass` needs a reply with no term in it. Exit 0 on a pass.
 
-Neither writes a term out. The result files are the record that the gate ran; no tool reads them. With nothing to
-list there is no terms file, so neither can run: [the skill](../SKILL.md#5-open-the-gate-to-the-engines) says what
-is recorded instead.
+Neither writes a term out. The result files are the record that the gate ran: `readiness.py` reads each engine's
+canary from `<work>/state/canary-<engine>.json` ([`isolation.canary`](#readinesspy)), and no tool reads the scan's.
+With nothing to list there is no terms file, so neither can run, and readiness reports each canary as `not run`
+([the skill](../SKILL.md#5-open-the-gate-to-the-engines)).
 
 ## `cards.py`
 
@@ -772,31 +794,72 @@ rendered with `--kind pie --title "Planned monthly spending (GBP)"`:
 
 ## `readiness.py`
 
-    readiness.py --root <folder> [--terms <file>] [--manifest <file>] [--out <file>]
+    readiness.py --root <folder> [--terms <file>] [--manifest <file>] [--out <file.json>]
 
-The [hand-off contract](../SKILL.md#the-hand-off-contract), checked, read-only on the folder: it reads the settings
-twins without trusting them, so a stale or unpinned twin is a finding rather than a refusal. It prints JSON, also to
-`--out` (where `--read-only-root` allows):
+The [hand-off contract](../SKILL.md#the-hand-off-contract), checked. Read-only on the folder, it reads the settings
+twins without trusting them, so a stale or unpinned twin is a finding rather than a refusal. It prints one JSON
+report (also to `--out`, refused inside the folder with `--read-only-root`) and exits 0 when nothing is found, 1 on
+any finding, and 2 on a tool error: a missing or malformed manifest (a live entry without `hashed` true or false
+included), card, extract record or canary result, or a crash, so 1 always means findings. The fixture's report is
+[`../tests/expected/readiness.json`](../tests/expected/readiness.json).
 
-| Key | What it reports |
-| --- | --- |
-| `manifest` | `generated_at`; `live_entries`, `departed_entries`, `migrating`, `root_strays`, `redundant_copies`, `hygiene`, `unconverted_iwork`; `items_on_disk` from `summary.json`, or not verified without it |
-| `records` | `missing_extracts`, `missing_cards` (over every live entry), `bad_category`, `extract_paths_stale` (records whose path differs from the manifest's), `contamination` (not verified without `--terms`) |
-| `wiki` | the result of `wiki.py check` |
-| `rulebook` | `copies_identical` (`CLAUDE.md` and `AGENTS.md`) and `names_wiki_folder`, or a finding when either file is missing |
-| `scratch` | `left_in_audit`: folders in `_Audit/` whose names start `_deploy` or `_wikibuild` |
-| `handoff_contract` | each `ok` or `finding: <what>`: `wiki_folder_named_after_folder`; `fixed_pages` (`00 Index`, `01 Deadlines`, `90 Schema`, `91 Log`, each as `<NN Name>/<NN Name>.md`); `derived_pages_hold_nothing_hand_written` (`01 Deadlines` has only its roll-up headings, and no hand-kept `Every year` table while no page carries `recurring:`; not verified without the page); `rulebook_reserves_rulebook_filenames` (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`); `new_files_routed_within_folder` (no rulebook line routes new files to the migrations folder); `settings_rulebook_json` and `settings_wiki_schema_json` (present and fresh) |
-| `summary` | `handoff_findings`, `wiki_problems`, `records_missing` |
+Each check is a count, a state, `ok`, `finding: ...` or `not verified: ...`. `findings` lists every finding as
+`[check, what]`, `check` being the report key that holds it; `not_verified` lists every named not-verified state the
+same way, which is not a finding and not a pass either, and does not change the exit code; `summary` counts both.
 
-It exits 1 when a hand-off contract item is a finding, the wiki check has problems, or a record is missing.
+- `manifest`: the live, departed, migrating, root stray, redundant copy, hygiene and unconverted iWork counts and
+  the items on disk, reported, not findings; `live_paths_missing` counts live entries whose current path is gone, a
+  finding (the manifest is not current: re-audit).
+- `records`, over the live documents `extract.py` reads (hashed ones): `missing_extracts`, `missing_cards`,
+  `bad_category` (outside the rulebook's `card_categories`), `extract_paths_stale` (a record whose path is not the
+  manifest's; the finding names the [`extract.py repath`](#repath) command that repairs it) and `contamination` (a
+  card naming an isolation term its own source lacks, by `cards.py`'s rule; `not verified` without `--terms`). A
+  count above zero is one finding.
+- `isolation.canary`: per engine (`agy` and `codex`), the result `isolation.py canary --out` wrote to
+  `<work>/state/canary-<engine>.json`: `passed`, `failed: ...` (a finding) or `not run: ...` (not verified).
+- `wiki`: [`wiki.py check`](#check-1)'s report, reading the Schema from `--settings-dir`; its `problems` are one
+  finding and its not-verified states are listed.
+- `wiki_handoff`: `rationale_file`, a finding when `_Audit/wiki-rationale.md` is missing (`check` reports it `not
+  recorded` without counting it, since drafting agents run `check` before the file is assembled); `pages_accepted`,
+  `pages_not_accepted` and `pages_not_verified`: each page `check` does not report `accepted` is one finding naming
+  the page, its state and why, a refused page included, except a page `check` lists in `acceptance_not_verified`
+  (its professional and contract cannot be read, so its acceptance cannot be judged): those are counted and listed
+  once as not verified, what keeps them unreadable (a missing or stale Schema twin, a page with no single
+  professional) being a finding of its own. `records_for_no_page` lists the pages the acceptance record names that
+  the wiki no longer holds, as information only (records stay as they were made).
+- `rulebook`: `present`, `valid_utf8` (as `settings.py check` reads it), `copies_identical` and `names_wiki_folder`.
+  `scratch.left_in_audit`: folders in `_Audit/` other than `plans`, `extract` and `cards`.
+- `handoff_contract`: `wiki_folder_named_after_folder`; `fixed_pages` (`00 Index`, `01 Deadlines`, `90 Schema`,
+  `91 Log`; numbered sections are `check`'s, where a page in no Layout section is a problem);
+  `derived_pages_hold_nothing_hand_written`, `recurring_dates_in_frontmatter` and `other_derived_pages` (below);
+  `rulebook_reserves_rulebook_filenames` and `new_files_routed_within_folder`
+  ([a project files within itself](../../wiki-maintenance/SKILL.md#rules-that-keep-it-safe)), both reading the
+  rulebook's prose by substring and keyword: a filename is reserved when `CLAUDE.md`, `AGENTS.md` or `GEMINI.md` is
+  written anywhere in `CLAUDE.md`, and new files are routed out when a line names the migrations folder
+  (`_Migrations/`) together with "new file", "dropped", "goes to" or "go to", in any case, so a line saying where
+  approved migrations wait passes and one saying new files go there does not; `settings_rulebook_json` and
+  `settings_wiki_schema_json` (present and fresh).
 
-<!-- provisional: #97 -->
+**Derived pages.** The rule is `wiki-maintenance`'s *Deadlines are derived, not authored*
+([rules that keep it safe](../../wiki-maintenance/SKILL.md#rules-that-keep-it-safe)), read through the keys its
+roll-up reads
+([canonical frontmatter](../../wiki-maintenance/SKILL.md#canonical-frontmatter--the-keys-the-deterministic-sweeps-read)),
+`01 Deadlines` being the derived list of forward dates. It fixes no headings and asks for no list beyond the dates,
+so readiness checks none. It reads the roll-up's dates as the roll-up writes them: a dated deadline as
+`YYYY-MM-DD`, anywhere on the page, and a recurring date as `MM-DD`, a month and a day that month has, opening a
+list item or alone in a table cell (an `MM-DD` mid-sentence, such as "pages 10-12", is prose). The sources are the
+pages that are not `superseded`.
 
-The hand-off check (issue #97) makes every item a count or a named not-verified state, and a failure of the whole:
-no contamination, extract paths agreeing with the manifest, the rulebook copies identical and naming the wiki
-folder, no scratch folders left in `_Audit/`, and the wiki check including acceptance. Today `bad_category`,
-`extract_paths_stale`, `contamination`, the `rulebook` pair and `scratch` are reported but do not change the exit
-code, so read them in the report.
+- `derived_pages_hold_nothing_hand_written`: every `YYYY-MM-DD` on the roll-up is a page's `deadline` or
+  `deadlines` date (`YYYY-MM-DD` or `{date, note}`), except the roll-up's own `last-updated`, a build stamp; the
+  roll-up shows every such date of a page the sweeps read that is not before its `last-updated` (one before it is
+  past, not forward); and an empty roll-up in a wiki of derived pages says why (a page of headings or a bare
+  "None" does not).
+- `recurring_dates_in_frontmatter`: every `MM-DD` on the roll-up is a page's `recurring` date; every `recurring`
+  entry reads `{date: MM-DD, note}`, with a day the month has and a note; and the roll-up shows each by its own
+  `MM-DD` (a `YYYY-MM-DD` on the same day does not show it).
+- `other_derived_pages`: another page the Schema marks derived (an open-questions list) shows no date its sources
+  would settle, so it is named `not verified`, apart from the roll-up's result.
 
 ## `common.py`
 
@@ -827,3 +890,4 @@ In the work directory, never in the folder:
 | `state/redo_done_<k>.txt` | `cards.py work --redo` | ids re-carded so far |
 | `state/redo_refs.txt` | `refs.py --apply` | ids to re-card |
 | `state/ALERT` | `cards.py work` | a contamination alert; every worker stops while it exists |
+| `state/canary-<engine>.json` | `isolation.py canary --out` | the canary's result, which `readiness.py` reads |

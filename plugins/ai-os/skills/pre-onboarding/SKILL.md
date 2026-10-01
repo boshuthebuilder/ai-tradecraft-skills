@@ -53,7 +53,7 @@ archetype); keeping a wiki that already exists (`wiki-maintenance`).
 - **The tools.** Run each as `python3 <tools>/<tool>.py`, where `<tools>` is this skill's `tools/` folder
   (standard-library Python 3.9 or later). Every tool takes `--root "<folder>"`; working state lives outside the
   folder, in the work directory, `<work>` below (`--work`, default `~/.ai-os-pre-onboarding/<folder name>`). The
-  common flags, every command and every output are in the [tool reference](references/tools.md).
+  common flags, every command and every output are in the [tool reference](references/tools.md#common-flags).
 - **The isolation terms file.** Every name that must never reach a model working on this folder: the people,
   organisations and places of the operator's other projects, and the operator's own identifiers from any other use
   of the engines. It is kept outside the folder, never committed and never shown to a model. Ask the operator for
@@ -167,12 +167,13 @@ were built from. A round after that is repaired, never read again (*A round afte
    propose what the re-audit shows as a new round. Curation is done when a round's proof and delete check are
    clean and the owner wants nothing more at the depth they chose.
 
-<!-- provisional: #97 -->
-
 **A round after extraction.** When a round has to run after step 4 (a migration found while the wiki is drafted,
-say), repair what it moved rather than read anything again: once the round's re-audit is proved, repath the extract
-records from the fresh manifest (each record's path rewritten by its content hash, with no re-read), rebuild the
-bundles and run `wiki.py drift` (step 7). Cards are keyed by content, so they follow their documents.
+say), repair what it moved rather than read anything again. Once the round's re-audit is proved,
+`extract.py repath --root "<folder>"` lists each extract record whose path it would rewrite to its document's
+current path, matched by content hash, with nothing read again; run it again with `--apply` to write them. It
+refuses a move to a path that is not in the folder, so it runs only on a manifest the re-audit has made current
+([`repath`](references/tools.md#repath)). Then rebuild the bundles and run `wiki.py drift` (step 7). Cards hold no
+path, only their document's id, so they need nothing.
 
 ### 4. Extract the text
 
@@ -208,16 +209,15 @@ Before any model reads this folder:
 instructions are filled from) for the terms, and exits 1 on any hit or when it found nothing to check; scan the wiki
 briefs and review prompts the same way before a model reads them (step 7). `canary` asks the engine to list every name
 in its context and fails on any term. Run it for each engine you will use, and keep both results: they are the record
-that the gate ran. No tool reads them for you, so never start a lane without passing ones. A failure means the
-engine's context carries another project: fix its setup ([engine isolation](#engine-isolation)) and run the canary
-again.
-
-<!-- provisional: #97 -->
+that the gate ran, and `readiness.py` reads each engine's canary from `<work>/state/canary-<engine>.json` (step 8).
+No lane reads them, so never start one without passing ones. A failure means the engine's context carries another
+project: fix its setup ([engine isolation](#engine-isolation)) and run the canary again.
 
 **When there is nothing to list.** The gate needs a terms file, and an empty one is refused. Where the operator
-genuinely has no name to keep out (no other project, and no other use of the engines), there is no file. Record the
-canary as not run, and why: a named not-verified state, never a pass. Run the cards with `--no-isolation-terms`,
-which their log records, and readiness without `--terms`; it then reports isolation as not verified.
+genuinely has no name to keep out (no other project, and no other use of the engines), there is no file, and the
+canary is not run: readiness reports each engine's canary as `not run`, a named not-verified state and never a
+pass. Run the cards with `--no-isolation-terms`, which their log records, and readiness without `--terms`, which
+reports the contamination check as not verified too. Tell the owner why.
 
 ### 6. The vision lane and the cards
 
@@ -317,9 +317,11 @@ round ([a round after extraction](#3-curation-rounds-each-approved-by-the-owner)
 
     python3 <tools>/readiness.py --root "<folder>" --terms <terms file> --out <work>/readiness.json
 
-The [hand-off contract](#the-hand-off-contract), checked. Fix what it names, in the step that owns it, and run it
-again. Every item is a count or a named not-verified state, and some are reported without failing the run, so read
-the whole report, not only the exit code.
+The [hand-off contract](#the-hand-off-contract), checked ([`readiness.py`](references/tools.md#readinesspy)). It
+exits 0 when nothing is found, 1 on any finding, each listed in `findings` with the report key that holds it, and 2
+on a tool error. Fix each finding in the step that owns it, and run it again. Named not-verified states, such as an
+engine whose canary was not run, are listed in `not_verified`: they do not change the exit code, and are not a pass
+either, so read them and tell the owner.
 
 ### 9. Hand off
 
@@ -361,48 +363,52 @@ Formats, the stale states and their remedies: [the settings reference](reference
 
 ## The hand-off contract
 
-<!-- provisional: #97 -->
-
 What a deployment relies on when it onboards a prepared folder, and what `readiness.py` checks:
 
-- **The manifest is current**, with its counts reported: live, departed and migrating entries, root strays,
-  redundant copies, hygiene defects, unconverted iWork files.
-- **Every live document has an extract record and a card**; each card's category is one the rulebook allows,
-  and no card names an isolation term its document does not carry.
-- **Every extract record's path agrees with the manifest**, repathed after any later round: readiness fails the
-  hand-off on a record whose path does not.
-- **The wiki** is at `<folder name> Wiki/`, with numbered sections and the fixed pages `00 Index`, `01 Deadlines`,
-  `90 Schema` and `91 Log`, and `wiki.py check` reports zero problems (frontmatter, `sources:` lists and
-  folder-relative backticked paths that exist, links, em dashes, coverage, charts, rationale blocks), with
-  acceptance reported as its own state.
-- **Derived pages hold nothing hand-written**: `01 Deadlines` and any open-questions list are built from the pages,
-  and a date that recurs lives in its own page's frontmatter (`recurring:`), never in a table kept by hand
-  ([deadlines are derived](../wiki-maintenance/SKILL.md#rules-that-keep-it-safe)).
-- **The rulebook**: `CLAUDE.md` and `AGENTS.md` identical; naming the wiki folder; reserving the deployment's
-  rulebook filenames, `GEMINI.md` included; filing new files within the folder and leaving migrations to the
-  owner's user-tier synthesis.
+- **The manifest is current**: its counts are reported (live, departed and migrating entries, root strays,
+  redundant copies, hygiene defects, unconverted iWork files), and no live entry's current path is gone.
+- **Every live document `extract.py` reads has an extract record and a card**; each card's category is one the
+  rulebook allows, each record's path agrees with the manifest (`extract.py repath` repairs one that does not), and
+  no card names an isolation term its own document does not carry.
+- **The gate ran**: each engine's canary passed, or was not run, which is reported as not verified.
+- **The wiki** is at `<folder name> Wiki/`, with the fixed pages `00 Index`, `01 Deadlines`, `90 Schema` and
+  `91 Log`, and `wiki.py check` reports zero problems (numbered sections, frontmatter, `sources:` lists and
+  folder-relative backticked paths that exist, links, em dashes, coverage, charts, rationale blocks).
+- **The wiki is accepted**: the rationale file exists, and every page is `accepted`. A page whose acceptance cannot
+  be verified (its professional or contract cannot be read) is reported as not verified, and what keeps it
+  unreadable is a finding of its own.
+- **Derived pages hold nothing hand-written**
+  ([deadlines are derived](../wiki-maintenance/SKILL.md#rules-that-keep-it-safe)). Every date on `01 Deadlines` comes
+  from a page's frontmatter, superseded pages left out, its own `last-updated` (a build stamp) aside; it shows every
+  deadline of the pages the sweeps read that is not before that stamp; a date that recurs is a `recurring:` entry,
+  `{date: MM-DD, note}`, in its page's frontmatter, shown by its own `MM-DD`; and an empty roll-up says why. Any
+  other derived page, such as an open-questions list, is reported as not verified.
+- **The rulebook**: `CLAUDE.md` present, valid UTF-8 and identical to `AGENTS.md`; naming the wiki folder; reserving
+  the deployment's rulebook filenames, `GEMINI.md` included; routing no new file to the migrations folder, which
+  leaves migrations to the owner's user-tier synthesis.
 - **The settings twins** present and fresh.
-- **No scratch folders** left in `_Audit/`.
+- **No scratch**: `_Audit/` holds no folder but `plans`, `extract` and `cards`.
 
-Which of these `readiness.py` reports today, and how, is in [the tool reference](references/tools.md#readinesspy).
+How `readiness.py` reports each is in [the tool reference](references/tools.md#readinesspy).
 
 ## The tools
 
 | Tool | Step | What it does |
 | --- | --- | --- |
-| `audit.py` | 1, 3 | the manifest, `AUDIT.md` and `summary.json` |
-| `settings.py` | 2, 7 | compiles `wiki-schema.json`; checks both twins and the rulebook's facts |
-| `plan.py` | 3 | curation rounds: `light`, `migrate`, `return`, `approve`, `rmdirs`, `check`, `execute`, `prove` |
-| `extract.py` | 4 | full text per page, local tools only (with `iwa.py` and the `page-ocr` helper) |
-| `isolation.py` | 5 | the terms scan and the per-engine canary |
-| `vision.py` | 6 | the model vision lane for pages local OCR could not read |
-| `cards.py` | 6 | one card per document; the whole-chunk join; the contamination guard |
-| `refs.py` | 6 | restores truncated reference numbers from each card's own source |
-| `wiki.py` | 7 | `profile`, `bundles`, `brief`, `chart`, `check`, `rationale`, `review-prompts`, `accept`, `move`, `drift` |
-| `readiness.py` | 8 | the hand-off contract |
-| `engines.py` | 5, 6 | the engine adapters every model call goes through |
+| [`audit.py`](references/tools.md#auditpy) | 1, 3 | the manifest, `AUDIT.md` and `summary.json` |
+| [`settings.py`](references/tools.md#settingspy) | 2, 7 | compiles `wiki-schema.json`; checks both twins and the rulebook's facts |
+| [`plan.py`](references/tools.md#planpy) | 3 | curation rounds: `light`, `migrate`, `return`, `approve`, `rmdirs`, `check`, `execute`, `prove` |
+| [`extract.py`](references/tools.md#extractpy) | 4, 3 | full text per page, local tools only (with `iwa.py` and the `page-ocr` helper); `repath` after a later round |
+| [`isolation.py`](references/tools.md#isolationpy) | 5 | the terms scan and the per-engine canary |
+| [`vision.py`](references/tools.md#visionpy) | 6 | the model vision lane for pages local OCR could not read |
+| [`cards.py`](references/tools.md#cardspy) | 6 | one card per document; the whole-chunk join; the contamination guard |
+| [`refs.py`](references/tools.md#refspy) | 6 | restores truncated reference numbers from each card's own source |
+| [`wiki.py`](references/tools.md#wikipy) | 7 | `profile`, `bundles`, `brief`, `chart`, `check`, `rationale`, `review-prompts`, `accept`, `move`, `drift` |
+| [`readiness.py`](references/tools.md#readinesspy) | 8 | the hand-off contract |
+| [`engines.py`](references/tools.md#enginespy) | 5, 6 | the engine adapters every model call goes through |
 
-Every flag, output and exit code: [the tool reference](references/tools.md).
+The flags every tool shares, its exit codes and the files it keeps outside the folder:
+[the tool reference](references/tools.md#common-flags) and [its working files](references/tools.md#working-files).
 
 ## Principles
 
