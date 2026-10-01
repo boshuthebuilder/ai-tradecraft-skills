@@ -339,6 +339,67 @@ class RollUpTest(Prepared):
         write(p, read(p) + text)
         self.accept_again(DEADLINES)
 
+    def set_roll_up_stamp(self, value):
+        self.edit_page(DEADLINES, "last-updated: 2024-06-30\n", "last-updated: %s\n" % value)
+
+    def test_a_future_last_updated_is_a_finding_and_forward_is_judged_from_today(self):
+        self.set_roll_up_stamp("2099-01-01")
+        self.assertEqual(self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written"),
+                         "finding: 01 Deadlines/01 Deadlines.md is last-updated 2099-01-01, after today (2024-06-30)")
+        p = self.page(DEADLINES)
+        write(p, read(p).split("# Deadlines")[0] + "# Deadlines\n")  # emptied, the pages' deadlines still forward
+        self.accept_again(DEADLINES)
+        detail = self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written")
+        self.assertIn("after today (2024-06-30)", detail)
+        self.assertIn("lacks 2 page deadline(s) (2025-04-30 (30 Home/30 Home.md); 2031-07-15 (10 Identity/10 "
+                      "Identity.md))", detail)
+
+    def test_an_empty_roll_up_with_only_past_deadlines_says_why(self):
+        for page in ("10 Identity/10 Identity.md", "30 Home/30 Home.md"):
+            p = self.page(page)
+            write(p, re.sub(r"deadlines:\n(  - .*\n)+", "", read(p)))
+            self.accept_again(page)
+        self.add_frontmatter(TAX, "deadlines:\n  - {date: 2024-01-31, note: Self assessment paid}\n")
+        p = self.page(DEADLINES)
+        write(p, read(p).split("# Deadlines")[0] + "# Deadlines\n\nNone\n")
+        self.accept_again(DEADLINES)
+        self.assertIn("an empty roll-up that does not say why",
+                      self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written"))
+        self.edit_page(DEADLINES, "None\n", "Nothing forward: the one page deadline, 2024-01-31, is past.\n")
+        self.readiness(code=0)
+
+    def test_a_deadline_on_the_stamp_day_must_show(self):
+        self.add_frontmatter(TAX, "deadline: 2024-06-30\n")
+        self.assertIn("lacks 1 page deadline(s) (2024-06-30 (20 Finance/Tax.md))",
+                      self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written"))
+
+    def test_a_stamp_that_is_no_date_exempts_nothing(self):
+        for stamp in ("soon", "2024-02-30"):
+            with self.subTest(stamp=stamp):
+                self.set_roll_up_stamp(stamp)
+                self.edit_page(TAX, "status: current\n", "status: current\ndeadline: 2024-01-31\n")
+                self.assertIn("lacks 1 page deadline(s) (2024-01-31 (20 Finance/Tax.md))",
+                              self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written"))
+                self.edit_page(TAX, "deadline: 2024-01-31\n", "")
+                self.set_roll_up_stamp_back(stamp)
+
+    def set_roll_up_stamp_back(self, value):
+        self.edit_page(DEADLINES, "last-updated: %s\n" % value, "last-updated: 2024-06-30\n")
+
+    def test_a_deadline_entry_that_cannot_be_read(self):
+        for entry in ("20250131", "[2025-01-31]", "2025-02-30", "{date: 2025-02-30, note: No such day}"):
+            with self.subTest(entry=entry):
+                self.add_frontmatter(TAX, "deadline: %s\n" % entry)
+                self.assertIn("1 deadline entr(ies) not a real YYYY-MM-DD or {date, note} (20 Finance/Tax.md: "
+                              "deadline: %s)" % entry,
+                              self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written"))
+                self.edit_page(TAX, "deadline: %s\n" % entry, "")
+
+    def test_list_items_that_open_with_no_month_and_day(self):
+        self.add_to_roll_up("- 13-45 units of electricity\n- 01-31-2025 is not a month and day\n"
+                            "- 01-3122 is a meter reading\n")
+        self.readiness(code=0)
+
     def test_a_single_deadline_with_a_note(self):
         """wiki-maintenance's frontmatter table allows `deadline: {date, note}` as well as a bare date."""
         self.add_frontmatter(TAX, "deadline: {date: 2026-01-31, note: Self assessment payment}\n")
@@ -458,11 +519,14 @@ class FindingTest(Prepared):
 
     def test_a_manifest_entry_without_hashed_is_refused(self):
         p = self.path("_Audit", "manifest.json")
-        man = json.loads(read(p))
-        for e in man["entries"].values():
-            e.pop("hashed")
-        write(p, json.dumps(man, ensure_ascii=False, indent=1))
-        self.assertIn("records no hashed true or false", self.refused())
+        good = read(p)
+        for hashed in (None, "yes"):
+            with self.subTest(hashed=hashed):
+                man = json.loads(good)
+                for e in man["entries"].values():
+                    e.pop("hashed") if hashed is None else e.__setitem__("hashed", hashed)
+                write(p, json.dumps(man, ensure_ascii=False, indent=1))
+                self.assertIn("records no hashed true or false", self.refused())
 
     def card(self, rel):
         return self.path("_Audit", "cards", self.ids()[rel] + ".json")
@@ -683,20 +747,39 @@ class RepathTest(Prepared):
         return [n for n in os.listdir(self.path("_Audit", "extract")) if ".repath" in n]
 
     def test_a_failure_writing_the_second_record_replaces_none(self):
+        """The disk fills while the second record's temporary file is written: that file is removed too."""
         (_id1, p1, _n1), (_id2, p2, _n2) = moves = self.two_moves()
         before = [read(p, "rb") for _i, p, _n in moves]
-        real, calls = extract.repath_stage, []
+        real, calls, seen = os.fsync, [], []
 
-        def stage(writer, path, rec):
-            calls.append(path)
+        def fsync(fd):
+            calls.append(fd)
             if len(calls) == 2:
+                seen.extend(self.leftovers())  # both temporary files exist when it fails
                 raise OSError(28, "No space left on device")
-            return real(writer, path, rec)
-        with unittest.mock.patch.object(extract, "repath_stage", stage):
+            return real(fd)
+        with unittest.mock.patch.object(extract.os, "fsync", fsync):
             with self.assertRaises(common.ToolError) as cm:
                 self.apply_in_process()
+        self.assertEqual(len(seen), 2)
         self.assertIn("repath stopped, no record replaced: [Errno 28] No space left on device", str(cm.exception))
         self.assertEqual([read(p1, "rb"), read(p2, "rb")], before)
+        self.assertEqual(self.leftovers(), [])
+
+    def test_an_interrupt_replacing_the_second_record_leaves_no_temporary_file(self):
+        (_id1, p1, n1), (_id2, p2, _n2) = self.two_moves()
+        before2 = read(p2, "rb")
+        real, calls = os.replace, []
+
+        def replace(src, dst):
+            calls.append(dst)
+            if len(calls) == 2:
+                raise KeyboardInterrupt()
+            return real(src, dst)
+        with unittest.mock.patch.object(extract.os, "replace", replace):
+            with self.assertRaises(KeyboardInterrupt):
+                self.apply_in_process()
+        self.assertEqual((json.loads(read(p1))["path"], read(p2, "rb")), (n1, before2))
         self.assertEqual(self.leftovers(), [])
 
     def test_a_failure_replacing_the_second_record_names_the_first(self):

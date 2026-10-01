@@ -562,15 +562,13 @@ def repath_unsettled(entries):
     return out
 
 
-def repath_stage(writer, path, rec):
-    """`rec` written beside `path` as its temporary file, after the writer's guard on `path`; the temporary path."""
+def repath_stage(writer, path, tmp, rec):
+    """`rec` written to `tmp`, the temporary file beside `path`, after the writer's guard on `path`."""
     writer.check(path)
-    tmp = "%s.repath%d" % (path, os.getpid())
     with open(tmp, "w", encoding="utf-8", newline="") as f:
         f.write(json.dumps(rec, ensure_ascii=False))
         f.flush()
         os.fsync(f.fileno())
-    return tmp
 
 
 def repath(argv):
@@ -581,8 +579,9 @@ def repath(argv):
     document has paths the manifest's canonical choice does not settle (`repath_unsettled`), and a move to a current
     path that is not in the folder (the manifest is older than the folder: re-audit first). --apply writes every
     repathed record to a temporary file beside it, through the guarded writer (--read-only-root refuses a write
-    inside the folder), and only then replaces the records; a failure part way is a named error listing the records
-    already replaced, and leaves no temporary file."""
+    inside the folder), and only then replaces the records. Whatever stops it part way, no temporary file stays: an
+    OS error or a refusal is a named error (exit 2) listing the records already replaced, and anything else (an
+    interrupt) is raised again once the temporary files are gone."""
     import wiki  # the manifest's one reader, which refuses a malformed one by name
     ap = common.base_args("Repath extract records from the manifest by content hash (no re-read)")
     ap.prog = "extract.py repath"
@@ -633,16 +632,19 @@ def repath(argv):
         writer, staged, replaced = common.Writer(root if a.read_only_root else None), [], []
         try:
             for path, rec, _old, new in moves:
-                staged.append((repath_stage(writer, path, dict(rec, path=new)), path))
+                staged.append(("%s.repath%d" % (path, os.getpid()), path))  # recorded before it is opened
+                repath_stage(writer, path, staged[-1][0], dict(rec, path=new))
             for tmp, path in staged:
                 os.replace(tmp, path)
                 replaced.append(os.path.basename(path))
-        except (OSError, common.ToolError) as e:
+        except BaseException as e:  # whatever stops it, no temporary file stays
             for tmp, _path in staged[len(replaced):]:
                 try:
                     os.remove(tmp)
                 except OSError:
                     pass
+            if not isinstance(e, (OSError, common.ToolError)):
+                raise
             raise common.ToolError("repath stopped, %s: %s" % (
                 "%d record(s) already replaced (%s)" % (len(replaced), ", ".join(replaced)) if replaced
                 else "no record replaced", e))

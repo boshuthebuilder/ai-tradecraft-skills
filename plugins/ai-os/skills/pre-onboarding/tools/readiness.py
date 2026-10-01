@@ -36,11 +36,13 @@ as a live entry without `hashed` true or false, card, extract record or canary r
     python3 readiness.py --root R [--terms F] [--manifest M] [--out <json>]
 """
 import collections
+import datetime
 import json
 import os
 import re
 import shlex
 import sys
+import time
 import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -106,25 +108,41 @@ def date_entry(it):
     return (m.group(1), (m.group(2) or "").strip().strip("\"'") or None) if m else (text.strip("\"'"), None)
 
 
+def real_day(s):
+    """True for `YYYY-MM-DD` naming a day the calendar has."""
+    if not ISO_DAY.fullmatch(s or ""):
+        return False
+    try:
+        datetime.date(int(s[:4]), int(s[5:7]), int(s[8:]))
+    except ValueError:
+        return False
+    return True
+
+
 def frontmatter_dates(fm):
     """(the YYYY-MM-DD dates in `deadline` and `deadlines`, each a date or {date, note}; the MM-DD dates in
-    `recurring`; the `recurring` entries not in the form {date: MM-DD, note}, with a day the month has and a note) of
-    one page's frontmatter."""
-    days, yearly, bad = set(), set(), []
+    `recurring`; the `deadline` and `deadlines` entries not read as a real YYYY-MM-DD; the `recurring` entries not in
+    the form {date: MM-DD, note}, with a day the month has and a note) of one page's frontmatter."""
+    days, yearly, bad_days, bad = set(), set(), [], []
+
+    def shown(it):
+        return it if isinstance(it, str) else json.dumps(it, ensure_ascii=False)
     for key in ("deadline", "deadlines"):
         v = fm.get(key)
         for it in v if isinstance(v, list) else [v] if v else []:
             d, _note = date_entry(it)
-            if ISO_DAY.fullmatch(d):
+            if real_day(d):
                 days.add(d)
+            else:
+                bad_days.append("%s: %s" % (key, shown(it)))
     v = fm.get("recurring")
     for it in v if isinstance(v, list) else [v] if v else []:
         d, note = date_entry(it)
         if month_day(d) and note:
             yearly.add(d)
         else:
-            bad.append(it if isinstance(it, str) else json.dumps(it, ensure_ascii=False))
-    return days, yearly, bad
+            bad.append(shown(it))
+    return days, yearly, bad_days, bad
 
 
 def deadline_items(wiki, pages, ws):
@@ -136,9 +154,11 @@ def deadline_items(wiki, pages, ws):
     none is checked. The roll-up writes a dated deadline as YYYY-MM-DD and a recurring date as MM-DD (opening a list
     item or alone in a table cell): every such date on it must come from a current page's frontmatter, except the
     roll-up's own `last-updated` (a build stamp); it must show every deadline of a page the sweeps read that is not
-    before its `last-updated`, and every recurring date by its own MM-DD; and an empty roll-up says why. Another
-    page the Schema marks derived (an open-questions list) is built from the pages in a way no date shows, so it is
-    named as not verified, apart."""
+    before its `last-updated` (a `last-updated` after today is a finding, and forward is then judged from today, the
+    tools' clock), and every recurring date by its own MM-DD; a roll-up with none of those to show says why; and a
+    deadline entry that is not a real YYYY-MM-DD, bare or in {date, note}, is reported, as a malformed recurring
+    entry is. Another page the Schema marks derived (an open-questions list) is built from the pages in a way no date
+    shows, so it is named as not verified, apart."""
     derived_dirs = tuple("%s %s/" % (s["number"], s["name"]) for s in (ws or {}).get("sections", []) if s["derived"])
     others = [p for p in pages if p != DEADLINES and p.startswith(derived_dirs)] if derived_dirs else []
     other_item = "not verified: %s (derived, built from the pages in a way no date shows)" % sample(others) \
@@ -147,14 +167,14 @@ def deadline_items(wiki, pages, ws):
         why = "not verified: no %s (fixed_pages reports it)" % DEADLINES
         return why, why, other_item
     days, yearly = collections.defaultdict(list), collections.defaultdict(list)  # date: the current pages holding it
-    swept_days, swept_yearly, bad, any_derived = set(), set(), [], False
+    swept_days, swept_yearly, bad_days, bad, any_derived = set(), set(), [], [], False
     for p in pages:
         if p == DEADLINES or p in others:
             continue
         fm, _body, _n = split_page(read(os.path.join(wiki, *p.split("/"))))
         if fm.get("status") == "superseded":
             continue  # no longer the wiki's: the roll-up shows none of its dates
-        d, y, b = frontmatter_dates(fm)
+        d, y, bd, b = frontmatter_dates(fm)
         for x in d:
             days[x].append(p)
         for x in y:
@@ -162,11 +182,17 @@ def deadline_items(wiki, pages, ws):
         if fm.get("provenance") not in ("manual", "calendar"):
             swept_days |= d
             swept_yearly |= y
+        bad_days += ["%s: %s" % (p, e) for e in bd]
         bad += ["%s: %s" % (p, e) for e in b]
         any_derived = any_derived or fm.get("provenance") == "derived"
     fm, body, offset = split_page(read(os.path.join(wiki, *DEADLINES.split("/"))))
+    derived = []
     stamp = str(fm.get("last-updated", "")).strip().strip("\"'")
-    stamp = stamp if ISO_DAY.fullmatch(stamp) else None
+    stamp = stamp if real_day(stamp) else None
+    today = time.strftime("%Y-%m-%d", time.localtime(common.clock()))
+    if stamp and stamp > today:  # a build not yet made: a finding, and forward is judged from today
+        derived.append("%s is last-updated %s, after today (%s)" % (DEADLINES, stamp, today))
+        stamp = today
     hand, hand_yearly, shown_days, shown_yearly = [], [], set(), set()
     for n, line in enumerate(body.splitlines(), offset + 1):
         for m in DAY.finditer(line):
@@ -177,17 +203,19 @@ def deadline_items(wiki, pages, ws):
             shown_yearly.add(d)
             if d not in yearly:
                 hand_yearly.append("line %d: %s" % (n, d))
-    derived = []
     if hand:
         derived.append("%s holds %d date(s) no current page's frontmatter carries (%s)"
                        % (DEADLINES, len(hand), sample(hand)))
-    missing = ["%s (%s)" % (d, ", ".join(days[d])) for d in sorted(swept_days - shown_days)
-               if stamp is None or d >= stamp]  # a deadline before the roll-up was built is past, not forward
+    forward = {d for d in swept_days if stamp is None or d >= stamp}  # one before the roll-up's build is past
+    missing = ["%s (%s)" % (d, ", ".join(days[d])) for d in sorted(forward - shown_days)]
     if missing:
         derived.append("%s lacks %d page deadline(s) (%s)" % (DEADLINES, len(missing), sample(missing)))
+    if bad_days:
+        derived.append("%d deadline entr(ies) not a real YYYY-MM-DD or {date, note} (%s)"
+                       % (len(bad_days), sample(bad_days)))
     says = [line for line in body.splitlines() if line.strip() and not line.lstrip().startswith("#")
             and not SAYS_NOTHING.fullmatch(line)]
-    if not days and not yearly and any_derived and not says:
+    if not forward and not swept_yearly and any_derived and not says:  # nothing to list, and no word why
         derived.append("%s is an empty roll-up that does not say why" % DEADLINES)
     recurring = []
     if hand_yearly:
