@@ -31,19 +31,22 @@ working files, never written inside the folder; profile, check and drift print J
 --read-only-root allows, and rationale and accept write their audit file there (default in <root>/_Audit/).
 
 Check: every page under the wiki folder (dot folders skipped). Problems, each counted: a page missing a frontmatter
-key (provenance, last-updated, status); a `sources:` entry that does not exist; a backticked body span holding `/`
-whose first segment is a live top-level folder (one holding a live manifest entry or copy) and that does not exist
-(any other such span is counted as unchecked; the Log's pages are history and not read); a link that does not
-resolve, or resolves to a file outside the page map (see Brief), local links being those `move` rewrites
-(`local_link`) and a link's "title" allowed; a body line with an em dash outside inline code; a
-document in scope (live, outside the migrations folder) that no page names by path, in `sources:` or a backticked
-span, and whose own parent folder no page names in backticks (the Schema page's routing and the Log do not count);
-a Mermaid block that does not parse as a kind `chart` renders, a chart block without its data table, or a table
-source `chart` would refuse (missing, outside the folder or reserved); a page with no single professional
-(`common.page_voice` refuses it); and in the rationale file (below) a page with no block, a block for no page, a
-page's second block, a malformed block, or a block whose Professional lens, up to its first `;`, does not name the
-page's professional (compared case-insensitively). Without a compiled Schema, the page map is the pages that exist
-and the professional checks are `not verified`; without a rationale file, `rationale` is `not recorded`.
+key (provenance, last-updated, status) or with `sources:` written as one value rather than a list; a `sources:`
+entry that does not exist; a backticked body span holding `/` whose first segment is a live top-level folder (one
+holding a live manifest entry or copy) and that does not exist (any other such span is counted as unchecked; the
+Log's pages are history and not read); a link that does not resolve, or resolves to a file that is not a page (a
+link to a page the page map only plans is dead until the page is written), local links being those `move` rewrites
+(`local_link`) and a link's "title" allowed; a body line with an em dash outside inline code (lines counted from the
+page's first); a document in scope (live, outside the migrations folder) that no page names by its path or a copy's,
+in `sources:` or a backticked span, and whose own parent folder no page names in backticks, with or without the
+trailing `/` (the Schema page's routing and the Log do not count); a Mermaid block that does not parse as a kind
+`chart` renders, a chart block without its data table, or a table source `chart` would refuse (missing, outside the
+folder or reserved); a page with no single professional (`common.page_voice` refuses it); and in the rationale file
+(below) a page with no block, a block for no page, a page's second block, a malformed block, or a block whose
+Professional lens, up to its first `;`, does not name the page's professional (names compared case-folded, spaces
+collapsed). Each heading is reported once, by the first that holds of: repeated, malformed, for no page, lens. Without
+a compiled Schema the professional checks are `not verified`; without a rationale file, `rationale` is `not
+recorded`. A --rationale or --acceptance path given that does not exist is refused.
 
 Rationale: `_Audit/wiki-rationale.md`, as `wiki-maintenance` defines it: the line `# Wiki rationale`, then per page
 a heading `### <page path>` and exactly five lines, `- Reader and use: `, `- Professional lens: `, `- Shape: `,
@@ -67,19 +70,29 @@ Acceptance record, `_Audit/wiki-acceptance.json` (JSON, indent 1, UTF-8):
     {"version": 1, "records": [<record>, ...]}
 records in the order they were made, one per `accept`, each:
     {"page": "<page path>", "lens": "owner" | "professional", "verdict": "accepted" | "changes" | "refused",
-     "sha256": "<the page's sha256 when recorded>", "author_model": "<as given>", "reviewer_model": "<as given>",
+     "sha256": "<the page's sha256 when recorded>", "professional": "<its professional then, common.page_voice>",
+     "contract_sha256": "<sha256 of its section's compiled contract then, see below>",
+     "author_model": "<as given>", "reviewer_model": "<as given>",
      "date": "<--date, or now as YYYY-MM-DDTHH:MM:SS+ZZZZ>",
      "findings": [{"where": "...", "finding": "...", "response": "..."}],
      "facts_checked": [...] (only when the reply carries it, as given), "reason": "..." (refused only)}
-`accept` reads the reviewer's reply (the JSON the review template asks for, a `response` added to each finding),
-refuses (exit 2, nothing recorded) a page that is not in the wiki, an unknown lens or verdict, a finding without its
-where, finding and response, `changes` without a finding, an author or reviewer in the reply other than the flags,
-and a `page_sha256` other than the page's now. A reviewer equal to the author (trimmed, case-insensitive) is refused
-and recorded as `refused`, with its reason. Check reports each page's state from its latest record per lens:
-`refused` when either lens's latest is a refusal; `accepted` when both lenses' latest accepted the page's current
-sha256; otherwise `not recorded`, saying why (a page edited since its acceptance falls back to it). The wiki's
-state is `refused` if any page is, `accepted` if every page is, otherwise `not recorded`. Acceptance never counts
-as a problem and never makes the check pass.
+The contract sha256 is of the section's compiled contract {reader, questions, fields, professionals} (JSON null
+for a section without one, a fixed section) serialised with keys sorted, no spaces, UTF-8. `accept` reads the
+reviewer's reply (the JSON the review template asks for, a `response` added to each finding), refuses (exit 2,
+nothing recorded) a page that is not in the wiki or has no single professional, an unknown lens or verdict, a
+finding without its where, finding and response, `changes` without a finding, an author or reviewer in the reply
+other than the flags, a `page_sha256` other than the page's now, and a --date that is not YYYY-MM-DD, alone or
+followed by T and a valid time. A reviewer equal to the author (names case-folded, spaces collapsed) is refused and
+recorded as `refused`, with its reason. Under an exclusive lock on <record>.lock, left beside it, `accept` reads
+the record, adds its one record and writes the whole file anew (a temporary file renamed over it), so runs made at
+once each keep theirs; no record is changed or removed. Check reports each page's state from its latest record per
+lens: `refused` when either lens's latest is a refusal; `accepted` when both lenses' latest accepted the page's
+current sha256 under its current professional and contract sha256; otherwise `not recorded`, saying why (a page
+edited since, or whose contract or professional changed since, falls back to it; without a compiled Schema an
+acceptance cannot be verified). The wiki's state is `refused` if any page is, `accepted` if every page is, otherwise
+`not recorded`. `acceptance_records_for_no_page` lists the pages that records name and the wiki no longer holds (a
+page moved or removed; its records stay as made). Acceptance never counts as a problem and never makes the check
+pass.
 
 Bundles: each live manifest entry outside the migrations folder routes by the compiled Schema routing, its
 longest matching prefix (a note row, with no section, routes nothing). A routed entry with a card joins its
@@ -156,7 +169,8 @@ RATIONALE_TITLE = "# Wiki rationale"
 RATIONALE_LABELS = ("Reader and use", "Professional lens", "Shape", "Changed from the previous page",
                     "Left out or flagged")
 ACCEPTANCE_VERSION = 1
-ACCEPTANCE_KEYS = ("page", "lens", "verdict", "sha256", "author_model", "reviewer_model", "date", "findings")
+ACCEPTANCE_KEYS = ("page", "lens", "verdict", "sha256", "professional", "contract_sha256", "author_model",
+                   "reviewer_model", "date", "findings")
 ACCEPTANCE_STATES = ("accepted", "not recorded", "refused")
 LENSES = ("owner", "professional")
 VERDICTS = ("accepted", "changes")  # a reviewer's; `accept` records a third, refused
@@ -238,6 +252,11 @@ def load_card(cards_dir, h):
                                 and (key != "parties" or all(isinstance(x, str) for x in card[key]))):
             raise common.ToolError("malformed card: %s: %s must be %s; re-card it (cards.py work --redo)"
                                    % (path, key, "a list of text" if key == "parties" else kind.__name__))
+    for kind in FACT_KINDS:  # each key fact kind, when present, is a list of text (a bare string would be read
+        facts = card.get("key_facts", {}).get(kind, [])  # as its characters)
+        if not (isinstance(facts, list) and all(isinstance(x, str) for x in facts)):
+            raise common.ToolError("malformed card: %s: key_facts.%s must be a list of text; re-card it (cards.py "
+                                   "work --redo)" % (path, kind))
     return card
 
 
@@ -744,10 +763,10 @@ def schema_for_check(root, settings_dir):
 def rationale_block_problem(lines):
     """None when `lines`, those under a block's heading, are the five labelled lines in order; else what is wrong."""
     if len(lines) != len(RATIONALE_LABELS):
-        return "%d lines under the heading, not %d" % (len(lines), len(RATIONALE_LABELS))
+        return "%d line%s under the heading, not %d" % (len(lines), "" if len(lines) == 1 else "s",
+                                                        len(RATIONALE_LABELS))
     for n, (line, label) in enumerate(zip(lines, RATIONALE_LABELS), 1):
-        head = "- %s: " % label
-        if not line.startswith(head) or not line[len(head):].strip():
+        if not line.startswith("- %s: " % label):  # lines come right-stripped, so text follows the label
             return "line %d is not \"- %s: <text>\"" % (n, label)
     return None
 
@@ -781,34 +800,54 @@ def lens_professional(line):
     return line[len("- Professional lens: "):].split(";", 1)[0].strip()
 
 
-def same_name(a, b):
-    return " ".join(a.split()).casefold() == " ".join(b.split()).casefold()
+def norm_name(name):
+    """A model's or a professional's name as compared: case folded, whitespace collapsed."""
+    return " ".join(name.split()).casefold()
 
 
 def rationale_findings(text, pages, voices):
     """The rationale checks for `pages` (the pages that exist): see the module docstring. `voices` is {page: its
-    professional} for the pages that have one, or None without a compiled Schema."""
+    professional} for the pages that have one, or None without a compiled Schema. Each heading is reported once,
+    by the first that holds of: repeated, malformed, for no page, its lens not naming the page's professional."""
     blocks, malformed = parse_rationale(text)
     heads = collections.Counter(h for h, _l in blocks)
-    named = []
+    named, orphans = [], []
     for h, body in blocks:
+        if heads[h] > 1:
+            continue  # reported once, as repeated
         why = "the heading is not a page path" if not is_page_path(h) else rationale_block_problem(body)
         if why:
             malformed.append([h, why])
-        elif voices is not None and h in voices and not same_name(lens_professional(body[1]), voices[h]):
+        elif h not in pages:
+            orphans.append(h)
+        elif voices is not None and h in voices and norm_name(lens_professional(body[1])) != norm_name(voices[h]):
             named.append([h, lens_professional(body[1]), voices[h]])
-    have = set(pages)  # a heading that is no page path is reported once, as malformed
     return collections.OrderedDict(
         blocks=len(blocks), pages_without_block=sorted(p for p in pages if p not in heads),
-        blocks_without_page=sorted(h for h in heads if is_page_path(h) and h not in have),
-        blocks_repeated=sorted(h for h, k in heads.items() if k > 1 and is_page_path(h)), blocks_malformed=malformed,
-        professional_not_named=named if voices is not None else None)
+        blocks_without_page=sorted(orphans), blocks_repeated=sorted(h for h, k in heads.items() if k > 1),
+        blocks_malformed=malformed, professional_not_named=named if voices is not None else None)
 
 
 # ------------------------------------------------------------------------------------ acceptance
 
-def norm_model(name):
-    return name.strip().casefold()
+def contract_sha256(ws, page):
+    """sha256 of the compiled contract of the page's section ({reader, questions, fields, professionals}), or of
+    JSON null for a section without one (a fixed section), serialised canonically: keys sorted, no spaces, UTF-8."""
+    sec = section_of(ws, page)
+    c = next((x for x in ws["contracts"] if x["number"] == sec["number"]), None)
+    obj = {k: c[k] for k in ("reader", "questions", "fields", "professionals")} if c else None
+    return hashlib.sha256(json.dumps(obj, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+                          .encode("utf-8")).hexdigest()
+
+
+def page_standing(ws, page):
+    """(the page's professional, its contract's sha256), or (None, why) when they cannot be read."""
+    if not ws:
+        return None, "no compiled Schema to read its professional and contract from"
+    try:
+        return common.page_voice(ws, page)["professional"], contract_sha256(ws, page)
+    except common.ToolError:
+        return None, "it has no single professional in the Schema"
 
 
 def load_acceptance(path):
@@ -823,8 +862,9 @@ def load_acceptance(path):
         ok = (isinstance(r, dict) and set(ACCEPTANCE_KEYS) <= set(r) <= set(ACCEPTANCE_KEYS) | {"facts_checked",
                                                                                                 "reason"}
               and is_page_path(r["page"]) and r["lens"] in LENSES and r["verdict"] in VERDICTS + ("refused",)
-              and common.is_sha256(r["sha256"]) and all(isinstance(r[k], str) and r[k].strip()
-                                                         for k in ("author_model", "reviewer_model", "date"))
+              and common.is_sha256(r["sha256"]) and common.is_sha256(r["contract_sha256"])
+              and all(isinstance(r[k], str) and r[k].strip()
+                      for k in ("professional", "author_model", "reviewer_model", "date"))
               and isinstance(r["findings"], list) and (r["verdict"] != "refused" or isinstance(r.get("reason"), str)))
         if not ok:
             raise common.ToolError("%s: records[%d] is not a record in the acceptance format (tools/README.md)"
@@ -832,17 +872,24 @@ def load_acceptance(path):
     return data["records"]
 
 
-def acceptance_states(records, shas):
-    """[[page, state, why]] for each page in `shas` ({page: its sha256 now}), from its latest record per lens."""
+def acceptance_states(records, now):
+    """[[page, state, why]] for each page in `now` ({page: (its sha256, its professional or None, its contract's
+    sha256 or why the two cannot be read)}), from its latest record per lens."""
     latest = {(r["page"], r["lens"]): r for r in records}
     out = []
-    for p in sorted(shas):
+    for p in sorted(now):
+        sha, prof, contract = now[p]
         got = {lens: latest.get((p, lens)) for lens in LENSES}
         refused = [lens for lens in LENSES if got[lens] and got[lens]["verdict"] == "refused"]
         if refused:
             out.append([p, "refused", "; ".join("%s lens: %s" % (lens, got[lens]["reason"]) for lens in refused)])
             continue
-        if all(got[lens] and got[lens]["verdict"] == "accepted" and got[lens]["sha256"] == shas[p] for lens in LENSES):
+
+        def standing(r):
+            return prof is not None and norm_name(r["professional"]) == norm_name(prof) \
+                and r["contract_sha256"] == contract
+        if all(got[lens] and got[lens]["verdict"] == "accepted" and got[lens]["sha256"] == sha and standing(got[lens])
+               for lens in LENSES):
             out.append([p, "accepted", "both lenses accepted this version"])
             continue
         if not any(got.values()):
@@ -854,10 +901,14 @@ def acceptance_states(records, shas):
             if r is None:
                 why.append("%s lens: no verdict" % lens)
             elif r["verdict"] == "changes":
-                why.append("%s lens: changes asked%s" % (lens, "" if r["sha256"] == shas[p]
+                why.append("%s lens: changes asked%s" % (lens, "" if r["sha256"] == sha
                                                          else " of an earlier version; review it again"))
-            elif r["sha256"] != shas[p]:
+            elif r["sha256"] != sha:
                 why.append("%s lens: accepted an earlier version; the page changed since" % lens)
+            elif prof is None:
+                why.append("%s lens: accepted, but not verified: %s" % (lens, contract))
+            elif not standing(r):
+                why.append("%s lens: accepted under an earlier contract or professional" % lens)
         out.append([p, "not recorded", "; ".join(why)])
     return out
 
@@ -867,7 +918,10 @@ def acceptance_states(records, shas):
 def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptance_path=None):
     """The wiki checks as a dict; every item a count (zero included) or a named not-verified state. The compiled
     Schema is read from `settings_dir` (default <root>/.familyai), the rationale file and acceptance record from
-    <root>/_Audit/ unless given."""
+    <root>/_Audit/ unless given; a path given that does not exist is refused."""
+    for given, what in ((rationale_path, "rationale file"), (acceptance_path, "acceptance record")):
+        if given and not os.path.isfile(given):
+            raise common.ToolError("the %s given does not exist: %s" % (what, given))
     root = os.path.realpath(root)
     wiki = os.path.join(root, rb["wiki_dir"])
     ws, ws_why = schema_for_check(root, settings_dir)
@@ -875,7 +929,7 @@ def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptan
     tops = live_top_folders(man)
     reserved = common.reserved_names(rb)
     pages = wiki_pages(wiki)
-    in_map = set(page_map(ws, wiki, [])) if ws else set(pages)
+    in_map = set(pages)  # a link to a page the map only plans resolves to nothing: dead until the page is written
     not_covering = {p for p in pages if p.startswith(LOG_DIR + "/") or p == schema_rel(root, rb, ws)}
     res = collections.OrderedDict(wiki=rb["wiki_dir"], pages=len(pages))
     fm_bad, dead_src, dead_links, outside, em, unchecked, dls, sup = [], [], [], [], [], 0, [], 0
@@ -888,11 +942,11 @@ def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptan
         m = re.match(r"---\n(.*?)\n---\n", t, re.S)
         fm = parse_fm(m.group(1)) if m else {}
         fm_lines = t[:m.end()].count("\n") if m else 0
-        if not all(k in fm for k in REQUIRED_FM):
-            fm_bad.append(rel)
+        if not all(k in fm for k in REQUIRED_FM) or not isinstance(fm.get("sources", []), list):
+            fm_bad.append(rel)  # a required key missing, or `sources:` written as one value rather than a list
         if fm.get("status") == "superseded":
             sup += 1
-        for s in fm.get("sources") or []:
+        for s in fm.get("sources") if isinstance(fm.get("sources"), list) else []:
             if isinstance(s, str) and not os.path.exists(os.path.join(root, s)):
                 dead_src.append([rel, s])
         for d in fm.get("deadlines") or []:
@@ -933,15 +987,19 @@ def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptan
                 dead_links.append([rel, lk])
             elif target not in in_map:
                 outside.append([rel, lk])
-        em += [[rel, i] for i, line in enumerate(body.splitlines(), 1) if EM_DASH in strip_code(line)]
+        em += [[rel, fm_lines + i] for i, line in enumerate(body.splitlines(), 1) if EM_DASH in strip_code(line)]
 
-    def covered(pth):
+    def covered(e):
+        """Named by its path or a copy's, or its own parent folder named, with or without the trailing `/`."""
+        pth = e["current_path"]
         folder = pth.rsplit("/", 1)[0] if "/" in pth else None
-        return pth in cited or folder is not None and (folder + "/" in cited or folder in cited)
+        return (any(x in cited for x in [pth] + [c["path"] for c in e.get("copies", [])])
+                or folder is not None and (folder + "/" in cited or folder in cited))
 
-    scope = sorted(e["current_path"] for e in live.values()
-                   if not e["current_path"].startswith(rb["migrations_dir"] + "/"))
-    uncovered = [p for p in scope if not covered(p)]
+    in_scope = sorted((e for e in live.values() if not e["current_path"].startswith(rb["migrations_dir"] + "/")),
+                      key=lambda e: e["current_path"])
+    scope = [e["current_path"] for e in in_scope]
+    uncovered = [e["current_path"] for e in in_scope if not covered(e)]
     voices, no_voice = None, ws_why
     if ws:
         voices, no_voice = {}, []
@@ -970,12 +1028,14 @@ def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptan
     else:
         res["rationale"] = "not recorded"
     acc = acceptance_path or os.path.join(root, "_Audit", "wiki-acceptance.json")
-    states = acceptance_states(load_acceptance(acc) if os.path.exists(acc) else [], shas)
+    records = load_acceptance(acc) if os.path.exists(acc) else []
+    states = acceptance_states(records, {p: (shas[p],) + page_standing(ws, p) for p in pages})
     counts = collections.Counter(s for _p, s, _w in states)
     res["acceptance"] = ("refused" if counts["refused"] else "accepted" if states and counts["accepted"] == len(states)
                          else "not recorded")
     res["acceptance_counts"] = collections.OrderedDict((s, counts[s]) for s in ACCEPTANCE_STATES)
     res["acceptance_pages"] = states
+    res["acceptance_records_for_no_page"] = sorted({r["page"] for r in records} - set(pages))  # moved or removed
     res["problems"] = problems  # acceptance is its own state, never a problem and never a pass
     return res
 
@@ -1098,7 +1158,8 @@ def page_sources(text, man, held, cards_dir):
                                            ", a copy of `%s`" % current if current != path else ""))
             kf = card.get("key_facts") if card and isinstance(card.get("key_facts"), dict) else {}
             for kind in FACT_KINDS:
-                facts.update((current, kind, v.strip()) for v in kf.get(kind) or [] if isinstance(v, str) and v.strip())
+                values = kf.get(kind) if isinstance(kf.get(kind), list) else []
+                facts.update((current, kind, v.strip()) for v in values if isinstance(v, str) and v.strip())
         elif path.endswith("/") and by_folder[path[:-1]]:
             n = by_folder[path[:-1]]
             lines.append("- `%s`: a folder, %d file%s directly in it" % (path, n, "" if n == 1 else "s"))
@@ -1132,7 +1193,7 @@ def review_prompts(a):
     author, reviewer = a.author_model.strip(), a.reviewer_model.strip()
     if not author or not reviewer:
         raise common.ToolError("--author-model and --reviewer-model name the models that wrote and review the pages")
-    if norm_model(author) == norm_model(reviewer):
+    if norm_name(author) == norm_name(reviewer):
         raise common.ToolError("refused: the reviewer model %r is the author model %r; acceptance is by a model that "
                                "did not write the page" % (reviewer, author))
     if a.sample < 1:
@@ -1186,10 +1247,46 @@ def review_prompts(a):
 
 # ------------------------------------------------------------------------------------ accept
 
+ISO_TIME = re.compile(r"([0-9]{2}):([0-9]{2})(?::([0-9]{2}))?(Z|[+-]([0-9]{2}):?([0-9]{2}))?")
+
+
+def valid_date(value):
+    """True for YYYY-MM-DD, alone or followed by T and a valid time (HH:MM, or HH:MM:SS), with an optional zone
+    (Z, +HHMM or +HH:MM)."""
+    day, t, rest = value.partition("T")
+    try:
+        datetime.date.fromisoformat(day)
+    except ValueError:
+        return False
+    if not ISO_DATE.fullmatch(day):
+        return False
+    if not t:
+        return True
+    m = ISO_TIME.fullmatch(rest)
+    return bool(m) and int(m.group(1)) < 24 and int(m.group(2)) < 60 and int(m.group(3) or 0) < 60 \
+        and (m.group(4) in (None, "Z") or int(m.group(5)) < 24 and int(m.group(6)) < 60)
+
+
+def append_record(writer, out, rec):
+    """Add `rec` to the acceptance record at `out` and return how many it now holds. An exclusive lock on
+    `<out>.lock` (created beside it and left there) is held from reading the record to replacing it, so runs made at
+    once each add theirs; the file is rewritten whole, through a temporary file renamed over it."""
+    import fcntl  # POSIX (macOS, Linux), like the rest of the tools
+    lock = writer.check(out + ".lock")
+    os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+    with open(lock, "a", encoding="utf-8") as held:
+        fcntl.flock(held.fileno(), fcntl.LOCK_EX)
+        records = load_acceptance(out) if os.path.exists(out) else []
+        writer.text(out, json.dumps({"version": ACCEPTANCE_VERSION, "records": records + [rec]}, ensure_ascii=False,
+                                    indent=1) + "\n")
+    return len(records) + 1
+
+
 @os_errors
 def accept(a):
     root, settings_dir, _work = common.resolve(a)
     rb = common.load_rulebook(root, settings_dir)
+    ws = common.load_wiki_schema(root, settings_dir)
     wiki = os.path.join(root, rb["wiki_dir"])
     reply = read_json(a.reply)
     if not isinstance(reply, dict):
@@ -1203,25 +1300,25 @@ def accept(a):
     if not author or not reviewer:
         raise common.ToolError("--author-model and --reviewer-model name the models that wrote and reviewed the page")
     for key, given in (("author", author), ("reviewer", reviewer)):
-        if key in reply and not (isinstance(reply[key], str) and norm_model(reply[key]) == norm_model(given)):
+        if key in reply and not (isinstance(reply[key], str) and norm_name(reply[key]) == norm_name(given)):
             raise common.ToolError("%s: the reply names %s %r, but --%s-model is %r" % (a.reply, key, reply[key], key,
                                                                                        given))
-    if a.date is not None and not re.match(r"[0-9]{4}-[0-9]{2}-[0-9]{2}($|T)", a.date):
-        raise common.ToolError("--date %r is not YYYY-MM-DD or an ISO date and time" % a.date)
+    if a.date is not None and not valid_date(a.date):
+        raise common.ToolError("--date %r is not a date YYYY-MM-DD, alone or with a valid time after a T" % a.date)
+    try:
+        professional = common.page_voice(ws, page)["professional"]
+    except common.ToolError as e:
+        raise common.ToolError("%s; a page is accepted in its one professional's lens" % e)
     sha = common.sha256_file(os.path.join(wiki, *page.split("/")))
     out = a.out or os.path.join(root, "_Audit", "wiki-acceptance.json")
-    records = load_acceptance(out) if os.path.exists(out) else []
-    rec = collections.OrderedDict(page=page, lens=lens, verdict=None, sha256=sha, author_model=author,
+    rec = collections.OrderedDict(page=page, lens=lens, verdict=None, sha256=sha, professional=professional,
+                                  contract_sha256=contract_sha256(ws, page), author_model=author,
                                   reviewer_model=reviewer, date=a.date or common.now_local(), findings=[])
     writer = common.Writer(root if a.read_only_root else None)
-
-    def record(r):
-        writer.text(out, json.dumps({"version": ACCEPTANCE_VERSION, "records": records + [r]}, ensure_ascii=False,
-                                    indent=1) + "\n")
-    if norm_model(author) == norm_model(reviewer):
+    if norm_name(author) == norm_name(reviewer):
         rec.update(verdict="refused", reason="the reviewer model %r is the author model %r; a page is accepted "
                    "only by a model that did not write it" % (reviewer, author))
-        record(rec)
+        append_record(writer, out, rec)
         raise common.ToolError("refused, and recorded as refused: %s (%s lens of %s)" % (rec["reason"], lens, page))
     if reply.get("page_sha256", sha) != sha:
         raise common.ToolError("%s: the reply reviewed %s at sha256 %s, but the page is now %s; render its review "
@@ -1242,8 +1339,8 @@ def accept(a):
         if not isinstance(reply["facts_checked"], list):
             raise common.ToolError("%s: facts_checked is a list" % a.reply)
         rec["facts_checked"] = reply["facts_checked"]
-    record(rec)
-    print(json.dumps({"page": page, "lens": lens, "verdict": verdict, "sha256": sha, "records": len(records) + 1},
+    count = append_record(writer, out, rec)
+    print(json.dumps({"page": page, "lens": lens, "verdict": verdict, "sha256": sha, "records": count},
                      ensure_ascii=False))
     return 0
 

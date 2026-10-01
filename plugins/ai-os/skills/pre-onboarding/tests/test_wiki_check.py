@@ -102,6 +102,15 @@ def make_copy(parent):
     return root
 
 
+def contract_digest(root, number):
+    """The sha256 the acceptance record keeps for a section's contract, computed from the compiled twin."""
+    ws = json.loads(read(os.path.join(root, ".familyai", "wiki-schema.json")))
+    c = next(x for x in ws["contracts"] if x["number"] == number)
+    obj = {k: c[k] for k in ("reader", "questions", "fields", "professionals")}
+    return hashlib.sha256(json.dumps(obj, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+                          .encode("utf-8")).hexdigest()
+
+
 def blocks_of(text):
     """{page: its rationale block, heading and five lines} from a rationale file in the fixture's format."""
     return {b.split("\n", 1)[0][4:]: b.strip("\n") for b in re.split(r"\n(?=### )", text)[1:]}
@@ -197,7 +206,7 @@ DEFECTS = [
      lambda r: ["20 Finance/20 Finance.md", "../../CLAUDE.md"],
      lambda r, w: edit(os.path.join(r, WIKI, "20 Finance", "20 Finance.md"), "- [Tax](Tax.md)",
                        "- [The rules](../../CLAUDE.md): the folder's rulebook.\n- [Tax](Tax.md)")),
-    ("an em dash outside code", "em_dash_lines", lambda r: ["40 Study/40 Study.md", 3],
+    ("an em dash outside code", "em_dash_lines", lambda r: ["40 Study/40 Study.md", 8],
      lambda r, w: edit(os.path.join(r, WIKI, "40 Study", "40 Study.md"), "certificate, 2023 to 2024.",
                        "certificate \u2014 2023 to 2024 (`\u2014` in code is not counted).")),
     ("a document no page covers", "documents_not_covered", lambda r: "03 Home/Lease notes .txt",
@@ -207,6 +216,20 @@ DEFECTS = [
      lambda r: "04 Study/Notes.rtf",
      lambda r, w: edit(os.path.join(r, WIKI, "40 Study", "40 Study.md"), "| `04 Study/` | 5 | certificates, slides, "
                        "essay, notes |", "| `04 Study/Slides.pptx` | 1 | slides |")),
+    ("a document named only by its grandparent folder", "documents_not_covered",
+     lambda r: "01 Identity/Passport renewal 2021/Application form.docx",
+     lambda r, w: edit(os.path.join(r, WIKI, "10 Identity", "10 Identity.md"),
+                       "`01 Identity/Passport renewal 2021/` (2 files: the scan copy and\n"
+                       "`01 Identity/Passport renewal 2021/Application form.docx`, which names the previous passport "
+                       "P0987654).", "`01 Identity/`.")),
+    ("a document named only on the Log", "documents_not_covered", lambda r: "03 Home/Lease notes .txt",
+     lambda r, w: (edit(os.path.join(r, WIKI, "30 Home", "30 Home.md"),
+                        "| Lease notes | | `03 Home/Lease notes .txt` |\n", ""),
+                   edit(os.path.join(r, WIKI, "91 Log", "91 Log.md"), "fixture folder.",
+                        "fixture folder.\n\n## [2024-07-01] ingest | `03 Home/Lease notes .txt`"))),
+    ("sources: written as one value, not a list", "frontmatter_bad", lambda r: "40 Study/40 Study.md",
+     lambda r, w: edit(os.path.join(r, WIKI, "40 Study", "40 Study.md"), "status: current\n",
+                       'status: current\nsources: "04 Study/Notes.rtf"\n')),
     ("a chart without its data table", "charts_without_data_table",
      lambda r: ["30 Home/30 Home.md", line_of(r, "30 Home/30 Home.md", "```mermaid")],
      lambda r, w: edit(os.path.join(r, WIKI, "30 Home", "30 Home.md"),
@@ -253,6 +276,15 @@ DEFECTS = [
     ("a block with its lines out of order", "rationale.blocks_malformed",
      lambda r: [TAX, 'line 3 is not "- Shape: <text>"'],
      lambda r, w: edit_block(r, TAX, lambda ls: ls[:2] + [ls[3], ls[2]] + ls[4:])),
+    ("a malformed block for a path that is no page", "rationale.blocks_malformed",
+     lambda r: ["20 Finance/Pensions.md", "1 line under the heading, not 5"],
+     lambda r, w: write(os.path.join(r, RATIONALE), read(os.path.join(r, RATIONALE))
+                        + "\n### 20 Finance/Pensions.md\n- Reader and use: Alex, for the pension.\n")),
+    ("a repeated block, one naming another professional", "rationale.blocks_repeated",
+     lambda r: "20 Finance/Cash position.md",
+     lambda r, w: write(os.path.join(r, RATIONALE), read(os.path.join(r, RATIONALE)) + "\n" + blocks_of(read(
+         os.path.join(r, RATIONALE)))["20 Finance/Cash position.md"].replace("lens: CFO;", "lens: private banker;")
+                        + "\n")),
     ("a block with a label left empty", "rationale.blocks_malformed",
      lambda r: [TAX, 'line 5 is not "- Left out or flagged: <text>"'],
      lambda r, w: edit_block(r, TAX, lambda ls: ls[:4] + ["- Left out or flagged: "])),
@@ -305,6 +337,40 @@ class CheckTest(Copy):
                 else:
                     got = res[key][0]
                 self.assertEqual(got, expected(root))
+
+    def test_a_professional_differing_only_in_case_and_spacing_is_named(self):
+        edit_block(self.root, "20 Finance/Cash position.md", lambda ls: ls[:1] + [
+            ls[1].replace("Professional lens: CFO;", "Professional lens: cfo;")] + ls[2:])
+        edit_block(self.root, TAX, lambda ls: ls[:1] + [
+            ls[1].replace("lens: chartered tax adviser;", "lens: Chartered  Tax\tAdviser;")] + ls[2:])
+        res = self.check()
+        self.assertEqual((res["problems"], res["rationale"]["professional_not_named"]), (0, []))
+
+    def test_coverage_forms(self):
+        study = self.page("40 Study/40 Study.md")
+        edit(study, "| `04 Study/` | 5 |", "| `04 Study` | 5 |")  # a folder without its trailing slash covers
+        edit(self.page(TAX), "`06 Work/Essay.docx`", "`05 Archive/Essay.docx`")  # so does a copy's path
+        res = self.check()
+        self.assertEqual((res["problems"], res["documents_not_covered"]), (0, 0))
+        edit(study, "| `04 Study` | 5 |", "| 04 Study | 5 |")  # a folder named without backticks does not
+        self.assertEqual(self.check()["not_covered_sample"], ["04 Study/Notes.rtf", "04 Study/Slides.pptx"])
+
+    def test_live_top_folders(self):
+        man = {"a": {"current_path": "07 Old/x.pdf", "flags": ["departed"], "copies": [{"path": "09 Gone/x.pdf"}]},
+               "b": {"current_path": "01 A/y.pdf", "flags": [], "copies": [{"path": "08 C/y.pdf"}]},
+               "c": {"current_path": "z.pdf", "flags": []}}
+        self.assertEqual(wiki.live_top_folders(man), {"01 A", "08 C"})
+
+    def test_a_link_to_a_planned_page_is_dead(self):
+        os.remove(self.page("40 Study/40 Study.md"))
+        res = self.check()
+        self.assertIn(["00 Index/00 Index.md", "../40%20Study/40%20Study.md"], res["dead_page_links"])
+        self.assertEqual(res["links_outside_page_map"], [])
+
+    def test_a_path_given_that_does_not_exist_is_refused(self):
+        for flag in ("--rationale", "--acceptance"):
+            with self.subTest(flag=flag):
+                self.assertIn("does not exist", self.refused("check", flag, os.path.join(self.tmp, "none")))
 
     def test_a_path_under_no_live_folder_is_counted_unchecked(self):
         edit(self.page("30 Home/30 Home.md"), "Alex rents", "The vet's bill is `07 Pets/Vet bill.pdf`.\n\nAlex rents")
@@ -552,6 +618,19 @@ class ReviewPromptsTest(Copy):
         self.assertIn("1. `%s`, amount: 2410.00\n2. `%s`, amount: 4160.00\n3. `%s`, date: 2024-03-31\n"
                       "4. `%s`, reference number: 12345678\n" % ((statement,) * 4), bank)
 
+    def test_a_card_whose_key_facts_are_not_lists_is_refused(self):
+        ids = {e["current_path"]: h for h, e in json.loads(read(MANIFEST))["entries"].items()}
+        write(os.path.join(self.root, "_Audit", "cards", ids["06 Work/Contract.docx"] + ".json"),
+              json.dumps({"title": "Employment contract", "key_facts": {"dates": "2022-05-01"}}))
+        err = self.refused("review-prompts", "--page", TAX, "--author-model", "a", "--reviewer-model", "b")
+        self.assertIn("key_facts.dates must be a list of text", err)
+        saved = wiki.load_card  # page_sources reads only lists, even from a card that reached it unchecked
+        self.addCleanup(setattr, wiki, "load_card", saved)
+        wiki.load_card = lambda _d, _h: {"title": "t", "key_facts": {"dates": "2022-05-01", "amounts": ["12"]}}
+        self.assertEqual(wiki.page_sources("`06 Work/Contract.docx`", {"h": {"current_path": "06 Work/Contract.docx"}},
+                                           {"06 Work/Contract.docx": "h"}, "cards")[1],
+                         [("06 Work/Contract.docx", "amounts", "12")])
+
     def test_fixed_page(self):
         out = os.path.join(self.tmp, "p")
         self.prompts("00 Index/00 Index.md", out=out)
@@ -611,13 +690,37 @@ class AcceptTest(Copy):
     def state(self, res, page):
         return next(s[1:] for s in res["acceptance_pages"] if s[0] == page)
 
+    def test_models_differing_only_in_case_and_spacing_are_one(self):
+        self.assertIn("refused, and recorded", self.refused(
+            "accept", "--reply", self.reply(TAX, "owner"), "--author-model", "model  a", "--reviewer-model", "Model A"))
+        self.assertIn("refused: the reviewer model", self.refused(
+            "review-prompts", "--page", TAX, "--author-model", "model\ta", "--reviewer-model", "MODEL A"))
+
+    def test_hand_edited_records_fail_loud(self):
+        self.accept(TAX, "owner")
+        good = json.loads(read(os.path.join(self.root, ACCEPTANCE)))
+        rec = good["records"][0]
+        cases = {"a bad sha256": dict(rec, sha256="abc"), "an unknown lens": dict(rec, lens="reader"),
+                 "an unknown verdict": dict(rec, verdict="accept"), "an extra key": dict(rec, colour="red"),
+                 "no professional": {k: v for k, v in rec.items() if k != "professional"},
+                 "a bad contract sha256": dict(rec, contract_sha256=None),
+                 "a refusal without its reason": dict(rec, verdict="refused")}
+        for name, bad in cases.items():
+            with self.subTest(case=name):
+                write(os.path.join(self.root, ACCEPTANCE), json.dumps({"version": 1, "records": [bad]}))
+                self.assertIn("records[0] is not a record", self.refused("check"))
+        write(os.path.join(self.root, ACCEPTANCE), json.dumps(dict(good, version=2)))
+        self.assertIn("not an acceptance record", self.refused("check"))
+
     def test_reviewer_equal_to_author_is_refused_and_recorded(self):
         err = self.refused("accept", "--reply", self.reply(TAX, "owner"), "--author-model", " Model-A ",
                            "--reviewer-model", "model-a", "--date", "2024-06-30")
         self.assertIn("refused, and recorded as refused: the reviewer model 'model-a' is the author model 'Model-A'",
                       err)
         self.assertEqual(self.records(), [{
-            "page": TAX, "lens": "owner", "verdict": "refused", "sha256": self.sha(TAX), "author_model": "Model-A",
+            "page": TAX, "lens": "owner", "verdict": "refused", "sha256": self.sha(TAX),
+            "professional": "chartered tax adviser", "contract_sha256": contract_digest(self.root, "20"),
+            "author_model": "Model-A",
             "reviewer_model": "model-a", "date": "2024-06-30", "findings": [],
             "reason": "the reviewer model 'model-a' is the author model 'Model-A'; a page is accepted only by a "
                       "model that did not write it"}])
@@ -646,6 +749,58 @@ class AcceptTest(Copy):
             "accepted an earlier version; the page changed since"])
         self.assertEqual(res["problems"], 0)
 
+    def test_a_new_contract_or_professional_undoes_acceptance(self):
+        schema = self.page("90 Schema/90 Schema.md")
+        steps = (("| Alex | 1. Is anything due?", "| Alex | 1. Is anything due now?"),
+                 ("| 20 Finance/Tax.md | chartered tax adviser |", "| 20 Finance/Tax.md | tax accountant |"))
+        for old, new in steps:
+            with self.subTest(change=new):
+                self.accept(TAX, "owner")
+                self.accept(TAX, "professional")
+                self.assertEqual(self.state(self.check(), TAX)[0], "accepted")
+                edit(schema, old, new)
+                compile_schema(self.root, self.work)
+                self.assertEqual(self.state(self.check(), TAX), [
+                    "not recorded", "owner lens: accepted under an earlier contract or professional; professional "
+                    "lens: accepted under an earlier contract or professional"])
+        self.assertEqual(self.records()[-1]["professional"], "chartered tax adviser")
+        os.remove(os.path.join(self.root, ".familyai", "wiki-schema.json"))
+        self.accept(TAX, "owner", code=2)  # a record names the page's professional, so a Schema is needed
+
+    def test_records_for_pages_that_moved(self):
+        self.accept("30 Home/30 Home.md", "owner")
+        moves = os.path.join(self.tmp, "map.json")
+        write(moves, json.dumps({"30 Home/30 Home.md": "30 Home/Home.md"}))
+        self.ok("move", "--map", moves, code=1)
+        res = self.check()
+        self.assertEqual((res["acceptance_records_for_no_page"], res["problems"]), (["30 Home/30 Home.md"], 0))
+        self.assertEqual(self.state(res, "30 Home/Home.md"), ["not recorded", "no verdict recorded"])
+
+    def test_concurrent_runs_each_add_their_record(self):
+        pages = sorted(blocks_of(read(os.path.join(self.root, RATIONALE))))[:6]
+        runs = []
+        for page in pages:
+            for lens in ("owner", "professional"):
+                runs.append(subprocess.Popen(
+                    [sys.executable, os.path.join(TOOLS, "wiki.py"), "accept", "--root", self.root, "--work",
+                     self.work, "--reply", self.reply(page, lens), "--author-model", "a", "--reviewer-model", "b"],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE))
+        for r in runs:
+            _out, err = r.communicate()
+            self.assertEqual(r.returncode, 0, err)
+        self.assertEqual(len(self.records()), 12)
+        self.assertEqual(sorted((r["page"], r["lens"]) for r in self.records()),
+                         sorted((p, lens) for p in pages for lens in ("owner", "professional")))
+        self.assertEqual(self.check()["acceptance_counts"]["accepted"], 6)
+
+    def test_dates(self):
+        for date, code in (("2024-06-30", 0), ("2024-06-30T12:00", 0), ("2024-06-30T12:00:00+0100", 0),
+                           ("2024-06-30T12:00:00Z", 0), ("2024-06-30T12:00:00+01:00", 0), ("2024-02-30", 2),
+                           ("2024-06-30T25:00", 2), ("2024-06-30T12:00junk", 2), ("2024-06-30T", 2),
+                           ("20240630", 2), ("30/06/2024", 2)):
+            with self.subTest(date=date):
+                self.accept(TAX, "owner", "a", "b", "--date", date, code=code)
+
     def test_changes_asked(self):
         found = [{"where": "opening line", "finding": "no date for the next return", "response": "added it"}]
         self.accept(TAX, "owner", verdict="changes", findings=found)
@@ -668,8 +823,10 @@ class AcceptTest(Copy):
         self.assertEqual(list(data), ["version", "records"])
         self.assertEqual(data["version"], 1)
         rec = data["records"][0]
-        self.assertEqual(list(rec), ["page", "lens", "verdict", "sha256", "author_model", "reviewer_model", "date",
-                                     "findings", "facts_checked"])
+        self.assertEqual(list(rec), ["page", "lens", "verdict", "sha256", "professional", "contract_sha256",
+                                     "author_model", "reviewer_model", "date", "findings", "facts_checked"])
+        self.assertEqual((rec["professional"], rec["contract_sha256"]),
+                         ("chartered tax adviser", contract_digest(self.root, "20")))
         self.assertEqual((rec["findings"], rec["facts_checked"]), ([{k: found[0][k] for k in
                                                                      ("where", "finding", "response")}], facts))
         self.ok("accept", "--reply", self.reply(TAX, "owner"), "--author-model", "a", "--reviewer-model", "b")
