@@ -336,14 +336,13 @@ job runs on it until then ([wiki-onboarding step 5](../wiki-onboarding/SKILL.md#
 
 <!-- provisional: #91 -->
 
-Each engine has one login per machine, shared by every project on it, and no project copies a login or token file:
-a copied token goes stale when the engine rotates it, and can log the main install out. What is isolated is each
-call's context. The model sees nothing from another project (no history, memories, sessions or instructions), can
-do nothing but answer, and every outcome that is not an answer is named rather than taken for one. A per-project
-state folder, where one is used, holds no credential file; no caller sets one yet, and whether one is needed is for
-the isolation spike on the operator's machine to settle. How `tools/engines.py` holds this, and with which flags,
-is in [the tool reference](references/tools.md#enginespy); the canary checks it before the first call (step 5), and
-the contamination guard after, on every card.
+The rule is the framework's: one login per machine, the context isolated per call
+([the architecture](../../ARCHITECTURE.md#execution-context-constraints-why-the-indirection-exists)). The
+preparation holds it in `tools/engines.py`, which every model call goes through; how, and with which flags, is in
+[the tool reference](references/tools.md#enginespy). A per-project state folder, where one is used, holds no
+credential file; no caller sets one yet, and whether one is needed is for the isolation spike on the operator's
+machine to settle. The canary checks the isolation before the first call (step 5), and the contamination guard
+after, on every card.
 
 ## Identifiers
 

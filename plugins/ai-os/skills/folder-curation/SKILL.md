@@ -336,9 +336,10 @@ exactly the executed rows' (`from`, `evidence`), and the pairs that appeared exa
 `_Migrations/<Project>/` after the other project collected its files are expected, and the proof
 takes them only as an explicit allowance for that path, never as a silent pass. Anything else (a file
 that moved that no row moved, a hash that changed, a count that shifted) is a **finding**, reported
-with the row it should have belonged to. After the delete phase, re-audit once more. The (path, hash)
-proof covers moves and renames only, so check the deletes by reading the fresh manifest: each deleted
-path is gone from its entry's `copies`, the canonical path remains, and no other pair changed. Report
+with the row it should have belonged to. After the delete phase, re-audit once more and run the same
+proof again from the same baseline: each done `delete` row's (`from`, `evidence`) pair is expected to
+disappear too, so the proof then covers the whole round, and a canonical path that went with its
+copy, or any other pair that changed, is a finding. Report
 the round in the terms the counts mean: rows approved, executed, skipped, failed; files moved, renamed,
 converted, deleted; findings.
 
