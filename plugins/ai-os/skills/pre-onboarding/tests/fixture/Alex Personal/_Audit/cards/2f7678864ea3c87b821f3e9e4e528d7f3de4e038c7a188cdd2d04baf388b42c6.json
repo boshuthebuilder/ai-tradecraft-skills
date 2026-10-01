@@ -1,0 +1,32 @@
+{
+ "id": "2f7678864ea3c87b821f3e9e4e528d7f3de4e038c7a188cdd2d04baf388b42c6",
+ "doc_type": "Tenancy Agreement",
+ "party": "Alex Example",
+ "parties": [
+  "Example Lettings"
+ ],
+ "doc_date": "2024-05-01",
+ "title": "Lease renewal, 3 Example Road (Pages original)",
+ "summary": "The signed lease renewal for 3 Example Road: the new term runs from 2024-05-01 to 2025-04-30 at 1,450 a month.",
+ "key_facts": {
+  "dates": [
+   "term 2024-05-01 to 2025-04-30"
+  ],
+  "amounts": [
+   "rent 1,450 per month"
+  ],
+  "reference_numbers": []
+ },
+ "category": "Home & Household",
+ "language": "en",
+ "sensitive": false,
+ "confidence": "high",
+ "look": "It appears to be the same lease as Lease renewal.pdf, its export.",
+ "proposed_name": "",
+ "card_meta": {
+  "model": "fixture",
+  "via": "fixture",
+  "batch": "fixture",
+  "created_at": "2024-06-30T12:00:00+0000"
+ }
+}

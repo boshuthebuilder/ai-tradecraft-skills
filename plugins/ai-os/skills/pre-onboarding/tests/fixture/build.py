@@ -5,7 +5,13 @@ Needs macOS with swiftc (for render.swift) and sips. Every person and organisati
 for is listed in build.md. Rebuilding changes some bytes (PDF and PNG metadata); the committed files are the
 baseline, so rebuild only on purpose and regenerate the expected outputs in the same commit.
 
-    python3 build.py [--out <dir>]      default: this directory
+    python3 build.py [--out <dir>]                   default: this directory
+    python3 build.py --prepared-only [--out <dir>]   rewrite only the prepared records in an existing fixture
+
+The prepared records are what a prepared folder carries in `_Audit/` beyond the rationale: an extract record and a
+card per live document, and the wiki's acceptance record. `--prepared-only` rewrites them from `PREPARED` and the
+wiki as committed, on any machine (standard-library Python and the tools beside this skill); the full build writes
+them last. A change to a wiki page or to `PREPARED` is followed by `--prepared-only` in the same commit.
 """
 import argparse
 import hashlib
@@ -14,10 +20,12 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+TOOLS = os.path.realpath(os.path.join(HERE, "..", "..", "tools"))
 FOLDER = "Alex Personal"
 WIKI = FOLDER + " Wiki"
 ZIP_DATE = (2024, 1, 1, 0, 0, 0)
@@ -172,8 +180,13 @@ def xlsx(rows):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=HERE)
+    ap.add_argument("--prepared-only", action="store_true", help="rewrite only the prepared records in _Audit/")
     a = ap.parse_args()
     root = os.path.join(a.out, FOLDER)
+    if a.prepared_only:
+        write_prepared(root)
+        print("prepared", root)
+        return
     if os.path.exists(root):
         shutil.rmtree(root)
     tmp = tempfile.mkdtemp(prefix="fixture_")
@@ -270,6 +283,7 @@ def main():
     os.makedirs(R("_Inbox"), exist_ok=True)
 
     write_rulebook_and_wiki(R)
+    write_prepared(root)
     shutil.rmtree(tmp, True)
     print("built", root)
 
@@ -588,6 +602,216 @@ French to B1 and a Chinese intermediate certificate, 2023 to 2024.
         "identifiers": "stated", "boundaries": [], "folder_description": "Alex Example's personal papers: identity, "
         "money, home and language study.", "exclude": [], "keep_empty_folders": True,
         "ocr_languages": ["zh-Hans", "zh-Hant", "en-GB", "fr-FR"]}, ensure_ascii=False, indent=1))
+
+
+# ---------------------------------------------------------------- the prepared records (_Audit/)
+
+PREPARED_AT = "2024-06-30T12:00:00+0000"  # the frozen clock of the expected outputs
+ACCEPTED_ON = "2024-06-30"
+AUTHOR, REVIEWER = "model-a", "model-b"  # fictional: the model that wrote the pages, and the other that reviewed them
+
+
+def card(doc_type, party, parties, doc_date, title, summary, facts, category, language, sensitive, look="",
+         proposed_name="", confidence="high"):
+    """A card in tools/schemas/card.json's shape, fields in the order templates/card-instructions.md lists them."""
+    dates, amounts, refs = facts
+    return {"doc_type": doc_type, "party": party, "parties": parties, "doc_date": doc_date, "title": title,
+            "summary": summary, "key_facts": {"dates": dates, "amounts": amounts, "reference_numbers": refs},
+            "category": category, "language": language, "sensitive": sensitive, "confidence": confidence,
+            "look": look, "proposed_name": proposed_name}
+
+
+# Each live document by the path the audit keeps for it (its canonical copy): its pages as extraction reads them
+# (tier and text; a scan's text is what main() renders) and its card, written as templates/card-instructions.md asks.
+PREPARED = {
+    "01 Identity/Passport renewal 2021/Application form.docx": (
+        [("text_layer", "Passport renewal application for Alex Example\nSubmitted 2021-05-02\n"
+                        "Previous passport P0987654")],
+        card("Form", "Alex Example", [], "2021-05-02", "Passport renewal application, 2021",
+             "Alex's application to renew the passport, submitted on 2021-05-02. It names the previous passport, "
+             "P0987654, and is kept in the 2021 renewal pack.",
+             (["submitted 2021-05-02"], [], ["previous passport P0987654"]), "Identity & Immigration", "en", True)),
+    "01 Identity/Passport scan.pdf": (
+        [("local_ocr", "PASSPORT\nSurname: EXAMPLE\nGiven names: ALEX\nNationality: Freedonian\nPassport No. P1234567\n"
+                       "Date of issue 2021-07-15\nDate of expiry 2031-07-15")],
+        card("Passport Scan", "Alex Example", [], "2021-07-15", "Passport scan, P1234567",
+             "A scan of Alex's Freedonian passport P1234567, issued on 2021-07-15 and valid until 2031-07-15.",
+             (["issue 2021-07-15", "expiry 2031-07-15"], [], ["passport P1234567"]), "Identity & Immigration", "en",
+             True)),
+    "02 Finance/Bank statement 2024-03.pdf": (
+        [("text_layer", "Example Bank plc\nStatement for Alex Example\nAccount 12345678, sort code 01-02-03\n"
+                        "Period 1 March 2024 to 31 March 2024\nOpening balance GBP 2,410.00\n"
+                        "Salary from Robin Trading Ltd GBP 3,200.00\nRent to Example Lettings GBP 1,450.00\n"
+                        "Closing balance GBP 4,160.00")],
+        card("Bank Statement", "Alex Example", ["Example Bank plc", "Robin Trading Ltd", "Example Lettings"],
+             "2024-03-31", "Current account statement, March 2024",
+             "The Example Bank plc current account statement for March 2024: salary in from Robin Trading Ltd, rent "
+             "out to Example Lettings, closing at GBP 4,160.00.",
+             (["period 2024-03-01 to 2024-03-31"], ["opening GBP 2,410.00", "salary GBP 3,200.00",
+                                                    "rent GBP 1,450.00", "closing GBP 4,160.00"],
+              ["account 12345678 sort code 01-02-03"]), "Finance & Tax", "en", True)),
+    "02 Finance/Tax/Budget final.xlsx": (
+        [("text_layer", "Item\tMonthly\nRent\t1450\nUtilities\t150\nSavings\t400")],
+        card("Spreadsheet", "Alex Example", [], "", "Household budget, final",
+             "Planned monthly spending: rent 1450, utilities 150 and savings 400.",
+             ([], ["rent 1450 per month", "utilities 150 per month", "savings 400 per month"], []), "Finance & Tax",
+             "en", False, look="It appears to be an export of Budget.numbers under another name.")),
+    "02 Finance/Tax/Budget.numbers": (
+        [("text_layer", "Household budget for 2023 prepared by Alex Example\n\n"
+                        "Rent 1,450 per month and utilities about 150 per month")],
+        card("Spreadsheet", "Alex Example", [], "2023", "Household budget, 2023",
+             "Alex's household budget for 2023: rent 1,450 a month and utilities about 150 a month.",
+             (["2023"], ["rent 1,450 per month", "utilities about 150 per month"], []), "Finance & Tax", "en", False)),
+    "02 Finance/Tax/Tax return 2023.pdf": (
+        [("local_ocr", "Self assessment tax return 2022 to 2023\nTaxpayer: Alex Example, UTR 1234567890\n"
+                       "Employment income from Robin Trading Ltd: GBP 38,400\nTax paid through PAYE: GBP 5,160\n"
+                       "Balance due by 31 January 2024: GBP 0\nFiled online on 12 December 2023")],
+        card("Tax Return", "Alex Example", ["Robin Trading Ltd"], "2023-12-12",
+             "Self assessment tax return 2022 to 2023",
+             "The 2022 to 2023 return, filed online on 2023-12-12: employment income from Robin Trading Ltd, tax "
+             "paid through PAYE and nothing left to pay.",
+             (["filed 2023-12-12", "balance due by 2024-01-31"],
+              ["employment income GBP 38,400", "tax paid GBP 5,160", "balance due GBP 0"], ["UTR 1234567890"]),
+             "Finance & Tax", "en", True)),
+    "03 Home/Lease notes .txt": (
+        [("text_layer", "Notes on the lease: ask Example Lettings about the boiler service.")],
+        card("Notes", "Alex Example", ["Example Lettings"], "", "Notes on the lease",
+             "A reminder to ask Example Lettings about the boiler service.", ([], [], []), "Home & Household", "en",
+             False)),
+    "03 Home/Lease renewal.pages": (
+        [("text_layer", "Lease renewal for 3 Example Road, signed by Alex Example\n\n"
+                        "The new term runs from 1 May 2024 to 30 April 2025 at 1,450 per month")],
+        card("Tenancy Agreement", "Alex Example", ["Example Lettings"], "2024-05-01",
+             "Lease renewal, 3 Example Road (Pages original)",
+             "The signed lease renewal for 3 Example Road: the new term runs from 2024-05-01 to 2025-04-30 at 1,450 a "
+             "month.", (["term 2024-05-01 to 2025-04-30"], ["rent 1,450 per month"], []), "Home & Household", "en",
+             False, look="It appears to be the same lease as Lease renewal.pdf, its export.")),
+    "03 Home/Lease renewal.pdf": (
+        [("text_layer", "Lease renewal\nLandlord: Example Lettings\nTenant: Alex Example\n"
+                        "Property: 3 Example Road, Exampleton\nTerm: 1 May 2024 to 30 April 2025\n"
+                        "Rent GBP 1,450 per month")],
+        card("Tenancy Agreement", "Alex Example", ["Example Lettings"], "2024-05-01", "Lease renewal, 3 Example Road",
+             "The lease renewal between Example Lettings and Alex for 3 Example Road, Exampleton: the term runs from "
+             "2024-05-01 to 2025-04-30 at GBP 1,450 a month.",
+             (["term 2024-05-01 to 2025-04-30"], ["rent GBP 1,450 per month"], []), "Home & Household", "en", False)),
+    "03 Home/Utilities /Electricity bill.pdf": (
+        [("text_layer", "Example Energy Ltd\nElectricity bill for Alex Example\n3 Example Road, Exampleton\n"
+                        "Bill date 15 March 2024\nThe usage details are on page 2."),
+         ("local_ocr", "Electricity usage, page 2\nMeter reading 12 Feb 2024: 45210\nMeter reading 12 Mar 2024: 45530\n"
+                       "Units used: 320\nAmount due: GBP 96.40 by 2024-04-01")],
+        card("Invoice", "Alex Example", ["Example Energy Ltd"], "2024-03-15", "Electricity bill, March 2024",
+             "The Example Energy Ltd electricity bill for 3 Example Road, dated 2024-03-15: 320 units used and GBP "
+             "96.40 due by 2024-04-01.", (["bill date 2024-03-15", "due 2024-04-01"], ["GBP 96.40"], []),
+             "Home & Household", "en", False)),
+    "04 Study/Cours de français.pdf": (
+        [("local_ocr", "Cours de français, niveau B1\nÉcole d'Exemple, Paris\nRelevé de notes du trimestre\n"
+                       "Compréhension écrite : 16/20\nExpression orale : 14/20\n"
+                       "Le professeur recommande de passer au niveau B2 en septembre.")],
+        card("Transcript", "Alex Example", ["École d'Exemple"], "", "French B1 term transcript (Cours de français)",
+             "The term transcript of the B1 French course at École d'Exemple, Paris: written comprehension 16/20, "
+             "speaking 14/20. The teacher recommends moving up to B2 in September.", ([], [], []), "Language Study",
+             "fr", False)),
+    "04 Study/Notes.rtf": (
+        [("text_layer", "Class notes: irregular verbs and measure words, reviewed with Robin Example.")],
+        card("Lecture Notes", "Alex Example", ["Robin Example"], "", "Class notes",
+             "Class notes on irregular verbs and measure words, reviewed with Robin.", ([], [], []), "Language Study",
+             "en", False)),
+    "04 Study/Slides.pptx": (
+        [("text_layer", "Language learning plan for 2024\n\n[notes]\nSpeak with Robin every week"),
+         ("text_layer", "Targets: B2 French and HSK 4 Chinese\n\n[notes]\nExams in June")],
+        card("Presentation", "Alex Example", ["Robin Example"], "2024", "Language learning plan for 2024",
+             "Alex's language plan for 2024: speak with Robin every week, aim for B2 French and HSK 4 Chinese, with "
+             "the exams in June.", (["exams 2024-06"], [], []), "Language Study", "en", False)),
+    "04 Study/中文课程.pdf": (
+        [("local_ocr", "中文课程结业证书\n学生姓名：亚历克斯\n课程名称：中级汉语会话\n学习时间：二〇二三年九月至二〇二四年六月\n"
+                       "成绩：优秀\n特此证明，本学生已完成全部课程要求。")],
+        card("Certificate", "Alex Example", [], "2024-06", "Chinese course completion certificate (中文课程结业证书)",
+             "A certificate that Alex (亚历克斯) completed the intermediate spoken Chinese course (中级汉语会话), "
+             "September 2023 to June 2024, graded excellent (优秀).", (["course 2023-09 to 2024-06"], [], []),
+             "Language Study", "zh", False)),
+    "06 Work/Contract.docx": (
+        [("text_layer", "Employment contract between Robin Trading Ltd and Alex Example\nStart date 2022-05-01\n"
+                        "Notice period one month")],
+        card("Contract", "Alex Example", ["Robin Trading Ltd"], "2022-05-01", "Employment contract, Robin Trading Ltd",
+             "Alex's employment contract with Robin Trading Ltd, starting on 2022-05-01, with one month's notice.",
+             (["start 2022-05-01"], [], []), "Work & Career", "en", False)),
+    "06 Work/Essay.docx": (
+        [("text_layer", "Essay: why learn a third language\nWritten by Alex Example for the evening class\n"
+                        "Learning a language changes how you see your own.")],
+        card("Essay", "Alex Example", [], "", "Essay: why learn a third language",
+             "Alex's essay for the evening class on why to learn a third language.", ([], [], []), "Language Study",
+             "en", False)),
+    "IMG_0001.jpg": (
+        [("photo", "Beach")],
+        card("Photo", "Unknown", [], "", "Beach photo", "A photo of a beach; the only text in it is the word Beach.",
+             ([], [], []), "Photos", "none", False, look="A stray at the top of the folder: decide where it belongs.",
+             proposed_name="Unknown - Photo Beach.jpg", confidence="low")),
+    "_Migrations/Other Project/02 Finance/Old invoice.pdf": (
+        [("text_layer", "Invoice 2022-117 from Robin Trading Ltd to Alex Example\n"
+                        "Consulting, February 2022, GBP 800.00\nPaid 2022-03-01")],
+        card("Invoice", "Robin Trading Ltd", ["Alex Example"], "2022-02", "Consulting invoice 2022-117",
+             "An invoice from Robin Trading Ltd to Alex for consulting in February 2022, GBP 800.00, paid on "
+             "2022-03-01.", (["paid 2022-03-01"], ["GBP 800.00"], ["invoice 2022-117"]), "Business", "en", False)),
+}
+
+
+def tool(args):
+    """Run a tool beside this skill; a failure stops the build with the tool's own message."""
+    r = subprocess.run([sys.executable, os.path.join(TOOLS, args[0])] + args[1:], capture_output=True, text=True)
+    if r.returncode:
+        raise SystemExit("%s %s failed (%d): %s" % (args[0], args[1], r.returncode, (r.stderr or r.stdout).strip()))
+    return r.stdout
+
+
+def write_prepared(root):
+    """Write the prepared records into `root`/_Audit/: per document of PREPARED, `extract/<id>.json` (as extract.py
+    writes one) and `cards/<id>.json` (as cards.py writes one), the id being the document's content id; then
+    `wiki-acceptance.json`, through `wiki.py accept`: every page accepted in the owner's lens and its professional's,
+    by REVIEWER, a model other than its author, at the page's bytes as committed. Earlier records are removed first."""
+    sys.path.insert(0, TOOLS)
+    import common  # noqa: E402 (the tools' content id: the audit's, for a package too)
+    audit = os.path.join(root, "_Audit")
+    for d in ("extract", "cards"):
+        shutil.rmtree(os.path.join(audit, d), True)
+    for name in ("wiki-acceptance.json", "wiki-acceptance.json.lock"):
+        if os.path.exists(os.path.join(audit, name)):
+            os.remove(os.path.join(audit, name))
+    for rel, (pages, fields) in PREPARED.items():
+        eid = common.content_id(os.path.join(root, *rel.split("/")))
+        ext = os.path.splitext(rel)[1].lower()
+        tiers = {}
+        for tier, _text in pages:
+            tiers[tier] = tiers.get(tier, 0) + 1
+        record = {"id": eid, "path": rel, "class": "iwork" if ext in (".pages", ".numbers") else
+                  "image" if ext == ".jpg" else "document", "status": "photo" if "photo" in tiers else "ok",
+                  "page_count": len(pages), "tiers": tiers, "chars": sum(len(t) for _tier, t in pages),
+                  "extractor": "fixture", "extracted_at": PREPARED_AT,
+                  "pages": [{"n": n, "tier": tier, "text": text} for n, (tier, text) in enumerate(pages, 1)]}
+        w(os.path.join(audit, "extract", eid + ".json"), json.dumps(record, ensure_ascii=False))
+        meta = {"model": "fixture", "via": "fixture", "batch": "fixture", "created_at": PREPARED_AT}
+        w(os.path.join(audit, "cards", eid + ".json"),
+          json.dumps(dict({"id": eid}, **fields, card_meta=meta), ensure_ascii=False, indent=1))
+    tmp = tempfile.mkdtemp(prefix="fixture_accept_")
+    try:
+        settings = os.path.join(tmp, "settings")  # a compiled Schema for the review, kept out of the fixture
+        os.makedirs(settings)
+        shutil.copy(os.path.join(root, ".familyai", "rulebook.json"), settings)
+        base = ["--root", root, "--work", os.path.join(tmp, "work"), "--settings-dir", settings]
+        tool(["settings.py", "compile"] + base)
+        wiki = os.path.join(root, WIKI)
+        pages = sorted(os.path.relpath(os.path.join(d, f), wiki).replace(os.sep, "/")
+                       for d, _ds, fs in os.walk(wiki) for f in fs if f.endswith(".md"))
+        record = os.path.join(tmp, "wiki-acceptance.json")  # recorded here, so the lock accept leaves stays here
+        for n, page in enumerate(pages):
+            for lens in ("owner", "professional"):
+                reply = os.path.join(tmp, "reply-%d-%s.json" % (n, lens))
+                w(reply, json.dumps({"page": page, "lens": lens, "verdict": "accepted", "findings": []},
+                                    ensure_ascii=False))
+                tool(["wiki.py", "accept"] + base + ["--reply", reply, "--author-model", AUTHOR, "--reviewer-model",
+                                                     REVIEWER, "--date", ACCEPTED_ON, "--out", record])
+        shutil.copy(record, os.path.join(audit, "wiki-acceptance.json"))
+    finally:
+        shutil.rmtree(tmp, True)
 
 
 if __name__ == "__main__":

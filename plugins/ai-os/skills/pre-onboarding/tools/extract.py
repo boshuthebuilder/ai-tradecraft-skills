@@ -10,6 +10,7 @@ LibreOffice when it is installed. Resumable: an existing record is never rewritt
 
     python3 extract.py --root R --lane main --worker 0/4
     python3 extract.py --root R --lane apps
+    python3 extract.py repath --root R [--apply]     after a round moved documents: paths from the manifest, by hash
 
 Record: id, path, class, status (ok, partial, blank, photo, listed, no_reader, needs_vision, failed), page_count,
 tiers, chars, extractor, extracted_at, pages[{n, text, tier, engine?, conf?}], notes?. A tier whose tool is missing
@@ -539,5 +540,120 @@ def main():
     return 1 if failed else 0
 
 
+# ------------------------------------------------------------------------------------ repath
+
+def repath_unsettled(entries):
+    """{id: why} for each live entry whose paths the manifest's canonical choice does not settle: copies naming no
+    canonical copy, more than one, or one other than the current path, or a current path another live entry also
+    holds. Repathing any record of one would guess."""
+    out, holders = {}, collections.defaultdict(list)
+    for h, e in entries.items():
+        if "departed" in e.get("flags", []):
+            continue
+        cur, copies = e["current_path"], e.get("copies") or []
+        canon = [c["path"] for c in copies if c.get("kind") == "canonical"]
+        if copies and canon != [cur]:
+            out[h] = "%d live paths, canonical %s, current path %r" % (len(copies), canon or "none", cur)
+        else:
+            holders[cur].append(h)
+    for cur, hs in holders.items():
+        for h in hs if len(hs) > 1 else []:
+            out[h] = "current path %r is also held by %s" % (cur, ", ".join(x[:12] for x in hs if x != h))
+    return out
+
+
+def repath_stage(writer, path, tmp, rec):
+    """`rec` written to `tmp`, the temporary file beside `path`, after the writer's guard on `path`."""
+    writer.check(path)
+    with open(tmp, "w", encoding="utf-8", newline="") as f:
+        f.write(json.dumps(rec, ensure_ascii=False))
+        f.flush()
+        os.fsync(f.fileno())
+
+
+def repath(argv):
+    """`extract.py repath`: rewrite each extract record's `path` to its document's current path in the manifest,
+    matched by content hash (the record's id). No document is read again and no model is called; nothing else in a
+    record changes. A dry run by default. Records of departed documents, and records whose id the manifest does not
+    hold, are left as they are and listed. It refuses, naming each and writing nothing (exit 2): a record whose
+    document has paths the manifest's canonical choice does not settle (`repath_unsettled`), and a move to a current
+    path that is not in the folder (the manifest is older than the folder: re-audit first). --apply writes every
+    repathed record to a temporary file beside it, through the guarded writer (--read-only-root refuses a write
+    inside the folder), and only then replaces the records. Whatever stops it part way, no temporary file stays: an
+    OS error or a refusal is a named error (exit 2) listing the records already replaced, and anything else (an
+    interrupt) is raised again once the temporary files are gone."""
+    import wiki  # the manifest's one reader, which refuses a malformed one by name
+    ap = common.base_args("Repath extract records from the manifest by content hash (no re-read)")
+    ap.prog = "extract.py repath"
+    ap.add_argument("--manifest", help="default <root>/_Audit/manifest.json")
+    ap.add_argument("--out", help="the extract records (default <root>/_Audit/extract)")
+    ap.add_argument("--apply", action="store_true", help="write the repathed records (default: a dry run)")
+    a = ap.parse_args(argv)
+    root, _settings_dir, _work = common.resolve(a)
+    records = os.path.realpath(a.out) if a.out else os.path.join(root, "_Audit", "extract")
+    _mpath, entries = wiki.load_manifest(root, a.manifest)
+    try:
+        names = sorted(n for n in os.listdir(records) if n.endswith(".json"))
+    except OSError as e:
+        raise common.ToolError("cannot repath: %s" % e)
+    unsettled, moves, left, unknown, current = repath_unsettled(entries), [], [], [], 0
+    refused = []
+    for n in names:
+        path = os.path.join(records, n)
+        try:
+            with open(path, encoding="utf-8") as f:
+                rec = json.load(f)
+        except (OSError, ValueError) as e:
+            raise common.ToolError("cannot repath: %s: %s" % (path, e))
+        eid = n[:-5]
+        if not (isinstance(rec, dict) and rec.get("id") == eid and isinstance(rec.get("path"), str)):
+            raise common.ToolError("cannot repath: %s is not an extract record for %s (an id and a path)" % (path, eid))
+        e = entries.get(eid)
+        if e is None:
+            unknown.append([eid, rec["path"]])
+        elif "departed" in e.get("flags", []):
+            left.append([eid, rec["path"]])
+        elif eid in unsettled:
+            refused.append("%s (%s): %s" % (eid, rec["path"], unsettled[eid]))
+        elif rec["path"] != e["current_path"]:
+            moves.append((path, rec, rec["path"], e["current_path"]))
+        else:
+            current += 1
+    if refused:
+        raise common.ToolError("refused, nothing written: the manifest does not settle where %d record(s) belong: %s"
+                               % (len(refused), "; ".join(refused)))
+    absent = ["%s to %r" % (rec["id"], new) for _p, rec, _old, new in moves
+              if not os.path.lexists(os.path.join(root, *new.split("/")))]
+    if absent:
+        raise common.ToolError("refused, nothing written: %d record(s) would move to a path that is not in the folder "
+                               "(%s); the manifest is older than the folder: re-audit (audit.py) first, then repath"
+                               % (len(absent), "; ".join(absent)))
+    if a.apply:
+        writer, staged, replaced = common.Writer(root if a.read_only_root else None), [], []
+        try:
+            for path, rec, _old, new in moves:
+                staged.append(("%s.repath%d" % (path, os.getpid()), path))  # recorded before it is opened
+                repath_stage(writer, path, staged[-1][0], dict(rec, path=new))
+            for tmp, path in staged:
+                os.replace(tmp, path)
+                replaced.append(os.path.basename(path))
+        except BaseException as e:  # whatever stops it, no temporary file stays
+            for tmp, _path in staged[len(replaced):]:
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+            if not isinstance(e, (OSError, common.ToolError)):
+                raise
+            raise common.ToolError("repath stopped, %s: %s" % (
+                "%d record(s) already replaced (%s)" % (len(replaced), ", ".join(replaced)) if replaced
+                else "no record replaced", e))
+    print(json.dumps(collections.OrderedDict([
+        ("records", len(names)), ("applied", a.apply), ("paths_changed", len(moves)),
+        ("already_current", current), ("moves", [[rec["id"], old, new] for _p, rec, old, new in moves]),
+        ("departed_left", left), ("not_in_manifest", unknown)]), ensure_ascii=False, indent=1))
+    return 0
+
+
 if __name__ == "__main__":
-    common.run_main(main)
+    common.run_main(lambda: repath(sys.argv[2:]) if sys.argv[1:2] == ["repath"] else main())

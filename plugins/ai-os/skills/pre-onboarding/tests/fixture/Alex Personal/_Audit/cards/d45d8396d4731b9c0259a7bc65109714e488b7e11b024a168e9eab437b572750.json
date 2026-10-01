@@ -1,0 +1,31 @@
+{
+ "id": "d45d8396d4731b9c0259a7bc65109714e488b7e11b024a168e9eab437b572750",
+ "doc_type": "Passport Scan",
+ "party": "Alex Example",
+ "parties": [],
+ "doc_date": "2021-07-15",
+ "title": "Passport scan, P1234567",
+ "summary": "A scan of Alex's Freedonian passport P1234567, issued on 2021-07-15 and valid until 2031-07-15.",
+ "key_facts": {
+  "dates": [
+   "issue 2021-07-15",
+   "expiry 2031-07-15"
+  ],
+  "amounts": [],
+  "reference_numbers": [
+   "passport P1234567"
+  ]
+ },
+ "category": "Identity & Immigration",
+ "language": "en",
+ "sensitive": true,
+ "confidence": "high",
+ "look": "",
+ "proposed_name": "",
+ "card_meta": {
+  "model": "fixture",
+  "via": "fixture",
+  "batch": "fixture",
+  "created_at": "2024-06-30T12:00:00+0000"
+ }
+}

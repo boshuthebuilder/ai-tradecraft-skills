@@ -3,11 +3,11 @@
     python3 -m unittest discover plugins/ai-os/skills/pre-onboarding/tests
     python3 test_wiki_tools.py --update      rewrite golden/wiki/ (commit with why)
 
-The fixture has no cards or extracts, so each copy gets small synthetic records (RECORDS below, each card in the
-shape of tools/schemas/card.json) written into the copy's _Audit/, never into the committed fixture. The copy's
-manifest is the frozen tests/expected/manifest.json, so the sha256 the bundles record is the same on every
-machine. In the golden outputs (golden/wiki/), the paths that differ between machines are written <tmp> (the test's
-temporary folder) and <skills> (this repository's skills folder).
+Each copy's cards and extracts are small synthetic records (RECORDS below, each card in the shape of
+tools/schemas/card.json), written over the fixture's own in the copy's _Audit/, never into the committed fixture.
+The copy's manifest is the frozen tests/expected/manifest.json, so the sha256 the bundles record is the same on
+every machine. In the golden outputs (golden/wiki/), the paths that differ between machines are written <tmp> (the
+test's temporary folder) and <skills> (this repository's skills folder).
 """
 import argparse
 import contextlib

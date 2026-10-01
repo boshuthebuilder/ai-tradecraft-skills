@@ -1,0 +1,33 @@
+{
+ "id": "389ca49e3eff8205944648e07827f0be2c41d99ffbbdb31fe3a6b9be17273d35",
+ "doc_type": "Invoice",
+ "party": "Alex Example",
+ "parties": [
+  "Example Energy Ltd"
+ ],
+ "doc_date": "2024-03-15",
+ "title": "Electricity bill, March 2024",
+ "summary": "The Example Energy Ltd electricity bill for 3 Example Road, dated 2024-03-15: 320 units used and GBP 96.40 due by 2024-04-01.",
+ "key_facts": {
+  "dates": [
+   "bill date 2024-03-15",
+   "due 2024-04-01"
+  ],
+  "amounts": [
+   "GBP 96.40"
+  ],
+  "reference_numbers": []
+ },
+ "category": "Home & Household",
+ "language": "en",
+ "sensitive": false,
+ "confidence": "high",
+ "look": "",
+ "proposed_name": "",
+ "card_meta": {
+  "model": "fixture",
+  "via": "fixture",
+  "batch": "fixture",
+  "created_at": "2024-06-30T12:00:00+0000"
+ }
+}
