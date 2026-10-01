@@ -352,8 +352,9 @@ does not settle (copies naming no canonical copy, several, or one other than the
 another live entry holds); and a move to a current path that is not in the folder, since the manifest is then older
 than the folder: re-audit first. `--apply` writes every repathed record to a temporary file beside it, through the
 guarded writer (with `--read-only-root`, records inside the folder are refused; `--out` names records kept
-elsewhere), and only then replaces the records. A failure part way exits 2 naming the records already replaced,
-and leaves no temporary file. Cards need no repair: they hold no path, only their document's id.
+elsewhere), and only then replaces the records. Whatever stops it part way, no temporary file stays: an OS error
+or a refusal exits 2 naming the records already replaced, and anything else (an interrupt) is raised again once
+the temporary files are gone. Cards need no repair: they hold no path, only their document's id.
 
 ## Hand-off readiness: `readiness.py`
 
@@ -414,8 +415,10 @@ month and a day that month has, opening a list item or alone in a table cell (an
 - `derived_pages_hold_nothing_hand_written`: every `YYYY-MM-DD` on the roll-up is a page's `deadline` or
   `deadlines` date (`YYYY-MM-DD` or `{date, note}`), except the roll-up's own `last-updated`, a build stamp; the
   roll-up shows every such date of a page the sweeps read that is not before its `last-updated` (one before it is
-  past, not forward); and an empty roll-up in a wiki of derived pages says why (a page of headings or a bare "None"
-  does not).
+  past, not forward), and a `last-updated` after today, by the tools' clock, is a finding, forward then being
+  judged from today; a deadline entry that is not a real `YYYY-MM-DD`, bare or in `{date, note}`, is a finding;
+  and a roll-up with nothing to show (no forward deadline and no recurring date) in a wiki of derived pages says
+  why (a page of headings or a bare "None" does not).
 - `recurring_dates_in_frontmatter`: every `MM-DD` on the roll-up is a page's `recurring` date; every `recurring`
   entry reads `{date: MM-DD, note}`, with a day the month has and a note; and the roll-up shows each by its own
   `MM-DD` (a `YYYY-MM-DD` on the same day does not show it).
