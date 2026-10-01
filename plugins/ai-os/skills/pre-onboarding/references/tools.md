@@ -26,7 +26,7 @@ Stated once here; each tool's section below lists only its own.
 | `vision.py` | yes | yes | yes | records folder | yes |
 | `cards.py` | yes | yes | yes | cards folder | yes |
 | `refs.py` | yes | yes | yes | no | yes |
-| `isolation.py` | no | no | no | `canary`'s result | no |
+| `isolation.py` | no | no | no | `scan`'s and `canary`'s result | no |
 | `settings.py` | yes | yes | accepted, unused | `check`'s result | yes |
 | `wiki.py` | yes | yes | yes | per subcommand | yes |
 | `readiness.py` | yes | yes | yes | result file | yes |
@@ -75,6 +75,11 @@ rename history and departures are kept; a manifest of another schema there is re
 - **What it hashes.** Every item in full, except an image over the rulebook's `image_cap_mb`, which is counted with
   a synthetic id. Hashes are cached in `--cache` (default `<work>/hashcache.json`) by path, size and modification
   time.
+- **Packs.** Every copy in a pack is marked `pack`, even one beside its canonical copy, so no plan deletes it. A
+  pack is a folder the rulebook lists in `packs` or one whose path matches its `pack_keywords` (by default
+  `application`, `passport`, `renew`, `visa`, `submission` and `evidence`, ignoring case). A listed pack that is not
+  an existing folder, named exactly (each part compared with its folder's listing, case included, in Unicode NFC),
+  refuses the run, here and in `plan.py`: it would match nothing and leave its copies deletable.
 - **Cloud files.** A file whose bytes are not on this machine stops the audit (exit 2) with a list, unless
   `--dataless read`, which reads it and so downloads it.
 
@@ -93,7 +98,7 @@ root.
 | `rmdirs` | adds rows removing the folders the approved moves empty |
 | `check` | dry-runs every row under the executor's guards |
 | `execute` | carries out the approved rows |
-| `prove` | proves the executed moves by a (path, hash) diff of two manifests |
+| `prove` | proves the executed rows by a (path, hash) diff of two manifests |
 
 ### `light`
 
@@ -122,8 +127,8 @@ The paths file holds one folder-relative path per line; blank lines and lines st
 - **`migrate`** writes a `move` row per listed path to `<migrations folder>/<Project>/<path>`, in domain
   `Migrations`, `kind` the moved path's copy kind (empty when its entry has one path), `needs_a_look` naming the
   copies that stay behind. A listed path ending in `/` stands for every live path under it, copies included.
-- **`return`** writes a `move` row per listed path from `<migrations folder>/<Project>/<path>` back to `<path>`; when
-  the round returns everything staged for that project, it adds an `rmdir` row for `<migrations folder>/<Project>/`.
+- **`return`** writes a `move` row per listed path from `<migrations folder>/<Project>/<path>` back to `<path>`. It
+  adds no `rmdir` row: once the return rows are approved, `rmdirs` proposes the folder they empty.
 
 Both also write `review.tsv` beside the plan.
 
@@ -143,11 +148,11 @@ again), a stray's destination in the plan's `to` column, and their decisions, wh
 
 ### `approve`
 
-    plan.py approve --plan <move-plan.csv> --rows <rows> [--note <text>] [--decline]
+    plan.py approve --plan <move-plan.csv> --rows <rows> [--note <text>] [--decline | --defer]
 
-`--rows` is a list such as `1-5,7`, or `all`. Each row named gets `approved` (`approved`, or `declined` with
-`--decline`), `approved_at` (the local time), `status` (`pending`, or `skipped` when declined) and the note. A row
-left blank is not approved, and `execute` skips it.
+`--rows` is a list such as `1-5,7`, or `all`. Each row named gets `approved` (`approved`; `declined` with
+`--decline`; `deferred`, not this round, with `--defer`), `approved_at` (the local time), `status` (`pending` when
+approved, otherwise `skipped`) and the note. A row left blank is not approved, and `execute` skips it.
 
 ### `rmdirs`
 
@@ -185,21 +190,22 @@ and [the plan schema](../../folder-curation/references/move-plan-schema.md), the
 The Bin is `--bin`, or the user's bin (`~/.Trash`); an item whose name is taken there gets ` (<n>)`. Each change is
 logged to `<plan folder>/undo.log` as JSON lines: an `intent` line before it and a `done` line with its reverse
 after. Each row's `status` becomes `done`, `failed` or `skipped`, with `executed_at` and a `note` (`undo.log seq
-<n>`, or the failure). A failed row stops its domain: later rows in it are skipped. A row of any other action, such
-as `convert`, fails. Exit 1 when a row failed.
+<n>`, or the failure). A failed row stops its domain: later rows in it are skipped. An approved `convert` row is
+named and left pending, since a conversion is the owner's or the deployment's, and the delete phase does not wait
+for it; a row of an action the executor does not know fails. Exit 1 when a row failed.
 
 ### `prove`
 
     plan.py prove --plan <move-plan.csv> --before <manifest> --after <manifest> [--allow-departed-under <prefix> ...]
 
 Treats each manifest as the set of (path, content id) pairs over every live path, copies included. The pairs that
-disappeared must be exactly the `done` file `move` and `rename` rows' (`from`, `evidence`), and the pairs that
-appeared exactly their (`to`, `evidence`); a `done` folder rename accounts for every pair under its old path.
-Prints JSON: `gone_unexpected`, `new_unexpected`, `gone_missing`, `new_missing`, `rows_checked` and `ok`; exit 0
-only when `ok`. `--allow-departed-under <prefix>`, repeatable, names a path prefix whose departures are expected,
-such as `_Migrations/<Project>/` once that project has collected its files; it excuses only pairs that disappeared
-under that prefix. `delete` and `rmdir` rows are not proved here: check the deletes against the fresh manifest
-([folder-curation step 6](../../folder-curation/SKILL.md#6-verify-by-re-audit)).
+disappeared must be exactly the `done` file `move`, `rename` and `delete` rows' (`from`, `evidence`), and the pairs
+that appeared exactly the moves' and renames' (`to`, `evidence`); a `done` folder rename accounts for every pair under
+its old path, and `rmdir` and `create` rows change no pair. Prints JSON: `gone_unexpected`, `new_unexpected`,
+`gone_missing`, `new_missing`, `rows_checked` and `ok`; exit 0 only when `ok`. `--allow-departed-under <prefix>`,
+repeatable, names a path prefix whose departures are expected, such as `_Migrations/<Project>/` once that project has
+collected its files; it excuses only pairs that disappeared under that prefix. Run it after the main phase's re-audit,
+and again, on the same before-manifest, after the delete phase's.
 
 ## `extract.py`
 
@@ -229,16 +235,20 @@ Each run writes `<work>/index/extract_<lane><k>.jsonl` as it goes and, when it e
 | `.docx`, `.pptx` (with its notes), `.xlsx` | parsed directly |
 | `.doc`, `.rtf`, `.odt`, `.html` | `textutil` |
 | legacy `.ppt`, `.xls` | exported to PDF by LibreOffice, then read as a PDF |
-| `.txt`, `.md`, `.csv` | decoded as text (below) |
+| `.txt`, `.md`, `.csv` | decoded as UTF-8, GB 18030 or UTF-16, else Latin-1 |
 | zip archive | its list of members |
 | anything else | as text when it plainly is text; otherwise `no_reader` |
 
-<!-- provisional: #90 -->
-
-Plain text is decoded as UTF-8, GB 18030 or UTF-16, else Latin-1. Apple Vision is asked first for Chinese and
-English; when that finds fewer than five Chinese characters, it is asked again for English and French, and the
-better reading kept. A reading is clean when it has at least 40 characters, mostly letters, digits, spaces and
-ordinary punctuation, a word of three Latin letters or at least 15 Chinese characters, and (from Vision) a
+Local OCR reads in the languages the rulebook lists as `ocr_languages`, most likely first (default `en-GB`;
+[the settings reference](settings.md#rulebookjson)). Each is a BCP 47 code, read in any letter case, and mapped by
+its language and script or region, else by its language alone, to tesseract's languages (`eng`, `fra`, `deu`,
+`spa`, `chi_sim`, `chi_tra`) and Vision's (`en-US`, `fr-FR`, `de-DE`, `es-ES`, `zh-Hans`, `zh-Hant`): `en`, `fr`,
+`de` and `es` in any region, `zh-Hans` (or `zh-CN`, `zh-SG`) and `zh-Hant` (or `zh-TW`, `zh-HK`, `zh-MO`). Any
+other code refuses the run before anything is written. tesseract reads with every language at once. Vision reads
+with every language in one pass, unless the list holds Chinese and another language: then it reads first with the
+Chinese codes and English, and, when that finds fewer than five Chinese characters, again with the other codes,
+keeping the better reading. A reading is clean when it has at least 40 characters, mostly letters, digits, spaces
+and ordinary punctuation, a word of three Latin letters or at least 15 Chinese characters, and (from Vision) a
 confidence of at least 0.45.
 
 ### The record
@@ -267,71 +277,80 @@ running and restarts it if it stalls; its first run compiles Vision's model, whi
 
 ## `vision.py`
 
-<!-- provisional: #92 -->
-
     vision.py --root <folder> --model <vision model> [--worker <k>/<N>] [--out <dir>] [--lanes <markers>]
 
-The vision lane: a model reads the page images local OCR could not read cleanly. It drains
-`<work>/vision_queue/`, taking the images of records still `needs_vision` whose id falls to worker k of N, six to a
-call. Each call copies its images, as `p1.png` to `p6.png`, into a fresh, otherwise empty folder, and `agy` reads
-them there in its sandboxed plan mode; the reply must name exactly the images sent. A transcription replaces the
-page's text (tier `vision`, engine `agy`, the local text kept as `local_text`; an empty one makes the page `blank`),
-and the record is written back to `--out` (default `<root>/_Audit/extract`); once none of its pages is pending, its
-status becomes `ok`, or `partial` if a page was left unread. A page whose batch fails three times is marked
-`unread`, its local text kept. Tries are kept in
+The vision lane: a model reads the page images local OCR could not read cleanly. It drains `<work>/vision_queue/`,
+taking the images of records still `needs_vision` whose id falls to worker k of N, six to a call. Each call copies its
+images, as `p1.png` to `p6.png`, into a fresh, otherwise empty folder, and `agy` reads them there in its sandboxed
+plan mode, the one call that may open files; the reply must return every image, in the order sent, each with its text,
+or the attempt fails. A transcription replaces the page's text (tier `vision`, engine `agy`, the local text kept as
+`local_text`; an empty one makes the page `blank`), and the record is written back to `--out` (default
+`<root>/_Audit/extract`); once none of its pages is pending, its status becomes `ok`, or `partial` if a page was left
+unread. A page whose batch fails three times is marked `unread`, its local text kept. Tries are kept in
 `<work>/state/vision_tries_<k>.json`.
 
-It sleeps through quota, and stops (exit 3) while `<work>/state/ALERT` exists. It exits once every done marker
-named in `--lanes` (default `extract_main0,extract_apps0`; name every extraction worker's) exists and its share of
-the queue has stayed empty for two looks a minute apart, writing `<work>/state/vision<k>.done`.
+It sleeps through quota, stops (exit 3) while `<work>/state/ALERT` exists, and stops (exit 2) on a credential file or
+a setup problem, which is not counted as a failed try. It exits once every done marker named in `--lanes` (default
+`extract_main0,extract_apps0`; name every extraction worker's) exists and its share of the queue has stayed empty for
+two looks a minute apart, writing `<work>/state/vision<k>.done`.
 
 ## `engines.py`
 
-<!-- provisional: #92 -->
 <!-- provisional: #91 -->
 
 A library: the adapters every model call goes through, `Agy` (Gemini through the `agy` command-line tool) and
 `Codex` (ChatGPT through `codex exec`). The rule it holds is the skill's
-[engine isolation](../SKILL.md#engine-isolation); the exact flags are in the file, set by the isolation spike.
+[engine isolation](../SKILL.md#engine-isolation); the flags in use are in the file, pinned by its tests, and the
+isolation spike may change them.
 
 - **Each call** runs in the working directory the caller gives (a fresh, empty one from `engines.fresh_dir`), with
   the prompt on standard input, in its own process group, killed on timeout (900 seconds for `agy`, 1,500 for
-  `codex`). `agy` runs sandboxed in plan mode, with the environment minus `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
-  `GEMINI_API_KEY` and `GOOGLE_API_KEY`; `codex` runs read-only and ephemeral, ignoring user configuration and
-  rules, with every tool feature it can disable disabled, and an environment of only `LANG`, `TMPDIR`, `USER`,
-  `LOGNAME`, `HOME` and `PATH`. An output schema, when given, is passed to the engine.
+  `codex`; the pipes are then waited on for at most five seconds). Output is read as UTF-8, undecodable bytes
+  replaced. `agy` runs sandboxed in plan mode, with an environment from which every key, token, credential, secret,
+  base URL and endpoint variable is removed (`ANTHROPIC_API_KEY` and the like, any name ending `_API_KEY`,
+  `_TOKEN`, `_CREDENTIALS`, `_SECRET`, `_BASE_URL`, `_API_BASE` or `_ENDPOINT`, and
+  `GOOGLE_APPLICATION_CREDENTIALS`); proxy settings stay. `codex` runs read-only and ephemeral, ignoring user
+  configuration and rules, with every tool feature it can disable disabled, and an environment of only `LANG`,
+  `TMPDIR`, `USER`, `LOGNAME`, `HOME` and `PATH`. An output schema, when given, is passed to the engine; `codex`
+  needs it strict (every object closed, every property required).
 - **Outcomes.** `QuotaError` for quota text (quota, 429, exhausted, rate limit, usage limit, too many requests),
-  whatever the exit code, with `reset_seconds` read from "Resets in 2h13m5s" or "try again at 5:12 PM" where the
-  message says; `DegenerateError` for an empty answer; `ToolUseError` when `codex` reports a tool item, the reply
-  discarded; `EngineError` for anything else, such as an `agy` result that is not a success.
+  whatever the exit code and before an empty answer is judged, with `reset_seconds` read from "Resets in 2h13m5s" or
+  "try again at 5:12 PM" where the message says; `DegenerateError` for an empty answer; `ToolUseError` when the
+  model used a tool (a `codex` tool item, or an `agy` stream event naming a tool, action, function or call) or `agy`
+  was refused one (a denied action), the reply discarded (the vision lane alone lets `agy` open its images);
+  `EngineError` for anything else. Two stop the run rather than the call: `SetupError` (no binary, `agy` without a
+  model, a `codex` schema that is not strict) and `CredentialError` (below).
 - **A per-project state folder** (`state_home`, the engine's `HOME` or `CODEX_HOME`) is optional; no caller sets
-  one yet. When set, it is scanned before and after every call, and a regular file named like a credential
-  (`auth.json`, or a name containing oauth, token, creds or credential) fails the call.
+  one yet. When set, it is scanned before and after every call, and a regular file (not a symbolic link) whose name
+  is shaped like a credential store (`auth.json`, `oauth_creds.json`, `tokens.json`, `cookies.sqlite`, `.netrc`,
+  `.env`, `id_rsa`, `*.pem` and the like; notes and public keys excepted) stops the run.
 
 ## `isolation.py`
 
-<!-- provisional: #92 -->
-
-    isolation.py scan   --terms <file> --path <file or folder> [--path ...]
+    isolation.py scan   --terms <file> --path <file or folder> [--path ...] [--out <result.json>]
     isolation.py canary --terms <file> --engine agy|codex [--model <id>] --out <result.json>
 
 Keeps other projects out of model-facing context. The terms file's format is in
-[the card contract](cards.md#the-terms-file).
+[the card contract](cards.md#the-terms-file); `agy` needs `--model`.
 
-- **`scan`** reads every `.md`, `.json`, `.py`, `.txt`, `.sh`, `.swift`, `.csv` and `.jsonl` file under each path
-  and prints `{"files_with_terms": {file: count}, "terms": n}`; exit 1 when any file holds a term. Scan every file
-  a model is shown: the tools folder (its prompts and templates), the folder's `.familyai/` (the owner context the
-  card instructions are filled from) and the wiki briefs.
+- **`scan`** reads every file named, and every `.md`, `.json`, `.py`, `.txt`, `.sh`, `.swift`, `.csv`, `.jsonl`,
+  `.toml`, `.yaml` and `.yml` file under each folder named; a path that does not exist is refused. It prints
+  `{checked_at, files_checked, files_with_terms, terms, pass}`, also to `--out`. A file holding a term is listed as
+  `<n>:<path>`, `n` the index of the `--path` it came from and the path relative to it, with every term and marker
+  masked as `<term>` (a later path masking alike gets `#2`, `#3`). `pass` needs at least one file checked and none
+  with a term; exit 1 otherwise. Scan every file a model is shown: the tools folder (its prompts, templates and
+  schemas), the folder's `.familyai/` (the owner context the card instructions are filled from), and the wiki
+  briefs and review prompts.
 - **`canary`** asks the engine, in a fresh empty folder, to list every personal name, family name, company,
   property, street or address in its context other than the message. It writes `{engine, checked_at, terms, reply,
-  usage, hits, pass}` (or `error`) to `--out` and prints it without the reply; `pass` needs a reply with no term in
-  it. Exit 0 on a pass. The result is the record that the gate ran; no tool reads it. With nothing to list there
-  is no terms file, so the canary cannot run: [the skill](../SKILL.md#5-open-the-gate-to-the-engines) says what is
-  recorded instead.
+  usage, hits, pass}` (or `error`) to `--out`, the reply and any error with their terms masked, and prints it
+  without the reply; `pass` needs a reply with no term in it. Exit 0 on a pass.
+
+Neither writes a term out. The result files are the record that the gate ran; no tool reads them. With nothing to
+list there is no terms file, so neither can run: [the skill](../SKILL.md#5-open-the-gate-to-the-engines) says what
+is recorded instead.
 
 ## `cards.py`
-
-<!-- provisional: #92 -->
 
     cards.py build --root <folder> [--extract <dir>] [--out <dir>]
     cards.py work  --root <folder> --engine agy|codex --model <id> (--terms <file> | --no-isolation-terms)
@@ -345,7 +364,7 @@ One card per live document. What a card holds, how it is written and joined, and
 | `--extract` | extract records | `<root>/_Audit/extract` |
 | `--out` | cards | `<root>/_Audit/cards` |
 | `--engine` | `agy` or `codex` | `agy` |
-| `--model` | the engine's model id (with `agy`, the effort is part of the id); give one for `agy` | none |
+| `--model` | the engine's model id (with `agy`, the effort is part of the id); `agy` without one is refused | none |
 | `--effort` | `codex` reasoning effort | `medium` |
 | `--light-model` | `codex` model for section notes, run at low effort | the main engine |
 | `--terms`, `--no-isolation-terms` | the isolation list, or the logged statement that none is needed; `work` needs one of them | none |
@@ -358,8 +377,6 @@ Batches go in `<work>/batches/`, section notes in `<work>/sections/`; a worker w
 (or `redo<k>.done`) when it finishes, and stops (exit 3) while `<work>/state/ALERT` exists.
 
 ## `refs.py`
-
-<!-- provisional: #92 -->
 
     refs.py --root <folder> [--apply] [--cards <dir>] [--extract <dir>]
 
@@ -382,7 +399,9 @@ rulebook's facts, exit 1 on any finding. Formats, rules and findings: [the setti
 The tools for building and checking the wiki, in the stages of
 [the core wiki rule](../../wiki-maintenance/SKILL.md#the-core-wiki-rule) as
 [`wiki-onboarding`](../../wiki-onboarding/SKILL.md) applies them. Every subcommand takes `--manifest`; page paths
-are relative to the wiki folder, source paths to the folder.
+are relative to the wiki folder, source paths to the folder. Bundles, briefs and review prompts are working files,
+refused inside the folder; `profile`, `check` and `drift` print JSON and write `--out` where `--read-only-root`
+allows; `rationale` and `accept` write their audit file (default in `<root>/_Audit/`) the same way.
 
 | Subcommand | Does |
 | --- | --- |
@@ -398,10 +417,6 @@ are relative to the wiki folder, source paths to the folder.
 
 Malformed input (a manifest, card, extract record or `bundles.json` of the wrong shape, or a file where a folder
 must be) is refused by name, exit 2.
-
-<!-- provisional: #94 -->
-
-`rationale`, `review-prompts` and `accept` arrive with the wiki checker (issue #94).
 
 ### `profile`
 
@@ -422,14 +437,13 @@ mirrors others:
 
     wiki.py bundles --root <folder> [--out <dir>] [--reuse] [--text-cap 12000] [--cards <dir>] [--extract <dir>]
 
-Routes every live manifest entry outside the migrations folder by the compiled routing (its longest matching
-prefix; a note row routes nothing) and writes one `bundle_<NN>.jsonl` per section to `--out` (default
-`<work>/bundles`; refused inside the folder, and the tool's own: a rebuild removes `bundles.json` and the section
-files there). Each line is a document: its short id, path, other copies, pages,
-extract status, and from its card `title`, `doc_type`, `party`, `parties`, `doc_date`, `category`, `language` and
-`sensitive`; then `summary` and `key_facts`, and in an `active` section the full text, capped at `--text-cap`
-characters. In any other section, reading, photos and other bulk material is listed `compact`, without summary or
-text. A card with no extract record is refused.
+Routes every live manifest entry outside the migrations folder by the compiled routing (its longest matching prefix; a
+note row routes nothing) and writes one `bundle_<NN>.jsonl` per section to `--out` (default `<work>/bundles`; refused
+inside the folder, and the tool's own: a rebuild removes `bundles.json` and the section files there). Each line is a
+document: its short id, path, other copies, pages, extract status, and from its card `title`, `doc_type`, `party`,
+`parties`, `doc_date`, `category`, `language` and `sensitive`; then `summary` and `key_facts`, and in an `active`
+section the full text, capped at `--text-cap` characters. In any other section, reading, photos and other bulk
+material is listed `compact`, without summary or text. A card with no extract record is refused.
 
 `bundles.json` records `manifest_sha256`, `routing_sha256` (the routing rows and section kinds), `arguments` (the
 non-default `--settings-dir`, `--manifest`, `--cards`, `--extract` and `--text-cap` it was built with), `text_cap`,
@@ -452,20 +466,21 @@ Renders `templates/page-brief.md` for a set of pages, sorted, so the order given
 professional, deliverable and tone ([a page's professional](settings.md#a-pages-professional)) and its section's
 contract (reader, questions, fields; a `fixed` section takes the method's shape, and any other section without a
 contract is refused); the routing into its section and its bundle; the owner context from `rulebook.json` (folder
-description, people with aliases, identifier policy, boundaries); the page map; each page's rationale block with
-what the Schema fixes filled in; the JSON a drafting agent returns, which is what
-[wiki-onboarding step 4a](../../wiki-onboarding/SKILL.md#4a-draft-the-pages-when-every-document-has-been-read)
-names (`pages`, each with its `path`, `text`, `rationale` and `index_entry`, then `open_questions` and
-`check_result`); and the checker command every drafting agent runs. The page map is every
-page under the wiki folder, every page in the Schema's Page professionals table, each Layout section's folder note
-(`<NN Name>/<NN Name>.md`) and the pages briefed, each marked `exists` or `planned`. It refuses stale bundles, and
-writes `--out` only outside the folder. The same inputs render the same bytes.
+description, people with aliases, identifier policy, boundaries); the page map; each page's rationale block with what
+the Schema fixes filled in; the JSON a drafting agent returns, which is what [wiki-onboarding step
+4a](../../wiki-onboarding/SKILL.md#4a-draft-the-pages-when-every-document-has-been-read) names (`pages`, each with its
+`path`, `text`, `rationale` and `index_entry`, then `open_questions` and `check_result`); and the checker command
+every drafting agent runs, `python3 <tools>/wiki.py check --root <root> --work <work>`. The page map is every page
+under the wiki folder, every page in the Schema's Page professionals table, each Layout section's folder note (`<NN
+Name>/<NN Name>.md`) and the pages briefed, each marked `exists` or `planned`. It refuses stale bundles, and writes
+`--out` only outside the folder. The same inputs render the same bytes.
 
 ### The stage templates
 
 In [`tools/templates/`](../tools/templates/), one per stage, each opening with a comment naming its stage and who
 fills it; fields are in braces and doubled braces are literal, so each fills as a Python format string, and each
-asks for JSON back. `brief` renders the page brief whole; the coordinating agent fills the others.
+asks for JSON back. `brief` renders the page brief and `review-prompts` the two review prompts, whole, dropping the
+comment; the coordinating agent fills the others.
 
 | Template | Stage and pen | Fields |
 | --- | --- | --- |
@@ -473,79 +488,178 @@ asks for JSON back. `brief` renders the page brief whole; the coordinating agent
 | `structure-brief.md` | sections, routing and each page's professional; the librarian proposes | `folder_name`, `owner_context`, `readers`, `profile`, `current_schema` |
 | `contract-brief.md` | a section's contract; its professional drafts | `section`, `professional`, `owner_context`, `readers`, `section_rows`, `routing`, `bundle` |
 | `page-brief.md` | the pages; their professional writes | rendered whole by `brief` |
-| `review-owner.md` | acceptance in the owner's lens; a model that did not write the page | `page`, `page_text`, `author_model`, `reviewer_model`, `reader`, `questions` |
-| `review-professional.md` | acceptance in the professional's lens; the same | `page`, `page_text`, `author_model`, `reviewer_model`, `professional`, `contract`, `root`, `bundle`, `sample` |
+| `review-owner.md` | acceptance in the owner's lens; a model that did not write the page | rendered whole by `review-prompts` |
+| `review-professional.md` | acceptance in the professional's lens; the same | rendered whole by `review-prompts` |
 
 [`card-instructions.md`](../tools/templates/card-instructions.md), the card engine's instructions, sits beside
 them ([the card contract](cards.md#what-the-engine-is-given)).
 
 ### `check`
 
-    wiki.py check --root <folder> [--out <file>]
+    wiki.py check --root <folder> [--rationale <file.md>] [--acceptance <file.json>] [--out <file.json>]
 
-Reads every page under the wiki folder (dot folders skipped) and prints JSON, also to `--out`; exit 1 when
-`problems` is not zero.
+Reads every page under the wiki folder (dot folders skipped) and prints JSON, also to `--out`, exiting 1 when
+`problems` is not zero. Every key is a count, a list whose length is the count, or a named state; the fixture's
+values are in [`../tests/expected/wiki-check.json`](../tests/expected/wiki-check.json). `--rationale` and
+`--acceptance` read those files from elsewhere; a path given that does not exist is refused (exit 2), while a
+default that does not exist reads as `not recorded`. Line numbers count from the page's first line.
 
-| Key | What it reports |
-| --- | --- |
-| `wiki`, `pages` | the wiki folder and its page count |
-| `frontmatter_conforming`, `frontmatter_bad` | pages with `provenance`, `last-updated` and `status`, as `n/total`, and the pages without |
-| `superseded_pages` | pages whose `status` is `superseded` |
-| `dead_source_paths` | `[page, path]` for each `sources:` entry that does not exist, and each backticked file path in a page body whose first segment is a top-level name of the folder and does not exist (the Log is not read for these) |
-| `backticked_paths_unchecked` | backticked file paths whose first segment is no top-level name, counted |
-| `dead_page_links` | `[page, link]` for each relative link to a `.md` file that does not resolve |
-| `em_dash_lines`, `em_dash_where` | lines holding an em dash outside code spans, and the first ten `[page, line]` |
-| `chart_blocks`, `charts_without_data_table` | chart pairing, below under [`chart`](#chart) |
-| `deadlines` | `[date, page]` from every page's `deadlines:` frontmatter |
-| `documents_in_scope`, `documents_not_covered`, `not_covered_sample` | coverage: each live document outside the migrations folder must be named by its path anywhere in the wiki, or have a folder above it named in backticks; the first 20 not covered |
-| `rationale` | `{blocks, pages_without_block}` from `_Audit/wiki-rationale.md`'s `### <page>` headings, or `not recorded` |
-| `acceptance` | `recorded` when `_Audit/wiki-acceptance.json` exists, otherwise `not recorded` |
-| `problems` | bad frontmatter, dead sources, dead links, em dash lines, documents not covered and unpaired charts, added up |
-
-<!-- provisional: #94 -->
-
-The wiki checker (issue #94) extends it so that every section reports a count, zero included, or a named
-not-verified state: links must also point only at pages on the page map; coverage counts a document named by its
-path or counted under its own parent folder in backticks; chart blocks must be renderable, with their data table
-and sources beside them; each page must have one rationale block naming that page's professional; and acceptance
-is reported as `accepted`, `not recorded` or `refused`, never folded into a pass. Until then, a page without a
-rationale block is listed but not counted as a problem.
+- `wiki`, `pages`: the wiki folder and its page count.
+- `frontmatter_conforming` (such as `"12/12"`) and `frontmatter_bad`: pages carrying `provenance`, `last-updated`
+  and `status`, and the pages that do not, or that write `sources:` as one value rather than a list.
+  `superseded_pages` counts pages whose `status` is `superseded` (no problem).
+- `dead_source_paths`, `[page, path]`: a `sources:` entry that does not exist, or a backticked span in a page body
+  holding `/` (a file or a folder; a span wrapped onto the next line reads as one) whose first segment is a live
+  top-level folder, one holding a live manifest entry or copy, and which does not exist. Such a span under any
+  other first segment is counted in `backticked_paths_unchecked` (in the fixture, the Schema's `_Inbox/`). The
+  Log's pages are history and are not read for paths.
+- `dead_page_links`, `[page, link]`: a link to a `.md` that resolves to nothing. A link is local when it has no
+  scheme (`http:`, `mailto:`, `obsidian:`) and is not rooted at `/`, as `move` reads it (`local_link`), and a link
+  with a title (`[Tax](Tax.md "t")`) is read as its target. A link to a page the page map only plans (as `brief`
+  defines it) is dead until the page is written. `links_outside_page_map`, `[page, link]`: one that resolves to a
+  file that is not a page of the wiki, such as the folder's `CLAUDE.md`.
+- `em_dash_lines`, and the first ten as `em_dash_where`, `[page, line]`: body lines with an em dash outside inline
+  code.
+- `chart_blocks` and `charts_without_data_table`: chart pairing ([`chart`](#chart)). `charts_not_renderable`,
+  `[page, line, type]`: every Mermaid block that does not parse as a kind `chart` emits (`pie`, `gantt`,
+  `timeline`, or `xychart-beta` with exactly one `bar` or `line` series), a `flowchart` or `sequenceDiagram`
+  included: only the kinds verified to render in the owner's apps are allowed, and a diagram the tool does not draw
+  is written by hand and checked by nobody. `chart_sources_bad`, `[page, line, source]`: a paired chart's table row
+  whose source `chart` would refuse (missing, resolving outside the folder, or under a reserved name); those cells
+  are checked there, not again as backticked paths.
+- `deadlines`, `[date, page]`: every `deadlines:` entry in the pages' frontmatter (no problem).
+- `documents_in_scope`, `documents_not_covered` and the first twenty as `not_covered_sample`: coverage. A live
+  document outside the migrations folder is covered when a page names its path or a copy's, in `sources:` or in
+  backticks, or names its own parent folder in backticks, with or without the trailing `/` (`04 Study/` and
+  `04 Study` cover `04 Study/Notes.rtf`, not `04 Study/Old/Notes.rtf`; a folder named without backticks covers
+  nothing). The Schema page (whose routing names folders to route them) and the Log do not cover.
+- `pages_without_single_professional`, `[page, why]`: a page `common.page_voice` refuses, unlisted in a section
+  naming several professionals or in no section; `not verified: ...` without a compiled, fresh Schema.
+- `rationale`: `not recorded` without the rationale file; otherwise `blocks` (how many headings), then as lists
+  `pages_without_block`, `blocks_without_page`, `blocks_repeated` (a page's second block), `blocks_malformed`
+  (`[heading, why]`, and `["# Wiki rationale", ...]` or `["(before the first block)", ...]` for the file itself)
+  and `professional_not_named` (`[page, named, the page's professional]`, or `not verified: ...` without a
+  Schema). A block's professional is its `- Professional lens:` text up to the first `;`, compared with
+  `common.page_voice`'s case-folded and with spaces collapsed. Each heading is reported once, by the first that
+  holds of: repeated, malformed, for no page, lens.
+- `acceptance`, `acceptance_counts`, `acceptance_pages`, `acceptance_not_verified` and
+  `acceptance_records_for_no_page`: acceptance, reported apart ([the record](#_auditwiki-acceptancejson)).
+- `problems`: every finding above, summed. Acceptance is never part of it.
 
 ### `rationale`
 
-<!-- provisional: #94 -->
+    wiki.py rationale --root <folder> --returns <dir|file.json> [--out <file.md>]
 
-Assembles the drafters' returned blocks into `_Audit/wiki-rationale.md` in the fixed five-line format
-([the rationale block](../../wiki-maintenance/SKILL.md#the-rationale-block)). Its arguments are not in code yet.
+Writes the rationale file from the drafters' returns (the JSON `brief` asks for, each page with its `rationale`
+block): a `.json` file holding one return or a list of them, or a directory of such files. The file is
+[`wiki-maintenance`'s](../../wiki-maintenance/SKILL.md#the-rationale-block): the line `# Wiki rationale`, then per
+page a heading `### <page path>` followed at once by exactly five lines, `- Reader and use: `,
+`- Professional lens: `, `- Shape: `, `- Changed from the previous page: ` and `- Left out or flagged: `, each with
+text after it; blank lines go only between blocks. It refuses (exit 2, nothing written) a malformed block, a block
+whose heading is not its entry's path, and a page returned twice; otherwise it writes the whole file, pages sorted
+by path, so the same blocks give the same bytes however they are grouped. The default output is
+`<root>/_Audit/wiki-rationale.md`; with `--read-only-root`, write it elsewhere with `--out`. It prints `blocks`,
+`pages_without_block` and `blocks_without_page`, exiting 1 when either list is not empty.
 
-### `review-prompts` and `accept`
+### `review-prompts`
 
-<!-- provisional: #94 -->
+    wiki.py review-prompts --root <folder> --page <page> [--page <page> ...] --author-model <model>
+                           --reviewer-model <model> [--sample 5] [--cards <dir>] [--out <dir>]
 
-`review-prompts` renders the acceptance prompts: the owner's lens (a set of the reader's real questions) and the
-professional's (the contract, a deterministic sample of facts to check against the cards, the scope). `accept`
-records the verdicts in `_Audit/wiki-acceptance.json` with the models that wrote and reviewed the page, and refuses
-a verdict whose reviewer is its author. Their arguments are not in code yet.
+Renders, for each page, `templates/review-owner.md` (the contract's reader and questions, in order, or for a
+`fixed` section a note that its shape is the method's) and `templates/review-professional.md` (the page's
+professional, deliverable and tone, the contract, the section's routing, the documents and folders the page cites,
+and a sample of facts from their cards), each carrying the page's text and sha256. They are working files, written
+to `<out>/<page path without .md>.owner.md` and `.professional.md` (default `<work>/reviews/`) and refused inside the
+folder; the same inputs render the same bytes. A reviewer model equal to the author model is refused.
+
+The sample is fixed by rule, so a second review of a page checks the same facts: every non-empty date, amount and
+reference number in the `key_facts` of the cards of the documents the page cites (in `sources:` or backticks, by
+their path or a copy's), as (the document's current path, kind, value), deduplicated and sorted. With `n` facts and
+`--sample k`, all of them when `n <= k`; otherwise the facts at indices `(s + j * n // k) % n` for `j` from 0 to
+`k - 1`, in index order, where `s` is the page path's sha256 read as an integer, modulo `n`: evenly spread over the
+sorted facts, from an offset each page has its own.
+
+The reviewer replies in JSON, as the template asks: `page`, `page_sha256` (copied from the prompt, tying the
+verdict to the version read), `lens` (`owner` or `professional`), `author`, `reviewer`, `verdict` (`accepted`, or
+`changes` with at least one finding) and `findings`, each `{where, finding}`; the professional's reply also carries
+`facts_checked`, each `{fact, source, on_page, matches}`.
+
+### `accept`
+
+    wiki.py accept --root <folder> --reply <file.json> --author-model <model> --reviewer-model <model>
+                   [--date <YYYY-MM-DD>] [--out <file.json>]
+
+Records one verdict, for one page in one lens, in the acceptance record. It reads the reviewer's reply after the
+coordinating agent has added a `response` to each finding, and takes the models from `--author-model` and
+`--reviewer-model`. It refuses, exit 2 and nothing recorded: a page that is not in the wiki; a lens other than
+`owner` or `professional`; a verdict other than `accepted` or `changes`; a finding without its `where`, `finding`
+and `response`; `changes` without a finding; an `author` or `reviewer` in the reply other than the flags; a
+`page_sha256` in the reply other than the page's now (the page changed after its prompts were rendered); a page
+with no single professional (the record names it); and a `--date` that is not `YYYY-MM-DD`, alone or followed by `T`
+and a valid time (`12:00`, `12:00:00`, with `Z`, `+0100` or `+01:00`). A reviewer equal to the author, their names
+compared case-folded with spaces collapsed, is refused (exit 2) **and recorded**, as `refused` with its reason, so
+the check reports it. The default record is `<root>/_Audit/wiki-acceptance.json`; `--out` names another, read and
+added to alike.
+
+How the record is written: `accept` takes an exclusive lock (`fcntl.flock`) on `<record>.lock`, created beside the
+record and left there, reads the record, adds its one record and writes the whole file anew, to a temporary file
+renamed over it, then releases the lock. Runs made at once therefore each keep their record, and no record is
+changed or removed. A file system that cannot lock (some network shares) is refused, naming the lock: write the
+record with `--out` on a local disk.
 
 ### `_Audit/wiki-acceptance.json`
 
-<!-- provisional: #94 -->
+The acceptance record [`wiki-maintenance` asks for](../../wiki-maintenance/SKILL.md#acceptance), as JSON (UTF-8,
+indent 1, a final newline):
 
-What is fixed today:
+    {"version": 1,
+     "records": [
+      {"page": "20 Finance/Tax.md", "lens": "owner", "verdict": "accepted",
+       "sha256": "<the page's sha256 when recorded>", "professional": "chartered tax adviser",
+       "contract_sha256": "<its section's contract's sha256 then>", "author_model": "model-a",
+       "reviewer_model": "model-b",
+       "date": "2024-06-30", "findings": [{"where": "opening line", "finding": "...", "response": "..."}]},
+      {"page": "20 Finance/Tax.md", "lens": "professional", "verdict": "refused", "sha256": "...",
+       "professional": "chartered tax adviser", "contract_sha256": "...", "author_model": "model-a",
+       "reviewer_model": "Model-A", "date": "2024-06-30T12:00:00+0000", "findings": [],
+       "reason": "the reviewer model 'Model-A' is the author model 'model-a'; ..."}]}
 
-- **Its path**, beside the audit pair, and what it records: each page's verdict in the owner's lens and in its
-  professional's, the model that wrote the page and the model that reviewed it, and each finding with the response
-  to it ([wiki-onboarding step 6](../../wiki-onboarding/SKILL.md#6-reader-acceptance-the-owners-lens-and-the-professionals)).
-  A verdict whose reviewer is its author is refused.
-- **What `check` reports now**: `acceptance: "recorded"` when the file exists, `"not recorded"` when it does not.
-- **The reviewers' replies**, whose shape the review templates fix: `{"page", "lens", "author", "reviewer",
-  "verdict", "findings"}`, with `lens` `owner` or `professional`, `verdict` `accept` or `revise`, and each finding
-  `{"where", "finding"}`; the professional's reply also carries `facts_checked`, each `{"fact", "source",
-  "matches"}`.
+Records are kept in the order they were made. Each has, in this order:
 
-**Gap (#94).** The file's own layout is not in code yet: its top-level keys, how verdicts are grouped by page and
-lens, how the response to a finding is recorded, and how `accepted`, `not recorded` and `refused` are derived from
-it. Fill this section in when the checker lands.
+- `page`, `lens` (`owner` or `professional`) and `verdict` (`accepted`, `changes` or `refused`);
+- `sha256`: the page's when recorded;
+- `professional`: the page's then, from `common.page_voice`;
+- `contract_sha256`: the sha256 of its section's compiled contract then, the object `{reader, questions, fields}`
+  from `wiki-schema.json` (the page contract as `wiki-maintenance` defines it), or JSON `null` for a section without
+  one, serialised with keys sorted, no spaces, UTF-8. The section's list of professionals is left out, so naming
+  another professional for another page of the section changes no page's standing;
+- `author_model` and `reviewer_model`, as given, trimmed;
+- `date`: `--date`, or the local time as `YYYY-MM-DDTHH:MM:SS+ZZZZ`;
+- `findings`, each `where`, `finding` and `response` (other keys dropped);
+- `facts_checked` when the reply carries it, kept as given, and `reason` on a refusal.
+
+A record of another shape, one without `professional` or `contract_sha256` included, fails loud in `check` and
+`accept`.
+
+**States.** `check` reports each page's state from its latest record in each lens: `refused` when either lens's
+latest is a refusal; `accepted` when both lenses' latest are `accepted` at the page's current sha256, under its
+current professional and contract sha256; otherwise `not recorded`, with why (`no verdict recorded`, a lens with
+`no verdict`, `changes asked`, `accepted an earlier version; the page changed since`, `accepted under an earlier
+contract or professional`, or `accepted, but not verified: ` and why the page's professional cannot be read: the
+Schema missing or stale, or the page without a single professional). A page is accepted again after a change to its
+text, its contract or its professional, as the rule asks.
+
+- `acceptance_pages`: `[page, state, why]` per page.
+- `acceptance_counts`: each state counted, zero included.
+- `acceptance`: `refused` when a page is, `accepted` when every page is, otherwise `not recorded`.
+- `acceptance_not_verified`: sorted, every page whose acceptance cannot be verified, recorded or not, because its
+  professional and contract cannot be read (no compiled Schema, a stale twin, or no single professional). Read it
+  rather than the wording of the why text.
+- `acceptance_records_for_no_page`: the pages the record names that the wiki no longer holds (moved or removed;
+  their records stay as they were made).
+
+None of it counts as a problem or makes the check pass, and a problem never unsets it.
 
 ### `move`
 
@@ -706,6 +820,7 @@ In the work directory, never in the folder:
 | `batches/<bucket>_<seq>.json` | `cards.py build` | the card batches |
 | `sections/` | `cards.py work` | cached section notes of long documents |
 | `bundles/` | `wiki.py bundles` | the section bundles and `bundles.json` |
+| `reviews/` | `wiki.py review-prompts` | each page's `.owner.md` and `.professional.md` review prompt |
 | `state/extract_<lane><k>.done`, `state/vision<k>.done`, `state/cards<k>.done`, `state/redo<k>.done` | each worker | done markers |
 | `state/vision_tries_<k>.json` | `vision.py` | failed tries per image |
 | `state/card_err_<id>.txt` | `cards.py work` | why a document could not be carded |

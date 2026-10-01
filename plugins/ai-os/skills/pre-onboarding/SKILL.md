@@ -29,8 +29,8 @@ elsewhere, it links there rather than restating it.
 ## When to use
 
 - The owner wants a folder they already keep made ready for the system, and a read-only look shows what years of
-  filing leave behind: one subject in two homes, duplicate trees, strays at the root, scans with no text layer,
-  working formats such as Pages or Numbers. Start here.
+  filing leave behind: one subject in two homes, duplicate trees, strays at the root, scans with no text layer.
+  Start here.
 - The owner wants the wiki drafted from every document, read in full, before the system takes the folder over,
   rather than grown by the ingest job as files arrive.
 
@@ -111,7 +111,8 @@ sha256 as `rulebook_sha256`, which says the twin was reviewed against it
 [hand-off contract](#the-hand-off-contract) checks belong in the rulebook from the start:
 
 - every name the system reserves at the top of the folder, `GEMINI.md` included, and every pack
-  ([the list](references/settings.md#rulebookjson));
+  ([the list](references/settings.md#rulebookjson)); a pack listed in `rulebook.json` must be an existing folder,
+  named exactly, or the audit and plan tools refuse to run;
 - new files are filed within this folder by the wiki's routing, never routed to the migrations folder: a file that
   seems to belong to another project is filed or flagged here, and moving it is the owner's user-tier synthesis to
   propose ([a project files within itself](../wiki-maintenance/SKILL.md#rules-that-keep-it-safe)).
@@ -130,11 +131,11 @@ were built from. A round after that is repaired, never read again (*A round afte
    (their destination left for the owner), file and folder names with a space at either end or before the
    extension, and redundant copies outside any pack. Rows for a deeper depth the owner chose follow
    folder-curation's step 3, written in the same [plan format](../folder-curation/references/move-plan-schema.md);
-   the executor runs `create`, `move`, `rename`, `rmdir` and `delete` rows, and fails an approved `convert` row
-   (with the rest of its domain), so a conversion stays the owner's. To stage files for another project, list
-   their paths in a file and run
+   the executor runs `create`, `move`, `rename`, `rmdir` and `delete` rows, and names an approved `convert` row
+   and leaves it pending, since a conversion stays the owner's. To stage files for another project, list their
+   paths in a file and run
    `plan.py migrate --root "<folder>" --project <Project> --paths-file <file> --out "<plan folder>"`;
-   `plan.py return` brings staged files back.
+   `plan.py return` brings staged files back (`rmdirs`, below, proposes removing the folder it empties).
 2. **Show the owner the actual files**
    ([a boundary is confirmed with its files](../folder-curation/SKILL.md#2-interview-the-owner-a-fixed-ladder-one-pass)).
    The owner reads `review.tsv`, which lists every staged path with its copy kind and the copies that stay behind,
@@ -143,7 +144,8 @@ were built from. A round after that is repaired, never read again (*A round afte
 3. **Approve.** The owner reads the plan domain by domain and chooses a destination for each stray; write it into
    that row's `to` column ([the plan schema](../folder-curation/references/move-plan-schema.md)). Record each
    decision as it is made:
-   `plan.py approve --plan <plan> --rows 1-5,7 --note "<what the owner said>"`, with `--decline` for a no. Then
+   `plan.py approve --plan <plan> --rows 1-5,7 --note "<what the owner said>"`, with `--decline` for a no and
+   `--defer` for not this round. Then
    `plan.py rmdirs --root "<folder>" --plan <plan>` proposes an `rmdir` row for each top-most folder the approved
    moves empty; the owner approves or declines those too (the rulebook's `keep_empty_folders`).
 4. **Dry run.** `plan.py check --root "<folder>" --plan <plan>`; fix or decline every row that fails.
@@ -157,8 +159,9 @@ were built from. A round after that is repaired, never read again (*A round afte
    `--allow-departed-under "_Migrations/<Project>/"`, so those departures are expected by name and nothing else
    is excused.
 7. **Delete last.** Only after a clean proof:
-   `plan.py execute --root "<folder>" --plan <plan> --phase deletes --apply`, then re-audit once more and check the
-   deletes against the fresh manifest ([folder-curation step 6](../folder-curation/SKILL.md#6-verify-by-re-audit)).
+   `plan.py execute --root "<folder>" --plan <plan> --phase deletes --apply`, then re-audit once more and run
+   `prove` again on the same before-copy: it now takes each deleted copy's pair away too, and must still print
+   `"ok": true`.
 8. **Deleting redundant copies can make new ones**
    ([folder-curation step 5, *Expect a second round of redundancy*](../folder-curation/SKILL.md#5-execute-deterministic-guards-not-judgement)):
    propose what the re-audit shows as a new round. Curation is done when a round's proof and delete check are
@@ -176,12 +179,13 @@ bundles and run `wiki.py drift` (step 7). Cards are keyed by content, so they fo
     python3 <tools>/extract.py --root "<folder>" --lane main --worker 0/4    (and 1/4, 2/4, 3/4 alongside)
     python3 <tools>/extract.py --root "<folder>" --lane apps
 
-Each live document gets a record in `_Audit/extract/<id>.json` holding the text of every page and the tier that
-read it: a PDF's text layer first, then local OCR, and last the model vision lane (step 6) for pages local OCR
-could not read cleanly. Office files and plain text are parsed directly. The tiers, statuses and fields are in
-[the tool reference](references/tools.md#extractpy). Run again with `--retry-failed` once the cause of a failed
-record is fixed; a record is never read again to follow a move
-([a round after extraction](#3-curation-rounds-each-approved-by-the-owner)). Two lessons from real folders:
+Each live document gets a record in `_Audit/extract/<id>.json` holding the text of every page and the tier that read
+it: a PDF's text layer first, then local OCR, and last the model vision lane (step 6) for pages local OCR could not
+read cleanly. Local OCR reads in the rulebook's `ocr_languages` (default `en-GB`): set them, at the interview, to the
+languages the documents are written in, most likely first. Office files and plain text are parsed directly. The tiers,
+statuses and fields are in [the tool reference](references/tools.md#extractpy). Run again with `--retry-failed` once
+the cause of a failed record is fixed; a record is never read again to follow a move ([a round after
+extraction](#3-curation-rounds-each-approved-by-the-owner)). Two lessons from real folders:
 
 - **iWork is read without the apps.** Pages, Numbers and Keynote documents are read by parsing the package itself
   (`iwa.py`), with its preview image as the fallback (the record is then `partial`). Never open an app or export a
@@ -193,20 +197,20 @@ record is fixed; a record is never read again to follow a move
 
 ### 5. Open the gate to the engines
 
-<!-- provisional: #92 -->
-
 Before any model reads this folder:
 
-    python3 <tools>/isolation.py scan   --terms <terms file> --path <tools> --path "<folder>/.familyai"
+    python3 <tools>/isolation.py scan   --terms <terms file> --path <tools> --path "<folder>/.familyai" \
+        --out <work>/state/scan.json
     python3 <tools>/isolation.py canary --terms <terms file> --engine <engine> --model <model> \
         --out <work>/state/canary-<engine>.json
 
 `scan` checks every file a model will be shown (the tools' prompts and templates, and the settings the card
-instructions are filled from) for the terms, and exits 1 on any hit; scan the wiki briefs the same way before
-drafting (step 7). `canary` asks the engine to list every name in its context and fails on any term. Run it for
-each engine you will use, and keep the result: it is the record that the gate ran. No tool reads it for you, so
-never start a lane without a passing one. A failure means the engine's context carries another project: fix its
-setup ([engine isolation](#engine-isolation)) and run the canary again.
+instructions are filled from) for the terms, and exits 1 on any hit or when it found nothing to check; scan the wiki
+briefs and review prompts the same way before a model reads them (step 7). `canary` asks the engine to list every name
+in its context and fails on any term. Run it for each engine you will use, and keep both results: they are the record
+that the gate ran. No tool reads them for you, so never start a lane without passing ones. A failure means the
+engine's context carries another project: fix its setup ([engine isolation](#engine-isolation)) and run the canary
+again.
 
 <!-- provisional: #97 -->
 
@@ -216,8 +220,6 @@ canary as not run, and why: a named not-verified state, never a pass. Run the ca
 which their log records, and readiness without `--terms`; it then reports isolation as not verified.
 
 ### 6. The vision lane and the cards
-
-<!-- provisional: #92 -->
 
     python3 <tools>/vision.py --root "<folder>" --model <vision model> \
         --lanes extract_main0,extract_main1,extract_main2,extract_main3,extract_apps0
@@ -267,8 +269,6 @@ each page's professional from [the professional catalogue](../wiki-maintenance/r
 note on choosing says. What the sections share is the coordinator's to write
 ([step 4a](../wiki-onboarding/SKILL.md#4a-draft-the-pages-when-every-document-has-been-read), *JSON returns*).
 
-<!-- provisional: #94 -->
-
 In order:
 
 1. `wiki.py profile --root "<folder>" --out <work>/profile.json`: the folder's shape, per folder, for the readers
@@ -292,14 +292,20 @@ In order:
    `wiki.py brief --root "<folder>" --page "<NN Section>/<Page>.md" [--page ...] --out <work>/briefs/<NN>.md`.
    Scan the briefs for the terms (step 5), then draft as step 4a sets out. Each drafting agent draws its charts
    with `wiki.py chart`, runs the checker command its brief names, and returns the JSON its brief shows: each
-   page's text, rationale block and Index entry, its open questions and its check result.
-6. From the returns, write the fixed pages, the Deadlines roll-up (`wiki.py check` lists every page's
-   `deadlines:` as `[date, page]`) and `_Audit/wiki-rationale.md` (`wiki.py rationale` assembles it). Then run
-   `wiki.py check --root "<folder>"` over the whole wiki until it reports zero problems.
+   page's text, rationale block and Index entry, its open questions and its check result. Keep each return as a
+   file in `<work>/returns/`.
+6. From the returns, write the fixed pages and the Deadlines roll-up (`wiki.py check` lists every page's
+   `deadlines:` as `[date, page]`), and `wiki.py rationale --root "<folder>" --returns <work>/returns` writes
+   `_Audit/wiki-rationale.md`. Then run `wiki.py check --root "<folder>"` over the whole wiki until it reports zero
+   problems.
 7. Accept every page as [wiki-onboarding step 6](../wiki-onboarding/SKILL.md#6-reader-acceptance-the-owners-lens-and-the-professionals)
    runs it and [the core rule's acceptance](../wiki-maintenance/SKILL.md#acceptance) sets it out, through a model
-   other than the one that drafted it: `wiki.py review-prompts` renders the prompts, and `wiki.py accept` records
-   each verdict in `_Audit/wiki-acceptance.json`.
+   other than the one that drafted it (below, `<A>` drafted the page and `<B>` reviews it).
+   `wiki.py review-prompts --root "<folder>" --page "<page>" [--page ...] --author-model <A> --reviewer-model <B>`
+   renders each page's owner and professional prompts in `<work>/reviews/`; scan them, give each to `<B>`, add a
+   `response` to each finding in its reply, and record the reply with
+   `wiki.py accept --root "<folder>" --reply <file> --author-model <A> --reviewer-model <B>`. `wiki.py check` then
+   reports each page as `accepted`, `not recorded` or `refused`, apart from its problems.
 
 **Bundles go stale after any migration**
 ([step 4a, *Fresh bundles*](../wiki-onboarding/SKILL.md#4a-draft-the-pages-when-every-document-has-been-read)):
@@ -325,7 +331,6 @@ job runs on it until then ([wiki-onboarding step 5](../wiki-onboarding/SKILL.md#
 
 ## Engine isolation
 
-<!-- provisional: #92 -->
 <!-- provisional: #91 -->
 
 Each engine has one login per machine, shared by every project on it, and no project copies a login or token file:
@@ -342,7 +347,8 @@ the contamination guard after, on every card.
 The identifier policy is `wiki-maintenance`'s
 ([identifiers](../wiki-maintenance/SKILL.md#identifiers-series-and-derived-views)); the owner's choice is recorded
 as `identifiers` in `rulebook.json`. The preparation carries it wherever a model writes: the card instructions and
-the page briefs state it, and `refs.py` refuses to restore numbers in full under any policy but `stated`.
+the page briefs state it, and `refs.py` refuses to restore numbers in full under any policy but `stated`, and
+never restores a tail the source itself shows masked.
 Passwords and activation codes are never written, under any policy.
 
 ## The settings twins
@@ -381,8 +387,6 @@ What a deployment relies on when it onboards a prepared folder, and what `readin
 Which of these `readiness.py` reports today, and how, is in [the tool reference](references/tools.md#readinesspy).
 
 ## The tools
-
-<!-- provisional: #94 -->
 
 | Tool | Step | What it does |
 | --- | --- | --- |

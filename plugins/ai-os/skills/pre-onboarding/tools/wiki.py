@@ -119,8 +119,8 @@ source files are named by folder-relative path in backticks. `move` refuses a ma
 before writing anything, writes the moved pages before rewriting links to them, rewrites only links whose page or
 target moved, removes the folders it empties and renames the pages' rationale headings. It names each moved page
 the Schema's Page professionals table lists and each move that leaves the Layout wrong (exit 1, with any dead link
-left in the wiki: edit the Schema, then compile). A swap or a chain is refused: tools/README.md gives the runs
-that make one.
+left in the wiki: edit the Schema, then compile). A swap or a chain is refused: references/tools.md gives the
+runs that make one.
 
 Drift: a departed path is one a departed entry held that no live entry holds; a migrating path is one staged under
 the migrations folder or the path it was staged from, when nothing live holds it. The Log's pages are history and
@@ -136,7 +136,7 @@ same columns: bar `label` (or `period`), `value`, `unit`, `source`; line `period
 decimals written exactly as given; one unit per chart, on the y-axis or in a pie's title; dates YYYY-MM-DD; a
 series has three points or more. A breach is refused, naming the row. The output is the Mermaid block, a blank line
 and its data table, which `check` requires beside every xychart-beta, pie, gantt and timeline block (chart
-pairing). Rules in full: tools/README.md.
+pairing). Rules in full: references/tools.md.
 """
 import argparse
 import collections

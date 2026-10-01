@@ -1,10 +1,11 @@
-<!-- Stage 1, the readers interview. Filled by the coordinating agent: replace every field in braces; doubled
-braces are literal. -->
+<!-- Stage: the readers interview, the first wiki stage in pre-onboarding (SKILL.md step 7). Filled by the
+coordinating agent: replace every field in braces; doubled braces are literal. -->
 # Readers interview: {folder_name}
 
-The first stage of [the core wiki rule](../../../wiki-maintenance/SKILL.md#the-core-wiki-rule) in
-`wiki-maintenance`: who reads the wiki, and what for. **Pen:** the owner, who answers; you ask, and write the
-answers down in the owner's words, adding nothing of your own. Nothing about the wiki's shape is decided here.
+The first wiki stage in [`pre-onboarding`](../../SKILL.md#7-build-the-wiki), under
+[the core wiki rule](../../../wiki-maintenance/SKILL.md#the-core-wiki-rule) in `wiki-maintenance`: who reads the
+wiki, and what for. **Pen:** the owner, who answers; you ask, and write the answers down in the owner's words,
+adding nothing of your own. Nothing about the wiki's shape is decided here.
 
 ## The folder
 

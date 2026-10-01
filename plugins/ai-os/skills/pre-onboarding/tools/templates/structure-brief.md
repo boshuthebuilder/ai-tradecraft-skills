@@ -1,11 +1,11 @@
-<!-- Stages 2 and 3, the structure and each page's professional. Filled by the coordinating agent: replace every
-field in braces; doubled braces are literal. -->
+<!-- Stages: the structure and each page's professional, after the readers interview in pre-onboarding (SKILL.md
+step 7). Filled by the coordinating agent: replace every field in braces; doubled braces are literal. -->
 # Structure brief: {folder_name}
 
-The second and third stages of [the core wiki rule](../../../wiki-maintenance/SKILL.md#the-core-wiki-rule) in
-`wiki-maintenance`: the wiki's sections and routing, then each page's professional. **Pen:** you, as the
-librarian, proposing; the owner agrees the sections and routing first, then each page's professional, before any
-contract or page is written.
+The wiki stages after the readers interview in [`pre-onboarding`](../../SKILL.md#7-build-the-wiki), under
+[the core wiki rule](../../../wiki-maintenance/SKILL.md#the-core-wiki-rule) in `wiki-maintenance`: the wiki's
+sections and routing, then each page's professional. **Pen:** you, as the librarian, proposing; the owner agrees
+the sections and routing first, then each page's professional, before any contract or page is written.
 
 ## The folder
 

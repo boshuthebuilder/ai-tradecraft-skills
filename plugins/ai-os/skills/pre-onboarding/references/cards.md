@@ -1,7 +1,5 @@
 # The card contract
 
-<!-- provisional: #92 -->
-
 A card is one document's catalogue entry: what it is, whose, of when, what it says that matters and why it is in
 the folder. Every live document gets one, written by a bulk engine from the document's whole extracted text, and
 the wiki is drafted from the cards. This page is the contract `tools/cards.py` holds, with `tools/refs.py`,
@@ -108,8 +106,8 @@ finishes. Documents are bucketed by their text: under 20 characters (bucket 1), 
 - **A quota message** stops the batch: the cards it has joined are written, and the worker sleeps for the reset
   time the message gives (10 minutes for `agy` and 30 for `codex` when it gives none), plus 90 seconds, and at
   most five hours, then goes on with what is left.
-- **`--redo <file>`** re-cards the ids listed in the file, one per call, even though their cards exist; the ids
-  done so far are kept in `<work>/state/redo_done_<k>.txt`.
+- **`--redo <file>`** re-cards the ids listed in the file, one per call, even though their cards exist; an id is
+  added to `<work>/state/redo_done_<k>.txt`, the ones done so far, only once its card is written.
 
 Each call goes through [`engines.py`](tools.md#enginespy): a fresh empty working directory, the prompt on standard
 input, tools refused, typed outcomes.
@@ -123,14 +121,27 @@ fails is retried halved, never applied in part. `cards.py` holds it so:
 1. Each document sent is given a short id the call issues, `d1` to `dN`, never its path or its name.
 2. The reply's first JSON object or array is read (a code fence or prose around it is tolerated); its `items`, or
    the array itself, must be a list.
-3. The ids returned must be exactly the ids sent: none missing, none unknown, none twice, and each card an object.
-   A card missing a field gets it empty; a `key_facts` that is not an object becomes three empty lists; a category
-   outside `card_categories` becomes `Other`, with the engine's in `category_raw`.
-4. Only then does each card take its document's entry id, and the chunk's cards are kept together.
-5. Any failure (ids that do not match, a reply with no list, an engine error, an empty answer, a tool use) retries
-   the whole chunk, three attempts in all. Then the chunk is halved and each half goes through the same, halving
-   again at most six times, down to one document. A document that still fails is left without a card, its last
-   error in `<work>/state/card_err_<id>.txt`. No part of a failed chunk is ever written.
+3. **Ids.** The ids returned must be exactly the ids sent, in the order sent. This catches a missing, extra,
+   repeated or unknown id, and two ids swapped while their cards stay in place; a correct reply in another order is
+   refused too (the instructions ask for the order sent), at the cost of a retry.
+4. **Schema.** Every card must meet the card schema (`schemas/card.json`): every field present and of its type. A
+   category outside `card_categories` then becomes `Other`, with the engine's in `category_raw`.
+5. **Sibling identifiers.** In a chunk of two or more documents, no card may carry an identifier that another
+   document's source (its path and text) holds and its own does not. An identifier is a run of five or more digits
+   once the spaces, hyphens and slashes inside it are removed, that is not an amount (a decimal point or a
+   thousands comma) and not shaped like a year or a date; a part of five or more digits inside a longer run counts
+   on its own too. Identifiers are compared as digit strings, `key_facts` count through the identifiers in them, and
+   `look`, which is asked to name other files, is not checked. This catches two cards whose contents were crossed
+   while their ids and order stayed right, when either carries such a number (an account, invoice, policy or
+   passport number); it cannot catch a crossing told apart only by names, addresses, dates, amounts or short
+   numbers, and a chunk of one document has no siblings to check against.
+6. Only then does each card take its document's entry id, and the chunk's cards are kept together.
+7. Any other failure (a reply with no list, an engine error, an empty answer, a tool use) retries the whole chunk,
+   three attempts in all; a crossing (step 5) would cross again, so it is halved at once. A halved chunk's halves go
+   through the same, halving again at most six times, down to one document. Every document of a chunk that still
+   fails is left without a card, its last error in `<work>/state/card_err_<id>.txt`. No part of a failed chunk is
+   ever written. A quota message, a credential file or a setup problem is not a failure of the chunk: the first
+   waits, the others stop the run.
 
 ## Checked against the isolation list
 
@@ -155,10 +166,10 @@ canary's result; running it first is the operator's step.
 The contamination guard. A term the card names (anywhere in its JSON, ignoring case) is contamination unless the
 card's own source, the full text of its extract record, carries the term or one of its markers (ignoring case; a
 marker made only of letters, digits, spaces, `.`, `&` and `-` must stand as a whole word, any other may appear
-anywhere). The first contaminated card
-writes `<work>/state/ALERT`, naming the card and how many terms, and stops its worker (exit 2); every `cards.py work`
-worker and the vision lane then stop at their next batch while the file is there (exit 3). Cards written before it
-stay; find where the term came from before removing the file.
+anywhere). Every card of a batch is checked before any is written: the first contaminated card writes
+`<work>/state/ALERT`, naming the card and how many terms, no card of that batch is written, and its worker stops
+(exit 2); every `cards.py work` worker and the vision lane then stop at their next batch while the file is there
+(exit 3). Cards written by earlier batches stay; find where the term came from before removing the file.
 
 ### At hand-off
 
@@ -173,11 +184,16 @@ runs only under the identifier policy `stated`, and refuses under any other.
 - **What it looks for.** A tail of two to four letters or digits (at least one a digit) after `…` anywhere in the
   card, and, in `key_facts.reference_numbers`, also after `...`, `**`, `xxx`, or the words *ending*, *ends in* or
   *last 4*.
-- **What it restores.** The number in the document's extracted text that ends with that tail and is longer than
-  it, compared on letters and digits alone, when exactly one distinct number does. Otherwise the tail is left as
-  it is, and the card is listed for re-carding.
-- **What it reports.** Counts: cards with a truncation, forms restored, forms ambiguous, forms not found, cards
-  fully restored, cards to re-card. With `--apply` it writes the restored cards (adding
+- **What it never restores.** A tail the card's own source also shows masked (after mask characters such as `*`,
+  `xx`, `•`, `·` or `…`, with or without separators: `****1234`, `xxxx-xxxx-1234`), whatever full numbers the source
+  also holds: a tail cannot show whether the engine truncated the number or the source masks it, and a masked
+  source value stays an unresolved suffix
+  ([identifiers](../../wiki-maintenance/SKILL.md#identifiers-series-and-derived-views)).
+- **What it restores.** Otherwise, the number in the document's extracted text that ends with that tail and is
+  longer than it, compared on letters and digits alone, when exactly one distinct number does. A tail masked in
+  the source, ambiguous or not found is left as it is, and the card is listed for re-carding.
+- **What it reports.** Counts: cards with a truncation, forms restored, forms masked in the source, forms ambiguous,
+  forms not found, cards fully restored, cards to re-card. With `--apply` it writes the restored cards (adding
   `refs_restored_from_source <time>` to `card_meta.fixes`) and the ids to re-card, one per line, to
   `<work>/state/redo_refs.txt`, which is the file `cards.py work --redo` takes.
 
@@ -187,4 +203,6 @@ runs only under the identifier policy `stated`, and refuses under any other.
   names.
 - `wiki.py bundles`: `title`, `doc_type`, `party`, `parties`, `doc_date`, `category`, `language` and `sensitive`
   for every routed document, and `summary` and `key_facts` unless the document is listed compact.
+- `wiki.py review-prompts`: the dates, amounts and reference numbers in `key_facts`, for the sample of facts the
+  professional's review checks against the sources.
 - `readiness.py`: that each live document has a card, that its category is allowed, and the contamination guard.
