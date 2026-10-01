@@ -404,11 +404,7 @@ def return_(a):
             continue
         rows.append(new_row(domain="Migrations", action="move", **{"from": src}, to=item, evidence=where[src][0],
                             reason=a.reason or "stays in this folder"))
-    staged = [p for p in where if p.startswith(base)]
-    if staged and all(p in {r["from"] for r in rows} for p in staged):
-        rows.append(new_row(domain="Migrations", action="rmdir", **{"from": base},
-                            reason="emptied: everything else was collected"))
-    return _write_round(a, root, rows, review)
+    return _write_round(a, root, rows, review)       # `rmdirs` proposes the emptied folder once these are approved
 
 
 def _write_round(a, root, rows, review):

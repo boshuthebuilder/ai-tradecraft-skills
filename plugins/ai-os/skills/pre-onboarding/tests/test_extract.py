@@ -267,18 +267,29 @@ class PageTierTest(Tmp):
         self.assertEqual(rec["page_count"], 2)
 
     def test_vision_passes_and_tesseract_languages(self):
-        self.assertEqual(extract.vision_passes(["en-GB"]), ("en-GB", None))
-        self.assertEqual(extract.vision_passes(["fr-FR", "de-DE"]), ("fr-FR,de-DE", None))
+        """Vision gets its own codes for the rulebook's (en-GB is read as en-US), tesseract its own, case aside."""
+        self.assertEqual(extract.vision_passes(["en-GB"]), ("en-US", None))
+        self.assertEqual(extract.vision_passes(["en-GB", "en-US", "EN-au"]), ("en-US", None))
+        self.assertEqual(extract.vision_passes(["fr-CA", "de-AT", "es-MX"]), ("fr-FR,de-DE,es-ES", None))
         self.assertEqual(extract.vision_passes(["zh-Hans"]), ("zh-Hans", None))
-        self.assertEqual(extract.vision_passes(FOUR), ("zh-Hans,zh-Hant,en-GB", "en-GB,fr-FR"))
-        self.assertEqual(extract.vision_passes(["ja-JP", "fr-FR"]), ("ja-JP", "fr-FR"))
+        self.assertEqual(extract.vision_passes(FOUR), ("zh-Hans,zh-Hant,en-US", "en-US,fr-FR"))
+        self.assertEqual(extract.vision_passes(["zh-TW", "fr-FR"]), ("zh-Hant", "fr-FR"))
         self.assertEqual(extract.tesseract_langs(FOUR), "chi_sim+chi_tra+eng+fra")
         self.assertEqual(extract.tesseract_langs(["en-GB", "en-US", "zh-Hans-CN", "de-DE", "es-ES"]),
                          "eng+chi_sim+deu+spa")
-        for code in ("ja-JP", "zh", "ko-KR"):
+        regions = {"zh-CN": ("chi_sim", "zh-Hans"), "zh-SG": ("chi_sim", "zh-Hans"), "ZH-Hans": ("chi_sim", "zh-Hans"),
+                   "zh-TW": ("chi_tra", "zh-Hant"), "zh-HK": ("chi_tra", "zh-Hant"), "zh-mo": ("chi_tra", "zh-Hant"),
+                   "zh-Hant-HK": ("chi_tra", "zh-Hant"), "EN-gb": ("eng", "en-US")}
+        for code, (tess, vision) in regions.items():
+            with self.subTest(code):
+                self.assertEqual((extract.tesseract_langs([code]), extract.vision_passes([code])),
+                                 (tess, (vision, None)))
+        for code in ("ja-JP", "zh", "ko-KR", "yue-Hant"):
             with self.subTest(code):
                 with self.assertRaisesRegex(common.ToolError, re.escape("ocr_languages entry %r" % code)):
                     extract.tesseract_langs(["en-GB", code])
+                with self.assertRaisesRegex(common.ToolError, re.escape("ocr_languages entry %r" % code)):
+                    extract.vision_passes(["en-GB", code])
 
     def test_language_routing(self):
         img = self.file("page.png", b"a rendered page")
@@ -295,21 +306,21 @@ class PageTierTest(Tmp):
         self.assertEqual(fr.calls, [first, second])
         unsure = StandInOcr({first: {"text": FRENCH, "confidence": 0.3}})
         self.assertEqual(extract.ocr_page(self.ctx(ocr=unsure, langs=FOUR), img, 1)["tier"], "pending_vision")
-        one = StandInOcr({"en-GB": {"text": FRENCH, "confidence": 0.9}})
+        one = StandInOcr({"en-US": {"text": FRENCH, "confidence": 0.9}})
         self.assertEqual(extract.ocr_page(self.ctx(ocr=one), img, 1)["text"], FRENCH)
-        self.assertEqual(one.calls, ["en-GB"], "the default reads each page once")
+        self.assertEqual(one.calls, ["en-US"], "the default reads each page once, as en-US")
 
     def test_images(self):
         img = self.file("root/IMG_0002.jpg", b"a photo")
         e = {"id": "entry", "current_path": "IMG_0002.jpg", "class": "image"}
         rec = extract.process(self.ctx(), e)
         self.assertEqual((rec["status"], rec["pages"][0]["tier"]), ("photo", "photo"))
-        beach = StandInOcr({"en-GB": {"text": "Beach", "confidence": 0.9}})
+        beach = StandInOcr({"en-US": {"text": "Beach", "confidence": 0.9}})
         self.assertEqual(extract.process(self.ctx(ocr=beach), e)["status"], "photo")
-        letter = StandInOcr({"en-GB": {"text": STATEMENT + "\n" + STATEMENT, "confidence": 0.9}})
+        letter = StandInOcr({"en-US": {"text": STATEMENT + "\n" + STATEMENT, "confidence": 0.9}})
         rec = extract.process(self.ctx(ocr=letter), e)
         self.assertEqual((rec["status"], rec["pages"][0]["tier"]), ("ok", "local_ocr"))
-        smudged = StandInOcr({"en-GB": {"text": STATEMENT + "\n" + GARBAGE * 3, "confidence": 0.9}})
+        smudged = StandInOcr({"en-US": {"text": STATEMENT + "\n" + GARBAGE * 3, "confidence": 0.9}})
         rec = extract.process(self.ctx(ocr=smudged), e)
         self.assertEqual((rec["status"], rec["pages"][0]["tier"]), ("needs_vision", "pending_vision"))
         self.assertTrue(os.path.isfile(img))

@@ -13,6 +13,7 @@ import re
 import shlex
 import sys
 import time
+import unicodedata
 
 RULEBOOK_VERSION = 1
 WIKI_SCHEMA_VERSION = 2  # 2: sections by number and name, one routing row per prefix, contracts with a reader
@@ -247,6 +248,16 @@ def validate_rulebook(data, path):
         if p != p.strip() or p.startswith("/") or any(x in ("", ".", "..") for x in p.rstrip("/").split("/")):
             raise ToolError("%s: packs entry %r must be a folder path relative to the folder, with no leading or "
                             "trailing space, no leading /, and no empty, . or .. parts" % (path, p))
+    for k in data.get("pack_keywords", []):
+        try:
+            re.compile(k)
+            re.compile("(%s)" % k)
+        except re.error as e:
+            raise ToolError("%s: pack_keywords entry %r is not a valid regular expression (%s)" % (path, k, e))
+    try:
+        re.compile("(" + "|".join(data.get("pack_keywords", [])) + ")")
+    except re.error as e:
+        raise ToolError("%s: pack_keywords do not combine into one regular expression (%s)" % (path, e))
     if data.get("ocr_languages") == []:
         bad("ocr_languages", "a non-empty list")
     for code in data.get("ocr_languages", []):
@@ -386,22 +397,27 @@ def pack_matcher(root, rb):
     """A test of whether a folder (relative to the root) lies in a pack: under a folder the rulebook lists in
     `packs`, or matching its `pack_keywords`. The audit marks every copy there `pack`, even a duplicate beside its
     canonical copy, and the plan tools never propose or execute a delete there. A listed pack that is not an existing
-    folder under `root`, named exactly (each part compared with its folder's listing, case included), fails loud:
-    it would match nothing and leave its copies deletable without a word."""
+    folder under `root`, named exactly (each part compared with its folder's listing, case included; both in Unicode
+    NFC, as a name may be stored decomposed on disk and composed in rulebook.json), fails loud: it would match
+    nothing and leave its copies deletable without a word."""
+    def nfc(s):
+        return unicodedata.normalize("NFC", s)
     for p in rb["packs"]:
         cur = root
-        for part in p.split("/"):
-            if not (os.path.isdir(cur) and part in os.listdir(cur)):
+        for part in nfc(p).split("/"):
+            names = {nfc(n): n for n in os.listdir(cur)} if os.path.isdir(cur) else {}
+            if part not in names:
                 break
-            cur = os.path.join(cur, part)
+            cur = os.path.join(cur, names[part])
         else:
             if os.path.isdir(cur):
                 continue
         raise ToolError("%s: packs entry %r is not an existing folder under %s (names compared exactly); update "
-                        "rulebook.json packs" % (rb.get("_source") or "rulebook.json", p, root))
+                        "rulebook.json packs (and name it in the rulebook, which `settings.py check` verifies)"
+                        % (rb.get("_source") or "rulebook.json", p, root))
     rx = re.compile("(" + "|".join(rb["pack_keywords"]) + ")", re.I)
-    listed = [p + "/" for p in rb["packs"]]
-    return lambda folder: bool(rx.search(folder)) or any((folder + "/").startswith(pk) for pk in listed)
+    listed = [nfc(p) + "/" for p in rb["packs"]]
+    return lambda folder: bool(rx.search(folder)) or any((nfc(folder) + "/").startswith(pk) for pk in listed)
 
 
 def page_voice(ws, page):

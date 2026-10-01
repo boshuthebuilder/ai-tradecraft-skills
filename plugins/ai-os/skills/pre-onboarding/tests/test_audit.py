@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import unicodedata
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -446,6 +447,34 @@ class PackSettingsTest(AuditCase):
     def test_a_trailing_slash_is_dropped(self):
         root = self.loan("slash", ["Letters/Loan 2022/"])
         self.assertEqual(common.load_rulebook(root, os.path.join(root, ".familyai"))["packs"], ["Letters/Loan 2022"])
+
+    def test_an_invalid_pack_keyword_is_refused_by_name(self):
+        for n, keyword in enumerate(("(", "[a-", "a)(b", "*visa")):
+            with self.subTest(keyword=keyword):
+                root = self.folder(self.pinned(pack_keywords=["visa", keyword]), parent="kw%d" % n)
+                with self.assertRaisesRegex(common.ToolError, re.escape("pack_keywords entry %r" % keyword)):
+                    common.load_rulebook(root, os.path.join(root, ".familyai"))
+        code, _o, err = run("audit.py", "--root", root, "--work", os.path.join(self.tmp, "work"), "--out",
+                            self.out(root), "--read-only-root")
+        self.assertEqual(code, 2)
+        self.assertIn("pack_keywords entry '*visa'", err)
+        self.assertNotIn("Traceback", err)
+        root = self.folder(self.pinned(pack_keywords=["(?P<n>visa)", "(?P<n>renew)"]), parent="clash")
+        with self.assertRaisesRegex(common.ToolError, "pack_keywords do not combine"):
+            common.load_rulebook(root, os.path.join(root, ".familyai"))
+
+    def test_a_pack_named_in_another_unicode_form(self):
+        """A name stored decomposed (NFD) on disk and composed (NFC) in rulebook.json, or the other way round, is
+        the same pack."""
+        nfc, nfd = (unicodedata.normalize(form, "Letters/Café 2022") for form in ("NFC", "NFD"))
+        self.assertNotEqual(nfc, nfd)
+        for n, (on_disk, listed) in enumerate(((nfd, nfc), (nfc, nfd))):
+            with self.subTest(on_disk=ascii(on_disk)):
+                files = self.pinned(packs=[listed])
+                for i in (1, 2, 3):
+                    files["Letters/Payslip %d.pdf" % i] = files["%s/Payslip %d.pdf" % (on_disk, i)] = "slip %d" % i
+                k = kinds(self.audit(self.folder(files, parent="form%d" % n)))
+                self.assertEqual({k["%s/Payslip %d.pdf" % (on_disk, i)] for i in (1, 2, 3)}, {"pack"})
 
 
 class WalkTest(AuditCase):

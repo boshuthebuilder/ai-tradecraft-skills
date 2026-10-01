@@ -37,8 +37,8 @@ An unknown version, an unknown key or a value of the wrong shape fails loud.
 | `folder_description` | text | `""` | one line on what the folder holds, for the card engine's brief |
 | `exclude` | list of paths | `[]` | paths the owner excluded from reading |
 | `keep_empty_folders` | `true` or `false` | `true` | whether emptied folders stay |
-| `image_cap_mb`, `pack_keywords` | number, list of patterns | `25`; `application`, `passport`, `renew`, `visa`, `submission`, `evidence` | audit tunables; a folder whose packs go by other words lists its own patterns |
-| `ocr_languages` | list of BCP 47 codes | `["en-GB"]` | the languages local OCR reads in, most likely first; tesseract knows `en`, `zh-Hans`, `zh-Hant`, `fr`, `de` and `es`, and any other code fails loud |
+| `image_cap_mb`, `pack_keywords` | number, list of patterns | `25`; `application`, `passport`, `renew`, `visa`, `submission`, `evidence` | audit tunables; a folder whose packs go by other words lists its own patterns, each a valid regular expression |
+| `ocr_languages` | list of BCP 47 codes | `["en-GB"]` | the languages local OCR reads in, most likely first; it knows `en`, `fr`, `de` and `es` in any region, `zh-Hans` (or `zh-CN`, `zh-SG`) and `zh-Hant` (or `zh-TW`, `zh-HK`, `zh-MO`), in any letter case, and any other code fails loud |
 
 **Reserved names.** The rulebook must name every top-level name the system reserves: `CLAUDE.md`, `AGENTS.md`,
 `GEMINI.md`, `.familyai`, `_Audit`, the inbox, the migrations folder, the wiki folder, then anything in `reserved`.

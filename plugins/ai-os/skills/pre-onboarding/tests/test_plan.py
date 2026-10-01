@@ -645,17 +645,10 @@ class PackageDeleteTest(PlanCase):
 
 
 def list_pack_in_rulebook(case, pack):
-    """Name one more pack in the fixture copy's rulebook (its `- Packs:` line) and twin, and re-pin the twin, as a
-    preparing agent would."""
-    for name in ("CLAUDE.md", "AGENTS.md"):
-        lines = read(case.path(name)).split("\n")
-        at = [i for i, line in enumerate(lines) if line.startswith("- Packs:")]
-        case.assertEqual(len(at), 1, name)
-        lines[at[0]] += " `%s` is one too." % pack
-        write(case.path(name), "\n".join(lines))
+    """List one more pack in the fixture copy's twin, which is all the tools read (`settings.py check`, which would
+    also want it named in the rulebook's prose, is not run here)."""
     twin = json.loads(read(case.path(".familyai/rulebook.json")))
     twin["packs"].append(pack)
-    twin["rulebook_sha256"] = common.sha256_file(case.path("CLAUDE.md"))
     write(case.path(".familyai/rulebook.json"), json.dumps(twin, ensure_ascii=False, indent=1))
 
 
@@ -743,7 +736,8 @@ class PackListingTest(PlanCase):
     def assert_refused(self, code, err, pack):
         self.assertEqual(code, 2, err)
         self.assertIn("packs entry %r" % pack, err)
-        self.assertIn("update rulebook.json packs", err)
+        self.assertIn("update rulebook.json packs (and name it in the rulebook, which `settings.py check` verifies)",
+                      err)
         self.assertNotIn("Traceback", err)
 
     def test_every_tool_refuses_a_listed_pack_that_is_not_a_folder(self):
@@ -998,14 +992,21 @@ class CheckTest(PlanCase):
 # ---------------------------------------------------------------------------------------------- migrations
 
 class MigrationRoundTest(PlanCase):
-    def round(self, cmd, paths, out):
+    def round(self, cmd, paths, out, rmdirs=False):
+        """Propose, approve, (with `rmdirs`, then propose and approve removing the folders the moves empty), execute,
+        re-audit and prove."""
         paths_file = os.path.join(self.tmp, cmd + ".txt")
         write(paths_file, "# one path per line\n" + "".join(p + "\n" for p in paths))
         code, _o, err = self.run_plan(cmd, "--root", self.root, "--project", "Household", "--paths-file",
                                       paths_file, "--out", out)
         self.assertEqual(code, 0, err)
         self.plan = os.path.join(out, "move-plan.csv")
+        self.assertEqual({r["action"] for r in self.rows().values()}, {"move"}, "a round proposes moves only")
         self.run_plan("approve", "--plan", self.plan, "--rows", "all")
+        if rmdirs:
+            code, _o, err = self.run_plan("rmdirs", "--root", self.root, "--plan", self.plan, "--approve-note",
+                                          "Alex agreed")
+            self.assertEqual(code, 0, err)
         before = os.path.join(out, "before.json")
         shutil.copy(self.manifest_path, before)
         code, out_, err = self.execute()
@@ -1035,10 +1036,11 @@ class MigrationRoundTest(PlanCase):
                          [("move", "_Migrations/Household/06 Work/Essay.docx")])
         self.assertIn("MISSING\t_Migrations/Household/Nowhere.pdf", read(os.path.join(partial, "review.tsv")))
 
-        self.round("return", ["06 Work/Essay.docx", "06 Work/Contract.docx"], os.path.join(self.tmp, "round2"))
+        self.round("return", ["06 Work/Essay.docx", "06 Work/Contract.docx"], os.path.join(self.tmp, "round2"),
+                   rmdirs=True)
         rows = list(self.rows().values())
-        self.assertEqual((rows[-1]["action"], rows[-1]["from"], rows[-1]["status"]),
-                         ("rmdir", "_Migrations/Household/", "done"))
+        self.assertEqual([(r["action"], r["from"], r["status"]) for r in rows if r["action"] == "rmdir"],
+                         [("rmdir", "_Migrations/Household/", "done")])
         self.assertEqual(self.bin_names(), ["Household"])
         self.assertEqual(tree_digest(self.root, skip=("_Audit",)), original)
 
