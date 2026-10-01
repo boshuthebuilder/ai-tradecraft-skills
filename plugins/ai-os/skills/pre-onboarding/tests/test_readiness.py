@@ -8,7 +8,9 @@ test copies the template, plants one defect and asserts it is the one finding. A
 (`wiki.py accept`, by a model other than its author), so the edit is the only thing that changed. The committed
 fixture is never touched.
 """
+import contextlib
 import hashlib
+import io
 import json
 import os
 import re
@@ -18,9 +20,13 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOOLS = os.path.realpath(os.path.join(HERE, "..", "tools"))
+sys.path.insert(0, TOOLS)
+import common  # noqa: E402
+import extract  # noqa: E402
 FIXTURE = os.path.join(HERE, "fixture", "Alex Personal")
 WIKI = "Alex Personal Wiki"
 DEADLINES = "01 Deadlines/01 Deadlines.md"
@@ -168,7 +174,8 @@ class GreenTest(Prepared):
         self.assertEqual(res["records"], {"missing_extracts": 0, "missing_cards": 0, "bad_category": 0,
                                           "extract_paths_stale": 0, "contamination": "not verified: no --terms"})
         self.assertEqual(res["wiki_handoff"], {"rationale_file": "ok", "pages_accepted": "12/12",
-                                               "pages_not_accepted": 0, "pages_not_verified": 0})
+                                               "pages_not_accepted": 0, "pages_not_verified": 0,
+                                               "records_for_no_page": []})
         self.assertEqual(set(res["handoff_contract"].values()), {"ok"})
 
     def test_terms_and_passing_canaries_leave_nothing_unverified(self):
@@ -233,7 +240,7 @@ class ContractTest(Prepared):
                        "passport expires ([10 Identity](../10%20Identity/10%20Identity.md))\n"
                        "- **2026-01-31**: renew the parking permit\n")
         detail = self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written")
-        self.assertIn("1 date(s) no page's frontmatter carries (line 12: 2026-01-31)", detail)
+        self.assertIn("1 date(s) no current page's frontmatter carries (line 12: 2026-01-31)", detail)
 
     def test_a_page_deadline_missing_from_the_roll_up(self):
         self.edit_page(DEADLINES, "- **2031-07-15**: passport expires "
@@ -321,6 +328,81 @@ class ContractTest(Prepared):
                          (1, 11))
 
 
+class RollUpTest(Prepared):
+    """How the Deadlines roll-up's dates are read: what passes, and what is the one finding."""
+
+    def add_frontmatter(self, page, lines):
+        self.edit_page(page, "status: current\n", "status: current\n" + lines)
+
+    def add_to_roll_up(self, text):
+        p = self.page(DEADLINES)
+        write(p, read(p) + text)
+        self.accept_again(DEADLINES)
+
+    def test_a_single_deadline_with_a_note(self):
+        """wiki-maintenance's frontmatter table allows `deadline: {date, note}` as well as a bare date."""
+        self.add_frontmatter(TAX, "deadline: {date: 2026-01-31, note: Self assessment payment}\n")
+        self.assertIn("lacks 1 page deadline(s) (2026-01-31 (20 Finance/Tax.md))",
+                      self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written"))
+        self.add_to_roll_up("- **2026-01-31**: self assessment payment ([Tax](../20%20Finance/Tax.md))\n")
+        self.readiness(code=0)
+
+    def test_a_past_deadline_and_a_build_stamp(self):
+        """The roll-up lists forward dates: a deadline before its last-updated need not be shown, and its
+        last-updated written on it is a build stamp, not a hand-written date."""
+        self.add_frontmatter(TAX, "deadlines:\n  - {date: 2024-01-31, note: Self assessment paid}\n")
+        self.add_to_roll_up("\nBuilt from the pages' frontmatter on 2024-06-30.\n")
+        self.readiness(code=0)
+        self.add_to_roll_up("Checked again on 2024-07-01.\n")
+        self.assertIn("(line 14: 2024-07-01)",
+                      self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written"))
+
+    def test_month_and_day_in_prose_is_not_a_date(self):
+        self.add_to_roll_up("\nSee pages 10-12 of the lease.\n\n- See pages 10-12 of the lease too.\n")
+        self.readiness(code=0)
+
+    def test_a_recurring_date_in_a_table_cell(self):
+        self.add_to_roll_up("\n| Every year | What |\n| --- | --- |\n| **01-31** | self assessment return due |\n")
+        self.assertIn("(line 15: 01-31)", self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
+
+    def test_a_recurring_entry_needs_a_real_day_and_a_note(self):
+        self.add_frontmatter(TAX, "recurring:\n  - {date: 02-30, note: No such day}\n")
+        self.assertIn('{"date": "02-30", "note": "No such day"}',
+                      self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
+        self.edit_page(TAX, "{date: 02-30, note: No such day}", "{date: 02-28}")
+        self.assertIn("{date: 02-28}", self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
+        self.edit_page(TAX, "{date: 02-28}", "{date: 02-29, note: Leap day review}")
+        self.add_to_roll_up("\n## Every year\n\n- **02-29**: leap day review ([Tax](../20%20Finance/Tax.md))\n")
+        self.readiness(code=0)
+
+    def test_a_recurring_date_is_shown_only_by_its_own_month_and_day(self):
+        self.add_frontmatter(TAX, "deadline: 2026-01-31\nrecurring:\n  - {date: 01-31, note: Return due}\n")
+        self.add_to_roll_up("- **2026-01-31**: self assessment return due ([Tax](../20%20Finance/Tax.md))\n")
+        self.assertIn("lacks 1 recurring date(s) (01-31 (20 Finance/Tax.md))",
+                      self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
+
+    def test_a_superseded_page_has_no_deadline_on_the_roll_up(self):
+        home = "30 Home/30 Home.md"
+        self.edit_page(home, "status: current", "status: superseded")
+        self.assertIn("no current page's frontmatter carries (line 10: 2025-04-30)",
+                      self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written"))
+        self.edit_page(DEADLINES, "- **2025-04-30**: lease ends ([30 Home](../30%20Home/30%20Home.md))\n", "")
+        self.readiness(code=0)
+
+    def test_another_derived_page_is_reported_apart(self):
+        schema = "90 Schema/90 Schema.md"
+        self.edit("%s/%s" % (WIKI, schema), "| 02 People | everyone who appears | personal assistant | fixed |",
+                  "| 02 People | everyone who appears | personal assistant | fixed, derived |")
+        self.tool("settings.py", "compile")
+        self.accept_again(schema)
+        res = self.readiness(code=0)
+        self.assertEqual(res["handoff_contract"]["derived_pages_hold_nothing_hand_written"], "ok")
+        self.assertIn(["handoff_contract.other_derived_pages", "not verified: 02 People/02 People.md (derived, built "
+                       "from the pages in a way no date shows)"], res["not_verified"])
+        self.add_to_roll_up("- **2026-01-31**: renew the parking permit\n")
+        self.assertIn("2026-01-31", self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written"))
+
+
 class FindingTest(Prepared):
     """Every other check, planted once, is the one finding and sets the exit code."""
 
@@ -331,6 +413,56 @@ class FindingTest(Prepared):
     def test_a_scratch_folder_left_in_audit(self):
         os.makedirs(self.path("_Audit", "_wikibuild"))
         self.assertIn("_wikibuild", self.one_finding("scratch.left_in_audit"))
+
+    def test_any_other_folder_in_audit_is_scratch(self):
+        os.makedirs(self.path("_Audit", "drafts"))
+        write(self.path("_Audit", "notes.txt"), "a file is not a scratch folder\n")
+        self.assertEqual(self.one_finding("scratch.left_in_audit"), "folders left in _Audit/: drafts")
+
+    def test_the_rulebook_does_not_name_the_wiki_folder(self):
+        self.edit_rulebook("- `Alex Personal Wiki/`: the wiki.", "- The wiki folder: the wiki.")
+        self.edit_rulebook("`Alex Personal Wiki`, ", "")
+        self.assertIn("'Alex Personal Wiki'", self.one_finding("rulebook.names_wiki_folder"))
+
+    def test_a_rulebook_copy_missing(self):
+        os.remove(self.path("AGENTS.md"))
+        res = self.readiness(code=1)
+        self.assertEqual(res["findings"], [["rulebook.present", "finding: missing AGENTS.md"]])
+        self.assertIn(["rulebook.copies_identical", "not verified: AGENTS.md missing"], res["not_verified"])
+
+    def test_a_rulebook_not_utf8(self):
+        for name in ("CLAUDE.md", "AGENTS.md"):
+            with open(self.path(name), "ab") as f:
+                f.write(b"\xff")
+        p = self.path(".familyai", "rulebook.json")
+        data = json.loads(read(p))
+        write(p, json.dumps(dict(data, rulebook_sha256=common.sha256_file(self.path("CLAUDE.md"))), indent=1))
+        self.assertEqual(self.one_finding("rulebook.valid_utf8"),
+                         "finding: not valid UTF-8: CLAUDE.md (byte %d), AGENTS.md (byte %d)"
+                         % ((os.path.getsize(self.path("CLAUDE.md")) - 1,) * 2))
+
+    def test_items_on_disk_not_verified_without_a_summary(self):
+        os.remove(self.path("_Audit", "summary.json"))
+        res = self.readiness(code=0)
+        self.assertIn(["manifest.items_on_disk", "not verified: no summary.json beside the manifest"],
+                      res["not_verified"])
+
+    def test_records_for_a_page_no_longer_in_the_wiki_are_information(self):
+        p = self.path("_Audit", "wiki-acceptance.json")
+        acc = json.loads(read(p))
+        acc["records"].append(dict(acc["records"][-1], page="20 Finance/Old tax.md"))
+        write(p, json.dumps(acc, ensure_ascii=False, indent=1) + "\n")
+        res = self.readiness(code=0)
+        self.assertEqual(res["wiki_handoff"]["records_for_no_page"], ["20 Finance/Old tax.md"])
+        self.assertEqual([k for k, _v in res["not_verified"]], GREEN_UNVERIFIED)
+
+    def test_a_manifest_entry_without_hashed_is_refused(self):
+        p = self.path("_Audit", "manifest.json")
+        man = json.loads(read(p))
+        for e in man["entries"].values():
+            e.pop("hashed")
+        write(p, json.dumps(man, ensure_ascii=False, indent=1))
+        self.assertIn("records no hashed true or false", self.refused())
 
     def card(self, rel):
         return self.path("_Audit", "cards", self.ids()[rel] + ".json")
@@ -509,6 +641,81 @@ class RepathTest(Prepared):
         self.repath("--apply", "--read-only-root", "--out", elsewhere)
         self.assertEqual(json.loads(read(os.path.join(elsewhere, self.eid + ".json")))["path"], self.MOVED[1])
         self.assertEqual(read(self.record, "rb"), before)
+
+    def test_a_manifest_older_than_the_move_is_refused(self):
+        """The record is right and the manifest stale: repathing would send the record where nothing is."""
+        old = read(self.path("_Audit", "manifest.json"))
+        self.move_and_audit(*self.MOVED)
+        self.repath("--apply")
+        write(self.path("_Audit", "manifest.json"), old)
+        before = read(self.record, "rb")
+        for args in ([], ["--apply"]):
+            err = self.repath(*args, code=2)
+            self.assertIn("refused, nothing written: 1 record(s) would move to a path that is not in the folder "
+                          "(%s to '%s')" % (self.eid, self.MOVED[0]), err)
+            self.assertIn("re-audit (audit.py) first", err)
+        self.assertEqual(read(self.record, "rb"), before)
+
+    def test_a_malformed_manifest_is_refused_by_name(self):
+        p = self.path("_Audit", "manifest.json")
+        man = json.loads(read(p))
+        man["entries"][self.eid] = "not an entry"
+        for text, why in ((json.dumps(man), "entry %s is malformed" % self.eid), ("[]", "expected a JSON object")):
+            with self.subTest(why=why):
+                write(p, text)
+                self.assertIn(why, self.repath(code=2))
+
+    def two_moves(self):
+        """Two documents moved and re-audited: (id, record path, its new path) for each, in the order repath
+        writes them (by id)."""
+        moves = [self.MOVED, ("06 Work/Contract.docx", "06 Work/Employment contract.docx")]
+        ids = self.ids()
+        for old, new in moves:
+            shutil.move(self.path(*old.split("/")), self.path(*new.split("/")))
+        self.tool("audit.py")
+        return sorted((ids[old], self.path("_Audit", "extract", ids[old] + ".json"), new) for old, new in moves)
+
+    def apply_in_process(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            return extract.repath(["--root", self.root, "--work", self.work, "--apply"])
+
+    def leftovers(self):
+        return [n for n in os.listdir(self.path("_Audit", "extract")) if ".repath" in n]
+
+    def test_a_failure_writing_the_second_record_replaces_none(self):
+        (_id1, p1, _n1), (_id2, p2, _n2) = moves = self.two_moves()
+        before = [read(p, "rb") for _i, p, _n in moves]
+        real, calls = extract.repath_stage, []
+
+        def stage(writer, path, rec):
+            calls.append(path)
+            if len(calls) == 2:
+                raise OSError(28, "No space left on device")
+            return real(writer, path, rec)
+        with unittest.mock.patch.object(extract, "repath_stage", stage):
+            with self.assertRaises(common.ToolError) as cm:
+                self.apply_in_process()
+        self.assertIn("repath stopped, no record replaced: [Errno 28] No space left on device", str(cm.exception))
+        self.assertEqual([read(p1, "rb"), read(p2, "rb")], before)
+        self.assertEqual(self.leftovers(), [])
+
+    def test_a_failure_replacing_the_second_record_names_the_first(self):
+        (id1, p1, n1), (_id2, p2, _n2) = self.two_moves()
+        before2 = read(p2, "rb")
+        real, calls = os.replace, []
+
+        def replace(src, dst):
+            calls.append(dst)
+            if len(calls) == 2:
+                raise OSError(13, "Permission denied")
+            return real(src, dst)
+        with unittest.mock.patch.object(extract.os, "replace", replace):
+            with self.assertRaises(common.ToolError) as cm:
+                self.apply_in_process()
+        self.assertIn("repath stopped, 1 record(s) already replaced (%s.json): [Errno 13] Permission denied" % id1,
+                      str(cm.exception))
+        self.assertEqual((json.loads(read(p1))["path"], read(p2, "rb")), (n1, before2))
+        self.assertEqual(self.leftovers(), [])
 
     def test_a_malformed_record_is_refused(self):
         write(self.record, json.dumps({"id": "another", "path": self.MOVED[0]}))

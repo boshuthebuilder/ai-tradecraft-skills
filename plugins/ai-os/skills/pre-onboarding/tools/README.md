@@ -342,14 +342,18 @@ Also takes `--settings-dir`, `--work` and `--read-only-root`. An extract record 
 when it was read, so a curation round after extraction leaves it behind. Once the round's re-audit is proved,
 `repath` rewrites each record's `path` to its document's `current_path` in the manifest, matched by content hash
 (the record's id, its file name); nothing is read again, no model is called and nothing else in a record changes.
-It is a dry run unless `--apply`, and writes through the guarded writer: with `--read-only-root`, `--apply` on
-records inside the folder is refused before any is written (`--out` names records kept elsewhere). It prints
-`records`, `applied`, `paths_changed`, `already_current`, `moves` (`[id, old path, new path]`), `departed_left`
-and `not_in_manifest` (`[id, path]`: records of departed documents, and of ids the manifest does not hold, left
-as they are), and exits 0. It refuses (exit 2, nothing written), naming each, any record whose document's paths
-the manifest's canonical choice does not settle: no current path, copies naming no canonical copy, several, or one
-other than the current path, or a current path another live entry holds; and a record whose `id` is not its file
-name. Cards need no repair: they hold no path, only their document's id.
+It prints `records`, `applied`, `paths_changed`, `already_current`, `moves` (`[id, old path, new path]`),
+`departed_left` and `not_in_manifest` (`[id, path]`: records of departed documents, and of ids the manifest does
+not hold, left as they are), and exits 0.
+
+It is a dry run unless `--apply`. It refuses (exit 2, nothing written), naming each: a manifest `wiki.py` would
+refuse; a record whose `id` is not its file name; a record whose document's paths the manifest's canonical choice
+does not settle (copies naming no canonical copy, several, or one other than the current path, or a current path
+another live entry holds); and a move to a current path that is not in the folder, since the manifest is then older
+than the folder: re-audit first. `--apply` writes every repathed record to a temporary file beside it, through the
+guarded writer (with `--read-only-root`, records inside the folder are refused; `--out` names records kept
+elsewhere), and only then replaces the records. A failure part way exits 2 naming the records already replaced,
+and leaves no temporary file. Cards need no repair: they hold no path, only their document's id.
 
 ## Hand-off readiness: `readiness.py`
 
@@ -384,24 +388,38 @@ the same way, which is not a finding and not a pass either; `summary` counts bot
   `acceptance_not_verified` (its professional and contract cannot be read, so its acceptance cannot be judged):
   those are counted and listed once as not verified, what keeps them unreadable (a missing or stale Schema twin,
   a page with no single professional) being a finding of its own.
-- `rulebook`: `present`, `copies_identical` and `names_wiki_folder`. `scratch.left_in_audit`: folders in `_Audit/`
-  other than `plans`, `extract` and `cards`.
+  `records_for_no_page` lists the pages the acceptance record names that the wiki no longer holds, as information
+  only (records stay as they were made).
+- `rulebook`: `present`, `valid_utf8` (as `settings.py check` reads it), `copies_identical` and
+  `names_wiki_folder`. `scratch.left_in_audit`: folders in `_Audit/` other than `plans`, `extract` and `cards`.
 - `handoff_contract`: `wiki_folder_named_after_folder`; `fixed_pages` (00 Index, 01 Deadlines, 90 Schema, 91 Log;
   numbered sections are `check`'s, where a page in no Layout section is a problem);
-  `derived_pages_hold_nothing_hand_written` and `recurring_dates_in_frontmatter` (below);
-  `rulebook_reserves_rulebook_filenames` (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`); `new_files_routed_within_folder`
-  (no rulebook line routes new files to the migrations folder:
-  [a project files within itself](../../wiki-maintenance/SKILL.md#rules-that-keep-it-safe));
-  `settings_rulebook_json` and `settings_wiki_schema_json` (present and fresh).
+  `derived_pages_hold_nothing_hand_written`, `recurring_dates_in_frontmatter` and `other_derived_pages` (below);
+  `rulebook_reserves_rulebook_filenames` and `new_files_routed_within_folder`
+  ([a project files within itself](../../wiki-maintenance/SKILL.md#rules-that-keep-it-safe)), both reading the
+  rulebook's prose by substring and keyword: a filename is reserved when `CLAUDE.md`, `AGENTS.md` or `GEMINI.md` is
+  written anywhere in `CLAUDE.md`, and new files are routed out when a line names the migrations folder (`_Migrations/`)
+  together with "new file", "dropped", "goes to" or "go to", in any case, so a line saying where approved migrations
+  wait passes and one saying new files go there does not; `settings_rulebook_json` and `settings_wiki_schema_json`
+  (present and fresh).
 
 **Derived pages.** The rule is `wiki-maintenance`'s *Deadlines are derived, not authored*
 ([rules that keep it safe](../../wiki-maintenance/SKILL.md#rules-that-keep-it-safe)), read through the keys its
-roll-up reads ([canonical frontmatter][frontmatter]). It fixes no headings and asks for no list beyond the dates,
-so readiness checks none. On `01 Deadlines`, every `YYYY-MM-DD` must be a page's `deadline` or `deadlines` date
-(or fall on a page's `recurring` day), every such date of a page the sweeps read must be shown, and an empty
-roll-up in a wiki of derived pages must say why (a page of headings or a bare "None" does not); every `MM-DD` must
-be a page's `recurring` date, every `recurring` entry must read `{date: MM-DD, note}`, and every one must be
-shown. Another page the Schema marks derived (an open-questions list) shows no date its sources would settle, so
-it is named `not verified`.
+roll-up reads ([canonical frontmatter][frontmatter]), `01 Deadlines` being the derived list of forward dates. It fixes
+no headings and asks for no list beyond the dates, so readiness checks none. It reads the roll-up's dates as the
+roll-up writes them: a dated deadline as `YYYY-MM-DD`, anywhere on the page, and a recurring date as `MM-DD`, a
+month and a day that month has, opening a list item or alone in a table cell (an `MM-DD` mid-sentence, such as
+"pages 10-12", is prose). The sources are the pages that are not `superseded`.
+
+- `derived_pages_hold_nothing_hand_written`: every `YYYY-MM-DD` on the roll-up is a page's `deadline` or
+  `deadlines` date (`YYYY-MM-DD` or `{date, note}`), except the roll-up's own `last-updated`, a build stamp; the
+  roll-up shows every such date of a page the sweeps read that is not before its `last-updated` (one before it is
+  past, not forward); and an empty roll-up in a wiki of derived pages says why (a page of headings or a bare "None"
+  does not).
+- `recurring_dates_in_frontmatter`: every `MM-DD` on the roll-up is a page's `recurring` date; every `recurring`
+  entry reads `{date: MM-DD, note}`, with a day the month has and a note; and the roll-up shows each by its own
+  `MM-DD` (a `YYYY-MM-DD` on the same day does not show it).
+- `other_derived_pages`: another page the Schema marks derived (an open-questions list) shows no date its sources
+  would settle, so it is named `not verified`, apart from the roll-up's result.
 
 [frontmatter]: ../../wiki-maintenance/SKILL.md#canonical-frontmatter--the-keys-the-deterministic-sweeps-read

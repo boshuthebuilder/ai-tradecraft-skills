@@ -20,16 +20,18 @@ pass either, and the operator reads it.
   before it is assembled), and every page is accepted: each page `check` does not report `accepted` is one
   finding, naming the page, its state and why (a refused page included), except a page `check` lists in
   `acceptance_not_verified` (its professional and contract cannot be read), whose acceptance is not verified;
-- rulebook: `CLAUDE.md` and `AGENTS.md` present, identical and naming the wiki folder; scratch: no folder in
-  `_Audit/` but the prepared folder's own (`plans`, `extract`, `cards`);
+  `records_for_no_page` (records naming a page the wiki no longer holds) is information only;
+- rulebook: `CLAUDE.md` and `AGENTS.md` present, valid UTF-8, identical and naming the wiki folder; scratch: no
+  folder in `_Audit/` but the prepared folder's own (`plans`, `extract`, `cards`);
 - handoff_contract, each "ok", "finding: ..." or "not verified: ...": the wiki folder is `<folder name> Wiki`; the
   fixed pages 00 Index, 01 Deadlines, 90 Schema and 91 Log exist; derived pages hold nothing hand-written and
-  recurring dates live in page frontmatter (see `deadline_items`); the rulebook reserves the deployment's rulebook
-  filenames and routes no new file to the migrations folder; both settings twins present and fresh.
+  recurring dates live in page frontmatter, with any other derived page not verified (see `deadline_items`); the
+  rulebook reserves the deployment's rulebook filenames and routes no new file to the migrations folder (read by
+  keyword, see `contract`); both settings twins present and fresh.
 
 Numbered sections are held by `check`: a page outside every Layout section of the compiled Schema is one of its
-problems. Exit 0 when nothing is found, 1 on any finding, 2 on a tool error (a missing or malformed manifest, card,
-extract record or canary result, or a crash).
+problems. Exit 0 when nothing is found, 1 on any finding, 2 on a tool error (a missing or malformed manifest, such
+as a live entry without `hashed` true or false, card, extract record or canary result, or a crash).
 
     python3 readiness.py --root R [--terms F] [--manifest M] [--out <json>]
 """
@@ -52,16 +54,33 @@ DEADLINES = FIXED[1]
 AUDIT_DIRS = ("plans", "extract", "cards")  # the folders a prepared folder's _Audit/ holds; any other is scratch
 CANARY_ENGINES = ("agy", "codex")  # isolation.py canary --engine
 FRONTMATTER = re.compile(r"---\n(.*?)\n---\n", re.S)  # as wiki.py check reads it
-DAY = re.compile(r"(?<![0-9])[0-9]{4}-([0-9]{2}-[0-9]{2})(?![0-9])")  # a dated deadline; group 1 its MM-DD
-YEARLY = re.compile(r"(?<![0-9-])((?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01]))(?![0-9-])")  # a recurring MM-DD
-RECURRING_ITEM = re.compile(r"\{\s*date:\s*[\"']?([0-9-]+)[\"']?\s*(?:,.*)?\}")  # {date: MM-DD, note: ...}
+DAY = re.compile(r"(?<![0-9])[0-9]{4}-[0-9]{2}-[0-9]{2}(?![0-9])")  # a dated deadline, as the roll-up writes it
+ISO_DAY = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+MARK = r"[*_`]*"  # emphasis or code around a date
+# A recurring MM-DD where the roll-up lists one: opening a list item, or alone in a table cell. Mid-sentence it is
+# prose ("pages 10-12"), not a date.
+YEARLY_ITEM = re.compile(r"^\s*(?:[-*+]|[0-9]+\.)\s+%s([0-9]{2}-[0-9]{2})%s(?![0-9-])" % (MARK, MARK))
+YEARLY_CELL = re.compile(r"\|\s*%s([0-9]{2}-[0-9]{2})%s\s*(?=\|)" % (MARK, MARK))
+DATE_ITEM = re.compile(r"\{\s*date:\s*[\"']?([0-9-]+)[\"']?\s*(?:,\s*note:\s*(.*?))?\s*\}")  # {date: ..., note: ...}
+DAYS_IN_MONTH = (31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)  # 02-29 comes round in a leap year
 SAYS_NOTHING = re.compile(r"(?i)[\s>*_`|-]*(none|nothing|n/?a)?[\s.*_`|-]*")
 SAMPLE = 5
 
 
 def read(path):
-    with open(path, encoding="utf-8", errors="replace") as f:
+    with open(path, encoding="utf-8") as f:
         return f.read()
+
+
+def month_day(s):
+    """True for `MM-DD` naming a day some year has."""
+    m = re.fullmatch(r"([0-9]{2})-([0-9]{2})", s or "")
+    return bool(m) and 1 <= int(m.group(1)) <= 12 and 1 <= int(m.group(2)) <= DAYS_IN_MONTH[int(m.group(1)) - 1]
+
+
+def yearly_dates(line):
+    """The valid MM-DD dates a roll-up line lists (see YEARLY_ITEM)."""
+    return [d for d in YEARLY_ITEM.findall(line) + YEARLY_CELL.findall(line) if month_day(d)]
 
 
 def sample(items):
@@ -77,21 +96,31 @@ def split_page(text):
 
 # ------------------------------------------------------------------------------------ derived pages
 
+def date_entry(it):
+    """(date, note) of one frontmatter date entry: `{date: ..., note: ...}` (as wiki.py parses it, or as text), or a
+    bare date; the note is None when there is none."""
+    if isinstance(it, dict):
+        return str(it.get("date", "")).strip().strip("\"'"), (it.get("note") or "").strip() or None
+    text = str(it).strip()
+    m = DATE_ITEM.fullmatch(text)
+    return (m.group(1), (m.group(2) or "").strip().strip("\"'") or None) if m else (text.strip("\"'"), None)
+
+
 def frontmatter_dates(fm):
-    """(the YYYY-MM-DD dates in `deadline` and `deadlines`, the MM-DD dates in `recurring`, the `recurring` entries
-    not in the form {date: MM-DD, note}) of one page's frontmatter."""
+    """(the YYYY-MM-DD dates in `deadline` and `deadlines`, each a date or {date, note}; the MM-DD dates in
+    `recurring`; the `recurring` entries not in the form {date: MM-DD, note}, with a day the month has and a note) of
+    one page's frontmatter."""
     days, yearly, bad = set(), set(), []
     for key in ("deadline", "deadlines"):
         v = fm.get(key)
         for it in v if isinstance(v, list) else [v] if v else []:
-            d = str(it.get("date") if isinstance(it, dict) else it).strip().strip("\"'")
-            if re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", d):
+            d, _note = date_entry(it)
+            if ISO_DAY.fullmatch(d):
                 days.add(d)
     v = fm.get("recurring")
     for it in v if isinstance(v, list) else [v] if v else []:
-        m = RECURRING_ITEM.fullmatch(it.strip()) if isinstance(it, str) else None
-        d = it.get("date") if isinstance(it, dict) else m.group(1) if m else None
-        if d and YEARLY.fullmatch(d):
+        d, note = date_entry(it)
+        if month_day(d) and note:
             yearly.add(d)
         else:
             bad.append(it if isinstance(it, str) else json.dumps(it, ensure_ascii=False))
@@ -99,51 +128,61 @@ def frontmatter_dates(fm):
 
 
 def deadline_items(wiki, pages, ws):
-    """(derived pages hold nothing hand-written, recurring dates in frontmatter): each "ok", "finding: ..." or
-    "not verified: ...". The rule is wiki-maintenance's "Deadlines are derived, not authored"
+    """(derived pages hold nothing hand-written, recurring dates in frontmatter, other derived pages): each "ok",
+    "finding: ..." or "not verified: ...". The rule is wiki-maintenance's "Deadlines are derived, not authored"
     (../../wiki-maintenance/SKILL.md#rules-that-keep-it-safe), read through the frontmatter keys its roll-up reads
-    (#canonical-frontmatter--the-keys-the-deterministic-sweeps-read, including which pages the sweeps skip). It
-    fixes no headings and asks for no list beyond the dates, so none is checked: only that every date on the
-    Deadlines roll-up comes from a page's frontmatter, that the roll-up carries every one of them, and that an empty
-    roll-up says why. Another page the Schema marks derived (an open-questions list) is built from the pages in a
-    way no date shows, so it is named as not verified."""
-    if DEADLINES not in pages:
-        why = "not verified: no %s (fixed_pages reports it)" % DEADLINES
-        return why, why
+    (#canonical-frontmatter--the-keys-the-deterministic-sweeps-read, including which pages the sweeps skip), with
+    01 Deadlines the derived list of forward dates. It fixes no headings and asks for no list beyond the dates, so
+    none is checked. The roll-up writes a dated deadline as YYYY-MM-DD and a recurring date as MM-DD (opening a list
+    item or alone in a table cell): every such date on it must come from a current page's frontmatter, except the
+    roll-up's own `last-updated` (a build stamp); it must show every deadline of a page the sweeps read that is not
+    before its `last-updated`, and every recurring date by its own MM-DD; and an empty roll-up says why. Another
+    page the Schema marks derived (an open-questions list) is built from the pages in a way no date shows, so it is
+    named as not verified, apart."""
     derived_dirs = tuple("%s %s/" % (s["number"], s["name"]) for s in (ws or {}).get("sections", []) if s["derived"])
     others = [p for p in pages if p != DEADLINES and p.startswith(derived_dirs)] if derived_dirs else []
-    days, yearly = collections.defaultdict(list), collections.defaultdict(list)  # date: the pages holding it
+    other_item = "not verified: %s (derived, built from the pages in a way no date shows)" % sample(others) \
+        if others else "ok"
+    if DEADLINES not in pages:
+        why = "not verified: no %s (fixed_pages reports it)" % DEADLINES
+        return why, why, other_item
+    days, yearly = collections.defaultdict(list), collections.defaultdict(list)  # date: the current pages holding it
     swept_days, swept_yearly, bad, any_derived = set(), set(), [], False
     for p in pages:
         if p == DEADLINES or p in others:
             continue
         fm, _body, _n = split_page(read(os.path.join(wiki, *p.split("/"))))
+        if fm.get("status") == "superseded":
+            continue  # no longer the wiki's: the roll-up shows none of its dates
         d, y, b = frontmatter_dates(fm)
         for x in d:
             days[x].append(p)
         for x in y:
             yearly[x].append(p)
-        if fm.get("status") != "superseded" and fm.get("provenance") not in ("manual", "calendar"):
+        if fm.get("provenance") not in ("manual", "calendar"):
             swept_days |= d
             swept_yearly |= y
         bad += ["%s: %s" % (p, e) for e in b]
         any_derived = any_derived or fm.get("provenance") == "derived"
-    _fm, body, offset = split_page(read(os.path.join(wiki, *DEADLINES.split("/"))))
+    fm, body, offset = split_page(read(os.path.join(wiki, *DEADLINES.split("/"))))
+    stamp = str(fm.get("last-updated", "")).strip().strip("\"'")
+    stamp = stamp if ISO_DAY.fullmatch(stamp) else None
     hand, hand_yearly, shown_days, shown_yearly = [], [], set(), set()
     for n, line in enumerate(body.splitlines(), offset + 1):
         for m in DAY.finditer(line):
             shown_days.add(m.group(0))
-            shown_yearly.add(m.group(1))
-            if m.group(0) not in days and m.group(1) not in yearly:  # a recurring date may show as its next day
+            if m.group(0) not in days and m.group(0) != stamp:
                 hand.append("line %d: %s" % (n, m.group(0)))
-        for m in YEARLY.finditer(line):
-            shown_yearly.add(m.group(1))
-            if m.group(1) not in yearly:
-                hand_yearly.append("line %d: %s" % (n, m.group(1)))
+        for d in yearly_dates(line):
+            shown_yearly.add(d)
+            if d not in yearly:
+                hand_yearly.append("line %d: %s" % (n, d))
     derived = []
     if hand:
-        derived.append("%s holds %d date(s) no page's frontmatter carries (%s)" % (DEADLINES, len(hand), sample(hand)))
-    missing = ["%s (%s)" % (d, ", ".join(days[d])) for d in sorted(swept_days - shown_days)]
+        derived.append("%s holds %d date(s) no current page's frontmatter carries (%s)"
+                       % (DEADLINES, len(hand), sample(hand)))
+    missing = ["%s (%s)" % (d, ", ".join(days[d])) for d in sorted(swept_days - shown_days)
+               if stamp is None or d >= stamp]  # a deadline before the roll-up was built is past, not forward
     if missing:
         derived.append("%s lacks %d page deadline(s) (%s)" % (DEADLINES, len(missing), sample(missing)))
     says = [line for line in body.splitlines() if line.strip() and not line.lstrip().startswith("#")
@@ -155,13 +194,13 @@ def deadline_items(wiki, pages, ws):
         recurring.append("%s holds %d yearly date(s) no page's recurring: list carries (%s)"
                          % (DEADLINES, len(hand_yearly), sample(hand_yearly)))
     if bad:
-        recurring.append("%d recurring: entr(ies) not {date: MM-DD, note} (%s)" % (len(bad), sample(bad)))
+        recurring.append("%d recurring: entr(ies) not {date: MM-DD, note} with a day the month has (%s)"
+                         % (len(bad), sample(bad)))
     missing = ["%s (%s)" % (d, ", ".join(yearly[d])) for d in sorted(swept_yearly - shown_yearly)]
     if missing:
         recurring.append("%s lacks %d recurring date(s) (%s)" % (DEADLINES, len(missing), sample(missing)))
-    derived_item = ("finding: " + "; ".join(derived) if derived else
-                    "not verified: %s (derived, not a Deadlines roll-up)" % sample(others) if others else "ok")
-    return derived_item, "finding: " + "; ".join(recurring) if recurring else "ok"
+    return ("finding: " + "; ".join(derived) if derived else "ok",
+            "finding: " + "; ".join(recurring) if recurring else "ok", other_item)
 
 
 # ------------------------------------------------------------------------------------ the hand-off contract
@@ -174,8 +213,10 @@ def contract(root, rb, settings_dir, ws, pages, rulebook_text):
         "finding: the wiki folder is %r, not %r" % (rb["wiki_dir"], folder_wiki)
     missing = [p for p in FIXED if p not in pages]
     items["fixed_pages"] = "ok" if not missing else "finding: missing %s" % ", ".join(missing)
-    items["derived_pages_hold_nothing_hand_written"], items["recurring_dates_in_frontmatter"] = \
-        deadline_items(wiki, pages, ws)
+    items["derived_pages_hold_nothing_hand_written"], items["recurring_dates_in_frontmatter"], \
+        items["other_derived_pages"] = deadline_items(wiki, pages, ws)
+    # The rulebook is prose, read by keyword and substring: each filename written anywhere in it reserves it, and a
+    # line naming the migrations folder with "new file", "dropped", "goes to" or "go to" routes new files there.
     if rulebook_text is None:
         items["rulebook_reserves_rulebook_filenames"] = items["new_files_routed_within_folder"] = \
             "not verified: CLAUDE.md missing (rulebook.present reports it)"
@@ -228,7 +269,10 @@ def record_checks(root, rb, live, evidence):
     found = collections.OrderedDict((k, []) for k in ("missing_extracts", "missing_cards", "bad_category",
                                                       "extract_paths_stale", "contamination"))
     for h, e in sorted(live.items(), key=lambda kv: kv[1]["current_path"]):
-        if not e.get("hashed"):
+        if not isinstance(e.get("hashed"), bool):
+            raise common.ToolError("manifest entry %s (%s) records no hashed true or false; it is not a manifest "
+                                   "audit.py wrote: re-run audit.py" % (h, e["current_path"]))
+        if not e["hashed"]:
             continue  # counted only, never read: extract.py makes no record for it
         path = e["current_path"]
         card = W.load_card(cdir, h)
@@ -297,7 +341,17 @@ def main():
     except common.ToolError:
         ws = None  # a stale or malformed twin: handoff_contract.settings_wiki_schema_json reports it
     claude, agents = (os.path.join(root, n) for n in ("CLAUDE.md", "AGENTS.md"))
-    rulebook_text = read(claude) if os.path.exists(claude) else None
+    not_utf8, rulebook_text = [], None
+    for p in (claude, agents):
+        if os.path.exists(p):
+            with open(p, "rb") as f:
+                raw = f.read()
+            try:
+                text = raw.decode("utf-8")
+            except UnicodeDecodeError as e:  # a finding, as settings.py check makes it; the rest read it as it is
+                not_utf8.append("%s (byte %d)" % (os.path.basename(p), e.start))
+                text = raw.decode("utf-8", "replace")
+            rulebook_text = text if p == claude else rulebook_text
 
     out = collections.OrderedDict()
     live, gone, out["manifest"] = manifest_counts(root, W.read_object(mpath), ents,
@@ -313,10 +367,12 @@ def main():
         ("rationale_file", "finding: _Audit/wiki-rationale.md is missing; wiki.py rationale assembles it from the "
                            "drafters' returns" if out["wiki"]["rationale"] == "not recorded" else "ok"),
         ("pages_accepted", "%d/%d" % (len(rows) - len(not_accepted) - len(unverifiable), len(rows))),
-        ("pages_not_accepted", len(not_accepted)), ("pages_not_verified", len(unverifiable))])
+        ("pages_not_accepted", len(not_accepted)), ("pages_not_verified", len(unverifiable)),
+        ("records_for_no_page", out["wiki"]["acceptance_records_for_no_page"])])  # information: records stay as made
     missing = [os.path.basename(p) for p in (claude, agents) if not os.path.exists(p)]
     out["rulebook"] = collections.OrderedDict([
         ("present", "finding: missing %s" % " and ".join(missing) if missing else "ok"),
+        ("valid_utf8", "finding: not valid UTF-8: %s" % ", ".join(not_utf8) if not_utf8 else "ok"),
         ("copies_identical", "not verified: %s missing" % " and ".join(missing) if missing
          else common.sha256_file(claude) == common.sha256_file(agents)),
         ("names_wiki_folder", "not verified: CLAUDE.md missing" if rulebook_text is None

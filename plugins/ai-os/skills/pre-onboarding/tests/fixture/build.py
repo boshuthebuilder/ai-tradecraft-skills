@@ -755,6 +755,14 @@ PREPARED = {
 }
 
 
+def tool(args):
+    """Run a tool beside this skill; a failure stops the build with the tool's own message."""
+    r = subprocess.run([sys.executable, os.path.join(TOOLS, args[0])] + args[1:], capture_output=True, text=True)
+    if r.returncode:
+        raise SystemExit("%s %s failed (%d): %s" % (args[0], args[1], r.returncode, (r.stderr or r.stdout).strip()))
+    return r.stdout
+
+
 def write_prepared(root):
     """Write the prepared records into `root`/_Audit/: per document of PREPARED, `extract/<id>.json` (as extract.py
     writes one) and `cards/<id>.json` (as cards.py writes one), the id being the document's content id; then
@@ -789,8 +797,7 @@ def write_prepared(root):
         os.makedirs(settings)
         shutil.copy(os.path.join(root, ".familyai", "rulebook.json"), settings)
         base = ["--root", root, "--work", os.path.join(tmp, "work"), "--settings-dir", settings]
-        subprocess.run([sys.executable, os.path.join(TOOLS, "settings.py"), "compile"] + base, check=True,
-                       capture_output=True)
+        tool(["settings.py", "compile"] + base)
         wiki = os.path.join(root, WIKI)
         pages = sorted(os.path.relpath(os.path.join(d, f), wiki).replace(os.sep, "/")
                        for d, _ds, fs in os.walk(wiki) for f in fs if f.endswith(".md"))
@@ -800,9 +807,8 @@ def write_prepared(root):
                 reply = os.path.join(tmp, "reply-%d-%s.json" % (n, lens))
                 w(reply, json.dumps({"page": page, "lens": lens, "verdict": "accepted", "findings": []},
                                     ensure_ascii=False))
-                subprocess.run([sys.executable, os.path.join(TOOLS, "wiki.py"), "accept"] + base +
-                               ["--reply", reply, "--author-model", AUTHOR, "--reviewer-model", REVIEWER,
-                                "--date", ACCEPTED_ON, "--out", record], check=True, capture_output=True)
+                tool(["wiki.py", "accept"] + base + ["--reply", reply, "--author-model", AUTHOR, "--reviewer-model",
+                                                     REVIEWER, "--date", ACCEPTED_ON, "--out", record])
         shutil.copy(record, os.path.join(audit, "wiki-acceptance.json"))
     finally:
         shutil.rmtree(tmp, True)

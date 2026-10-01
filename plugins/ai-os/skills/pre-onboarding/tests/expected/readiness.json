@@ -138,10 +138,12 @@
   "rationale_file": "ok",
   "pages_accepted": "12/12",
   "pages_not_accepted": 0,
-  "pages_not_verified": 0
+  "pages_not_verified": 0,
+  "records_for_no_page": []
  },
  "rulebook": {
   "present": "ok",
+  "valid_utf8": "ok",
   "copies_identical": true,
   "names_wiki_folder": true
  },
@@ -153,6 +155,7 @@
   "fixed_pages": "ok",
   "derived_pages_hold_nothing_hand_written": "ok",
   "recurring_dates_in_frontmatter": "ok",
+  "other_derived_pages": "ok",
   "rulebook_reserves_rulebook_filenames": "ok",
   "new_files_routed_within_folder": "ok",
   "settings_rulebook_json": "ok",
