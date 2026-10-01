@@ -1,7 +1,7 @@
 {
   "name": "ai-os",
   "displayName": "Headless AI OS",
-  "description": "Framework + Agent Skills for a headless AI assisting system over real folders: the knowledge layer (project-onboarding, wiki-onboarding, wiki-maintenance, user-onboarding), the job-archetype framework (file-ingest, user-synthesis, code, folder-curation), folder-curation (adopt a lived-in folder through a deterministic audit and a propose-only move-plan before it is onboarded), and file-preprocessing \u2014 staging-folder triage with a portable hash-keyed audit manifest any agent can produce or consume. Works in any Claude Code or Cowork session, and can be consumed by an automated pipeline from the same source.",
+  "description": "Framework + Agent Skills for a headless AI assisting system over real folders. pre-onboarding is the entry point for preparing a lived-in folder: it audits the folder and tidies it only through plans the owner approves (folder-curation, its component), extracts and summarises every document with its bundled tools, builds the wiki (wiki-onboarding, under wiki-maintenance's core wiki rule) and hands the folder to project-onboarding, which onboards cold and prepared folders in one flow. Also user-onboarding, the job-archetype framework (file-ingest, user-synthesis, code, folder-curation) and file-preprocessing: staging-folder triage with a portable hash-keyed audit manifest any agent can produce or consume. Works in any Claude Code or Cowork session, and can be consumed by an automated pipeline from the same source.",
   "version": "10.0.0",
   "author": {
     "name": "Boshu Zhang"
