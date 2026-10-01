@@ -94,13 +94,15 @@ need it — don't impose the archetype where the material doesn't justify it.
 - **Prepared.** A folder carrying `rulebook.json` in the settings folder (`.familyai/` by default)
   claims to be prepared, and it is prepared when it meets
   [`pre-onboarding`'s hand-off contract](../pre-onboarding/SKILL.md#the-hand-off-contract). Check it
-  with that skill's `readiness.py`, which is read-only on the folder, or with the deployment's own
-  check of the same contract, and read the whole report rather than only its exit code. The findings
-  are the items `readiness.py` exits 1 on and those it reports without failing the run, both listed
-  in [the tool reference](../pre-onboarding/references/tools.md#readinesspy); a deployment's own check
-  treats the same items as findings. A finding sends the folder back to `pre-onboarding`, to the
-  step that owns it; it is never repaired here. A named not-verified state (isolation not verified,
-  say) goes on only when the owner accepts it, and that acceptance is recorded with the onboarding.
+  with that skill's `readiness.py` ([the tool reference](../pre-onboarding/references/tools.md#readinesspy)),
+  which is read-only on the folder, or with the deployment's own check of the same contract.
+  `readiness.py` exits 1 on any finding, each listed in its report's `findings`, and lists each named
+  not-verified state (an engine whose canary was not run, say) in `not_verified` without changing the
+  exit code, so read the report, not only the exit code. A deployment's own check treats the same
+  items as findings, and decides for itself whether to accept a not-verified state or to require it
+  verified. A finding sends the folder back to `pre-onboarding`, to the step that owns it; it is never
+  repaired here. A not-verified state the deployment accepts goes on only when the owner accepts it
+  too, and that acceptance is recorded with the onboarding.
 - **Cold and tidy.** No twins, and the scan finds none of the conditions below: go on. A folder with
   an audit pair and a rulebook but no twins (curated by `folder-curation` on its own) is cold; the scan
   decides whether it is tidy.
