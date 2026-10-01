@@ -76,8 +76,10 @@ records in the order they were made, one per `accept`, each:
      "date": "<--date, or now as YYYY-MM-DDTHH:MM:SS+ZZZZ>",
      "findings": [{"where": "...", "finding": "...", "response": "..."}],
      "facts_checked": [...] (only when the reply carries it, as given), "reason": "..." (refused only)}
-The contract sha256 is of the section's compiled contract {reader, questions, fields, professionals} (JSON null
-for a section without one, a fixed section) serialised with keys sorted, no spaces, UTF-8. `accept` reads the
+The contract sha256 is of the section's compiled contract {reader, questions, fields}, as `wiki-maintenance`
+defines a page contract (JSON null for a section without one, a fixed section), serialised with keys sorted, no
+spaces, UTF-8; the page's own professional is recorded and compared apart, so a professional added to the section
+for another page changes no page's standing. `accept` reads the
 reviewer's reply (the JSON the review template asks for, a `response` added to each finding), refuses (exit 2,
 nothing recorded) a page that is not in the wiki or has no single professional, an unknown lens or verdict, a
 finding without its where, finding and response, `changes` without a finding, an author or reviewer in the reply
@@ -90,8 +92,10 @@ lens: `refused` when either lens's latest is a refusal; `accepted` when both len
 current sha256 under its current professional and contract sha256; otherwise `not recorded`, saying why (a page
 edited since, or whose contract or professional changed since, falls back to it; without a compiled Schema an
 acceptance cannot be verified). The wiki's state is `refused` if any page is, `accepted` if every page is, otherwise
-`not recorded`. `acceptance_records_for_no_page` lists the pages that records name and the wiki no longer holds (a
-page moved or removed; its records stay as made). Acceptance never counts as a problem and never makes the check
+`not recorded`. `acceptance_not_verified` lists the pages whose acceptance cannot be verified, recorded or not,
+because their professional and contract cannot be read (no compiled Schema, a stale twin, no single professional).
+`acceptance_records_for_no_page` lists the pages that records name and the wiki no longer holds (a page moved or
+removed; its records stay as made). Acceptance never counts as a problem and never makes the check
 pass.
 
 Bundles: each live manifest entry outside the migrations folder routes by the compiled Schema routing, its
@@ -831,23 +835,26 @@ def rationale_findings(text, pages, voices):
 # ------------------------------------------------------------------------------------ acceptance
 
 def contract_sha256(ws, page):
-    """sha256 of the compiled contract of the page's section ({reader, questions, fields, professionals}), or of
-    JSON null for a section without one (a fixed section), serialised canonically: keys sorted, no spaces, UTF-8."""
+    """sha256 of the compiled contract of the page's section ({reader, questions, fields}: the page contract as
+    `wiki-maintenance` defines it, not the section's list of professionals), or of JSON null for a section without
+    one (a fixed section), serialised canonically: keys sorted, no spaces, UTF-8."""
     sec = section_of(ws, page)
     c = next((x for x in ws["contracts"] if x["number"] == sec["number"]), None)
-    obj = {k: c[k] for k in ("reader", "questions", "fields", "professionals")} if c else None
+    obj = {k: c[k] for k in ("reader", "questions", "fields")} if c else None
     return hashlib.sha256(json.dumps(obj, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
                           .encode("utf-8")).hexdigest()
 
 
-def page_standing(ws, page):
-    """(the page's professional, its contract's sha256), or (None, why) when they cannot be read."""
+def page_standing(ws, why, page):
+    """(the page's professional, its contract's sha256), or (None, why they cannot be read): `why` the Schema was
+    not read (missing or stale), or why `common.page_voice` refuses the page, as pages_without_single_professional
+    gives it."""
     if not ws:
-        return None, "no compiled Schema to read its professional and contract from"
+        return None, why
     try:
         return common.page_voice(ws, page)["professional"], contract_sha256(ws, page)
-    except common.ToolError:
-        return None, "it has no single professional in the Schema"
+    except common.ToolError as e:
+        return None, str(e)
 
 
 def load_acceptance(path):
@@ -1029,12 +1036,15 @@ def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptan
         res["rationale"] = "not recorded"
     acc = acceptance_path or os.path.join(root, "_Audit", "wiki-acceptance.json")
     records = load_acceptance(acc) if os.path.exists(acc) else []
-    states = acceptance_states(records, {p: (shas[p],) + page_standing(ws, p) for p in pages})
+    unread = ws_why[len("not verified: "):] if ws_why else None
+    standing = {p: page_standing(ws, unread, p) for p in pages}
+    states = acceptance_states(records, {p: (shas[p],) + standing[p] for p in pages})
     counts = collections.Counter(s for _p, s, _w in states)
     res["acceptance"] = ("refused" if counts["refused"] else "accepted" if states and counts["accepted"] == len(states)
                          else "not recorded")
     res["acceptance_counts"] = collections.OrderedDict((s, counts[s]) for s in ACCEPTANCE_STATES)
     res["acceptance_pages"] = states
+    res["acceptance_not_verified"] = sorted(p for p in pages if standing[p][0] is None)  # a structured reading
     res["acceptance_records_for_no_page"] = sorted({r["page"] for r in records} - set(pages))  # moved or removed
     res["problems"] = problems  # acceptance is its own state, never a problem and never a pass
     return res
@@ -1275,7 +1285,10 @@ def append_record(writer, out, rec):
     lock = writer.check(out + ".lock")
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     with open(lock, "a", encoding="utf-8") as held:
-        fcntl.flock(held.fileno(), fcntl.LOCK_EX)
+        try:
+            fcntl.flock(held.fileno(), fcntl.LOCK_EX)
+        except OSError as e:  # a file system without locks, such as some network shares
+            raise common.ToolError("cannot lock %s: %s; use --out on a local disk" % (lock, e.strerror or e))
         records = load_acceptance(out) if os.path.exists(out) else []
         writer.text(out, json.dumps({"version": ACCEPTANCE_VERSION, "records": records + [rec]}, ensure_ascii=False,
                                     indent=1) + "\n")

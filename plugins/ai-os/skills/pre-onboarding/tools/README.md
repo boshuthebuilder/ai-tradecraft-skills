@@ -174,8 +174,8 @@ exist reads as `not recorded`. Line numbers count from the page's first line.
   Schema). A block's professional is its `- Professional lens:` text up to the first `;`, compared with
   `common.page_voice`'s case-folded and with spaces collapsed. Each heading is reported once, by the first that
   holds of: repeated, malformed, for no page, lens.
-- `acceptance`, `acceptance_counts`, `acceptance_pages` and `acceptance_records_for_no_page`: acceptance, reported
-  apart (below).
+- `acceptance`, `acceptance_counts`, `acceptance_pages`, `acceptance_not_verified` and
+  `acceptance_records_for_no_page`: acceptance, reported apart (below).
 - `problems`: every finding above, summed. Acceptance is never part of it.
 
 A rationale file, as `wiki-maintenance` defines it, is the line `# Wiki rationale`, then per page a heading
@@ -217,7 +217,8 @@ recorded**, as `refused` with its reason, so the check reports it. The default r
 How the record is written: `accept` takes an exclusive lock (`fcntl.flock`) on `<record>.lock`, created beside the
 record and left there, reads the record, adds its one record and writes the whole file anew, to a temporary file
 renamed over it, then releases the lock. Runs made at once therefore each keep their record, and no record is
-changed or removed.
+changed or removed. A file system that cannot lock (some network shares) is refused, naming the lock: write the
+record with `--out` on a local disk.
 
 The acceptance record is JSON (UTF-8, indent 1, a final newline):
 
@@ -236,8 +237,10 @@ The acceptance record is JSON (UTF-8, indent 1, a final newline):
 Records are kept in the order they were made. Each has, in this order, `page`, `lens` (`owner` or
 `professional`), `verdict` (`accepted`, `changes` or `refused`), `sha256` (the page's when recorded),
 `professional` (the page's then, from `common.page_voice`), `contract_sha256` (the sha256 of its section's compiled
-contract then: the object `{reader, questions, fields, professionals}` from `wiki-schema.json`, or JSON `null` for
-a section without one, serialised with keys sorted, no spaces, UTF-8), `author_model` and `reviewer_model` (as
+contract then: the object `{reader, questions, fields}` from `wiki-schema.json`, the page contract as
+`wiki-maintenance` defines it, or JSON `null` for a section without one, serialised with keys sorted, no spaces,
+UTF-8; the section's list of professionals is left out, so naming another professional for another page of the
+section changes no page's standing), `author_model` and `reviewer_model` (as
 given, trimmed), `date` (`--date`, or the local time as `YYYY-MM-DDTHH:MM:SS+ZZZZ`) and `findings` (each `where`,
 `finding` and `response`; other keys dropped), then `facts_checked` when the reply carries it (kept as given) and
 `reason` on a refusal. A record of another shape, a record without `professional` or `contract_sha256` included,
@@ -247,12 +250,16 @@ fails loud in `check` and `accept`.
 refusal; `accepted` when both lenses' latest are `accepted` at the page's current sha256, under its current
 professional and contract sha256; otherwise `not recorded`, with why (`no verdict recorded`, a lens with `no
 verdict`, `changes asked`, `accepted an earlier version; the page changed since`, `accepted under an earlier
-contract or professional`, or, without a compiled Schema, `accepted, but not verified`). A page is accepted again
-after a change to its text, its contract or its professional, as the rule asks. `acceptance_pages` lists `[page,
-state, why]`; `acceptance_counts` counts each state, zero included; `acceptance` is `refused` when a page is,
-`accepted` when every page is, otherwise `not recorded`; `acceptance_records_for_no_page` lists the pages the
-record names that the wiki no longer holds (moved or removed; their records stay as they were made). None of it
-counts as a problem or makes the check pass, and a problem never unsets it.
+contract or professional`, or `accepted, but not verified: ` and why the page's professional cannot be read: the
+Schema missing or stale, or the page without a single professional, as `pages_without_single_professional` says).
+A page is accepted again after a change to its text, its contract or its professional, as the rule asks.
+`acceptance_pages` lists `[page, state, why]`; `acceptance_counts` counts each state, zero included; `acceptance`
+is `refused` when a page is, `accepted` when every page is, otherwise `not recorded`; `acceptance_not_verified`
+lists, sorted, every page whose acceptance cannot be verified, recorded or not, because its professional and
+contract cannot be read (no compiled Schema, a stale twin, or no single professional): read it rather than the
+wording of the why text; `acceptance_records_for_no_page` lists the pages the record names that the wiki no longer
+holds (moved or removed; their records stay as they were made). None of it counts as a problem or makes the check
+pass, and a problem never unsets it.
 
 ## Charts: `wiki.py chart`
 

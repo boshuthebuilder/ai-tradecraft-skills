@@ -106,7 +106,7 @@ def contract_digest(root, number):
     """The sha256 the acceptance record keeps for a section's contract, computed from the compiled twin."""
     ws = json.loads(read(os.path.join(root, ".familyai", "wiki-schema.json")))
     c = next(x for x in ws["contracts"] if x["number"] == number)
-    obj = {k: c[k] for k in ("reader", "questions", "fields", "professionals")}
+    obj = {k: c[k] for k in ("reader", "questions", "fields")}
     return hashlib.sha256(json.dumps(obj, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
                           .encode("utf-8")).hexdigest()
 
@@ -317,6 +317,7 @@ class CheckTest(Copy):
         self.assertEqual(res["acceptance"], "not recorded")
         self.assertEqual(res["acceptance_counts"], {"accepted": 0, "not recorded": 12, "refused": 0})
         self.assertEqual(res["acceptance_pages"][0], ["00 Index/00 Index.md", "not recorded", "no verdict recorded"])
+        self.assertEqual(res["acceptance_not_verified"], [])
 
     def test_each_defect_is_reported_once(self):
         names = [d[0] for d in DEFECTS]
@@ -391,6 +392,7 @@ class CheckTest(Copy):
         self.assertEqual(res["problems"], 0)
         for got in (res["pages_without_single_professional"], res["rationale"]["professional_not_named"]):
             self.assertTrue(got.startswith("not verified: no compiled Schema"), got)
+        self.assertEqual(len(res["acceptance_not_verified"]), 12)  # every page, and no problem
 
     def test_without_a_rationale_file(self):
         os.remove(os.path.join(self.root, RATIONALE))
@@ -704,7 +706,9 @@ class AcceptTest(Copy):
                  "an unknown verdict": dict(rec, verdict="accept"), "an extra key": dict(rec, colour="red"),
                  "no professional": {k: v for k, v in rec.items() if k != "professional"},
                  "a bad contract sha256": dict(rec, contract_sha256=None),
-                 "a refusal without its reason": dict(rec, verdict="refused")}
+                 "a refusal without its reason": dict(rec, verdict="refused"),
+                 "an empty professional": dict(rec, professional=" "),
+                 "a professional not text": dict(rec, professional=5)}
         for name, bad in cases.items():
             with self.subTest(case=name):
                 write(os.path.join(self.root, ACCEPTANCE), json.dumps({"version": 1, "records": [bad]}))
@@ -767,6 +771,48 @@ class AcceptTest(Copy):
         os.remove(os.path.join(self.root, ".familyai", "wiki-schema.json"))
         self.accept(TAX, "owner", code=2)  # a record names the page's professional, so a Schema is needed
 
+    def test_a_professional_added_for_another_page_changes_no_standing(self):
+        self.accept(TAX, "owner")
+        self.accept(TAX, "professional")
+        schema = self.page("90 Schema/90 Schema.md")
+        for old in ("| private banker; CFO; chartered tax adviser | active |",
+                    "| 20 Finance (private banker; CFO; chartered tax adviser) |"):
+            edit(schema, old, old.replace("chartered tax adviser", "chartered tax adviser; pensions adviser"))
+        edit(schema, "| 20 Finance/Tax.md |", "| 20 Finance/Pensions.md | pensions adviser | pension note | plain |\n"
+             "| 20 Finance/Tax.md |")
+        compile_schema(self.root, self.work)
+        ws = json.loads(read(os.path.join(self.root, ".familyai", "wiki-schema.json")))
+        self.assertIn("pensions adviser", ws["contracts"][1]["professionals"])
+        self.assertEqual(self.state(self.check(), TAX), ["accepted", "both lenses accepted this version"])
+
+    def test_why_an_acceptance_cannot_be_verified(self):
+        page = "20 Finance/20 Finance.md"
+        self.accept(page, "owner")
+        self.accept(page, "professional")
+        edit(self.page("90 Schema/90 Schema.md"),
+             "| 20 Finance/20 Finance.md | private banker | finance overview | measured |\n", "")
+        compile_schema(self.root, self.work)
+        res = self.check()
+        why = res["pages_without_single_professional"][0][1]
+        self.assertIn("list the page", why)
+        self.assertEqual((res["acceptance_not_verified"], res["problems"] - len(findings(res))), ([page], 0))
+        self.assertEqual(self.state(res, page), [
+            "not recorded", "owner lens: accepted, but not verified: %s; professional lens: accepted, but not "
+            "verified: %s" % (why, why)])
+
+    def test_a_lock_that_cannot_be_taken_is_named(self):
+        import errno
+        import fcntl
+        from unittest import mock
+        import common
+        out = os.path.join(self.tmp, "record", "wiki-acceptance.json")
+        with mock.patch.object(fcntl, "flock", side_effect=OSError(errno.ENOLCK, os.strerror(errno.ENOLCK))):
+            with self.assertRaises(common.ToolError) as caught:
+                wiki.append_record(common.Writer(None), out, {"page": TAX})
+        self.assertEqual(str(caught.exception), "cannot lock %s.lock: %s; use --out on a local disk"
+                         % (out, os.strerror(errno.ENOLCK)))
+        self.assertFalse(os.path.exists(out))
+
     def test_records_for_pages_that_moved(self):
         self.accept("30 Home/30 Home.md", "owner")
         moves = os.path.join(self.tmp, "map.json")
@@ -797,7 +843,8 @@ class AcceptTest(Copy):
         for date, code in (("2024-06-30", 0), ("2024-06-30T12:00", 0), ("2024-06-30T12:00:00+0100", 0),
                            ("2024-06-30T12:00:00Z", 0), ("2024-06-30T12:00:00+01:00", 0), ("2024-02-30", 2),
                            ("2024-06-30T25:00", 2), ("2024-06-30T12:00junk", 2), ("2024-06-30T", 2),
-                           ("20240630", 2), ("30/06/2024", 2)):
+                           ("20240630", 2), ("30/06/2024", 2), ("2024-06-30T12:60", 2), ("2024-06-30T12:00:60", 2),
+                           ("2024-06-30T12:00+25:00", 2), ("2024-06-30T12:00+01:60", 2)):
             with self.subTest(date=date):
                 self.accept(TAX, "owner", "a", "b", "--date", date, code=code)
 
