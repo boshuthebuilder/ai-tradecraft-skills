@@ -754,8 +754,10 @@ class MoveSafetyTest(Copy):
         self.assertIn("not a page path", self.refused("brief", "--page", "20 Finance/Tax\t.md"))
 
     def test_a_swap_takes_three_runs(self):
-        """Re-review 3: the README's swap, A to T, then B to A, then T to B; the old two-run recipe is refused."""
-        self.assertIn("(A to T, then B to A, then T to B)", read(os.path.join(TOOLS, "README.md")))
+        """Re-review 3: the tool reference's swap, A to T, then B to A, then T to B; the old two-run recipe is
+        refused."""
+        self.assertIn("(A to T, then B to A, then T to B)",
+                      read(os.path.join(TOOLS, "..", "references", "tools.md")))
         head = "---\nprovenance: derived\nlast-updated: 2024-06-30\nstatus: current\n---\n"
         write(self.page("30 Home/Bills.md"), head + "# Bills\n\n[Repairs](Repairs.md)\n")
         write(self.page("30 Home/Repairs.md"), head + "# Repairs\n\n[Bills](Bills.md)\n")
