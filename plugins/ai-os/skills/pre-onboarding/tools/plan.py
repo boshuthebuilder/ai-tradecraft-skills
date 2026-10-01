@@ -4,7 +4,7 @@
     plan.py light    --root R --out <plan dir>              propose a light-depth round (strays, name defects, redundant copies)
     plan.py migrate  --root R --project P --paths-file F --out <plan dir>   stage files for another project
     plan.py return   --root R --project P --paths-file F --out <plan dir>   bring staged files back
-    plan.py approve  --plan <csv> --rows 1-5,7 --note "..." [--decline]    record the owner's decision
+    plan.py approve  --plan <csv> --rows 1-5,7 --note "..." [--decline | --defer]   record the owner's decision
     plan.py rmdirs   --root R --plan <csv>                  add rows removing folders the approved moves empty
     plan.py check    --root R --plan <csv>                  dry-run every row, including delete rows
     plan.py execute  --root R --plan <csv> [--apply] [--phase deletes] [--bin DIR]
@@ -13,10 +13,11 @@
 The executor reads the approved plan; for delete rows it also re-verifies against the freshly re-audited manifest
 and the bytes on disk. Guards per row: both paths inside the folder, no symlinks on the path, source hash equals the
 row's evidence before the move and the destination's after it, never overwrite, an `rmdir` only when the folder
-holds nothing but `.DS_Store`, deletes only of copies the manifest marks `redundant` and only after every other
-approved row is done and the manifest was regenerated after them, deleted items moved to the Bin (never unlinked).
+holds nothing but `.DS_Store`, deletes only of copies the manifest marks `redundant`, never inside a pack, and only
+after every other approved row is done and the manifest was regenerated after them, deleted items moved to the Bin
+(never unlinked).
 Two-phase undo log: an `intent` line before each change and a `done` line with its reverse after. A failed row stops
-its domain.
+its domain. A `convert` row is the owner's or the deployment's: the executor names it, leaves it pending and goes on.
 """
 import csv
 import io
@@ -31,10 +32,12 @@ import common  # noqa: E402
 COLS = ["seq", "domain", "depth", "action", "from", "to", "evidence", "reason", "kind", "sweep", "needs_a_look",
         "approved", "approved_at", "status", "executed_at", "note"]
 IWORK = {".pages", ".numbers", ".key"}
+PACK_REFUSAL = "inside a pack: copies in a pack are never deleted"
 
 
 def read_plan(path):
-    rows = list(csv.DictReader(open(path, encoding="utf-8", newline="")))
+    with open(path, encoding="utf-8", newline="") as f:
+        rows = list(csv.DictReader(f))
     for r in rows:
         for c in COLS:
             r.setdefault(c, "")
@@ -51,7 +54,8 @@ def write_plan(writer, path, rows):
 
 
 def load_manifest(path):
-    m = json.load(open(path, encoding="utf-8"))
+    with open(path, encoding="utf-8") as f:
+        m = json.load(f)
     return m["entries"] if "entries" in m else m
 
 
@@ -114,8 +118,9 @@ def execute(a):
     bin_dir = os.path.abspath(a.bin or os.path.expanduser("~/.Trash"))
     failed_domains = set()
     man = None
+    in_pack = common.pack_matcher(root, common.load_rulebook(root, common.settings_dir_for(root, a.settings_dir)))
     if phase == "deletes":
-        others = [r for r in rows if r["approved"] == "approved" and r["action"] != "delete"]
+        others = [r for r in rows if r["approved"] == "approved" and r["action"] not in ("delete", "convert")]
         if any(r["status"] != "done" for r in others):
             raise common.ToolError("refusing deletes: approved non-delete rows are not all done")
         mpath = a.manifest or os.path.join(root, "_Audit", "manifest.json")
@@ -135,6 +140,9 @@ def execute(a):
         if r["approved"] != "approved" or r["status"] == "done":
             if r["approved"] != "approved" and r["status"] in ("", "pending", "proposed"):
                 r["status"] = "skipped"
+            continue
+        if r["action"] == "convert":
+            print("convert", r["from"], "-> not executed by these tools (the owner's or the deployment's)")
             continue
         if r["domain"] in failed_domains:
             r["status"], r["note"] = "skipped", "earlier row in this domain failed"
@@ -200,6 +208,8 @@ def execute(a):
             elif act == "delete":
                 if r["kind"] != "redundant":
                     raise ValueError("only redundant copies are deleted")
+                if in_pack(os.path.dirname(r["from"])):
+                    raise ValueError(PACK_REFUSAL)
                 e = man.get(r["evidence"])
                 if not e:
                     raise ValueError("evidence entry not in manifest")
@@ -246,10 +256,13 @@ def check(a):
     root = os.path.realpath(a.root)
     guard = Guard(root)
     man = load_manifest(a.manifest or os.path.join(root, "_Audit", "manifest.json"))
+    in_pack = common.pack_matcher(root, common.load_rulebook(root, common.settings_dir_for(root, a.settings_dir)))
     ok = bad = 0
     for r in read_plan(a.plan):
         try:
             if r["action"] == "delete":
+                if in_pack(os.path.dirname(r["from"])):
+                    raise ValueError(PACK_REFUSAL)
                 e = man[r["evidence"]]
                 kinds = {c["path"]: c["kind"] for c in e.get("copies", [])}
                 if r["kind"] != "redundant" or kinds.get(r["from"]) != "redundant":
@@ -300,6 +313,7 @@ def light(a):
     entries = load_manifest(a.manifest or os.path.join(root, "_Audit", "manifest.json"))
     live = {h: e for h, e in entries.items() if "departed" not in e.get("flags", [])}
     rb = common.load_rulebook(root, common.settings_dir_for(root, a.settings_dir))
+    in_pack = common.pack_matcher(root, rb)
     migr = rb["migrations_dir"]
     redundant, allpaths = {}, {}
     for h, e in live.items():
@@ -334,6 +348,8 @@ def light(a):
             rows.append(new_row(domain=domain_of(old), action="rename", **{"from": old + "/"}, to=new + "/",
                                 reason="name defect: folder name ends with a space (%d files inside)" % n, sweep="no"))
     for p, h in sorted(redundant.items()):
+        if in_pack(os.path.dirname(p)):
+            continue
         canon = next(c["path"] for c in live[h]["copies"] if c["kind"] == "canonical")
         rows.append(new_row(domain=domain_of(p), action="delete", **{"from": p}, evidence=h, kind="redundant",
                             reason="accidental copy; identical bytes kept at " + canon))
@@ -344,7 +360,8 @@ def light(a):
 
 
 def read_paths(path):
-    return [l.rstrip("\n") for l in open(path, encoding="utf-8") if l.strip() and not l.startswith("#")]
+    with open(path, encoding="utf-8") as f:
+        return [l.rstrip("\n") for l in f if l.strip() and not l.startswith("#")]
 
 
 def migrate(a):
@@ -387,11 +404,7 @@ def return_(a):
             continue
         rows.append(new_row(domain="Migrations", action="move", **{"from": src}, to=item, evidence=where[src][0],
                             reason=a.reason or "stays in this folder"))
-    staged = [p for p in where if p.startswith(base)]
-    if staged and all(p in {r["from"] for r in rows} for p in staged):
-        rows.append(new_row(domain="Migrations", action="rmdir", **{"from": base},
-                            reason="emptied: everything else was collected"))
-    return _write_round(a, root, rows, review)
+    return _write_round(a, root, rows, review)       # `rmdirs` proposes the emptied folder once these are approved
 
 
 def _write_round(a, root, rows, review):
@@ -418,14 +431,15 @@ def approve(a):
     rows = read_plan(a.plan)
     want = parse_rows(a.rows) if a.rows != "all" else {int(r["seq"]) for r in rows}
     t = common.now_local()
+    decision = "declined" if a.decline else "deferred" if a.defer else "approved"
     for r in rows:
         if int(r["seq"]) in want:
-            r["approved"] = "declined" if a.decline else "approved"
+            r["approved"] = decision
             r["approved_at"] = t
-            r["status"] = "skipped" if a.decline else "pending"
+            r["status"] = "pending" if decision == "approved" else "skipped"
             r["note"] = a.note
     write_plan(common.Writer(), a.plan, rows)
-    print(len(want), "rows", "declined" if a.decline else "approved")
+    print(len(want), "rows", decision)
     return 0
 
 
@@ -471,14 +485,18 @@ def rmdirs(a):
 
 
 def prove(a):
-    """Re-audit proof: the change in (path, hash) pairs between the two manifests must equal the executed moves."""
+    """Re-audit proof: the change in (path, hash) pairs between the two manifests must equal the executed rows. A
+    move or rename takes its pair from `from` to `to` (a folder rename carries every path under it), a delete takes
+    its pair away; `rmdir` and `create` rows change no (path, hash) pair."""
     def pairs(entries):
         return {(p, h) for p, (h, _k, _o) in live_paths(entries).items()}
-    done = [r for r in read_plan(a.plan) if r["action"] in ("move", "rename") and r["status"] == "done"]
+    plan_rows = read_plan(a.plan)
+    done = [r for r in plan_rows if r["action"] in ("move", "rename") and r["status"] == "done"]
+    deleted = [r for r in plan_rows if r["action"] == "delete" and r["status"] == "done"]
     rows = [r for r in done if not r["from"].endswith("/")]
     folders = [(r["from"], r["to"]) for r in done if r["from"].endswith("/")]
     before, after = pairs(load_manifest(a.before)), pairs(load_manifest(a.after))
-    exp_gone = {(r["from"], r["evidence"]) for r in rows}
+    exp_gone = {(r["from"], r["evidence"]) for r in rows + deleted}
     exp_new = {(r["to"], r["evidence"]) for r in rows}
     for old, new in folders:              # a folder rename carries every path under it
         for p, h in before:
@@ -492,7 +510,7 @@ def prove(a):
         "new_unexpected": sorted(map(list, new - exp_new)),
         "gone_missing": sorted(map(list, exp_gone - gone)),
         "new_missing": sorted(map(list, exp_new - new)),
-        "rows_checked": len(done),
+        "rows_checked": len(done) + len(deleted),
     }
     res["ok"] = not any(res[k] for k in ("gone_unexpected", "new_unexpected", "gone_missing", "new_missing"))
     print(json.dumps(res, ensure_ascii=False, indent=1))
@@ -525,7 +543,9 @@ def main():
     p.add_argument("--plan", required=True)
     p.add_argument("--rows", required=True, help="e.g. 1-5,7 or all")
     p.add_argument("--note", default="")
-    p.add_argument("--decline", action="store_true")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--decline", action="store_true")
+    g.add_argument("--defer", action="store_true", help="record the rows as deferred: not this round")
     p = with_root(sub.add_parser("rmdirs"))
     p.add_argument("--plan", required=True)
     p.add_argument("--approve-note", help="approve the added rows with this note (the owner already agreed)")

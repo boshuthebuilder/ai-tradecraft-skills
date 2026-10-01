@@ -155,7 +155,8 @@ def iwork_text(path):
             for r, _, fs in os.walk(os.path.join(path, "Index")):
                 for f in fs:
                     if f.endswith(".iwa"):
-                        blobs.append((os.path.relpath(os.path.join(r, f), path), open(os.path.join(r, f), "rb").read()))
+                        with open(os.path.join(r, f), "rb") as fh:
+                            blobs.append((os.path.relpath(os.path.join(r, f), path), fh.read()))
     else:
         z = zipfile.ZipFile(path)
         blobs = [(n, z.read(n)) for n in z.namelist() if n.endswith(".iwa")]

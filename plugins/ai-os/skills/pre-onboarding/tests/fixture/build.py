@@ -573,8 +573,8 @@ French to B1 and a Chinese intermediate certificate, 2023 to 2024.
                    {"name": "Robin Example", "also": ["Robin"], "who": "Alex's partner"},
                    {"name": "Robin Trading Ltd", "also": [], "who": "Alex's employer"}],
         "identifiers": "stated", "boundaries": [], "folder_description": "Alex Example's personal papers: identity, "
-        "money, home and language study.", "exclude": [], "keep_empty_folders": True}, ensure_ascii=False,
-        indent=1))
+        "money, home and language study.", "exclude": [], "keep_empty_folders": True,
+        "ocr_languages": ["zh-Hans", "zh-Hant", "en-GB", "fr-FR"]}, ensure_ascii=False, indent=1))
 
 
 if __name__ == "__main__":
