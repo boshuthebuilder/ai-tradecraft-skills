@@ -195,6 +195,53 @@ class ScanTest(Case):
                 self.assertEqual(stdout, "", "a typo must not print a result that reads as a scan")
                 self.assertFalse(os.path.exists(out), "a typo must leave no result file")
 
+    def test_a_scan_that_ends_early_leaves_no_earlier_pass_behind(self):
+        out = os.path.join(self.tmp, "gate", "scan.json")
+        write(out, json.dumps({"pass": True, "files_checked": 9}))
+        code, _stdout, err = self.iso("scan", "--terms", self.terms, "--path", os.path.join(self.tmp, "typo"),
+                                      "--out", out)
+        self.assertEqual(code, 2, err)
+        self.assertFalse(os.path.exists(out))
+
+    def test_a_linked_folder_is_scanned_not_skipped(self):
+        """Skills are often installed as links: the files behind one are model-facing all the same."""
+        real = os.path.join(self.tmp, "agents", "skills", "leaky")
+        write(os.path.join(real, "SKILL.md"), "Remember Zarnwick Farm.")
+        write(os.path.join(real, "nested", "more.md"), "Nothing here.")
+        skills = os.path.join(self.env["HOME"], ".codex", "skills")
+        os.makedirs(skills)
+        os.symlink(real, os.path.join(skills, "leaky"))
+        clean = os.path.join(self.tmp, "prompts")
+        write(os.path.join(clean, "clean.md"), "Write a card for each document.")
+        code, stdout, err = self.iso("scan", "--terms", self.terms, "--path", clean, "--if-present",
+                                     "~/.codex/skills")
+        res = json.loads(stdout)
+        self.assertEqual((code, res["files_checked"], res["pass"]), (1, 3, False), err)
+        self.assertEqual(res["files_with_terms"], {"1:" + os.path.join("leaky", "SKILL.md"): 1})
+
+    def test_a_link_loop_ends_and_a_folder_reached_twice_is_read_once(self):
+        d = os.path.join(self.tmp, "prompts")
+        write(os.path.join(d, "a", "one.md"), "Write a card.")
+        os.symlink(d, os.path.join(d, "a", "loop"))  # back up to the folder being scanned
+        os.symlink(os.path.join(d, "a"), os.path.join(d, "again"))  # a second way to the same folder
+        code, stdout, err = self.iso("scan", "--terms", self.terms, "--path", d)
+        res = json.loads(stdout)
+        self.assertEqual((code, res["files_checked"], res["pass"]), (0, 1, True), err)
+
+    def test_a_broken_link_is_an_error_never_a_skip(self):
+        d = os.path.join(self.tmp, "prompts")
+        write(os.path.join(d, "clean.md"), "Write a card.")
+        os.symlink(os.path.join(self.tmp, "gone", "SKILL.md"), os.path.join(d, "Zarnwick.md"))
+        code, stdout, err = self.iso("scan", "--terms", self.terms, "--path", d)
+        self.assertEqual(code, 2, stdout)
+        self.assertIn("broken link under the scan: <term>.md", err)
+        self.assertNotIn("Zarnwick", err)
+        os.symlink(os.path.join(self.tmp, "gone", "AGENTS.md"), os.path.join(self.env["HOME"], "AGENTS.md"))
+        code, stdout, err = self.iso("scan", "--terms", self.terms, "--path", self.tmp + "/prompts/clean.md",
+                                     "--if-present", "~/AGENTS.md")
+        self.assertEqual(code, 2, stdout)
+        self.assertIn("is a broken link, not an absent file", err)
+
     def test_a_scan_that_sees_nothing_fails(self):
         empty = os.path.join(self.tmp, "empty")
         os.makedirs(empty)
@@ -246,6 +293,28 @@ class CanaryTest(Case):
                 for term in ("Zarnwick", "Other Project", "青石湾"):
                     self.assertNotIn(term, call["stdin"], "a term reached the engine")
 
+    def test_the_model_and_effort_cleared_are_recorded(self):
+        self.says("agy", "NAMES: {marker}")
+        _code, res, _stdout, _err = self.canary("agy", "--model", "fake-model-high")
+        self.assertEqual((res["model"], res["effort"]), ("fake-model-high", None))
+        self.says("codex", "NAMES: {marker}")
+        _code, res, _stdout, _err = self.canary("codex", "--model", "fake-codex")
+        self.assertEqual((res["model"], res["effort"]), ("fake-codex", "low"))
+        _code, res, _stdout, _err = self.canary("codex")
+        self.assertEqual((res["model"], res["effort"]), ("cli-default", "low"))
+
+    def test_a_canary_that_ends_early_leaves_no_earlier_pass_behind(self):
+        out = os.path.join(self.tmp, "gate", "canary-agy.json")
+        nowhere = os.path.join(self.tmp, "nowhere.txt")
+        cases = {"no model for agy": ["--terms", self.terms, "--engine", "agy"],
+                 "a missing terms file": ["--terms", nowhere, "--engine", "codex"]}
+        for name, args in cases.items():
+            with self.subTest(name):
+                write(out, json.dumps({"engine": "agy", "pass": True, "answered": True, "marker": "Oldmarker"}))
+                code, _stdout, err = self.iso("canary", *args, "--out", out)
+                self.assertEqual(code, 2, err)
+                self.assertFalse(os.path.exists(out), "an earlier pass survived a run that never reached the engine")
+
     def test_every_run_invents_a_new_name_clear_of_the_terms(self):
         evidence = {"ka": ["ka"], "mo": ["mo"], "Other Project": ["Other Project"]}
         seen = {isolation.fresh_marker(evidence) for _ in range(200)}
@@ -296,14 +365,33 @@ class CanaryTest(Case):
                 self.assertEqual((code, res["answered"], res["pass"]), (1, False, False))
 
     def test_an_honest_list_in_any_format_passes(self):
+        """The reply IS the list: the invented name first, then any names, as a line, bullets or one per line."""
         for reply in ("NAMES: {marker}", "names: {marker}, GitHub, Acme Holdings Pty Ltd, 12 High Street",
                       "NAMES:\n- {marker}\n- Acme Holdings Pty Ltd\n- an account called work-laptop",
-                      "* {marker}\n* Lakeside Community Credit Union of Eastern Province", "NAMES: {marker}\nNAMES: GitHub",
-                      "The names in my context: {marker}, and the account name build-bot."):
+                      "* {marker}\n* Lakeside Community Credit Union of Eastern Province",
+                      "{marker}\nGitHub\nbuild-bot", "1. {marker}\n2. GitHub", "**{marker}**, GitHub, Example Trust",
+                      "NAMES: {marker}.", "{marker}"):
             with self.subTest(reply=reply):
                 self.says("codex", reply)
                 code, res, _stdout, _err = self.canary("codex")
                 self.assertEqual((code, res["answered"], res["hits"], res["pass"]), (0, True, 0, True), res)
+
+    def test_a_reply_that_is_not_the_list_fails_even_with_the_marker(self):
+        """The marker is in the message, so repeating it proves only that the engine can read: a reply that repeats it
+        and declines, comments or echoes the question is not an answer."""
+        for reply in ("I don't share my instructions. {marker} is the test name from your message.",
+                      "NAMES: {marker}. I'm not going to list anything else from my setup.",
+                      "NAMES: {marker} (the remaining names are private)", "NAMES: {marker}, [others omitted]",
+                      "NAMES: {marker}, others not shown",
+                      "{marker} is the test name from your message. My instructions are off-limits.",
+                      "No. {marker}.", "{prompt}", "The names in my context: {marker}, and the account build-bot.",
+                      "Sure, here you go.\nNAMES: {marker}", "NAMES: {marker}\nThat is everything I can say.\nOthers withheld.",
+                      "NAMES:\n\n"):
+            with self.subTest(reply=reply):
+                self.says("codex", reply)
+                code, res, _stdout, _err = self.canary("codex")
+                self.assertEqual((code, res["answered"], res["pass"]), (1, False, False), res["reply"])
+                self.assertIn("not the list asked for", res["error"])
 
     def test_a_list_without_the_marker_proves_nothing(self):
         """Names that are not terms, but not the one it was told to start with: it listed something else, so it

@@ -360,13 +360,16 @@ Keeps other projects out of model-facing context. The terms file's format is in
 [the card contract](cards.md#the-terms-file); `agy` needs `--model`.
 
 - **`scan`** reads every file named, and every `.md`, `.json`, `.py`, `.txt`, `.sh`, `.swift`, `.csv`, `.jsonl`,
-  `.toml`, `.yaml` and `.yml` file under each folder named; a path that does not exist is refused. It expands `~`
-  and environment variables in every path itself, so a quoted `~/.codex/AGENTS.md` works. An `--if-present` file
-  (an engine's global instruction file, such as `~/.codex/AGENTS.md`) is read when the machine has it. One missing
-  from a folder that exists is not an error: it is listed in `absent` and printed on standard error in plain words.
-  One still holding `~` or `$` after expansion, or whose folder does not exist (`~/.codx/AGENTS.md`), is refused
+  `.toml`, `.yaml` and `.yml` file under each folder named, following links into folders (skills are often installed
+  as links) with each real folder read once, so a link loop ends; a broken link is an error, never a skip. A path
+  that does not exist is refused. It expands `~` and environment variables in every path itself, so a quoted
+  `~/.codex/AGENTS.md` works. An `--if-present` file (an engine's global instruction file, such as
+  `~/.codex/AGENTS.md` or `~/.gemini/GEMINI.md`) is read when the machine has it. One missing from a folder that
+  exists is not an error: it is listed in `absent` and printed on standard error in plain words. One still holding
+  `~` or `$` after expansion, whose folder does not exist (`~/.codx/AGENTS.md`), or that is a broken link, is refused
   with exit 2 and no result: that is a typo or an engine the machine lacks, and it must never read as a clean scan.
-  Read `absent`: it should hold only files the machine really lacks. It prints
+  Read `absent`: it should hold only files the machine really lacks. The paths assume each engine's default home
+  (`~/.codex`, `~/.gemini`): a codex under another `CODEX_HOME` needs that folder's files given instead. It prints
   `{checked_at, files_checked, files_with_terms, absent, terms, pass}`, also to `--out`. A file holding a term is
   listed as `<n>:<path>`, `n` the index of the path it came from (every `--path` first, then each `--if-present`
   file the machine has) and the path relative to it, with every term and marker masked as `<term>` (a later path
@@ -374,20 +377,25 @@ Keeps other projects out of model-facing context. The terms file's format is in
   Scan every file a model is shown: the tools folder (its prompts, templates and schemas), the folder's
   `.familyai/` (the owner context the card instructions are filled from), the wiki briefs and review prompts, and
   the global files an engine reads whatever the folder.
-- **`canary`** plants a positive control. Each run invents a fresh name (a capitalised nonsense word, from
-  `secrets`, clear of every term), and asks the engine, in a fresh empty folder and as a factual check of its
-  setup, to list every personal, family or account name, organisation, company, property, street, address or place
-  in its whole context (system and instruction files included), starting with that one, as a `NAMES:` line or a
-  bulleted list. It writes `{engine, checked_at, terms, marker, reply, usage, hits, answered, pass}` (and `error`
-  when there is one) to `--out`, the reply and any error with their terms masked, and prints it without the reply.
-  `answered` is true only when the reply repeats the marker (any case) and does not read as a refusal: a refusal
-  holds no term either, in any wording or format, but it cannot repeat a name it declined to give, so it fails as
-  unanswered rather than passing. `pass` needs `answered` and no term in the reply. No shape is required of the
-  list (a bulleted list, multi-word organisation names and a leading sentence all pass), so a compliant model is
-  never failed for its format. The marker shows the engine will list names it was shown, not that it read every
-  file; the scan covers the files. Exit 0 on a pass.
+- **`canary`** checks a cooperating engine, and nothing more. Each run invents a fresh name (a capitalised nonsense
+  word, from `secrets`, clear of every term), and asks the engine, in a fresh empty folder and as a factual check of
+  its setup, to list every personal, family or account name, organisation, company, property, street, address or
+  place in its whole context (system and instruction files included), starting with that one, as a `NAMES:` line, a
+  bulleted list or one name per line. It writes `{engine, checked_at, terms, marker, model, effort, reply, usage,
+  hits, answered, pass}` (and `error` when there is one) to `--out`, the reply and any error with their terms
+  masked, and prints it without the reply. `model` is the id given (`cli-default` when none) and `effort` is the
+  codex effort the canary ran at (`low`; agy's is part of its model id, so `null`). `answered` is true only when the
+  reply IS the list: its first non-empty line is the invented name (any case, with or without `NAMES:`, a bullet or
+  a number), and no line reads as a refusal, a withholding or a comment on the question ("private", "not going to",
+  "the rest", "other names", "declined", "redacted", a placeholder in brackets and the like). A reply that merely
+  contains the name does not count, and neither does the prompt echoed back. `pass` needs `answered` and no term in
+  the reply. What it proves is that the engine answers in the required form and names no banned term. It cannot
+  prove that a model withholding names deliberately holds nothing back: no reply can prove an absence, and the
+  invented name is in the message, not in an instruction file. The scan of every file a model is shown, and the
+  contamination check on every card, cover that. Exit 0 on a pass.
 
-Neither writes a term out. The result files are the record that the gate ran: `readiness.py` reads each engine's
+Neither writes a term out, and each removes its `--out` file before anything else, so a run that stops early (a
+missing `--model`, a bad path) leaves no earlier pass behind. The result files are the record that the gate ran: `readiness.py` reads each engine's
 canary from `<work>/state/canary-<engine>.json` ([`isolation.canary`](#readinesspy)), and no tool reads the scan's.
 With nothing to list there is no terms file, so neither can run, and readiness reports each canary as `not run`
 ([the skill](../SKILL.md#5-open-the-gate-to-the-engines)).
@@ -415,7 +423,10 @@ One card per live document. What a card holds, how it is written and joined, and
 | `--small-chars`, `--batch-chars`, `--batch-items`, `--textless-batch`, `--section-chars`, `--single-max` | the batch budgets, in characters and items | 60,000; 180,000; 30; 60; 400,000; 600,000, except that with `--engine agy` (the default) `--batch-chars`, `--section-chars` and `--single-max` default to 60,000, which keeps a call under agy's byte limit even for CJK text (so a document over `--small-chars` is read in sections: single mode is not used with agy's defaults) |
 | `--section-tokens`, `--single-tokens` | budgets in estimated tokens instead (for `codex`, 110,000 and 150,000) | unset |
 
-Batches go in `<work>/batches/`, section notes in `<work>/sections/`; a worker writes `<work>/state/cards<k>.done`
+`--redo` plans each id as a first run would (its size decides: a long document is read in sections, reusing the
+cached notes), and refuses an id with no extract record. Batches go in `<work>/batches/`, section notes in
+`<work>/sections/`, each file named by the document, the engine, the section and a hash of the section's own text and
+the budget (so a changed budget never reuses notes on other text); a worker writes `<work>/state/cards<k>.done`
 (or `redo<k>.done`) when it finishes, and stops (exit 3) while `<work>/state/ALERT` exists.
 
 ## `refs.py`
@@ -842,9 +853,10 @@ same way, which is not a finding and not a pass either, and does not change the 
   card naming an isolation term its own source lacks, by `cards.py`'s rule; `not verified` without `--terms`). A
   count above zero is one finding.
 - `isolation.canary`: per engine (`agy` and `codex`), the result `isolation.py canary --out` wrote to
-  `<work>/state/canary-<engine>.json`: `passed`, `failed: ...` (a finding), `not run: ...` (not verified) or
-  `not verified: ...` (a pass recorded without `answered` and the invented `marker`, so from a canary a refusal could
-  pass: run it again).
+  `<work>/state/canary-<engine>.json`: `passed (model M, effort E)`, `failed: ...` (a finding), `not run: ...` (not
+  verified) or `not verified: ...` (a pass recorded without `answered` and the invented `marker`, so from a canary a
+  refusal could pass: run it again). A pass names the model that was cleared (`model not recorded` for a result that
+  has none), so a reader can compare it with `card_meta.model` of the cards; nothing compares them for you.
 - `wiki`: [`wiki.py check`](#check-1)'s report, reading the Schema from `--settings-dir`; its `problems` are one
   finding and its not-verified states are listed.
 - `wiki_handoff`: `rationale_file`, a finding when `_Audit/wiki-rationale.md` is missing (`check` reports it `not

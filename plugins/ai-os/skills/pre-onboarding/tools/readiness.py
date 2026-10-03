@@ -14,7 +14,8 @@ pass either, and the operator reads it.
   names the repair, `extract.py repath`), and no card names an isolation term its own source lacks (not verified
   without --terms). A count above zero is one finding;
 - isolation: per engine, the canary result `isolation.py canary --out` wrote to `<work>/state/canary-<engine>.json`:
-  `passed`, `failed: ...` (a finding), `not run: ...` (not verified) or `not verified: ...` (a pass recorded without
+  `passed (model M, effort E)`, naming the model that was cleared, to compare with the model the cards ran on,
+  `failed: ...` (a finding), `not run: ...` (not verified) or `not verified: ...` (a pass recorded without
   the invented name the canary now plants, so one from an earlier canary, which a refusal could pass: run it again);
 - wiki: `wiki.py check`, as it reports; its problems are one finding, its not-verified states are listed;
 - wiki_handoff: the rationale file exists (`check` does not count it missing, since drafting agents run `check`
@@ -339,7 +340,8 @@ def canary(work, engine):
         if res.get("answered") is not True or not res.get("marker"):
             return ("not verified: %s records a pass without the invented name a canary now plants, so it may be from "
                     "a canary a refusal could pass; run isolation.py canary again" % rel)
-        return "passed"
+        effort = res.get("effort")  # agy's is in its model id; the cards' model is `card_meta.model`, to compare by eye
+        return "passed (model %s%s)" % (res.get("model", "not recorded"), ", effort %s" % effort if effort else "")
     if "reply" in res and res.get("answered") is not False:
         why = "%s isolation term(s) in the engine's reply" % res.get("hits")
     else:  # no reply at all, or one in neither of the canary's forms (a refusal): the reason is the error

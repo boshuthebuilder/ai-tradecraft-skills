@@ -203,22 +203,33 @@ Before any model reads this folder:
 
     python3 <tools>/isolation.py scan   --terms <terms file> --path <tools> --path "<folder>/.familyai" \
         --if-present ~/.codex/AGENTS.md --if-present ~/.codex/AGENTS.override.md --if-present ~/.codex/skills \
-        --out <work>/state/scan.json
+        --if-present ~/.gemini/GEMINI.md --out <work>/state/scan.json
     python3 <tools>/isolation.py canary --terms <terms file> --engine <engine> --model <model> \
         --out <work>/state/canary-<engine>.json
 
 `scan` checks every file a model will be shown (the tools' prompts and templates, and the settings the card
 instructions are filled from) for the terms, and exits 1 on any hit or when it found nothing to check; scan the wiki
 briefs and review prompts the same way before a model reads them (step 7). The `--if-present` lines are the global
-files codex reads whatever the folder (drop them on a machine without codex, and add `~/.agents/skills` where that
-folder exists): a file the machine lacks is skipped and listed in the result's `absent` and on stderr, so read
-`absent` and check it holds only files the machine really lacks. `scan` expands `~` and variables itself, and stops
-with an error on a path that still holds one, or whose folder does not exist: that is a typo, and a typo must never
-read as a clean scan. `canary` plants an invented name in the engine's context, asks it to list every name it holds
-starting with that one, and fails on any term; a reply that does not repeat the invented name (recorded as
-`marker`) proves nothing, so it fails as unanswered. Run it for each engine you will use, with the `--model` the cards
-will use: models of one engine answer differently, and some refuse the question outright, which fails the canary. A
-model that refuses cannot be cleared for this folder, so card with one that answers. Keep both results: they are the record
+files each engine reads whatever the folder: codex's under `~/.codex` (add `~/.agents/skills` where that folder
+exists) and agy's `~/.gemini/GEMINI.md`. They assume each engine's default home: a codex installed under another
+`CODEX_HOME` needs the files in that folder given instead. Drop the lines of an engine this machine lacks, since a
+missing `~/.codex` or `~/.gemini` is an error, as a typo would be. A file missing from a folder the machine has is
+skipped and listed in the result's `absent` and on stderr, so read `absent` and check it holds only files the machine
+really lacks. `scan` expands `~` and variables itself, follows links into folders (skills are often links; a broken
+one is an error, never a skip), and stops with an error on a path that still holds `~` or `$`, or whose folder does
+not exist: that is a typo, and a typo must never read as a clean scan.
+
+`canary` checks a cooperating engine: it plants an invented name in the engine's context, asks the engine to list
+every name it holds starting with that one, and passes only a reply that is that list (the invented name first,
+nothing that reads as a refusal, a withholding or a comment) with no term in it. The invented name is recorded as
+`marker`. It cannot prove that a model withholding names deliberately holds nothing back; no reply can prove an
+absence. The scan above, and the contamination check on every card, cover that. Run the canary for each engine you
+will use, with the `--model` the cards will use: models of one engine answer differently, and some refuse the
+question outright, which fails the canary. A model that refuses cannot be cleared for this folder, so card with one
+that answers. The result records the `model` and `effort` that were cleared, and `readiness.py` names them: compare
+them with the model the cards ran on (`card_meta.model`). A codex `--light-model` and the vision model are not
+covered by the engine's one result. Each command clears its `--out` file before it starts, so a run that stops early
+leaves no earlier pass behind. Keep both results: they are the record
 that the gate ran, and `readiness.py` reads each engine's canary from `<work>/state/canary-<engine>.json` (step 8).
 No lane reads them, so never start one without passing ones. A failure means the engine's context carries another
 project: fix its setup ([engine isolation](#engine-isolation)) and run the canary again.
@@ -243,8 +254,10 @@ records (run it again if it reports records still waiting), and `cards.py work` 
 document. What a card holds, how the answers are joined to their documents and how each card is checked against
 the terms are [the card contract](references/cards.md). A card that names a term its own document does not carry writes
 `<work>/state/ALERT` and stops every worker: find where the term came from before you remove the file. A document
-that could not be carded is listed as `<work>/state/card_err_<id>.txt`; list those ids in a file and run
-`cards.py work` with `--redo <file>` once the cause is fixed.
+that could not be carded is listed as `<work>/state/card_err_<id>.txt` (for a long one, naming each section that could
+not be read: no card is written from the rest); list those ids in a file and run `cards.py work` with `--redo <file>`
+once the cause is fixed. A redo sends a document as a first run would, a long one in sections, and reuses the notes
+already cached, so only the section that failed is read again; the `card_err_` file goes when the card is written.
 
 **Prefer a deterministic repair to re-running a model.** When a card is wrong in a way its own source settles,
 repair it with a tool: a re-run costs quota, and can break what was right. `refs.py --root "<folder>"` counts the
@@ -371,10 +384,14 @@ isolation comes from what each call is given and what it is denied:
   measure, and until then it is a cautious figure under the one case seen.
 
 The canary checks the isolation before the first call (step 5), and the contamination guard after, on every card.
-The canary plants an invented name and passes only a reply that repeats it: a model that refuses to list its
-context holds no term either, whatever the wording or the format of the refusal, but it cannot repeat a name it
-refused to give. The invented name shows the engine will list names it was shown, not that it read every file, so
-the scan of the files each engine reads stays part of the gate.
+Three layers hold the rule, and each covers what the others cannot:
+
+- **The canary** checks a cooperating engine: that it answers the question in the required form (an invented name
+  first, as a list), and that its answer names no banned term. It cannot prove that a model withholding names
+  deliberately holds nothing back: no reply can prove an absence, and the invented name is in the message, not in an
+  instruction file.
+- **The scan** reads every file a model is shown, including the global files each engine reads.
+- **The contamination check** reads every card, against its own source.
 
 ## Identifiers
 

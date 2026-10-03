@@ -181,12 +181,18 @@ class GreenTest(Prepared):
     def test_terms_and_passing_canaries_leave_nothing_unverified(self):
         terms = os.path.join(self.tmp, "terms.txt")
         write(terms, TERMS)
-        for engine in ("agy", "codex"):
-            self.canary(engine, reply="NAMES: Kobelumi", hits=0, usage={}, answered=True, marker="Kobelumi",
-                        **{"pass": True})
+        self.canary("agy", reply="NAMES: Kobelumi", hits=0, usage={}, answered=True, marker="Kobelumi",
+                    model="gemini-fake-high", effort=None, **{"pass": True})
+        self.canary("codex", reply="NAMES: Kobelumi", hits=0, usage={}, answered=True, marker="Kobelumi",
+                    model="gpt-fake", effort="low", **{"pass": True})
         res = self.readiness("--terms", terms, code=0)
         self.assertEqual((res["not_verified"], res["records"]["contamination"]), ([], 0))
-        self.assertEqual(res["isolation"], {"canary": {"agy": "passed", "codex": "passed"}})
+        self.assertEqual(res["isolation"], {"canary": {"agy": "passed (model gemini-fake-high)",
+                                                       "codex": "passed (model gpt-fake, effort low)"}})
+        self.canary("agy", reply="NAMES: Kobelumi", hits=0, usage={}, answered=True, marker="Kobelumi",
+                    **{"pass": True})  # from a canary that recorded no model
+        self.assertEqual(self.readiness("--terms", terms, code=0)["isolation"]["canary"]["agy"],
+                         "passed (model not recorded)")
 
     def test_settings_outside_the_folder(self):
         """The wiki check reads the Schema from --settings-dir too, so its professional checks are verified."""

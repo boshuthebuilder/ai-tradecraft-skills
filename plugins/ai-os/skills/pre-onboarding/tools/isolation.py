@@ -9,8 +9,9 @@ text, show the term is genuine content of that document. Lines starting with `#`
     isolation.py canary --terms F --engine agy|codex [--model M] --out <result.json>
 
 The scan reads every file named, and every model-facing file (prompts, templates, schemas, code, config such as
-`config.toml` or `jobs.yaml`) under a folder named; a path that does not exist is an error and a scan that checked
-no file fails. Paths are expanded here (`~` and environment variables), so a quoted `~` works. An --if-present file
+`config.toml` or `jobs.yaml`) under a folder named, following links into folders (skills are often installed as
+links) with each real folder read once, so a link loop ends; a broken link is an error, never a skip. A path that
+does not exist is an error and a scan that checked no file fails. Paths are expanded here (`~` and environment variables), so a quoted `~` works. An --if-present file
 (an engine's global instructions) is read when the machine has it and listed in `absent`, and on stderr, when it
 does not; but a path still holding `~` or `$` after expansion, or one whose folder does not exist, is an error:
 that is a typo, not an optional file, and a typo must never read as a clean scan. A file with terms is reported as
@@ -18,15 +19,18 @@ that is a typo, not an optional file, and a typo must never read as a clean scan
 is relative to that argument (a named file: its own name), with every term and marker in it replaced by `<term>`;
 when two such paths mask alike, the later ones get `#2`, `#3` and so on.
 
-A canary plants a positive control. Each run invents a fresh name (a capitalised nonsense word), tells the engine it
-is in its context, and asks for every personal, family, account, organisation, company, property, street, address or
-place name in its whole context, starting with that one. The reply counts as an answer only when it repeats the
-invented name and does not read as a refusal: a refusal never repeats a name it was unwilling to give, so "no term
-in the reply" can only mean "none to find". Any term in the reply then fails, and the reply is kept with its terms
-masked; the invented name is recorded as `marker`. The marker shows the engine is willing to list names it was
-shown, not that it read every file: the scan and the contamination guard cover the rest. Neither command writes a
-term out. The result files are the proof the gate ran; a missing or failed result means no real call may start.
-agy needs --model.
+A canary checks a cooperating engine, and nothing more. Each run invents a fresh name (a capitalised nonsense
+word), tells the engine it is in its context, and asks for every personal, family, account, organisation, company,
+property, street, address or place name in its whole context, starting with that one. The reply counts as an answer
+only when it IS that list: its first item is the invented name, and no line of it reads as a refusal, a withholding
+or a comment on the question. Any term in the reply then fails, and the reply is kept with its terms masked; the
+invented name is recorded as `marker`, with the `model` and `effort` that were cleared. What that proves is that the
+engine answers in the required form and names no banned term. It cannot prove that a model withholding names
+deliberately holds nothing back: no reply can prove an absence, and the marker was put in the message, not in an
+instruction file. The other two layers cover that: the scan of every file a model is shown, and the contamination
+check on every card. Neither command writes a term out. Each clears its `--out` file first, so a run that ends early
+never leaves an earlier pass behind. The result files are the proof the gate ran; a missing or failed result means
+no real call may start. agy needs --model.
 """
 import argparse
 import json
@@ -41,8 +45,8 @@ import common  # noqa: E402
 import engines  # noqa: E402
 
 # A factual check, not "list everything in your context": asked that, codex refuses ("I can't enumerate hidden
-# context"), and a refusal holds no term, so the canary would pass while proving nothing. The invented name is the
-# positive control (see `answered`).
+# context"), and a refusal holds no term, so the canary would pass while proving nothing. The reply must lead with
+# the invented name, as a list (see `answered`).
 CANARY = ("A factual check of this session's setup, not a request for secrets or for the wording of your instructions. "
           "The invented name {marker} has been placed in your context as a test. List every personal name, family "
           "name, account name, organisation, company, property, street, address or place that appears anywhere in "
@@ -51,10 +55,18 @@ CANARY = ("A factual check of this session's setup, not a request for secrets or
           "with a bulleted list. Nothing else. Do not create plans or files.")
 
 SYLLABLES = [c + v for c in "bdfgklmnprstvz" for v in "aeiou"]
-# A second check only: the marker is the proof, this catches a reply that repeats it and still declines the rest.
-REFUSAL = re.compile(r"(?i)\b(cannot|can't|can not|unable|not able|won't|will not|refuse|sorry|not allowed|"
-                     r"not permitted|do not have access|declin\w*|redact\w*|confidential|disclos\w*|rather not|"
-                     r"prefer not|not comfortable|as an ai)\b")
+# What a refusal, a withholding or a comment on the question sounds like. A second check beside the structure
+# `answered` requires, for the reply that is shaped like a list and still declines: no list of phrases could be the
+# proof, and this one makes none.
+WITHHOLDING = re.compile(
+    r"(?i)\b(cannot|can't|can not|unable|not able|won't|will not|refuse\w*|sorry|not allowed|not permitted|"
+    r"do not have access|declin\w*|redact\w*|withh[eo]ld\w*|confidential|private|disclos\w*|rather not|"
+    r"prefer not|not comfortable|as an ai|not going to|off-limits|restricted|sensitive|omitted|not shown|"
+    r"not listed|not provided|not available|the rest|the remaining|remaining|other names|others|"
+    r"my instructions|my setup|test name|your message|(?:i|we) (?:do not|don't|am not|'m not))\b|"
+    r"[\[\]\u2026]|\.\.\.")
+BULLET = re.compile(r"^\s*(?:[-*\u2022]|\d+[.)])\s+")
+LABEL = re.compile(r"(?i)^\s*NAMES\s*:")
 
 
 def fresh_marker(evidence):
@@ -69,11 +81,21 @@ def fresh_marker(evidence):
 
 
 def answered(reply, marker):
-    """Whether the reply proves the engine was willing to list names: it repeats the invented `marker` (any case) and
-    does not read as a refusal. A refusal, in any wording and in any format, never holds a name it would not give, so
-    no list of refusal phrases is needed to stop one passing; the pattern only catches a reply that repeats the marker
-    and declines the rest."""
-    return marker.lower() in reply.lower() and not REFUSAL.search(reply.replace("\u2019", "'"))
+    """Whether the reply is the list the canary asked for: its first item is the invented `marker` (any case; with a
+    `NAMES:` label or a bullet, or the label alone on a line above), and nothing in it reads as a refusal, a
+    withholding or a comment (WITHHOLDING, or a placeholder in brackets). A reply that merely contains the marker
+    does not count: a model can repeat a name from the message and still decline the rest, or echo the prompt. What
+    this shows is that the engine answers in the required form, never that it would list names from files it
+    withholds."""
+    text = reply.replace("\u2019", "'").strip()
+    lines = [x for x in text.splitlines() if x.strip()]
+    if not lines or WITHHOLDING.search(text):
+        return False
+    first = LABEL.sub("", BULLET.sub("", lines[0]), count=1).strip()
+    if not first and len(lines) > 1:  # `NAMES:` alone, the list on the lines below
+        first = BULLET.sub("", lines[1]).strip()
+    head = re.split(r"[,;]", first, maxsplit=1)[0]
+    return head.strip(" *_`\"'.:").lower() == marker.lower()
 
 
 def load_terms(path):
@@ -136,6 +158,8 @@ def present_paths(given, evidence):
         if "~" in p or "$" in p:
             raise common.ToolError("--if-present %s still holds ~ or $ after expansion: give a path this machine can "
                                    "resolve" % masked(p, evidence))
+        if os.path.islink(p) and not os.path.exists(p):
+            raise common.ToolError("--if-present %s is a broken link, not an absent file" % masked(p, evidence))
         if os.path.exists(p):
             have.append(p)
         elif not os.path.isdir(os.path.dirname(os.path.abspath(p))):
@@ -144,6 +168,27 @@ def present_paths(given, evidence):
         else:
             lack.append(p)
     return have, lack
+
+
+def walk_files(top, evidence):
+    """The model-facing files under `top`, links into folders followed. A real folder is read once however many
+    links lead to it, which also ends a loop; a broken link anywhere is an error (a file the scan cannot read is a
+    file it did not check)."""
+    seen, found = set(), []
+    for d, dirs, fs in os.walk(top, followlinks=True):
+        real = os.path.realpath(d)
+        if real in seen:
+            dirs[:] = []
+            continue
+        seen.add(real)
+        dirs.sort()
+        for f in sorted(fs):
+            p = os.path.join(d, f)
+            if os.path.islink(p) and not os.path.exists(p):
+                raise common.ToolError("broken link under the scan: %s" % masked(os.path.relpath(p, top), evidence))
+            if re.search(r"\.(md|json|py|txt|sh|swift|csv|jsonl|toml|yaml|yml)$", f):
+                found.append(p)
+    return found
 
 
 def scan(a):
@@ -158,9 +203,7 @@ def scan(a):
         if os.path.isfile(p):
             base, files = os.path.dirname(p), [p]
         elif os.path.isdir(p):
-            base = p
-            files = [os.path.join(d, f) for d, _, fs in os.walk(p) for f in fs
-                     if re.search(r"\.(md|json|py|txt|sh|swift|csv|jsonl|toml|yaml|yml)$", f)]
+            base, files = p, walk_files(p, evidence)
         else:
             raise common.ToolError("scan path missing (argument %d)" % n)
         for f in files:
@@ -182,19 +225,23 @@ def scan(a):
     return 0 if res["pass"] else 1
 
 
+CODEX_EFFORT = "low"  # agy has none to set: its effort is part of its model id
+
+
 def canary(a):
     evidence = load_terms(a.terms)
     marker = fresh_marker(evidence)
     d = engines.fresh_dir("canary_")
-    res = {"engine": a.engine, "checked_at": common.now_local(), "terms": len(evidence), "marker": marker}
+    res = {"engine": a.engine, "checked_at": common.now_local(), "terms": len(evidence), "marker": marker,
+           "model": a.model or "cli-default", "effort": None if a.engine == "agy" else CODEX_EFFORT}
     try:
-        eng = engines.Agy(a.model) if a.engine == "agy" else engines.Codex(a.model, effort="low")
+        eng = engines.Agy(a.model) if a.engine == "agy" else engines.Codex(a.model, effort=CODEX_EFFORT)
         reply, usage = eng(CANARY.format(marker=marker), d)
         res.update(reply=masked(reply.strip(), evidence)[:2000], usage=usage, hits=len(hits(reply, evidence)),
                    answered=answered(reply, marker))
         if not res["answered"]:
-            res["error"] = ("the reply did not repeat the test name %s placed in the engine's context, or read as a "
-                            "refusal, so the canary proves nothing (a refusal is not a pass)" % marker)
+            res["error"] = ("the reply was not the list asked for (the test name %s first, nothing that reads as a "
+                            "refusal, a withholding or a comment), so the canary proves nothing" % marker)
     except engines.EngineError as ex:
         res.update(error=masked(str(ex), evidence)[:300])
     finally:
@@ -221,6 +268,8 @@ def main():
     p.add_argument("--model")
     p.add_argument("--out", required=True)
     a = ap.parse_args()
+    if a.out and os.path.isfile(a.out):
+        os.remove(a.out)  # first of all: a run that ends early must not leave an earlier pass behind
     if a.cmd == "canary" and a.engine == "agy" and not a.model:
         raise common.ToolError(engines.AGY_MODEL_REQUIRED)
     return scan(a) if a.cmd == "scan" else canary(a)

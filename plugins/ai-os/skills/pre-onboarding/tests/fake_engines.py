@@ -103,6 +103,7 @@ def answer(prompt, r):
             pages[-1]["text"] = None
         return json.dumps({"pages": pages})
     text = r.get("text", "")
+    text = text.replace("{prompt}", prompt)  # an engine that echoes what it was asked
     if "{marker}" in text:  # the invented name a canary prompt carries: `marker_re` is that prompt, one group
         text = text.replace("{marker}", re.search(r["marker_re"], prompt, re.S).group(1))
     return text

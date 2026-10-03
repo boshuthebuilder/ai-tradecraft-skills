@@ -39,6 +39,7 @@ writes <work>/state/ALERT, writes none of them and stops every worker. With --re
 its card is written.
 """
 import glob
+import hashlib
 import json
 import os
 import re
@@ -74,6 +75,11 @@ def load_json(path):
 def read_text(path):
     with open(path, encoding="utf-8") as f:
         return f.read()
+
+
+def mode_for(chars, b):
+    """How a document of `chars` characters is sent: with others (group), alone (single) or in sections."""
+    return "group" if chars <= b.small_chars else "single" if chars <= b.single_max else "sections"
 
 
 class Budget:
@@ -177,9 +183,8 @@ def build(a):
             if it is None:
                 break
             if it["chars"] > b.small_chars:
-                mode = "single" if it["chars"] <= b.single_max else "sections"
                 common.Writer().json(os.path.join(run.batches, "%d_%05d.json" % (bk, seq)),
-                                     {"bucket": bk, "mode": mode, "items": [it]})
+                                     {"bucket": bk, "mode": mode_for(it["chars"], b), "items": [it]})
                 seq, made = seq + 1, made + 1
                 continue
             cur.append(it)
@@ -365,14 +370,25 @@ class SectionsUnread(Exception):
     the document gets no card."""
 
 
-def split_sections(blocks, limit, size, wide):
-    """`blocks` (a document's pages) packed in order into sections none over `limit` by `size`, which charges at most
-    `wide` for any one character. A page goes whole into the section in progress when it fits there, else starts the
-    next; a page over the limit by itself is split at paragraph breaks, a paragraph still over at line breaks, a line
-    still over at any character, each break kept at the start of the part after it. Joined, the sections are the
-    blocks again."""
+def widest_fit(limit, size):
+    """How many characters of the costliest kind (a wide one) `size` still puts within `limit`, at least one."""
+    lo, hi = 1, max(1, limit)
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if size("\u4e2d" * mid) <= limit:
+            lo = mid
+        else:
+            hi = mid - 1
+    return lo
+
+
+def split_sections(blocks, limit, size):
+    """`blocks` (a document's pages) packed in order into sections none over `limit` by `size`. A page goes whole into
+    the section in progress when it fits there, else starts the next; a page over the limit by itself is split at
+    paragraph breaks, a paragraph still over at line breaks, a line still over at any character, each break kept at
+    the start of the part after it. Joined, the sections are the blocks again."""
     chunks, cur, used = [], "", 0
-    step = max(1, int(limit / wide))  # characters that always fit
+    step = widest_fit(limit, size)  # characters that always fit
 
     def add(piece, seps):
         nonlocal cur, used
@@ -388,7 +404,7 @@ def split_sections(blocks, limit, size, wide):
             for part in rest:
                 add(seps[0] + part, seps[1:])
         else:
-            width = max(1, int((limit - used) / wide))  # the first slice fills the section in progress
+            width = widest_fit(limit - used, size)  # the first slice fills the section in progress
             while piece:
                 add(piece[:width], ())
                 piece, width = piece[width:], step
@@ -435,12 +451,15 @@ def sections_text(run, engine_light, eid, log, engine_name):
     b = run.budget
     size = common.est_tokens if b.section_tokens else len
     limit = b.section_tokens or b.section_chars
-    chunks = split_sections(text.split("\n\n[page "), limit, size, 1.1 if b.section_tokens else 1)
+    chunks = split_sections(text.split("\n\n[page "), limit, size)
+    budget = "%s:%d" % ("tokens" if b.section_tokens else "chars", limit)
     cache = os.path.join(run.work, "sections")
     os.makedirs(cache, exist_ok=True)
     notes, unread = [], []
     for k, c in enumerate(chunks, 1):
-        cp = os.path.join(cache, "%s_%s_%d_%d.txt" % (eid[:16], engine_name, k, len(chunks)))
+        # named by the section's own text and the budget, so a changed budget can never reuse notes on other text
+        digest = hashlib.sha256((budget + "\n" + c).encode("utf-8")).hexdigest()[:12]
+        cp = os.path.join(cache, "%s_%s_%d_%d_%s.txt" % (eid[:16], engine_name, k, len(chunks), digest))
         if os.path.exists(cp):
             with open(cp, encoding="utf-8") as f:
                 notes.append(f.read())
@@ -475,6 +494,18 @@ def write_cards(run, cards, batch_name, evidence, meta, log):
     for eid, c in cards.items():
         c["card_meta"] = dict(meta, batch=batch_name, created_at=common.now_local())
         run.writer.json(os.path.join(run.cards, eid + ".json"), c, indent=1)
+        stale = os.path.join(run.state, "card_err_%s.txt" % eid)
+        if os.path.exists(stale):
+            os.remove(stale)  # the card exists now: the record of why it did not is out of date
+
+
+def redo_mode(run, eid):
+    """A redone document is sent as a first run would send it (its size decides: a long one in sections, with their
+    cached notes), never whole in one call: that is what a document with sections left to read cannot survive."""
+    path = os.path.join(run.extract, eid + ".json")
+    if not os.path.exists(path):
+        raise common.ToolError("--redo names %s, which has no extract record in %s" % (eid, run.extract))
+    return mode_for(len(full_text(load_json(path))), run.budget)
 
 
 def work(a):
@@ -499,8 +530,8 @@ def work(a):
     run.writer.makedirs(run.cards)
     if a.redo:
         ids = [x.strip() for x in read_text(a.redo).splitlines() if x.strip()]
-        batches = [{"name": "redo_%d" % i, "mode": "group", "items": [{"id": x}]} for i, x in enumerate(ids)
-                   if i % wn == wi]
+        batches = [{"name": "redo_%d" % i, "mode": redo_mode(run, x), "items": [{"id": x}]}
+                   for i, x in enumerate(ids) if i % wn == wi]
         done_p = os.path.join(run.state, "redo_done_%d.txt" % wi)
         redone = {x.strip() for x in read_text(done_p).splitlines()} if os.path.exists(done_p) else set()
 
