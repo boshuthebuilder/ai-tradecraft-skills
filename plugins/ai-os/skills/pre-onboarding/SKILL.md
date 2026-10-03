@@ -229,8 +229,9 @@ rerun and never gives a false pass. It cannot prove that a model withholding nam
 well-formed line holding only the invented name passes); no reply can prove an absence. The scan above, and the
 contamination check on every card, cover that. Run the canary for each engine you
 will use, with the `--model` the cards will use: models of one engine answer differently, and some refuse the
-question outright, which fails the canary. A model that refuses cannot be cleared for this folder, so card with one
-that answers. The result records the `model` and `effort` that were cleared, and `readiness.py` names them: compare
+question outright, which fails the canary. The same model can decline on one run and answer on the next: a decline
+proves nothing either way, so run the canary again. A model that declines three runs in a row cannot be cleared for
+this folder, so card with one that answers. The result records the `model` and `effort` that were cleared, and `readiness.py` names them: compare
 them with the model the cards ran on (`card_meta.model`). A codex `--light-model` and the vision model are not
 covered by the engine's one result. Each command clears its `--out` file before it even reads its command line, so a
 run that stops early (or is refused) leaves no earlier pass behind. Keep both results: they are the record
