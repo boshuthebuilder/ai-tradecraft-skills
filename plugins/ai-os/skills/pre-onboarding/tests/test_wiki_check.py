@@ -391,6 +391,12 @@ class CheckTest(Copy):
         self.assertNotIn("links_to_planned_pages", res)
         self.assertIn("is not a page in", self.refused("check", "--page", "40 Study/40 Study.md"))
 
+    def test_a_scoped_check_never_opens_a_siblings_page(self):
+        with open(self.page(TAX), "wb") as f:
+            f.write(b"\xff\xfe half written by another agent")
+        res = self.check("--page", "00 Index/00 Index.md")
+        self.assertEqual((res["problems"], res["frontmatter_conforming"]), (0, "1/1"))
+
     def test_a_path_given_that_does_not_exist_is_refused(self):
         for flag in ("--rationale", "--acceptance"):
             with self.subTest(flag=flag):

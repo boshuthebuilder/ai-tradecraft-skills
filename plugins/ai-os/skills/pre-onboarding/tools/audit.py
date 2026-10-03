@@ -419,7 +419,7 @@ def main():
     hyg_list = [(p, k) for p, ks in sorted(hyg.items()) for k in sorted(set(ks))]
     strays = sorted(e["current_path"] for e in live if "root_stray" in e["flags"])
     migrs = sorted((p.split("/")[1], p) for e in live if "migrating" in e["flags"]
-                   for p in [e["current_path"]] + [k["path"] for k in e.get("copies", [])]
+                   for p in dict.fromkeys([e["current_path"]] + [k["path"] for k in e.get("copies", [])])
                    if p.startswith(migr + "/") and p.count("/") >= 2)
     count_only = collections.Counter((e["current_path"].split("/")[0]) for e in live if not e["hashed"])
     cls_count = collections.Counter(e["class"] for e in live)

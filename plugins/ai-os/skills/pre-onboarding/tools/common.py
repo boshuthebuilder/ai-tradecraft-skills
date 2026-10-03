@@ -254,6 +254,8 @@ def validate_rulebook(data, path):
             re.compile("(%s)" % k)
         except re.error as e:
             raise ToolError("%s: pack_keywords entry %r is not a valid regular expression (%s)" % (path, k, e))
+        if re.search(k, "", re.I) is not None:
+            raise ToolError("%s: pack_keywords entry %r matches an empty name, so it would match every folder" % (path, k))
     try:
         re.compile("(" + "|".join(data.get("pack_keywords", [])) + ")")
     except re.error as e:

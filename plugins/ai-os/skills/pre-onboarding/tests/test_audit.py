@@ -454,6 +454,13 @@ class PackSettingsTest(AuditCase):
         is_pack = common.pack_matcher(root, rb)
         self.assertFalse(any(is_pack(f) for f in ("Letters", "Visa renewal 2021", "")))
 
+    def test_a_pack_keyword_that_matches_an_empty_name_is_refused(self):
+        for n, keyword in enumerate(("^", "a*", "(visa)?")):
+            with self.subTest(keyword=keyword):
+                root = self.folder(self.pinned(pack_keywords=["visa", keyword]), parent="empty%d" % n)
+                with self.assertRaisesRegex(common.ToolError, "matches an empty name"):
+                    common.load_rulebook(root, os.path.join(root, ".familyai"))
+
     def test_an_invalid_pack_keyword_is_refused_by_name(self):
         for n, keyword in enumerate(("(", "[a-", "a)(b", "*visa")):
             with self.subTest(keyword=keyword):
@@ -545,6 +552,15 @@ class MigratingTest(AuditCase):
         self.assertIn("- Example Lettings: `_Migrations/Example Lettings/Gas.pdf`", report)
         self.assertIn("- Robin Shared: `_Migrations/Robin Shared/Bills/Gas.pdf`", report)
         self.assertNotIn(": `Bills/Gas.pdf`", report)
+
+    def test_a_canonical_copy_staged_too_is_counted_once(self):
+        root = self.folder(dict(self.pinned(), **{
+            "_Migrations/Robin Shared/Gas.pdf": "gas", "_Migrations/Example Lettings/Gas.pdf": "gas"}))
+        self.audit(root)
+        self.assertEqual(self.summary(root)["migrating"], {"Example Lettings": 1, "Robin Shared": 1})
+        report = self.report(root)
+        self.assertEqual(report.count("`_Migrations/Example Lettings/Gas.pdf`"), 1)
+        self.assertEqual(report.count("`_Migrations/Robin Shared/Gas.pdf`"), 1)
 
 
 class HistoryTest(AuditCase):

@@ -713,6 +713,15 @@ class MoveSafetyTest(Copy):
         self.assertIn("lies under 30 Home/escape, which is a symbolic link", err)
         self.assertEqual((tree_digest(self.root), os.listdir(outside)), (before, []))
 
+    def test_a_wiki_folder_that_is_a_symbolic_link_is_refused(self):
+        real = os.path.join(self.tmp, "real wiki")
+        os.rename(os.path.join(self.root, WIKI), real)
+        os.symlink(real, os.path.join(self.root, WIKI))
+        before = tree_digest(real)
+        err = self.refused("move", "--map", self.map({"20 Finance/Tax.md": "20 Finance/Tax 2.md"}))
+        self.assertIn("is a symbolic link", err)
+        self.assertEqual(tree_digest(real), before)
+
     def test_moved_pages_are_written_first(self):
         """F1: a run that fails after its first write leaves every link resolving, because the moved page is written
         before any page linking to it is rewritten."""

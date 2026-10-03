@@ -963,11 +963,11 @@ def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptan
     charts, unpaired, unrenderable, bad_chart_src = 0, [], [], []
     cited, shas = set(), {}
     for rel in pages:
+        if only is not None and rel not in only:
+            continue  # a sibling's page is never opened: it may be mid-write
         path = os.path.join(wiki, *rel.split("/"))
         t = read_text(path)
         shas[rel] = common.sha256_file(path)
-        if only is not None and rel not in only:
-            continue
         m = re.match(r"---\n(.*?)\n---\n", t, re.S)
         fm = parse_fm(m.group(1)) if m else {}
         fm_lines = t[:m.end()].count("\n") if m else 0
@@ -1414,6 +1414,8 @@ def dead_links(wiki):
 
 def check_moves(wiki, moves, pages, schema):
     """Refuse, before anything is written, a map that could not be carried out whole."""
+    if os.path.islink(wiki):
+        raise common.ToolError("the wiki folder %s is a symbolic link, which could lead outside the folder" % wiki)
     if not (isinstance(moves, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in moves.items())):
         raise common.ToolError("--map must be a JSON object of page path to new page path")
     targets = set(moves.values())
