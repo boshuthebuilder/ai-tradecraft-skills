@@ -638,6 +638,7 @@ class StatusTest(unittest.TestCase):
             "Misc/blob.bin": bytes(range(256)) * 8,
             "Misc/server.log": "2024-06-30 12:00 backup finished without errors for Alex\n",
             "Docs/Broken.docx": b"not a zip at all",
+            "Docs/Letter.docx": b"{\\rtf1\\ansi A letter saved as rich text under a Word name.}",
             "Docs/Notes.md": "# Notes\n\nRobin's birthday is in June.\n",
             "Docs/Skipped.md": "hashed false in the manifest",
             "Docs/Gone.md": "departed in the manifest",
@@ -688,6 +689,12 @@ class StatusTest(unittest.TestCase):
         r = self.records["Docs/Empty.numbers"]
         self.assertEqual((r["status"], r["error"]), ("failed", "no readable content in iWork file"))
 
+    @unittest.skipUnless(shutil.which("textutil"), "needs macOS textutil")
+    def test_rich_text_under_a_word_name_is_still_read(self):
+        r = self.records["Docs/Letter.docx"]
+        self.assertEqual(r["status"], "ok")
+        self.assertIn("A letter saved as rich text", r["pages"][0]["text"])
+
     def test_an_iwork_file_read_only_from_its_preview_is_partial(self):
         r = self.records["Docs/Blank.pages"]
         self.assertEqual((r["status"], r["pages"][0]["via"]), ("partial", "preview_image"))
@@ -697,7 +704,7 @@ class StatusTest(unittest.TestCase):
 
     def test_unhashed_and_departed_entries_are_left_alone(self):
         self.assertEqual(sorted(self.records), ["Docs/Blank.pages", "Docs/Broken.docx", "Docs/Empty.numbers",
-                                                "Docs/Notes.md", "Mail/Bundle.zip", "Misc/blob.bin",
+                                                "Docs/Letter.docx", "Docs/Notes.md", "Mail/Bundle.zip", "Misc/blob.bin",
                                                 "Misc/server.log"])
 
 

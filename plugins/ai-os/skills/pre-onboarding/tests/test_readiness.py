@@ -260,7 +260,7 @@ class ContractTest(Prepared):
         self.assertIn("an empty roll-up that does not say why",
                       self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written"))
         self.edit_page(DEADLINES, "None\n",
-                       "> [!warning] The roll-up found no frontmatter deadlines across 11 pages.\n")
+                       "> [!warning]\n> The roll-up found no frontmatter deadlines across 11 pages.\n")
         self.readiness(code=0)
 
     def test_a_recurring_date_kept_by_hand(self):

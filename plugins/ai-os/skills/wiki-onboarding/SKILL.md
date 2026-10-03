@@ -213,10 +213,11 @@ runs the drafting:
   large one), each in a fresh context holding only its briefs, its bundle and the map, so no agent
   carries another section's evidence or voice.
 - **A checker every drafting agent runs.** Before it returns, each agent runs the deterministic wiki
-  check among the preparation tools (frontmatter keys, source paths that exist, page links that
-  resolve, em dashes, documents in scope that no page covers) and fixes every finding on its own pages.
-  The coordinator runs the same check once every agent is back, when links between sections can
-  resolve.
+  check among the preparation tools, scoped to its own pages (frontmatter keys, source paths that
+  exist, page links that resolve, em dashes), and fixes every finding. A link to a page the map plans
+  but no agent has written yet counts as pending, not dead. The coordinator runs the whole-wiki check
+  once every agent is back, when links between sections can resolve and coverage (documents in scope
+  that no page covers) can be judged.
 - **JSON returns; the coordinator writes the fixed pages.** An agent returns JSON, not prose: the pages
   it wrote, each page's rationale block, its Index entry, its open questions and its check result. Only
   the coordinator writes what sections share: the pages the layout marks `fixed` (the Index, the Log,
