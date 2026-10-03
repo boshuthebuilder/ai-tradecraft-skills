@@ -86,9 +86,15 @@ finishes. Documents are bucketed by their text: under 20 characters (bucket 1), 
 
 | Mode | Which documents | Per call |
 | --- | --- | --- |
-| `group` | text up to `--small-chars` (default 60,000 characters) | up to `--batch-items` documents (default 30; `--textless-batch`, default 60, in bucket 1), and up to `--batch-chars` in all (default 180,000) |
+| `group` | text up to `--small-chars` (default 60,000 characters; 50,000 with `agy`) | up to `--batch-items` documents (default 30; `--textless-batch`, default 60, in bucket 1), and up to `--batch-chars` in all (default 180,000; 50,000 with `agy`) |
 | `single` | text over `--small-chars`, up to `--single-max` (default 600,000) | one document |
 | `sections` | text over `--single-max` | one document, read in sections first |
+
+With `agy`, `--small-chars`, `--batch-chars`, `--section-chars` and `--single-max` all default to 50,000, so `single`
+is never used. `agy` cuts a prompt at about 192,000 UTF-8 bytes of its text, silently (family-ai-os #1089, measured on agy 1.2.16), and the tools
+refuse a prompt over 180,000 bytes before the call. The limit counts bytes, and a CJK character is three of them: 50,000
+characters of it is 150,000 bytes, which leaves 30,000 for the instructions and the items' own fields (the largest
+measured is about 27,000), where 60,000 characters would have left none.
 
 ### Calls
 
@@ -107,8 +113,8 @@ finishes. Documents are bucketed by their text: under 20 characters (bucket 1), 
   rerun does not pay for them again and a changed budget, model or prompt never reuses old notes. A cached file that
   is empty, or lacks its `[section k of n]` header, is a miss. To force a re-read, delete the document's files in
   `<work>/sections/` (they start with the first 16 characters of its id). A section budget under 1,000 (characters
-  or estimated tokens) is refused. A section that fails three times, returns no notes, or is over `agy`'s byte limit
-  (four-byte characters can still be, at 60,000 characters) is not read, and then **no card is written**: a card
+  or estimated tokens) is refused. A section that fails three times, returns no notes, or is over `agy`'s 180,000-byte prompt limit
+  (four-byte characters can still be, at 50,000 characters) is not read, and then **no card is written**: a card
   made from notes with a hole in them would claim a read it lacks. `<work>/state/card_err_<id>.txt` names each
   section not read (and is removed once the document's card is written), and the sections that were read stay
   cached, so a rerun reads only the rest. When every section

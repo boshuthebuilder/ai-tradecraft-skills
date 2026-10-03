@@ -80,8 +80,13 @@ class VisionTest(unittest.TestCase):
         return json.loads(read(os.path.join(self.out, self.eid + ".json")))
 
     def test_a_good_reply_replaces_the_local_text(self):
-        # the model opening its images shows as a tool event; only the vision lane accepts that
-        self.fakes.script("agy", default={"kind": "text", "events": [{"event": "tool_call", "name": "view_file"}]})
+        # the model opening its images shows as a tool step (the shape agy 1.2.16 streams); only the vision lane
+        # accepts that, and only for a tool that reads
+        step = {"event": "step_update", "step_update": {"step_index": 2, "state": "DONE", "step_type": "tool",
+                                                        "tool_name": "view_file",
+                                                        "tool_info": {"name": "view_file",
+                                                                      "parameters": {"AbsolutePath": "p1.png"}}}}
+        self.fakes.script("agy", default={"kind": "text", "events": [step]})
         code, _out, err = self.vision()
         self.assertEqual(code, 0, err)
         r = self.record()

@@ -8,6 +8,7 @@ tests change with them, deliberately.
 """
 import json
 import os
+import re
 import shutil
 import signal
 import sys
@@ -31,6 +32,8 @@ CODEX_OFF = ["shell_tool", "unified_exec", "shell_snapshot", "memories", "apps",
              "remote_plugin", "code_mode_host", "hooks", "goals", "tool_suggest", "skill_mcp_dependency_install",
              "workspace_dependencies"]
 PROMPT = "Summarise this. Café, 中文, naïve.\nSecond line."
+CUT_STREAM = os.path.join(HERE, "fixtures", "agy", "agy-1.2.16-cut-stream.redacted.jsonl")
+CUT_STDERR = os.path.join(HERE, "fixtures", "agy", "agy-1.2.16-cut-stderr.redacted.txt")
 
 
 def strict_problems(schema, where="$"):
@@ -125,11 +128,145 @@ class AgyTest(FakeEngineCase):
             engines.Agy(None, binary=self.fakes.path("agy"))
         self.assertEqual(self.fakes.calls("agy"), [])
 
-    def test_a_message_agy_would_cut_short_is_refused_before_the_call(self):
-        with self.assertRaises(engines.PromptTooLong) as cm:
-            self.agy()("\u4e2d" * 70_000, self.cwd())  # 210,000 bytes of CJK text
-        self.assertIn("over agy's 200000-byte limit", str(cm.exception))
-        self.assertEqual(self.fakes.calls("agy"), [])
+    def test_a_prompt_agy_would_cut_short_is_refused_before_the_call(self):
+        """agy cuts a user message at about 192,000 UTF-8 bytes of prompt text, ASCII and CJK alike (family-ai-os
+        #1089), so 185,000 bytes of either is refused whole, however it is written."""
+        prompts = {"ASCII": "a" * 185_000, "CJK": "\u4e2d" * 61_666 + "ab"}
+        self.fakes.script("agy", default={"kind": "text", "text": "fine"})
+        for name, prompt in prompts.items():
+            with self.subTest(name):
+                self.assertEqual(len(prompt.encode("utf-8")), 185_000)
+                with self.assertRaises(engines.PromptTooLong) as cm:
+                    self.agy()(prompt, self.cwd())
+                self.assertIn("185000-byte prompt", str(cm.exception))
+                self.assertIn("180000", str(cm.exception))
+                self.assertNotIn("300 KB", str(cm.exception))
+                self.assertEqual(self.fakes.calls("agy"), [])
+
+    def test_the_limit_is_on_the_prompts_bytes_not_on_the_serialised_message(self):
+        """CJK text is 3 bytes a character and the message adds its own escapes, so the line's size and the text's
+        size differ either way; agy's cut follows the text. 150,000 bytes of CJK is carried (it is half the limit
+        in characters but the same in bytes), and so is a prompt whose message is over 200,000 bytes only because
+        of the quotes the message escapes."""
+        self.fakes.script("agy", default={"kind": "text", "text": "fine"})
+        quoted = '""\u4e2d' * 30_000
+        prompts = {"CJK": "\u4e2d" * 50_000, "escaped quotes": quoted}
+        for name, prompt in prompts.items():
+            with self.subTest(name):
+                self.assertEqual(len(prompt.encode("utf-8")), 150_000)
+                self.assertEqual(self.agy()(prompt, self.cwd())[0], "fine")
+        line = json.dumps({"event": "user", "message": {"role": "user", "content": quoted}}, ensure_ascii=False)
+        self.assertGreater(len(line.encode("utf-8")), 200_000, "the case no longer tests the serialised size")
+
+    def test_the_limit_is_180000_bytes_of_the_prompt_to_the_byte(self):
+        self.assertEqual(engines.AGY_MAX_PROMPT_BYTES, 180_000)
+        self.fakes.script("agy", default={"kind": "text", "text": "fine"})
+        self.assertEqual(self.agy()("a" * 180_000, self.cwd())[0], "fine")
+        with self.assertRaises(engines.PromptTooLong):
+            self.agy()("a" * 180_001, self.cwd())
+        self.assertEqual(len(self.fakes.calls("agy")), 1)
+
+    def tool_step(self, command, state="DONE"):
+        """A tool step in the shape agy 1.2.16 streams (the capture under tests/fixtures/agy)."""
+        return {"event": "step_update", "step_update": {"conversation_id": "c-1", "step_index": 2, "state": state,
+                                                        "step_type": "tool", "tool_name": "run_command",
+                                                        "tool_info": {"name": "run_command",
+                                                                      "parameters": {"CommandLine": command}}}}
+
+    def cut_stream(self, **reply):
+        """What agy streams when it cut the message and the model went for the stored full copy: a step that names
+        transcript_full.jsonl, then a successful result that carries a refused `command`. The two are on different
+        lines."""
+        read = ("tail -c 1000 /Users/example/.gemini/antigravity-cli/brain/c-1/.system_generated/logs/"
+                "transcript_full.jsonl")
+        base = {"kind": "empty", "events": [self.tool_step(read, "ACTIVE"), self.tool_step(read)],
+                "denied": [{"action": "command", "display_name": "RunCommand"}]}
+        base.update(reply)
+        return base
+
+    def test_the_real_stream_of_a_cut_prompt_is_a_cut(self):
+        """Replayed byte for byte from agy 1.2.16, which cut a 250,260-byte synthetic prompt whose question needs the
+        end of it: the model's tool steps name transcript_full.jsonl (twice, ACTIVE then DONE) and only the final
+        result carries the refused `command`, so the evidence has to be put together across the stream."""
+        self.fakes.script("agy", default={"kind": "replay", "stdout": CUT_STREAM, "stderr": CUT_STDERR})
+        for reads in (False, True):
+            with self.subTest(allow_reads=reads):
+                with self.assertRaises(engines.PromptCut) as cm:
+                    self.agy(allow_reads=reads)("hello", self.cwd())
+                self.assertIn("transcript_full.jsonl", str(cm.exception))
+        self.assertEqual(len(self.fakes.calls("agy")), 2, "the capture was not run through the adapter")
+
+    def test_in_the_real_stream_the_two_halves_of_the_evidence_are_on_different_lines(self):
+        """What the test above depends on, stated: a check that wanted the file name and the denial on one line would
+        never fire on a real stream."""
+        with open(CUT_STREAM, encoding="utf-8") as f:
+            events = [json.loads(line) for line in f]
+        names = [i for i, ev in enumerate(events) if "transcript_full.jsonl" in json.dumps(ev)]
+        refused = [i for i, ev in enumerate(events) if any("command" in engines.words(d.get("action"))
+                                                           for d in (ev.get("result") or {}).get("denied_actions", []))]
+        self.assertEqual(len(names), 2)
+        self.assertEqual(len(refused), 1)
+        self.assertEqual(set(names) & set(refused), set())
+        self.assertEqual({events[i]["step_update"]["step_type"] for i in names}, {"tool"})
+        self.assertEqual(events[refused[0]]["event"], "result")
+        seen = engines.tool_events([json.dumps(ev) for ev in events])
+        self.assertEqual([(e.label, e.names) for e in seen], [("run_command", frozenset({"run_command"}))] * 2,
+                         "both states of the one tool step")
+        self.assertEqual([e.params[0]["CommandLine"].endswith("transcript_full.jsonl | tail -c 1000") for e in seen],
+                         [True, True])
+
+    def test_the_captured_stream_holds_only_redacted_paths_and_ids(self):
+        """The capture is in a public repository: nothing in it may name a person, a machine or a conversation."""
+        text = ""
+        for path in (CUT_STREAM, CUT_STDERR):
+            with open(path, encoding="utf-8") as f:
+                text += f.read()
+        self.assertEqual(set(re.findall(r"/(?:Users|home)/[^/\\\"]+", text)), {"/Users/example"})
+        ids = set(re.findall(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", text))
+        self.assertEqual(ids, {"00000000-0000-0000-0000-000000000000"})
+        self.assertEqual(set(re.findall(r"\S+@\S+", text)), set())
+
+    def test_a_stream_that_shows_the_stored_copy_being_read_means_the_prompt_was_cut(self):
+        cases = {
+            "an empty answer, the usual cut": {},
+            "an answer beside the refused command": {"kind": "text", "text": '{"items": []}'},
+        }
+        for name, reply in cases.items():
+            for reads in (False, True):
+                with self.subTest(name, allow_reads=reads):
+                    self.fakes.reset("agy")
+                    self.fakes.script("agy", default=self.cut_stream(**reply))
+                    with self.assertRaises(engines.PromptTooLong) as cm:
+                        self.agy(allow_reads=reads)("hello", self.cwd())
+                    self.assertIn("transcript_full.jsonl", str(cm.exception))
+                    self.assertIn("cut", str(cm.exception))
+                    self.assertNotIsInstance(cm.exception, (engines.DegenerateError, engines.ToolUseError))
+
+    def test_the_stored_copy_alone_or_a_refused_command_alone_is_not_a_cut(self):
+        """Each half is only evidence together: a refused command is a stray tool attempt, and a step that names the
+        file with nothing refused is read as the tool step it is: a failure in both lanes, since the tool it names runs
+        a command, but not a cut."""
+        named_only = {"kind": "text", "text": "fine", "events": self.cut_stream()["events"]}
+        command_only = {"kind": "empty", "denied": [{"action": "command", "display_name": "RunCommand"}],
+                        "events": [self.tool_step("ls")]}
+        other_denial = self.cut_stream(denied=[{"action": "write_file"}])
+        not_a_list = self.cut_stream(denied=True)
+        self.fakes.script("agy", default=named_only)
+        for reads in (False, True):
+            with self.subTest("the stored copy, nothing refused", allow_reads=reads):
+                with self.assertRaises(engines.ToolUseError) as cm:
+                    self.agy(allow_reads=reads)("hello", self.cwd())
+                self.assertNotIsInstance(cm.exception, engines.PromptTooLong)
+        for name, reply, want in (("a refused command, no stored copy", command_only, engines.DegenerateError),
+                                  ("the stored copy and another denial", other_denial, engines.DegenerateError),
+                                  ("the stored copy and a denial that is not a list", not_a_list,
+                                   engines.DegenerateError)):
+            with self.subTest(name):
+                self.fakes.reset("agy")
+                self.fakes.script("agy", default=reply)
+                with self.assertRaises(want) as cm:
+                    self.agy()("hello", self.cwd())
+                self.assertNotIsInstance(cm.exception, engines.PromptTooLong)
 
     def test_a_denied_action_fails_even_with_an_answer(self):
         self.fakes.script("agy", default={"kind": "text", "text": '{"items": []}', "denied": ["write_file plan.md"]})
@@ -214,20 +351,229 @@ class AgyTest(FakeEngineCase):
                 pass
 
     def test_tool_events_fail_unless_reads_are_allowed(self):
+        """The shapes before the real one was known (top-level keys and types): every one fails the cards lane, and
+        the vision lane accepts only one that names a read tool."""
         cases = {
-            "a tool call event": [{"event": "tool_call", "name": "view_file", "args": {"path": "p1.png"}}],
-            "a top-level key naming a function, camelCase": [{"event": "message", "functionCall": {"name": "x"}}],
-            "a non-empty tool_calls list": [{"event": "message", "tool_calls": [{"name": "run"}]}],
-            "an action type": [{"event": "step", "type": "action", "detail": "open"}],
-            "a top-level call id": [{"event": "message", "call_id": "c1"}],
+            "a tool call event": ([{"event": "tool_call", "name": "view_file", "args": {"path": "p1.png"}}], True),
+            "a tool call event that runs a command": ([{"event": "tool_call", "name": "run_command"}], False),
+            "a top-level key naming a function, camelCase": ([{"event": "message", "functionCall": {"name": "x"}}],
+                                                             False),
+            "a non-empty tool_calls list": ([{"event": "message", "tool_calls": [{"name": "run"}]}], False),
+            "an action type": ([{"event": "step", "type": "action", "detail": "open"}], False),
+            "a top-level call id": ([{"event": "message", "call_id": "c1"}], False),
         }
-        for name, events in cases.items():
+        for name, (events, read) in cases.items():
             with self.subTest(name):
                 self.fakes.script("agy", default={"kind": "text", "text": '{"pages": []}', "events": events})
                 with self.assertRaises(engines.ToolUseError):
                     self.agy()("hello", self.cwd())
-                reply, _usage = self.agy(allow_reads=True)("hello", self.cwd())
-                self.assertEqual(reply, '{"pages": []}')
+                if read:
+                    self.assertEqual(self.agy(allow_reads=True)("hello", self.cwd())[0], '{"pages": []}')
+                else:
+                    with self.assertRaises(engines.ToolUseError):
+                        self.agy(allow_reads=True)("hello", self.cwd())
+
+    def real_stream(self, tool=None, response='{"pages": []}', denied=None, **params):
+        """The real capture's events (the init banner, the user and agent steps), with its tool step swapped for
+        another tool (allowed, ACTIVE then DONE, none when `tool` is None) and its result made the given answer.
+        Returns a reply for the fake engine to replay."""
+        with open(CUT_STREAM, encoding="utf-8") as f:
+            events = [json.loads(line) for line in f]
+        head, steps, result = events[:3], events[3:5], events[5]
+        for step in steps:
+            step["step_update"]["tool_name"] = tool
+            step["step_update"]["tool_info"] = {"name": tool, "parameters": params}
+        result["result"]["response"] = response
+        result["result"].pop("denied_actions")
+        if denied:
+            result["result"]["denied_actions"] = denied
+        return self.replay_of(head + (steps if tool else []) + [result])
+
+    def replay_of(self, events):
+        """A reply for the fake engine that replays `events` (dicts) as agy's stream, with an empty stderr."""
+        stdout, stderr = os.path.join(self.tmp, "stream.jsonl"), os.path.join(self.tmp, "stderr.txt")
+        with open(stdout, "w", encoding="utf-8") as f:
+            f.write("".join(json.dumps(ev) + "\n" for ev in events))
+        with open(stderr, "w", encoding="utf-8") as f:
+            f.write("")
+        return {"kind": "replay", "stdout": stdout, "stderr": stderr}
+
+    def capture_events(self):
+        with open(CUT_STREAM, encoding="utf-8") as f:
+            return [json.loads(line) for line in f]
+
+    def test_a_tool_step_in_the_real_shape_discards_the_reply_unless_the_vision_lane_reads(self):
+        """agy 1.2.16 streams a tool as `step_update` with `step_type: "tool"`, a `tool_name` and a `tool_info`, not as
+        a top-level tool event. An allowed one (DONE, nothing refused, an answer) still discards the reply in the
+        cards lane; the vision lane accepts only the steps that read the call's own folder."""
+        cwd = self.cwd()
+        reading = {"view_file": {"AbsolutePath": os.path.join(cwd, "p1.png")}, "list_dir": {"DirectoryPath": cwd},
+                   "find_by_name": {"SearchDirectory": cwd, "Pattern": "*.png"}}
+        other = {"run_command": {"CommandLine": "ls " + cwd}, "write_to_file": {"TargetFile": os.path.join(cwd, "x")},
+                 "read_url_content": {"Url": "https://example.invalid/"}, "search_web": {"query": "x"}}
+        for tool, params in {**reading, **other}.items():
+            with self.subTest(tool):
+                self.fakes.script("agy", default=self.real_stream(tool, **params))
+                with self.assertRaises(engines.ToolUseError) as cm:
+                    self.agy()("hello", cwd)
+                self.assertIn(tool, str(cm.exception))
+                if tool in reading:
+                    self.assertEqual(self.agy(allow_reads=True)("hello", cwd)[0], '{"pages": []}')
+                else:
+                    with self.assertRaises(engines.ToolUseError) as cm:
+                        self.agy(allow_reads=True)("hello", cwd)
+                    self.assertIn(tool, str(cm.exception))
+
+    def test_a_step_that_is_not_a_plain_one_is_a_tool_step_whatever_its_keys(self):
+        """Only `step_type: "tool"` has been captured, so the rule is the other way round: a step is plain when it is
+        a user_input, an agent_response or agy's own system_message, and any other step type, or none, is a tool at
+        work, even with no tool_name and no tool_info. In the vision lane it can only be an unnamed tool, which is
+        never a read."""
+        base = {"conversation_id": "c-1", "step_index": 2, "state": "DONE"}
+        shapes = {"run_command": {"step_type": "run_command"}, "command": {"step_type": "command"},
+                  "view_file": {"step_type": "view_file"}, "browser_subagent": {"step_type": "browser_subagent"},
+                  "toolcall": {"step_type": "toolcall"}, "an unseen word": {"step_type": "planner_response"},
+                  "an empty type": {"step_type": ""}, "no type": {}, "an ERROR state": {"step_type": "tool",
+                                                                                        "state": "ERROR"}}
+        for name, extra in shapes.items():
+            for reads in (False, True):
+                with self.subTest(name, allow_reads=reads):
+                    step = {"event": "step_update", "step_update": dict(base, **extra)}
+                    self.fakes.script("agy", default=self.replay_of(
+                        self.capture_events()[:3] + [step, self.real_result()]))
+                    with self.assertRaises(engines.ToolUseError):
+                        self.agy(allow_reads=reads)("hello", self.cwd())
+        with self.subTest("a step update that is not an object"):
+            events = self.capture_events()[:3] + [{"event": "step_update", "step_update": "run_command"}]
+            self.fakes.script("agy", default=self.replay_of(events + [self.real_result()]))
+            with self.assertRaises(engines.ToolUseError):
+                self.agy()("hello", self.cwd())
+
+    def test_the_plain_steps_of_a_real_stream_are_not_tools(self):
+        """user_input and agent_response are in the capture; system_message is agy's own note, seen in a long run
+        between tool steps, with nothing but a duration."""
+        events = self.capture_events()
+        note = {"event": "step_update", "step_update": {"conversation_id": "00000000-0000-0000-0000-000000000000",
+                                                        "step_index": 3, "state": "DONE", "step_type": "system_message",
+                                                        "duration_seconds": 0.000138}}
+        self.fakes.script("agy", default=self.replay_of(events[:3] + [note] + [self.real_result()]))
+        for reads in (False, True):
+            with self.subTest(allow_reads=reads):
+                self.assertEqual(self.agy(allow_reads=reads)("hello", self.cwd())[0], '{"pages": []}')
+
+    def real_result(self, response='{"pages": []}'):
+        result = self.capture_events()[5]
+        result["result"]["response"] = response
+        result["result"].pop("denied_actions")
+        return result
+
+    def test_the_vision_lane_reads_only_inside_the_calls_own_folder(self):
+        """A read tool is accepted only when every path it names resolves inside the working folder: an absolute path
+        elsewhere (the real probes read /private/etc/hosts), `..`, `~`, a file URL, and a link inside the folder that
+        points out all fail, and so does a path in a parameter that names a directory or a pattern."""
+        cwd = self.cwd()
+        outside = os.path.join(self.tmp, "outside.png")
+        with open(outside, "w") as f:
+            f.write("x")
+        os.symlink(outside, os.path.join(cwd, "link.png"))
+        os.symlink(cwd, os.path.join(self.tmp, "alias"))
+        inside = {
+            "relative": ("view_file", {"AbsolutePath": "p1.png"}),
+            "absolute": ("view_file", {"AbsolutePath": os.path.join(cwd, "p1.png")}),
+            "through an alias of the folder": ("view_file", {"AbsolutePath": os.path.join(self.tmp, "alias",
+                                                                                           "p1.png")}),
+            "dot-dot that comes back": ("view_file", {"AbsolutePath": os.path.join(cwd, "..", os.path.basename(cwd),
+                                                                                     "p1.png")}),
+            "the folder itself": ("list_dir", {"DirectoryPath": cwd}),
+            "a search under it": ("find_by_name", {"SearchDirectory": ".", "Pattern": "*.png"}),
+        }
+        elsewhere = {
+            "an absolute path elsewhere": ("view_file", {"AbsolutePath": "/private/etc/hosts"}),
+            "a sibling folder": ("view_file", {"AbsolutePath": outside}),
+            "dot-dot out": ("view_file", {"AbsolutePath": os.path.join(cwd, "..", "outside.png")}),
+            "relative dot-dot out": ("view_file", {"AbsolutePath": "../outside.png"}),
+            "home": ("view_file", {"AbsolutePath": "~/p1.png"}),
+            "a file URL": ("view_file", {"AbsolutePath": "file:///private/etc/hosts"}),
+            "a link inside that points out": ("view_file", {"AbsolutePath": os.path.join(cwd, "link.png")}),
+            "the parent folder": ("list_dir", {"DirectoryPath": os.path.dirname(cwd)}),
+            "the root": ("list_dir", {"DirectoryPath": "/"}),
+            "a search elsewhere": ("find_by_name", {"SearchDirectory": "/Users", "Pattern": "*.png"}),
+            "a pattern that is a path": ("find_by_name", {"SearchDirectory": cwd, "Pattern": "/private/etc/*"}),
+            "a path under an unfamiliar name": ("view_file", {"Source": "/private/etc/hosts"}),
+            "a list of paths with one elsewhere": ("view_file", {"Paths": [os.path.join(cwd, "p1.png"),
+                                                                           "/private/etc/hosts"]}),
+        }
+        for name, (tool, params) in inside.items():
+            with self.subTest(name):
+                self.fakes.script("agy", default=self.real_stream(tool, **params))
+                self.assertEqual(self.agy(allow_reads=True)("hello", cwd)[0], '{"pages": []}')
+        for name, (tool, params) in elsewhere.items():
+            with self.subTest(name):
+                self.fakes.script("agy", default=self.real_stream(tool, **params))
+                with self.assertRaises(engines.ToolUseError) as cm:
+                    self.agy(allow_reads=True)("hello", cwd)
+                self.assertIn("outside the call's folder", str(cm.exception))
+                with self.assertRaises(engines.ToolUseError):
+                    self.agy()("hello", cwd)
+
+    def test_a_read_that_names_no_parameters_cannot_be_checked_and_is_refused(self):
+        events = self.capture_events()[:3]
+        step = {"event": "step_update", "step_update": {"conversation_id": "c", "step_index": 2, "state": "DONE",
+                                                        "step_type": "tool", "tool_name": "view_file"}}
+        self.fakes.script("agy", default=self.replay_of(events + [step, self.real_result()]))
+        with self.assertRaises(engines.ToolUseError):
+            self.agy(allow_reads=True)("hello", self.cwd())
+
+    def test_a_real_tool_step_with_no_name_is_not_a_read(self):
+        reply = self.real_stream("view_file")
+        with open(reply["stdout"], encoding="utf-8") as f:
+            events = [json.loads(line) for line in f]
+        for ev in events:
+            step = ev.get("step_update", {})
+            if step.get("step_type") == "tool":
+                del step["tool_name"], step["tool_info"]["name"]
+        with open(reply["stdout"], "w", encoding="utf-8") as f:
+            f.write("".join(json.dumps(ev) + "\n" for ev in events))
+        self.fakes.script("agy", default=reply)
+        with self.assertRaises(engines.ToolUseError):
+            self.agy(allow_reads=True)("hello", self.cwd())
+
+    def test_a_read_tool_beside_another_tool_is_not_a_read(self):
+        cwd = self.cwd()
+        reply = self.real_stream("view_file", AbsolutePath=os.path.join(cwd, "p1.png"))
+        with open(reply["stdout"], encoding="utf-8") as f:
+            events = [json.loads(line) for line in f]
+        stray = json.loads(json.dumps(events[3]))
+        stray["step_update"].update(step_index=3, tool_name="run_command")
+        stray["step_update"]["tool_info"]["name"] = "run_command"
+        events.insert(5, stray)
+        with open(reply["stdout"], "w", encoding="utf-8") as f:
+            f.write("".join(json.dumps(ev) + "\n" for ev in events))
+        self.fakes.script("agy", default=reply)
+        with self.assertRaises(engines.ToolUseError) as cm:
+            self.agy(allow_reads=True)("hello", cwd)
+        self.assertIn("run_command", str(cm.exception))
+
+    def test_the_init_banner_and_the_ordinary_steps_of_a_real_stream_are_not_tools(self):
+        """The banner lists every tool agy has, and the user and agent steps carry usage: none of it is a tool at
+        work."""
+        self.fakes.script("agy", default=self.real_stream(None))
+        for reads in (False, True):
+            with self.subTest(allow_reads=reads):
+                self.assertEqual(self.agy(allow_reads=reads)("hello", self.cwd())[0], '{"pages": []}')
+
+    def test_a_cut_is_named_before_the_tool_steps_that_show_it(self):
+        """The real cut stream is full of tool steps, which would fail the call as tool use; the cut is the cause, so it
+        is named first and the caller halves the input, with or without an answer beside the refused command."""
+        for response in ("", '{"pages": []}'):
+            for reads in (False, True):
+                with self.subTest(response=response, allow_reads=reads):
+                    read = "tail /h/brain/c-1/.system_generated/logs/transcript_full.jsonl"
+                    reply = self.real_stream("run_command", response=response, CommandLine=read,
+                                             denied=[{"action": "command", "display_name": "RunCommand"}])
+                    self.fakes.script("agy", default=reply)
+                    with self.assertRaises(engines.PromptCut):
+                        self.agy(allow_reads=reads)("hello", self.cwd())
 
     def test_ordinary_events_are_not_tools(self):
         cases = {
