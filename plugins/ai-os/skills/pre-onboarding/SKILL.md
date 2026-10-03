@@ -216,7 +216,9 @@ folder exists): a file the machine lacks is skipped and listed in the result's `
 with an error on a path that still holds one, or whose folder does not exist: that is a typo, and a typo must never
 read as a clean scan. `canary` plants an invented name in the engine's context, asks it to list every name it holds
 starting with that one, and fails on any term; a reply that does not repeat the invented name (recorded as
-`marker`) proves nothing, so it fails as unanswered. Run it for each engine you will use, and keep both results: they are the record
+`marker`) proves nothing, so it fails as unanswered. Run it for each engine you will use, with the `--model` the cards
+will use: models of one engine answer differently, and some refuse the question outright, which fails the canary. A
+model that refuses cannot be cleared for this folder, so card with one that answers. Keep both results: they are the record
 that the gate ran, and `readiness.py` reads each engine's canary from `<work>/state/canary-<engine>.json` (step 8).
 No lane reads them, so never start one without passing ones. A failure means the engine's context carries another
 project: fix its setup ([engine isolation](#engine-isolation)) and run the canary again.
