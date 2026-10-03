@@ -5,8 +5,8 @@ status: current
 ---
 # 00 Index
 
-> [!note] Needs attention
-> The electricity bill of GBP 96.40 is due by 2024-04-01.
+> [!note]
+> **Needs attention.** The electricity bill of GBP 96.40 is due by 2024-04-01.
 
 Waiting to be filed: `IMG_0001.jpg` at the top of the folder (a beach photo).
 

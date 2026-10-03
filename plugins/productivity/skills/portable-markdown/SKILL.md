@@ -205,6 +205,31 @@ def table_cell(text: str) -> str:
     return " ".join(str(text).split()).replace("|", "\\|")
 ```
 
+## Charts and callouts
+
+Both editors draw Mermaid charts from a fenced ` ```mermaid ` block, and both bundle the same
+Mermaid release (11.13.0 in Obsidian 1.13.7 and Typora 1.14.10). Every kind a page needs for its data
+renders with that library: `xychart-beta` bars and lines, `pie`, `gantt` and `timeline`. That was checked by
+running each editor's own copy of the library in a browser, not by opening the page in the applications, so
+treat it as expected rather than confirmed until someone opens the probe page (see the REFERENCE) in both
+apps. Two things are known to differ, read from Typora's own source:
+
+- **Typora draws a diagram only with its Diagrams preference on** (Preferences, Markdown, Syntax
+  Support, Diagrams), and Typora applies that panel's settings only after a restart. Its documented
+  default is off, and with it off a chart shows as its source code.
+  Tell a Typora reader to turn it on once and restart Typora. A chart must therefore never be the only place its data
+  lives: keep the table it was drawn from beside it, so the page reads the same with the chart off.
+- **Callouts: use only the five GitHub alert types**, `> [!note]`, `> [!tip]`, `> [!important]`,
+  `> [!warning]` and `> [!caution]`. Obsidian draws its own wider set (`info`, `todo`, `danger` and so
+  on), but Typora boxes only these five (its "GitHub Style Alert" option, on by default) and shows any
+  other as a plain quotation with the marker printed. **Write the marker alone on its line** and any
+  title in bold on the next line: Typora hides the marker only when nothing follows it on its line, and
+  otherwise prints `[!note] Title` as text inside the box; Obsidian shows its default title.
+
+Generate chart blocks with a renderer rather than by hand, so the same data always gives the same
+block. Whenever either editor moves a major version, reopen the probe page in both apps, the method below,
+which also settles what this pass could only infer from each editor's library and source.
+
 ## Keep the render a pure function
 
 If the document is regenerated — an audit, an index, a dashboard page — make the renderer a pure function
@@ -247,11 +272,15 @@ Before shipping a generator that writes markdown for a person:
 - [ ] Text inside an inline element HTML-escaped; hrefs percent-encoded
 - [ ] Table cells: pipes escaped, newlines collapsed, for any text you did not author
 - [ ] Render is a pure function of its data — no clock, no filesystem
+- [ ] Each chart has its data table beside it; callouts use only `note`, `tip`, `important`, `warning`, `caution`
 - [ ] Opened the real output in the editor the reader uses, and **clicked the links**
 
 ## Provenance
 
-Rules verified 2026-08 against **Typora 1.14.9** (macOS) and the published help for both editors
+Charts and callouts checked 2026-10 for **Obsidian 1.13.7** and **Typora 1.14.10** (macOS) by rendering each
+editor's own bundled Mermaid in a browser harness and reading Typora's switches from its source, not by driving
+the editors (see the REFERENCE for what that does and does not prove); link rules
+verified 2026-08 against **Typora 1.14.9** (macOS) and the published help for both editors
 ([support.typora.io](https://support.typora.io/), [obsidian.md/help](https://obsidian.md/help/)). The
 per-construct results, including which forms navigate and which only render, are in
 [`REFERENCE.md`](REFERENCE.md). Re-verify after a major version of either editor: several of these

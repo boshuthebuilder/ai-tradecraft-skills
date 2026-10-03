@@ -22,7 +22,7 @@ outputs of the deterministic tools, regenerated only on purpose with `python3 ..
 | `IMG_0001.jpg` | a root stray with a generic camera name, read as a photo |
 | `_Migrations/Other Project/02 Finance/Old invoice.pdf` | a file staged for another project (`migrating`) |
 | `CLAUDE.md`, `AGENTS.md`, `.familyai/rulebook.json` | the rulebook, its identical copy and its settings twin |
-| `Alex Personal Wiki/` | a small wiki: Schema with Layout, Page professionals, Routing and Page contracts (with a Reader column) tables; pages by different professionals (a CFO's cash note beside personal pages); Mermaid `gantt`, `xychart-beta` bar, `pie` and `timeline`, each rendered by `wiki.py chart` from figures its cited file states, with its data table beside it (no line chart: no file here states three dated figures); an Obsidian callout |
+| `Alex Personal Wiki/` | a small wiki: Schema with Layout, Page professionals, Routing and Page contracts (with a Reader column) tables; pages by different professionals (a CFO's cash note beside personal pages); Mermaid `gantt`, `xychart-beta` bar, `pie` and `timeline`, each rendered by `wiki.py chart` from figures its cited file states, with its data table beside it (no line chart: no file here states three dated figures); a callout with its marker alone on its line |
 | `_Audit/wiki-rationale.md` | one five-line rationale block per page, naming its professional and its questions |
 | `_Audit/extract/`, `_Audit/cards/` | an extract record and a card per live document, by content id (`PREPARED`) |
 | `_Audit/wiki-acceptance.json` | every page accepted in both lenses by another model (`wiki.py accept`) |

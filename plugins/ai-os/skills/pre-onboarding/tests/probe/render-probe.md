@@ -1,13 +1,14 @@
 # Render probe
 
-One chart of each kind `wiki.py chart` renders, each followed by its data table, and one Obsidian callout. Open
+One chart of each kind `wiki.py chart` renders, each followed by its data table, and one callout, its marker alone on its line. Open
 this page in each Markdown app the wiki will be read in. For every section, note whether the chart draws, whether
 its labels, values and dates read as in the table under it, and anything clipped or misplaced. A kind that does not
 draw in every app is taken out of the tool. The page is generated: `tests/test_charts.py --update` rewrites it from
 the golden inputs in `tests/golden/charts/`, and a test fails when it differs from the tool's output.
 
-> [!note] Callout
-> In Obsidian this is a box titled Callout; elsewhere it reads as a quotation.
+> [!note]
+> **Callout.** A box in Obsidian and in Typora. The marker stands alone on its line: Typora prints it as text when
+> anything follows it there.
 
 ## bar
 
