@@ -9,8 +9,8 @@ than KILL_GRACE after that). Output is read as UTF-8, with undecodable bytes rep
   and wins over an empty answer.
 - `DegenerateError`: an empty final answer (agy returns one after a denied tool attempt, about 3% of calls).
 - `ToolUseError`: the model used a tool (a codex tool item, or an agy stream event naming a tool, action, function
-  or call, unless `allow_reads` is set for the vision lane) or was refused one (an agy denied action); the reply is
-  discarded.
+  or call, such as its `step_update` tool step, unless `allow_reads` is set for the vision lane and the tool only
+  reads) or was refused one (an agy denied action); the reply is discarded.
 - `PromptTooLong`: an agy prompt over AGY_MAX_PROMPT_BYTES, refused before the call because agy would cut it short
   without a word; `PromptCut` (a `PromptTooLong`) when the stream shows a cut that the check did not foresee.
 - `CredentialError`: a credential-like file in the per-project state folder. It stops the run, not just the call.
@@ -23,8 +23,9 @@ login files: it is scanned before and after every call, and a credential-like re
 run. How each engine reaches the shared login is decided by the isolation spike and recorded in the skill.
 
 The flags below are the ones in use today, pinned by tests/test_engines.py. The isolation mode is the skill's
-Engine isolation section; what is still provisional is marked below: the lists of environment variables and stream
-events (issue #91 records what each engine really reads). agy's prompt limit is measured (see AGY_MAX_PROMPT_BYTES).
+Engine isolation section; what is still provisional is marked below: the lists of environment variables (issue #91
+records what each engine really reads). agy's prompt limit (AGY_MAX_PROMPT_BYTES) and its tool steps (AGY_TOOL_WORDS)
+are settled from measurements and a real capture.
 """
 import json
 import os
@@ -61,10 +62,16 @@ CRED_PAIRS = {("api", "key"), ("api", "keys"), ("private", "key"), ("id", "rsa")
               ("id", "ecdsa"), ("id", "dsa")}
 CRED_EXTS = {".env", ".netrc", ".keychain", ".keychain-db", ".p12", ".pfx", ".key", ".pem", ".kdbx"}
 NOT_CRED_EXTS = {".md", ".markdown", ".rst", ".html", ".pub"}
-# agy stream events that show a tool at work: an event whose type, or one of whose top-level keys, has tool, action,
-# function or call as a whole word (tool_call, functionCall, action), unless that key's value is empty
-# (`tool_calls: []`). Fail-closed and provisional: the isolation spike (issue #91) records agy's real event names.
+# agy stream events that show a tool at work. agy 1.2.16 streams one as a `step_update` event whose nested step has
+# `step_type: "tool"`, a `tool_name` and a `tool_info` (ACTIVE, then DONE), settled from a real capture (the
+# fixture under tests/fixtures/agy). The check is wider than that and fails closed: an event whose type, or one of
+# whose top-level keys, or a step's type or keys, has tool, action, function or call as a whole word (tool_call,
+# functionCall, action), unless that key's value is empty (`tool_calls: []`). The init banner lists every tool agy has
+# and is not a tool at work, so only a step is looked into.
 AGY_TOOL_WORDS = {"tool", "tools", "action", "actions", "function", "functions", "call", "calls"}
+# The tools the vision lane's model may use, all of them reads of the call's own (empty but for its images) working
+# folder: names from the init banner of the same capture. Any other tool, allowed or not, discards the reply.
+AGY_READ_TOOLS = frozenset({"view_file", "list_dir", "find_by_name"})
 KILL_GRACE = 5  # seconds to wait for the pipes after killing a timed-out engine's process group
 # agy cuts a user message at about 192,000 UTF-8 bytes of PROMPT TEXT (plus or minus 150), with no event, no field and
 # exit 0, and leaves the model a stored copy to read with a tool these calls deny, so a run that needs the end of its
@@ -149,7 +156,9 @@ def words(name):
 
 
 def tool_events(lines):
-    """The agy stream events (other than the result) that show a tool at work: see AGY_TOOL_WORDS."""
+    """The agy stream events (other than the result) that show a tool at work, as (label, tool names) pairs: see
+    AGY_TOOL_WORDS. The names are those the event gives (`tool_name`, `tool_info.name`, a top-level `name`, the `name`
+    inside a tool-keyed value): empty when it gives none, which is never a read tool."""
     found = []
     for line in lines:
         try:
@@ -158,12 +167,30 @@ def tool_events(lines):
             continue
         if not isinstance(ev, dict):
             continue
+        step = ev.get("step_update") if ev.get("event") == "step_update" else None
+        step = step if isinstance(step, dict) else {}
         kind = "%s %s" % (ev.get("event", ""), ev.get("type", ""))
-        named = words(kind) & AGY_TOOL_WORDS
-        keyed = [k for k, v in ev.items() if words(k) & AGY_TOOL_WORDS and v not in (None, "", [], {})]
-        if named or keyed:
-            found.append(kind.strip() or ",".join(keyed))
+        keyed = _tool_keys(ev) + _tool_keys(step)
+        if words(kind) & AGY_TOOL_WORDS or words(step.get("step_type", "")) & AGY_TOOL_WORDS or keyed:
+            names = frozenset(_tool_names(ev) | _tool_names(step))
+            found.append((",".join(sorted(names)) or kind.strip() or ",".join(keyed), names))
     return found
+
+
+def _tool_keys(mapping):
+    return [k for k, v in mapping.items() if words(k) & AGY_TOOL_WORDS and v not in (None, "", [], {})]
+
+
+def _tool_names(mapping):
+    names = set()
+    for key, value in mapping.items():
+        if key in ("name", "tool_name") and isinstance(value, str) and value:
+            names.add(value)
+        elif words(key) & AGY_TOOL_WORDS:
+            for item in value if isinstance(value, list) else [value]:
+                if isinstance(item, dict) and isinstance(item.get("name"), str) and item["name"]:
+                    names.add(item["name"])
+    return names
 
 
 def refuse_a_cut(lines, denied):
@@ -173,8 +200,8 @@ def refuse_a_cut(lines, denied):
     no trace, so this only turns a failure into a clearer one; it never certifies a pass. The two halves are on
     different lines (a real agy 1.2.16 capture, tests/fixtures/agy: `step_update` tool steps whose `tool_info`
     names the file, ACTIVE then DONE, and only the final result carrying `denied_actions`), so they are put
-    together across the stream. The step's shape is not otherwise pinned (issue #91), so the file name is looked
-    for anywhere in a line."""
+    together across the stream. The file name is looked for anywhere in a line, so a rename of the step's fields
+    does not blind it."""
     if not isinstance(denied, list):
         return
     refused = any("command" in words(d.get("action") if isinstance(d, dict) else d) for d in denied)
@@ -273,9 +300,10 @@ def _env(extra):
 
 
 class Agy:
-    """`allow_reads` is for the vision lane only, where the model must open the images in its working folder: tool
-    events are then accepted (plan mode refuses writes and commands, and a denied action still fails the call).
-    Everywhere else any tool-like event in the stream fails the call."""
+    """`allow_reads` is for the vision lane only, where the model must open the images in its working folder: a tool
+    event is then accepted when every tool it names is in AGY_READ_TOOLS (plan mode refuses writes and commands, and
+    a denied action still fails the call). Everywhere else any tool-like event in the stream fails the call, allowed
+    or not."""
 
     def __init__(self, model, binary=None, state_home=None, timeout=900, allow_reads=False):
         self.model, self.bin, self.home, self.timeout = model, find("agy", binary), state_home, timeout
@@ -325,7 +353,8 @@ class Agy:
         refuse_a_cut(other, denied)
         if denied:
             raise ToolUseError("agy was refused %s; reply discarded" % denied)
-        used = [] if self.allow_reads else tool_events(other)
+        used = [label for label, names in tool_events(other)
+                if not (self.allow_reads and names and names <= AGY_READ_TOOLS)]
         if used:
             raise ToolUseError("agy stream shows tool use %s; reply discarded" % sorted(set(used))[:5])
         return response, result.get("usage")

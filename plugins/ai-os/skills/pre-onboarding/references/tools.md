@@ -318,7 +318,7 @@ two looks a minute apart, writing `<work>/state/vision<k>.done`.
 
 ## `engines.py`
 
-<!-- provisional: agy's stream-event names and environment variables (#91) -->
+<!-- provisional: the engines' environment-variable lists (#91) -->
 
 A library: the adapters every model call goes through, `Agy` (Gemini through the `agy` command-line tool) and
 `Codex` (ChatGPT through `codex exec`). The rule it holds is the skill's
@@ -338,8 +338,11 @@ are in the file, pinned by its tests, and what is still provisional is marked th
 - **Outcomes.** `QuotaError` for quota text (quota, 429, exhausted, rate limit, usage limit, too many requests),
   whatever the exit code and before an empty answer is judged, with `reset_seconds` read from "Resets in 2h13m5s" or
   "try again at 5:12 PM" where the message says; `DegenerateError` for an empty answer; `ToolUseError` when the
-  model used a tool (a `codex` tool item, or an `agy` stream event naming a tool, action, function or call) or `agy`
-  was refused one (a denied action), the reply discarded (the vision lane alone lets `agy` open its images);
+  model used a tool (a `codex` tool item, or an `agy` tool step, which agy 1.2.16 streams as a `step_update` event
+  with `step_type: "tool"`, a `tool_name` and a `tool_info`, settled from a real capture, or any other event naming a
+  tool, action, function or call) or `agy` was refused one (a denied action), the reply discarded, allowed or not
+  (the vision lane alone lets `agy` open its images: a step whose tools are all `view_file`, `list_dir` or
+  `find_by_name`, and any other tool fails there too);
   `PromptTooLong` before an `agy` call whose prompt is over 180,000 UTF-8 bytes (`AGY_MAX_PROMPT_BYTES`): agy
   cuts a message at about 192,000 bytes of prompt text, silently, and leaves the model a stored copy to read with a
   tool these calls deny. The figure is measured on agy 1.2.16 (family-ai-os #1089), is the same for ASCII and CJK,
