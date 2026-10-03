@@ -703,6 +703,16 @@ class MoveSafetyTest(Copy):
                 self.assertIn(why, self.refused("move", "--map", self.map(moves)))
                 self.assertEqual(tree_digest(self.root), before)
 
+    def test_a_destination_under_a_symbolic_link_is_refused_before_any_change(self):
+        """A folder in the wiki that is a link could lead outside it: the page would be written there."""
+        outside = os.path.join(self.tmp, "elsewhere")
+        os.makedirs(outside)
+        os.symlink(outside, os.path.join(self.root, WIKI, "30 Home", "escape"))
+        before = tree_digest(self.root)
+        err = self.refused("move", "--map", self.map({"20 Finance/Tax.md": "30 Home/escape/Tax.md"}))
+        self.assertIn("lies under 30 Home/escape, which is a symbolic link", err)
+        self.assertEqual((tree_digest(self.root), os.listdir(outside)), (before, []))
+
     def test_moved_pages_are_written_first(self):
         """F1: a run that fails after its first write leaves every link resolving, because the moved page is written
         before any page linking to it is rewritten."""
@@ -775,8 +785,10 @@ class MoveSafetyTest(Copy):
         """Re-review 4: a destination differing only in case from a page, another destination or a folder."""
         before = tree_digest(self.root)
         acc, cash = "20 Finance/Bank accounts.md", "20 Finance/Cash position.md"
-        for moves, why in (({acc: "20 Finance/tax.md"}, "20 Finance/tax.md differs only in case from the page "
-                                                        "20 Finance/Tax.md"),
+        # on a case-insensitive file system (macOS by default) the name is taken outright
+        taken = os.path.exists(self.page("20 Finance/tax.md"))
+        for moves, why in (({acc: "20 Finance/tax.md"}, "destination exists: 20 Finance/tax.md" if taken else
+                            "20 Finance/tax.md differs only in case from the page 20 Finance/Tax.md"),
                            ({acc: "25 Tax/A.md", cash: "25 Tax/a.md"}, "destinations 25 Tax/A.md and 25 Tax/a.md "
                                                                        "differ only in case"),
                            ({acc: "25 Tax/A.md", cash: "25 tax/B.md"}, "its folder 25 Tax differs only in case "

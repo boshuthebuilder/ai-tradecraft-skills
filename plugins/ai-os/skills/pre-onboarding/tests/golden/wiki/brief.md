@@ -93,9 +93,10 @@ is not enough.
    knowledge and history pages are how each page is written.
 2. Write each page to its path under `<tmp>/a/Alex Personal/Alex Personal Wiki/`, to its contract and in its professional's voice. Draw any
    chart with `wiki.py chart`, from the page's own cited rows.
-3. Run the checker, and fix every finding it names on your pages:
+3. Run the checker, scoped to your pages, and fix every finding it names. A link to a page the map plans but
+   nobody has written yet is listed as pending, not dead; coverage is judged later, over the whole wiki:
 
-       python3 <skills>/pre-onboarding/tools/wiki.py check --root '<tmp>/a/Alex Personal' --work <tmp>/a/work
+       python3 <skills>/pre-onboarding/tools/wiki.py check --root '<tmp>/a/Alex Personal' --work <tmp>/a/work --page '20 Finance/Cash position.md' --page '20 Finance/Tax.md'
 
 4. Fill each page's rationale block (below).
 5. Reply with JSON only, in this shape: per page its text, rationale block and Index entry; then your open
@@ -121,9 +122,9 @@ is not enough.
   "<for the owner or the coordinating agent: a gap, sources that disagree, a dated rule left unchecked, a page the evidence shows is missing>"
  ],
  "check_result": {
-  "problems_on_these_pages": 0,
-  "findings_on_other_pages": [
-   "<a finding the checker names on a page not yours>"
+  "problems": 0,
+  "links_to_planned_pages": [
+   "<a link to a page the map plans but nobody has written yet>"
   ]
  }
 }

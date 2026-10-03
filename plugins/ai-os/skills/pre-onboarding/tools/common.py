@@ -415,9 +415,10 @@ def pack_matcher(root, rb):
         raise ToolError("%s: packs entry %r is not an existing folder under %s (names compared exactly); update "
                         "rulebook.json packs (and name it in the rulebook, which `settings.py check` verifies)"
                         % (rb.get("_source") or "rulebook.json", p, root))
-    rx = re.compile("(" + "|".join(rb["pack_keywords"]) + ")", re.I)
+    # an empty alternation would match every folder, so no keywords means no keyword matches
+    rx = re.compile("(" + "|".join(rb["pack_keywords"]) + ")", re.I) if rb["pack_keywords"] else None
     listed = [nfc(p) + "/" for p in rb["packs"]]
-    return lambda folder: bool(rx.search(folder)) or any((nfc(folder) + "/").startswith(pk) for pk in listed)
+    return lambda folder: bool(rx and rx.search(folder)) or any((nfc(folder) + "/").startswith(pk) for pk in listed)
 
 
 def page_voice(ws, page):

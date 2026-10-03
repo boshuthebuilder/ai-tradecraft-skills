@@ -337,10 +337,14 @@ def main():
         flags = [f for f in old.get("flags", []) if f not in ("root_stray", "unconverted", "hygiene", "departed",
                                                               "migrating")]
         e.pop("migration_target", None)
+        e.pop("migration_targets", None)
         mig = [p for p in ps if p.startswith(migr + "/") and p.count("/") >= 2]
         if mig:
             flags.append("migrating")
             e["migration_target"] = mig[0].split("/")[1]
+            projects = sorted({p.split("/")[1] for p in mig})
+            if len(projects) > 1:  # identical copies staged for two projects: one entry, every target named
+                e["migration_targets"] = projects
         e.pop("departed_at", None)
         if not m["hashed"]:
             e["synthetic_id"] = True
@@ -414,7 +418,9 @@ def main():
     conv_ok = [e for e in live if e.get("convert_candidate", {}).get("match") == "stem"]
     hyg_list = [(p, k) for p, ks in sorted(hyg.items()) for k in sorted(set(ks))]
     strays = sorted(e["current_path"] for e in live if "root_stray" in e["flags"])
-    migrs = sorted((e.get("migration_target", "?"), e["current_path"]) for e in live if "migrating" in e["flags"])
+    migrs = sorted((p.split("/")[1], p) for e in live if "migrating" in e["flags"]
+                   for p in [e["current_path"]] + [k["path"] for k in e.get("copies", [])]
+                   if p.startswith(migr + "/") and p.count("/") >= 2)
     count_only = collections.Counter((e["current_path"].split("/")[0]) for e in live if not e["hashed"])
     cls_count = collections.Counter(e["class"] for e in live)
     redundant_paths = sorted(((e["size"], k["path"], e["id"]) for e in live for k in e.get("copies", [])

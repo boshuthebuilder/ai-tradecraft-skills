@@ -18,6 +18,7 @@ Other headers, a missing required table and a row that cannot be read fail loud;
 record their source's sha256; every tool refuses a twin whose source has changed since ("stale").
 """
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -237,10 +238,10 @@ def schema_path(root, wiki_dir):
 
 def compile_schema(root, rb):
     rel = schema_path(root, rb["wiki_dir"])
-    path = os.path.join(root, rel)
-    with open(path, encoding="utf-8") as f:
-        data = compile_text(f.read(), rel)
-    data["schema_sha256"] = common.sha256_file(path)
+    with open(os.path.join(root, rel), "rb") as f:
+        raw = f.read()
+    data = compile_text(raw.decode("utf-8"), rel)
+    data["schema_sha256"] = hashlib.sha256(raw).hexdigest()
     return data
 
 

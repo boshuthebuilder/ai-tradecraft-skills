@@ -36,7 +36,8 @@ is not enough.
    knowledge and history pages are how each page is written.
 2. Write each page to its path under `{wiki_dir}/`, to its contract and in its professional's voice. Draw any
    chart with `wiki.py chart`, from the page's own cited rows.
-3. Run the checker, and fix every finding it names on your pages:
+3. Run the checker, scoped to your pages, and fix every finding it names. A link to a page the map plans but
+   nobody has written yet is listed as pending, not dead; coverage is judged later, over the whole wiki:
 
        {checker}
 

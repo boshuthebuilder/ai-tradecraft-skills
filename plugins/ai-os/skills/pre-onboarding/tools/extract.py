@@ -416,8 +416,8 @@ def process(ctx, e):
         try:
             pages = office_zip(path, ext)
         except (zipfile.BadZipFile, KeyError, RuntimeError):
-            if not ctx.bins["textutil"]:
-                raise
+            if not ctx.bins["textutil"] or not zipfile.is_zipfile(path):
+                raise  # textutil reads any file that is not a zip as plain text: its bytes would pass as the text
             o, rc, _err = run([ctx.bins["textutil"], "-convert", "txt", "-stdout", path], 300)
             if rc != 0 and not o.strip():
                 raise
