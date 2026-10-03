@@ -381,7 +381,7 @@ class CheckTest(Copy):
         res = self.check("--page", index)
         self.assertEqual((res["problems"], res["dead_page_links"], res["em_dash_lines"]), (0, [], 0))
         self.assertEqual(res["links_to_planned_pages"], [[index, "../40%20Study/40%20Study.md"]])
-        self.assertEqual(res["scoped_to"], [index])
+        self.assertEqual((res["scoped_to"], res["frontmatter_conforming"]), ([index], "1/1"))
         for key in ("documents_not_covered", "rationale", "acceptance"):
             self.assertTrue(res[key].startswith("not checked: scoped to 1 page(s)"), key)
         res = self.check("--page", TAX)

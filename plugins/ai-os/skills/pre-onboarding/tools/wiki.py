@@ -1049,7 +1049,8 @@ def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptan
                 + len(unpaired) + len(unrenderable) + len(bad_chart_src) + (len(no_voice) if ws else 0))
     if only is not None:
         whole = "not checked: scoped to %d page(s); the coordinator's whole-wiki check judges it" % len(only)
-        res.update(scoped_to=sorted(only), links_to_planned_pages=pending, documents_not_covered=whole,
+        res.update(frontmatter_conforming="%d/%d" % (len(only) - len(fm_bad), len(only)),
+                   scoped_to=sorted(only), links_to_planned_pages=pending, documents_not_covered=whole,
                    not_covered_sample=[], rationale=whole, acceptance=whole)
         res["problems"] = problems
         return res
