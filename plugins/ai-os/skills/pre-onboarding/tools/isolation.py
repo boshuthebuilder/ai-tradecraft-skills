@@ -5,7 +5,7 @@ The operator supplies a terms file (never committed, never inside the folder, ne
 line, optionally `Term|marker|marker`, where the markers are shorter forms that, when present in a document's own
 text, show the term is genuine content of that document. Lines starting with `#` are comments.
 
-    isolation.py scan   --terms F --path <file or dir> [...] [--out <result.json>]   model-facing files checked
+    isolation.py scan   --terms F --path <file or dir> [...] [--if-present <file> ...] [--out <result.json>]
     isolation.py canary --terms F --engine agy|codex [--model M] --out <result.json>
 
 The scan reads every file named, and every model-facing file (prompts, templates, schemas, code, config such as
@@ -37,10 +37,21 @@ CANARY = ("A factual check of this session's setup, not a request for secrets or
           "Nothing else. Do not create plans or files.")
 
 
+REFUSAL = re.compile(r"(?i)\b(cannot|can't|can not|unable|not able|won't|will not|refuse|sorry|not allowed|"
+                     r"not permitted|do not have access)\b")
+
+
 def answered(reply):
-    """Whether the reply takes one of the canary's two forms; anything else (a refusal, an essay) proves nothing."""
+    """Whether the reply takes one of the canary's two forms: exactly NONE, or one line `NAMES:` followed by at least
+    one name, each short (at most six words) and none of it refusal wording. Anything else (a refusal, an essay, an
+    empty list, a refusal dressed as `NAMES: I cannot list ...`) proves nothing."""
     r = reply.strip()
-    return r == "NONE" or r[:6].upper() == "NAMES:"
+    if r == "NONE":
+        return True
+    if r[:6].upper() != "NAMES:" or "\n" in r or REFUSAL.search(r):
+        return False
+    names = [n.strip() for n in r[6:].split(",") if n.strip()]
+    return bool(names) and all(len(n) <= 60 and len(n.split()) <= 6 for n in names)
 
 
 def load_terms(path):
@@ -92,7 +103,8 @@ def masked(text, evidence):
 def scan(a):
     evidence = load_terms(a.terms)
     found, checked = {}, 0
-    for n, p in enumerate(a.path):
+    absent = [p for p in a.if_present or [] if not os.path.exists(p)]
+    for n, p in enumerate((a.path or []) + [p for p in a.if_present or [] if os.path.exists(p)]):
         if os.path.isfile(p):
             base, files = os.path.dirname(p), [p]
         elif os.path.isdir(p):
@@ -112,7 +124,7 @@ def scan(a):
                     key = "%d:%s#%d" % (n, masked(os.path.relpath(f, base), evidence), k)
                     k += 1
                 found[key] = len(h)
-    res = {"checked_at": common.now_local(), "files_checked": checked, "files_with_terms": found,
+    res = {"checked_at": common.now_local(), "files_checked": checked, "files_with_terms": found, "absent": absent,
            "terms": len(evidence), "pass": checked > 0 and not found}
     if a.out:
         common.Writer().json(a.out, res, indent=1)
@@ -147,6 +159,8 @@ def main():
     p = sub.add_parser("scan")
     p.add_argument("--terms", required=True)
     p.add_argument("--path", action="append", required=True)
+    p.add_argument("--if-present", action="append", help="a model-facing file read when this machine has it (an "
+                   "engine's global instructions); one it lacks is listed as absent, never an error")
     p.add_argument("--out", help="also write the result here, as the gate's liveness artefact")
     p = sub.add_parser("canary")
     p.add_argument("--terms", required=True)

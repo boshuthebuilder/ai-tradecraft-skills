@@ -573,7 +573,12 @@ class FindingTest(Prepared):
                                             "reply, checked 2024-06-30T12:00:00+0000"]])
         self.assertIn(["isolation.canary.agy", res["isolation"]["canary"]["agy"]], res["not_verified"])
         self.canary("codex", error="timeout", **{"pass": False})
-        self.assertIn("the engine gave no answer (timeout)", self.one_finding("isolation.canary.codex"))
+        self.assertIn("the engine gave no usable answer (timeout)", self.one_finding("isolation.canary.codex"))
+        self.canary("codex", reply="I cannot list that.", hits=0, answered=False, usage={},
+                    error="the engine did not reply NONE or NAMES: ...", **{"pass": False})
+        finding = self.one_finding("isolation.canary.codex")
+        self.assertIn("no usable answer (the engine did not reply NONE or NAMES", finding)
+        self.assertNotIn("0 isolation term(s)", finding)
 
     def test_the_rationale_file_missing(self):
         os.remove(self.path("_Audit", "wiki-rationale.md"))

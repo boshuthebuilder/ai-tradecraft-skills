@@ -336,8 +336,10 @@ def canary(work, engine):
         raise common.ToolError("%s is not a canary result for %s; run isolation.py canary again" % (path, engine))
     if res["pass"]:
         return "passed"
-    why = ("%s isolation term(s) in the engine's reply" % res.get("hits") if "reply" in res
-           else "the engine gave no answer (%s)" % res.get("error", "no error recorded"))
+    if "reply" in res and res.get("answered") is not False:
+        why = "%s isolation term(s) in the engine's reply" % res.get("hits")
+    else:  # no reply at all, or one in neither of the canary's forms (a refusal): the reason is the error
+        why = "the engine gave no usable answer (%s)" % res.get("error", "no error recorded")
     return "failed: %s, checked %s" % (why, res.get("checked_at"))
 
 

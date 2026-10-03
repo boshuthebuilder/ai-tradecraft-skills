@@ -350,14 +350,14 @@ are in the file, pinned by its tests.
 
 ## `isolation.py`
 
-    isolation.py scan   --terms <file> --path <file or folder> [--path ...] [--out <result.json>]
+    isolation.py scan   --terms <file> --path <file or folder> [--path ...] [--if-present <file> ...] [--out <result.json>]
     isolation.py canary --terms <file> --engine agy|codex [--model <id>] --out <result.json>
 
 Keeps other projects out of model-facing context. The terms file's format is in
 [the card contract](cards.md#the-terms-file); `agy` needs `--model`.
 
 - **`scan`** reads every file named, and every `.md`, `.json`, `.py`, `.txt`, `.sh`, `.swift`, `.csv`, `.jsonl`,
-  `.toml`, `.yaml` and `.yml` file under each folder named; a path that does not exist is refused. It prints
+  `.toml`, `.yaml` and `.yml` file under each folder named; a path that does not exist is refused. An `--if-present` file (an engine's global instruction file, such as `~/.codex/AGENTS.md`) is read when the machine has it and listed in `absent` when it does not, never an error. It prints
   `{checked_at, files_checked, files_with_terms, terms, pass}`, also to `--out`. A file holding a term is listed as
   `<n>:<path>`, `n` the index of the `--path` it came from and the path relative to it, with every term and marker
   masked as `<term>` (a later path masking alike gets `#2`, `#3`). `pass` needs at least one file checked and none
@@ -368,7 +368,7 @@ Keeps other projects out of model-facing context. The terms file's format is in
   given besides the message holds a personal name, family name, account name, company, property, street or
   address, to be answered exactly `NONE` or with one line starting `NAMES:`. It writes `{engine, checked_at, terms,
   reply, usage, hits, answered, pass}` (and `error` when there is one) to `--out`, the reply and any error with their
-  terms masked, and prints it without the reply. `pass` needs a reply in one of the two forms with no term in it: a
+  terms masked, and prints it without the reply. `pass` needs a reply in one of the two forms (a `NAMES:` line with at least one short name and no refusal wording) with no term in it: a
   refusal ("I can't list my context") holds no term either, and proves nothing, so it fails as unanswered. Exit 0
   on a pass.
 
@@ -397,7 +397,7 @@ One card per live document. What a card holds, how it is written and joined, and
 | `--terms`, `--no-isolation-terms` | the isolation list, or the logged statement that none is needed; `work` needs one of them | none |
 | `--worker` | take every Nth batch file, from the kth | `0/1` |
 | `--redo` | a file of ids to card again, one per line | none |
-| `--small-chars`, `--batch-chars`, `--batch-items`, `--textless-batch`, `--section-chars`, `--single-max` | the batch budgets, in characters and items | 60,000; 180,000; 30; 60; 400,000; 600,000, except that with `--engine agy` (the default) `--batch-chars`, `--section-chars` and `--single-max` default to 60,000, which keeps a call under agy's byte limit even for CJK text |
+| `--small-chars`, `--batch-chars`, `--batch-items`, `--textless-batch`, `--section-chars`, `--single-max` | the batch budgets, in characters and items | 60,000; 180,000; 30; 60; 400,000; 600,000, except that with `--engine agy` (the default) `--batch-chars`, `--section-chars` and `--single-max` default to 60,000, which keeps a call under agy's byte limit even for CJK text (so a document over `--small-chars` is read in sections: single mode is not used with agy's defaults) |
 | `--section-tokens`, `--single-tokens` | budgets in estimated tokens instead (for `codex`, 110,000 and 150,000) | unset |
 
 Batches go in `<work>/batches/`, section notes in `<work>/sections/`; a worker writes `<work>/state/cards<k>.done`

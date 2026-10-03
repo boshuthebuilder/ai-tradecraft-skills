@@ -138,6 +138,20 @@ class ScanTest(Case):
         self.assertEqual(code, 0, err)
         self.assertIs(json.loads(stdout)["pass"], True)
 
+    def test_an_engine_instruction_file_is_scanned_only_when_present(self):
+        d = os.path.join(self.tmp, "prompts")
+        write(os.path.join(d, "clean.md"), "Write a card for each document.")
+        present = os.path.join(self.tmp, "AGENTS.md")
+        write(present, "General preferences, no project in sight.")
+        gone = os.path.join(self.tmp, "nowhere", "AGENTS.override.md")
+        code, stdout, err = self.iso("scan", "--terms", self.terms, "--path", d, "--if-present", present,
+                                     "--if-present", gone)
+        res = json.loads(stdout)
+        self.assertEqual((code, res["files_checked"], res["absent"], res["pass"]), (0, 2, [gone], True), err)
+        write(present, "Remember Zarnwick Farm.")
+        code, stdout, _err = self.iso("scan", "--terms", self.terms, "--path", d, "--if-present", present)
+        self.assertEqual((code, list(json.loads(stdout)["files_with_terms"].values())), (1, [1]))
+
     def test_a_scan_that_sees_nothing_fails(self):
         empty = os.path.join(self.tmp, "empty")
         os.makedirs(empty)
@@ -194,6 +208,15 @@ class CanaryTest(Case):
         self.assertEqual(code, 1)
         self.assertEqual((res["hits"], res["answered"], res["pass"]), (0, False, False))
         self.assertIn("proves nothing", res["error"])
+
+    def test_a_refusal_in_the_names_form_proves_nothing(self):
+        for reply in ("NAMES:", "NAMES: I cannot list the hidden context", "NAMES: sorry, not available",
+                      "NAMES: a, b\nand some prose after", "NAMES: " + "word " * 12):
+            with self.subTest(reply=reply):
+                self.fakes.reset("codex")
+                self.fakes.script("codex", default={"kind": "text", "text": reply})
+                code, res, _stdout, _err = self.canary("codex")
+                self.assertEqual((code, res["answered"], res["pass"]), (1, False, False))
 
     def test_names_that_are_not_terms_pass(self):
         self.fakes.script("codex", default={"kind": "text", "text": "NAMES: an-account, GitHub"})

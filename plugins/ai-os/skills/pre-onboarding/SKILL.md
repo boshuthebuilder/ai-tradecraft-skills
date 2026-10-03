@@ -202,7 +202,7 @@ extraction](#3-curation-rounds-each-approved-by-the-owner)). Two lessons from re
 Before any model reads this folder:
 
     python3 <tools>/isolation.py scan   --terms <terms file> --path <tools> --path "<folder>/.familyai" \
-        --path ~/.codex/AGENTS.md --out <work>/state/scan.json
+        --if-present ~/.codex/AGENTS.md --if-present ~/.codex/AGENTS.override.md --out <work>/state/scan.json
     python3 <tools>/isolation.py canary --terms <terms file> --engine <engine> --model <model> \
         --out <work>/state/canary-<engine>.json
 
