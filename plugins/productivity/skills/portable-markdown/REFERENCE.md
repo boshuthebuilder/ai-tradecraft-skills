@@ -54,7 +54,7 @@ text and link only inside the vault. Both are decisions about the vault, not rep
 ## Charts and callouts: Obsidian 1.13.7 and Typora 1.14.10, 2026-10
 
 Each editor's own bundled `mermaid.min.js` (both 11.13.0; Obsidian ships a one-line text-measuring patch)
-rendered the probe page (`ai-os/skills/pre-onboarding/tests/probe/render-probe.md`, one block of each kind
+rendered the probe page ([`render-probe.md`](../../../ai-os/skills/pre-onboarding/tests/probe/render-probe.md), one block of each kind
 `wiki.py chart` writes) in a browser, each block mounted in the page the way the editors mount it. Typora's
 switches were read from its own source: diagrams render only when `enableDiagram` is set (default off), and a
 blockquote becomes an alert box only for `/^\s*\[!(note|warning|important|tip|caution)\]/i` when

@@ -271,7 +271,9 @@ Before shipping a generator that writes markdown for a person:
 
 ## Provenance
 
-Charts and callouts verified 2026-10 against **Obsidian 1.13.7** and **Typora 1.14.10** (macOS); link rules
+Charts and callouts checked 2026-10 for **Obsidian 1.13.7** and **Typora 1.14.10** (macOS) by rendering each
+editor's own bundled Mermaid in a browser harness and reading Typora's switches from its source, not by driving
+the editors (see the REFERENCE for what that does and does not prove); link rules
 verified 2026-08 against **Typora 1.14.9** (macOS) and the published help for both editors
 ([support.typora.io](https://support.typora.io/), [obsidian.md/help](https://obsidian.md/help/)). The
 per-construct results, including which forms navigate and which only render, are in

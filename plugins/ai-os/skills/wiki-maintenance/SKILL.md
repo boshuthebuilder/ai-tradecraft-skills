@@ -183,10 +183,9 @@ a tool, never written by hand**: a deterministic renderer turns the table into t
 prepared folder, `pre-onboarding`'s `wiki.py chart`), so the same data always gives the same block. Where
 the data cannot support a visual (a series of fewer than three points, units or currencies mixed with no
 policy, events without dates), or no renderer is at hand, the page keeps the table or a sentence and
-draws nothing. `productivity:portable-markdown` records which kinds render where: all five the renderer
-draws (bar, line, pie, gantt, timeline) render in Obsidian and in Typora, Typora only with its Diagrams
-preference on, which is one more reason the table stays beside every chart. Callouts use only the five
-types both editors draw as boxes: `note`, `tip`, `important`, `warning` and `caution`.
+draws nothing. Which chart kinds and callout types render in which editor, and any editor setting they
+need, is recorded once in `productivity:portable-markdown` ("Charts and callouts"); a page uses only what
+it lists, and the table beside every chart is what keeps the page whole where a chart does not draw.
 
 ### History pages
 
