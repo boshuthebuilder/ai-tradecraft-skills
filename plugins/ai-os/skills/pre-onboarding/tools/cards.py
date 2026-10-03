@@ -55,6 +55,16 @@ import isolation  # noqa: E402
 HERE = os.path.dirname(os.path.abspath(__file__))
 FINAL = {"ok", "partial", "blank", "photo", "listed", "no_reader", "failed"}
 MIN_SECTION = 1_000  # the smallest section budget (characters or estimated tokens) a run accepts
+# The document-sized budgets with agy, in characters. agy cuts a prompt at about 192,000 UTF-8 bytes of text and
+# engines.AGY_MAX_PROMPT_BYTES refuses over 180,000. A CJK character is three bytes, so the budget in CJK is 3 x 50,000
+# = 150,000 bytes, and the rest of the prompt has the other 30,000. Measured, the most that rest takes is 26,983
+# bytes: a full batch of 30 items with 400-byte paths, under the instructions of a generous household (12 people with
+# 4 aliases each and a 2,000-character CJK description: 11.7 KB; the test fixture's own are 4.3 KB, a single-item call
+# on the generous ones 12.5 KB, a section prompt 1.1 KB). 150,000 + 26,983 = 176,983, under 180,000 (51,000 characters
+# is the ceiling for that case); tests/test_cards.py pins it. 60,000 characters did not fit: it is 180,000 bytes before
+# a word of instruction. The escapes the item JSON adds (a newline is two bytes) are not in that figure, and four-byte
+# characters can still fill a section; both fail closed (refused before the call, then halved or left uncarded).
+AGY_BUDGET_CHARS = 50_000
 TYPES = {"object": dict, "array": list, "string": str, "boolean": bool}
 RUN = re.compile(r"\d+(?:[ ,./\-]\d+)*")  # digits, and the single separators that may sit inside one number
 YEAR = re.compile(r"(?:19|20)\d\d$")
@@ -347,6 +357,10 @@ def run_items(run, engine, instr, items, schema, log, sink, depth=0):
             last = str(ex)[:200]
             log("  attempt %d for %d items: %s; halving at once" % (attempt + 1, len(items), last))
             break  # the same chunk would cross the same way
+        except engines.PromptTooLong as ex:
+            last = str(ex)[:200]
+            log("  attempt %d for %d items: %s; halving at once" % (attempt + 1, len(items), last))
+            break  # the same chunk would be refused, or cut, the same way
         except (engines.EngineError, ValueError) as ex:
             last = str(ex)[:200]
             log("  attempt %d for %d items: %s" % (attempt + 1, len(items), last))
@@ -620,21 +634,21 @@ def main():
                     help="state explicitly that no other project needs isolating (logged)")
     ap.add_argument("--worker", default="0/1")
     ap.add_argument("--redo", help="file of ids to re-card even though cards exist")
-    ap.add_argument("--small-chars", type=int, default=60_000)
-    ap.add_argument("--batch-chars", type=int, help="default 180000; agy 60000")
+    ap.add_argument("--small-chars", type=int, help="default 60000; agy 50000")
+    ap.add_argument("--batch-chars", type=int, help="default 180000; agy 50000")
     ap.add_argument("--batch-items", type=int, default=30)
     ap.add_argument("--textless-batch", type=int, default=60)
-    ap.add_argument("--section-chars", type=int, help="default 400000; agy 60000")
-    ap.add_argument("--single-max", type=int, help="default 600000; agy 60000")
+    ap.add_argument("--section-chars", type=int, help="default 400000; agy 50000")
+    ap.add_argument("--single-max", type=int, help="default 600000; agy 50000")
     ap.add_argument("--section-tokens", type=int, help="budget sections by estimated tokens (codex: 110000)")
     ap.add_argument("--single-tokens", type=int, help="largest single call in estimated tokens (codex: 150000)")
     a = ap.parse_args()
-    # agy refuses a message over engines.AGY_MAX_MESSAGE_BYTES; 60,000 characters stays under it even at three bytes
-    # a character (CJK text), with room for the instructions
-    wide = {"batch_chars": 180_000, "section_chars": 400_000, "single_max": 600_000}
+    # agy refuses a prompt over engines.AGY_MAX_PROMPT_BYTES; AGY_BUDGET_CHARS stays under it even at three bytes a
+    # character (CJK text), with room for the instructions. small_chars is among them: a document up to it goes whole.
+    wide = {"small_chars": 60_000, "batch_chars": 180_000, "section_chars": 400_000, "single_max": 600_000}
     for k, v in wide.items():
         if getattr(a, k) is None:
-            setattr(a, k, 60_000 if a.engine == "agy" else v)
+            setattr(a, k, AGY_BUDGET_CHARS if a.engine == "agy" else v)
     for flag in ("section_chars", "section_tokens"):
         if getattr(a, flag) is not None and getattr(a, flag) < MIN_SECTION:
             raise common.ToolError("--%s %d is under the %d floor: a section that small is many calls for nothing, "

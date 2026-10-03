@@ -318,7 +318,7 @@ two looks a minute apart, writing `<work>/state/vision<k>.done`.
 
 ## `engines.py`
 
-<!-- provisional: agy's message limit (family-ai-os #1089) and agy's stream-event names and environment variables (#91) -->
+<!-- provisional: agy's stream-event names and environment variables (#91) -->
 
 A library: the adapters every model call goes through, `Agy` (Gemini through the `agy` command-line tool) and
 `Codex` (ChatGPT through `codex exec`). The rule it holds is the skill's
@@ -340,11 +340,15 @@ are in the file, pinned by its tests, and what is still provisional is marked th
   "try again at 5:12 PM" where the message says; `DegenerateError` for an empty answer; `ToolUseError` when the
   model used a tool (a `codex` tool item, or an `agy` stream event naming a tool, action, function or call) or `agy`
   was refused one (a denied action), the reply discarded (the vision lane alone lets `agy` open its images);
-  `PromptTooLong` before an `agy` call whose message is over 200,000 UTF-8 bytes (`AGY_MAX_MESSAGE_BYTES`, a
-  provisional figure until family-ai-os #1089 measures the cut): agy cuts a message of about 300 KB short and
-  leaves the model a stored copy to read with a tool these calls deny;
-  `EngineError` for anything else. Two stop the run rather than the call: `SetupError` (no binary, `agy` without a
-  model, a `codex` schema that is not strict) and `CredentialError` (below).
+  `PromptTooLong` before an `agy` call whose prompt is over 180,000 UTF-8 bytes (`AGY_MAX_PROMPT_BYTES`): agy
+  cuts a message at about 192,000 bytes of prompt text, silently, and leaves the model a stored copy to read with a
+  tool these calls deny. The figure is measured on agy 1.2.16 (family-ai-os #1089), is the same for ASCII and CJK,
+  counts the text's bytes (not characters, tokens or the serialised message) and sits 6% under the cut; an agy
+  upgrade calls for a re-probe, about six calls. `PromptCut`, a `PromptTooLong`, when a prompt that passed that
+  check was cut all the same: a stream event names `transcript_full.jsonl` (agy's stored copy) and the result
+  refuses a `command`. That evidence only ever turns a failure into a clearer one, since a cut the task does not
+  notice leaves no trace. `EngineError` for anything else. Two stop the run rather than the call: `SetupError` (no
+  binary, `agy` without a model, a `codex` schema that is not strict) and `CredentialError` (below).
 - **A per-project state folder** (`state_home`, the engine's `HOME` or `CODEX_HOME`) is optional, and the
   preparation sets none: both engines keep their one login as a file in the machine's home, so a separate folder
   would need it copied. When set, it is scanned before and after every call, and a regular file (not a symbolic link) whose name
@@ -423,7 +427,7 @@ One card per live document. What a card holds, how it is written and joined, and
 | `--terms`, `--no-isolation-terms` | the isolation list, or the logged statement that none is needed; `work` needs one of them | none |
 | `--worker` | take every Nth batch file, from the kth | `0/1` |
 | `--redo` | a file of ids to card again, one per line | none |
-| `--small-chars`, `--batch-chars`, `--batch-items`, `--textless-batch`, `--section-chars`, `--single-max` | the batch budgets, in characters and items | 60,000; 180,000; 30; 60; 400,000; 600,000, except that with `--engine agy` (the default) `--batch-chars`, `--section-chars` and `--single-max` default to 60,000, which keeps a call under agy's byte limit even for CJK text (so a document over `--small-chars` is read in sections: single mode is not used with agy's defaults) |
+| `--small-chars`, `--batch-chars`, `--batch-items`, `--textless-batch`, `--section-chars`, `--single-max` | the batch budgets, in characters and items | 60,000; 180,000; 30; 60; 400,000; 600,000, except that with `--engine agy` (the default) `--small-chars`, `--batch-chars`, `--section-chars` and `--single-max` default to 50,000 (`AGY_BUDGET_CHARS`): three-byte CJK text plus the largest card prompt's own overhead (about 27 KB measured) then stays under agy's 180,000-byte limit, where 60,000 characters would not (so a document over `--small-chars` is read in sections: single mode is not used with agy's defaults) |
 | `--section-tokens`, `--single-tokens` | budgets in estimated tokens instead (for `codex`, 110,000 and 150,000) | unset |
 
 `--redo` plans each id as a first run would (its size decides: a long document is read in sections, reusing the

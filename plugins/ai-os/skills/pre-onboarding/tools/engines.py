@@ -11,6 +11,8 @@ than KILL_GRACE after that). Output is read as UTF-8, with undecodable bytes rep
 - `ToolUseError`: the model used a tool (a codex tool item, or an agy stream event naming a tool, action, function
   or call, unless `allow_reads` is set for the vision lane) or was refused one (an agy denied action); the reply is
   discarded.
+- `PromptTooLong`: an agy prompt over AGY_MAX_PROMPT_BYTES, refused before the call because agy would cut it short
+  without a word; `PromptCut` (a `PromptTooLong`) when the stream shows a cut that the check did not foresee.
 - `CredentialError`: a credential-like file in the per-project state folder. It stops the run, not just the call.
 - `SetupError`: the engine cannot run as configured (no binary, no model, a codex schema that is not strict). It
   stops the run.
@@ -21,8 +23,8 @@ login files: it is scanned before and after every call, and a credential-like re
 run. How each engine reaches the shared login is decided by the isolation spike and recorded in the skill.
 
 The flags below are the ones in use today, pinned by tests/test_engines.py. The isolation mode is the skill's
-Engine isolation section; what is still provisional is marked below: agy's message limit (family-ai-os #1089 measures
-it) and the lists of environment variables and stream events (issue #91 records what each engine really reads).
+Engine isolation section; what is still provisional is marked below: the lists of environment variables and stream
+events (issue #91 records what each engine really reads). agy's prompt limit is measured (see AGY_MAX_PROMPT_BYTES).
 """
 import json
 import os
@@ -64,10 +66,18 @@ NOT_CRED_EXTS = {".md", ".markdown", ".rst", ".html", ".pub"}
 # (`tool_calls: []`). Fail-closed and provisional: the isolation spike (issue #91) records agy's real event names.
 AGY_TOOL_WORDS = {"tool", "tools", "action", "actions", "function", "functions", "call", "calls"}
 KILL_GRACE = 5  # seconds to wait for the pipes after killing a timed-out engine's process group
-# agy cuts a long message short (seen at about 300 KB) and leaves the model a stored copy to read with a tool these calls
-# deny; refusing well below that keeps every call whole. Provisional: where the cut really falls, in bytes or in
-# characters, is for family-ai-os #1089 to measure; until then this is a cautious figure under the one case seen.
-AGY_MAX_MESSAGE_BYTES = 200_000
+# agy cuts a user message at about 192,000 UTF-8 bytes of PROMPT TEXT (plus or minus 150), with no event, no field and
+# exit 0, and leaves the model a stored copy to read with a tool these calls deny, so a run that needs the end of its
+# prompt fails and one that does not reads as ok on part of its input. Measured by family-ai-os #1089: agy 1.2.16,
+# model gemini-3.1-pro-high, 2026-10-03, 20 calls of synthetic text. The same bracket, 191,900 bytes whole to 192,188
+# cut, held for ASCII and for CJK, so the limit is on the text's UTF-8 bytes: not characters, not the serialised
+# message, not tokens. 180,000 is 6% under the cut: the measure is good to about 150 bytes, and the margin is for what
+# was not measured (one agy build, one model, one prompt shape; a vendor re-tune would not announce itself).
+# Re-probe on an agy upgrade, about 6 calls: one whole and one cut either side of the bracket, per corpus.
+AGY_MAX_PROMPT_BYTES = 180_000
+# The file agy keeps the full message in, which the model is pointed at once it has cut one. A step that names it,
+# beside a refused `command`, is the stream's own evidence of a cut (see Agy.__call__); its absence proves nothing.
+AGY_STORED_COPY = "transcript_full.jsonl"
 AGY_MODEL_REQUIRED = "--model is required for agy (it has no default here; its effort is encoded in the model id)"
 CODEX_OFF = ["shell_tool", "unified_exec", "shell_snapshot", "memories", "apps", "browser_use",
              "browser_use_external", "computer_use", "in_app_browser", "image_generation", "multi_agent", "plugins",
@@ -89,8 +99,13 @@ class QuotaError(EngineError):
 
 
 class PromptTooLong(EngineError):
-    """A message agy would cut short: it keeps the start and asks the model to read the rest from a stored copy with a
+    """A prompt agy would cut short: it keeps the start and asks the model to read the rest from a stored copy with a
     tool, which these calls deny, so the model would answer from part of its input."""
+
+
+class PromptCut(PromptTooLong):
+    """agy cut a prompt that passed the size check: the stream shows the model reading the stored copy and being
+    refused a command. The same prompt would be cut again, so a caller does not retry it at that size."""
 
 
 class DegenerateError(EngineError):
@@ -149,6 +164,20 @@ def tool_events(lines):
         if named or keyed:
             found.append(kind.strip() or ",".join(keyed))
     return found
+
+
+def refuse_a_cut(lines, denied):
+    """Raise PromptCut on positive evidence of a cut that the size check did not foresee: an agy stream event (the
+    lines other than the result) naming the stored copy of the message, with a `command` refused in the result. That
+    is the model's own attempt to read the rest. Absence proves nothing, since a task answerable from the head leaves
+    no trace, so this only turns a failure into a clearer one; it never certifies a pass. The event's shape is not
+    pinned (issue #91), so the file name is looked for anywhere in a line."""
+    if not isinstance(denied, list):
+        return
+    refused = any("command" in words(d.get("action") if isinstance(d, dict) else d) for d in denied)
+    if refused and any(AGY_STORED_COPY in line for line in lines):
+        raise PromptCut("agy cut the prompt although it was under %d bytes: the model went to read the rest from %s "
+                        "and was refused a command; split the input" % (AGY_MAX_PROMPT_BYTES, AGY_STORED_COPY))
 
 
 def not_strict(schema, where="$"):
@@ -254,11 +283,12 @@ class Agy:
             raise SetupError(AGY_MODEL_REQUIRED)
 
     def __call__(self, prompt, cwd, schema=None, model=None):
+        size = len(prompt.encode("utf-8"))
+        if size > AGY_MAX_PROMPT_BYTES:
+            raise PromptTooLong("a %d-byte prompt is over the %d-byte limit for agy here (it cuts a message at about "
+                                "192,000 bytes of text and silently drops the rest); split the input"
+                                % (size, AGY_MAX_PROMPT_BYTES))
         msg = json.dumps({"event": "user", "message": {"role": "user", "content": prompt}}, ensure_ascii=False)
-        size = len(msg.encode("utf-8"))
-        if size > AGY_MAX_MESSAGE_BYTES:
-            raise PromptTooLong("a %d-byte message is over agy's %d-byte limit here (it cuts one of about 300 KB "
-                                "short); split the input" % (size, AGY_MAX_MESSAGE_BYTES))
         cmd = [self.bin, "--input-format", "stream-json", "--output-format", "stream-json", "--model",
                model or self.model, "--sandbox", "--mode", "plan", "-p="]
         if schema:
@@ -287,7 +317,9 @@ class Agy:
                 raise QuotaError(text.strip()[-300:], reset_seconds(text))
             if not ok:
                 raise EngineError("agy rc=%s: %s" % (rc, text.strip()[-300:]))
+            refuse_a_cut(other, denied)
             raise DegenerateError("agy returned an empty answer (denied: %s)" % denied)
+        refuse_a_cut(other, denied)
         if denied:
             raise ToolUseError("agy was refused %s; reply discarded" % denied)
         used = [] if self.allow_reads else tool_events(other)

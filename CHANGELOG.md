@@ -149,6 +149,15 @@ under *Migrating a deployment* below.
   `--settings-dir`, `--work` (working state, kept outside the folder), `--out` and
   `--read-only-root`, which refuses any write under the root. They are tested against a fictional
   fixture folder with frozen expected outputs (`tests/regen_expected.py --check`).
+- **agy's prompt limit, measured** (family-ai-os #1089, #1106): agy 1.2.16 cuts a user message at about
+  192,000 UTF-8 bytes of prompt text, silently (exit 0, a successful result), for ASCII and CJK alike, so a
+  card could be written from part of a document. `engines.py` now refuses a prompt over 180,000 bytes of its
+  text before the call (`AGY_MAX_PROMPT_BYTES`; the earlier check counted the serialised message against
+  200,000, which let ASCII through above the cut), and raises `PromptCut` when the stream shows the model
+  reading agy's stored copy and being refused a command. `cards.py`'s agy defaults for `--small-chars`,
+  `--batch-chars`, `--section-chars` and `--single-max` fall from 60,000 to 50,000 characters, which is 150,000
+  bytes of CJK text beside the largest card prompt's overhead. No longer provisional; the stream-event and
+  environment-variable lists still are (#91).
 - **The settings twins** (#89). A folder's rulebook and its wiki's Schema page each get a
   machine-readable twin in `.familyai/`: `rulebook.json`, written with the rulebook, and
   `wiki-schema.json`, compiled by `settings.py compile` from the Schema's fixed-header tables

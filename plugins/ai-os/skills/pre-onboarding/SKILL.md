@@ -363,7 +363,7 @@ job runs on it until then ([wiki-onboarding step 5](../wiki-onboarding/SKILL.md#
 
 ## Engine isolation
 
-<!-- provisional: agy's message limit (family-ai-os #1089) and agy's stream-event names and environment variables (#91) -->
+<!-- provisional: agy's stream-event names and environment variables (#91) -->
 
 The rule is the framework's: one login per machine, the context isolated per call
 ([the architecture](../../ARCHITECTURE.md#execution-context-constraints-why-the-indirection-exists)). The
@@ -382,11 +382,16 @@ isolation comes from what each call is given and what it is denied:
   the machine's home. Each call goes in on standard input as one stream-json message, in plan mode with the
   sandbox on, from an empty working folder. Probed on the operator's machine, the model is given no saved
   memories, no summaries of earlier conversations and no instruction file, but it is offered tools: any tool event
-  in its stream discards the reply (the vision lane alone may open its images). agy also cuts a very long
-  message short and asks the model to read the rest from a stored copy (seen at about 300 KB), which a call with
-  no tools cannot do: keep every prompt to it well under that, as the card budgets do. The 200,000-byte limit the
-  tools enforce is provisional: where the cut really falls, in bytes or characters, is for family-ai-os #1089 to
-  measure, and until then it is a cautious figure under the one case seen.
+  in its stream discards the reply (the vision lane alone may open its images). agy also cuts a long
+  message short, silently (exit 0, a successful result, no event), and asks the model to read the rest from a
+  stored copy, which a call with no tools cannot do. Measured (family-ai-os #1089, agy 1.2.16, model
+  `gemini-3.1-pro-high`): the cut falls at about 192,000 UTF-8 bytes of prompt text, plus or minus 150, for ASCII
+  and CJK alike. The limit is on the bytes of the text, not characters, tokens or the size of the serialised
+  message. The tools refuse a prompt over 180,000 bytes of text (6% under the cut) before the call, and the card
+  budgets keep every call under it. That refusal is the guard: a call whose task can be answered from the start of
+  its prompt reads as ok on part of its input. The stream's one trace of a cut, a step that names agy's stored copy
+  beside a refused command, is caught too, but its absence proves nothing. Re-probe on an agy upgrade (about six
+  calls).
 
 The canary checks the isolation before the first call (step 5), and the contamination guard after, on every card.
 Three layers hold the rule, and each covers what the others cannot:

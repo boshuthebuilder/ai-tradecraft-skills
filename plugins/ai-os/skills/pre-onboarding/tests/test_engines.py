@@ -125,11 +125,95 @@ class AgyTest(FakeEngineCase):
             engines.Agy(None, binary=self.fakes.path("agy"))
         self.assertEqual(self.fakes.calls("agy"), [])
 
-    def test_a_message_agy_would_cut_short_is_refused_before_the_call(self):
-        with self.assertRaises(engines.PromptTooLong) as cm:
-            self.agy()("\u4e2d" * 70_000, self.cwd())  # 210,000 bytes of CJK text
-        self.assertIn("over agy's 200000-byte limit", str(cm.exception))
-        self.assertEqual(self.fakes.calls("agy"), [])
+    def test_a_prompt_agy_would_cut_short_is_refused_before_the_call(self):
+        """agy cuts a user message at about 192,000 UTF-8 bytes of prompt text, ASCII and CJK alike (family-ai-os
+        #1089), so 185,000 bytes of either is refused whole, however it is written."""
+        prompts = {"ASCII": "a" * 185_000, "CJK": "\u4e2d" * 61_666 + "ab"}
+        self.fakes.script("agy", default={"kind": "text", "text": "fine"})
+        for name, prompt in prompts.items():
+            with self.subTest(name):
+                self.assertEqual(len(prompt.encode("utf-8")), 185_000)
+                with self.assertRaises(engines.PromptTooLong) as cm:
+                    self.agy()(prompt, self.cwd())
+                self.assertIn("185000-byte prompt", str(cm.exception))
+                self.assertIn("180000", str(cm.exception))
+                self.assertNotIn("300 KB", str(cm.exception))
+                self.assertEqual(self.fakes.calls("agy"), [])
+
+    def test_the_limit_is_on_the_prompts_bytes_not_on_the_serialised_message(self):
+        """CJK text is 3 bytes a character and the message adds its own escapes, so the line's size and the text's
+        size differ either way; agy's cut follows the text. 150,000 bytes of CJK is carried (it is half the limit
+        in characters but the same in bytes), and so is a prompt whose message is over 200,000 bytes only because
+        of the quotes the message escapes."""
+        self.fakes.script("agy", default={"kind": "text", "text": "fine"})
+        quoted = '""\u4e2d' * 30_000
+        prompts = {"CJK": "\u4e2d" * 50_000, "escaped quotes": quoted}
+        for name, prompt in prompts.items():
+            with self.subTest(name):
+                self.assertEqual(len(prompt.encode("utf-8")), 150_000)
+                self.assertEqual(self.agy()(prompt, self.cwd())[0], "fine")
+        line = json.dumps({"event": "user", "message": {"role": "user", "content": quoted}}, ensure_ascii=False)
+        self.assertGreater(len(line.encode("utf-8")), 200_000, "the case no longer tests the serialised size")
+
+    def test_the_limit_is_180000_bytes_of_the_prompt_to_the_byte(self):
+        self.assertEqual(engines.AGY_MAX_PROMPT_BYTES, 180_000)
+        self.fakes.script("agy", default={"kind": "text", "text": "fine"})
+        self.assertEqual(self.agy()("a" * 180_000, self.cwd())[0], "fine")
+        with self.assertRaises(engines.PromptTooLong):
+            self.agy()("a" * 180_001, self.cwd())
+        self.assertEqual(len(self.fakes.calls("agy")), 1)
+
+    def cut_stream(self, **reply):
+        """What agy 1.2.16 streams when it cut the message and the model went for the stored full copy: a step that
+        names transcript_full.jsonl, then a successful result that carries a refused `command`."""
+        step = {"event": "step_update", "step_update": {"step_index": 2, "state": "DONE", "step_type": "tool",
+                                                        "tool": "run_command",
+                                                        "parameters": {"command": "tail -c 4000 /h/.gemini/brain/c-1/"
+                                                                       ".system_generated/logs/transcript_full.jsonl"}}}
+        base = {"kind": "empty", "events": [step], "denied": [{"action": "command", "display_name": "Command"}]}
+        base.update(reply)
+        return base
+
+    def test_a_stream_that_shows_the_stored_copy_being_read_means_the_prompt_was_cut(self):
+        cases = {
+            "an empty answer, the usual cut": {},
+            "an answer beside the refused command": {"kind": "text", "text": '{"items": []}'},
+        }
+        for name, reply in cases.items():
+            for reads in (False, True):
+                with self.subTest(name, allow_reads=reads):
+                    self.fakes.reset("agy")
+                    self.fakes.script("agy", default=self.cut_stream(**reply))
+                    with self.assertRaises(engines.PromptTooLong) as cm:
+                        self.agy(allow_reads=reads)("hello", self.cwd())
+                    self.assertIn("transcript_full.jsonl", str(cm.exception))
+                    self.assertIn("cut", str(cm.exception))
+                    self.assertNotIsInstance(cm.exception, (engines.DegenerateError, engines.ToolUseError))
+
+    def test_the_stored_copy_alone_or_a_refused_command_alone_is_not_a_cut(self):
+        """Each half is only evidence together: a refused command is a stray tool attempt, and a step that names the
+        file with nothing refused is read as the tool event it is (a failure everywhere but the vision lane)."""
+        step = self.cut_stream()["events"]
+        named_only = {"kind": "text", "text": "fine", "events": step + [{"event": "tool_call", "name": "view_file"}]}
+        command_only = {"kind": "empty", "denied": [{"action": "command"}],
+                        "events": [{"event": "step_update", "step_update": {"step_type": "tool", "tool": "run_command",
+                                                                            "parameters": {"command": "ls"}}}]}
+        other_denial = self.cut_stream(denied=[{"action": "write_file"}])
+        not_a_list = self.cut_stream(denied=True)
+        self.fakes.script("agy", default=named_only)
+        with self.assertRaises(engines.ToolUseError):
+            self.agy()("hello", self.cwd())
+        self.assertEqual(self.agy(allow_reads=True)("hello", self.cwd())[0], "fine")
+        for name, reply, want in (("a refused command, no stored copy", command_only, engines.DegenerateError),
+                                  ("the stored copy and another denial", other_denial, engines.DegenerateError),
+                                  ("the stored copy and a denial that is not a list", not_a_list,
+                                   engines.DegenerateError)):
+            with self.subTest(name):
+                self.fakes.reset("agy")
+                self.fakes.script("agy", default=reply)
+                with self.assertRaises(want) as cm:
+                    self.agy()("hello", self.cwd())
+                self.assertNotIsInstance(cm.exception, engines.PromptTooLong)
 
     def test_a_denied_action_fails_even_with_an_answer(self):
         self.fakes.script("agy", default={"kind": "text", "text": '{"items": []}', "denied": ["write_file plan.md"]})
