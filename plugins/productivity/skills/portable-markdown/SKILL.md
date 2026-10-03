@@ -205,6 +205,25 @@ def table_cell(text: str) -> str:
     return " ".join(str(text).split()).replace("|", "\\|")
 ```
 
+## Charts and callouts
+
+Both editors draw Mermaid charts from a fenced ` ```mermaid ` block, and both bundle the same
+Mermaid release (11.13.0 in Obsidian 1.13.7 and Typora 1.14.10). Every kind a page needs for its data
+renders with it: `xychart-beta` bars and lines, `pie`, `gantt` and `timeline`. Two things still differ:
+
+- **Typora draws a diagram only with its Diagrams preference on** (Preferences, Markdown, Syntax
+  Support, Diagrams). Its documented default is off, and with it off a chart shows as its source code.
+  Tell a Typora reader to turn it on once. A chart must therefore never be the only place its data
+  lives: keep the table it was drawn from beside it, so the page reads the same with the chart off.
+- **Callouts: use only the five GitHub alert types**, `> [!note]`, `> [!tip]`, `> [!important]`,
+  `> [!warning]` and `> [!caution]`. Obsidian draws its own wider set (`info`, `todo`, `danger` and so
+  on), but Typora boxes only these five (its "GitHub Style Alert" option, on by default) and shows any
+  other as a plain quotation with the marker printed. Text after the marker stays as the first line in
+  Typora; Obsidian makes it the callout's title.
+
+Generate chart blocks with a renderer rather than by hand, so the same data always gives the same
+block, and check the output with the probe method below whenever either editor moves a major version.
+
 ## Keep the render a pure function
 
 If the document is regenerated — an audit, an index, a dashboard page — make the renderer a pure function
@@ -247,11 +266,13 @@ Before shipping a generator that writes markdown for a person:
 - [ ] Text inside an inline element HTML-escaped; hrefs percent-encoded
 - [ ] Table cells: pipes escaped, newlines collapsed, for any text you did not author
 - [ ] Render is a pure function of its data — no clock, no filesystem
+- [ ] Each chart has its data table beside it; callouts use only `note`, `tip`, `important`, `warning`, `caution`
 - [ ] Opened the real output in the editor the reader uses, and **clicked the links**
 
 ## Provenance
 
-Rules verified 2026-08 against **Typora 1.14.9** (macOS) and the published help for both editors
+Charts and callouts verified 2026-10 against **Obsidian 1.13.7** and **Typora 1.14.10** (macOS); link rules
+verified 2026-08 against **Typora 1.14.9** (macOS) and the published help for both editors
 ([support.typora.io](https://support.typora.io/), [obsidian.md/help](https://obsidian.md/help/)). The
 per-construct results, including which forms navigate and which only render, are in
 [`REFERENCE.md`](REFERENCE.md). Re-verify after a major version of either editor: several of these

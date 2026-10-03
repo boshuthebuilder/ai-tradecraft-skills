@@ -51,6 +51,31 @@ biggest portability trap for a generated document, and it is invisible to any sy
 The two resolutions that do work are in SKILL.md: root the vault at the parent, or state the path as
 text and link only inside the vault. Both are decisions about the vault, not repairs to the page.
 
+## Charts and callouts: Obsidian 1.13.7 and Typora 1.14.10, 2026-10
+
+Each editor's own bundled `mermaid.min.js` (both 11.13.0; Obsidian ships a one-line text-measuring patch)
+rendered the probe page (`ai-os/skills/pre-onboarding/tests/probe/render-probe.md`, one block of each kind
+`wiki.py chart` writes) in a browser, each block mounted in the page the way the editors mount it. Typora's
+switches were read from its own source: diagrams render only when `enableDiagram` is set (default off), and a
+blockquote becomes an alert box only for `/^\s*\[!(note|warning|important|tip|caution)\]/i` when
+`enableAlert` is set (default on). The editors themselves were not driven for this pass; reopen the probe in
+each before relying on a new kind.
+
+| construct | Obsidian 1.13.7 | Typora 1.14.10 |
+| --- | --- | --- |
+| `xychart-beta` bar | renders | renders, with Diagrams on |
+| `xychart-beta` line | renders | renders, with Diagrams on |
+| `pie` | renders | renders, with Diagrams on |
+| `gantt` (validity bar) | renders | renders, with Diagrams on |
+| `timeline` | renders | renders, with Diagrams on |
+| any of the above, Diagrams off | n/a | the fenced source code, as text |
+| `> [!note]` / `tip` / `important` / `warning` / `caution` | callout box | alert box |
+| `> [!note] Title text` | box titled "Title text" | alert box, "Title text" as its first line |
+| `> [!info]`, `[!todo]`, `[!danger]` and other Obsidian types | callout box | plain quotation, marker printed |
+
+A gantt mounted outside the page has no width to lay out against and draws nothing (0 px wide); mounted in
+place it fills the column. Test a renderer's output in place, as an editor shows it.
+
 ## Documented rules
 
 | rule | source |
