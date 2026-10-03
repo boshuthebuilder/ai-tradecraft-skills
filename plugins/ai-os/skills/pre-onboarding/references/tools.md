@@ -858,9 +858,10 @@ roll-up reads
 ([canonical frontmatter](../../wiki-maintenance/SKILL.md#canonical-frontmatter--the-keys-the-deterministic-sweeps-read)),
 `01 Deadlines` being the derived list of forward dates. It fixes no headings and asks for no list beyond the dates,
 so readiness checks none. It reads the roll-up's dates as the roll-up writes them: a dated deadline as
-`YYYY-MM-DD`, anywhere on the page, and a recurring date as `MM-DD`, a month and a day that month has, opening a
-list item or alone in a table cell (an `MM-DD` mid-sentence, such as "pages 10-12", is prose). The sources are the
-pages that are not `superseded`.
+`YYYY-MM-DD`, anywhere on the page, and a recurring date as a day and a month name (`5 April`, `April 5`, `5th
+Apr`) or `MM-DD`, month first, naming a day that month has, opening a list item or alone in a table cell (one
+mid-sentence, such as "pages 10-12" or "on 5 April we moved", is prose). A frontmatter `recurring` date is read the
+same two ways and compared by its month and day. The sources are the pages that are not `superseded`.
 
 - `derived_pages_hold_nothing_hand_written`: every `YYYY-MM-DD` on the roll-up is a page's `deadline` or
   `deadlines` date (`YYYY-MM-DD` or `{date, note}`), except the roll-up's own `last-updated`, a build stamp; the
@@ -869,9 +870,10 @@ pages that are not `superseded`.
   judged from today; a deadline entry that is not a real `YYYY-MM-DD`, bare or in `{date, note}`, is a finding;
   and a roll-up with nothing to show (no forward deadline and no recurring date) in a wiki of derived pages says
   why (a page of headings or a bare "None" does not).
-- `recurring_dates_in_frontmatter`: every `MM-DD` on the roll-up is a page's `recurring` date; every `recurring`
-  entry reads `{date: MM-DD, note}`, with a day the month has and a note; and the roll-up shows each by its own
-  `MM-DD` (a `YYYY-MM-DD` on the same day does not show it).
+- `recurring_dates_in_frontmatter`: every yearly date listed on the roll-up is a page's `recurring` date (a
+  hand-kept "every year" table is the usual finding); every `recurring` entry reads `{date, note}`, the date as
+  `MM-DD` (month first) or a day and a month name, a day the month has, with a note; and the roll-up lists each
+  (a `YYYY-MM-DD` on the same day does not show it).
 - `other_derived_pages`: another page the Schema marks derived (an open-questions list) shows no date its sources
   would settle, so it is named `not verified`, apart from the roll-up's result.
 

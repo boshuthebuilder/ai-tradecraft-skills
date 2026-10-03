@@ -59,11 +59,16 @@ FRONTMATTER = re.compile(r"---\n(.*?)\n---\n", re.S)  # as wiki.py check reads i
 DAY = re.compile(r"(?<![0-9])[0-9]{4}-[0-9]{2}-[0-9]{2}(?![0-9])")  # a dated deadline, as the roll-up writes it
 ISO_DAY = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 MARK = r"[*_`]*"  # emphasis or code around a date
-# A recurring MM-DD where the roll-up lists one: opening a list item, or alone in a table cell. Mid-sentence it is
-# prose ("pages 10-12"), not a date.
-YEARLY_ITEM = re.compile(r"^\s*(?:[-*+]|[0-9]+\.)\s+%s([0-9]{2}-[0-9]{2})%s(?![0-9-])" % (MARK, MARK))
-YEARLY_CELL = re.compile(r"\|\s*%s([0-9]{2}-[0-9]{2})%s\s*(?=\|)" % (MARK, MARK))
-DATE_ITEM = re.compile(r"\{\s*date:\s*[\"']?([0-9-]+)[\"']?\s*(?:,\s*note:\s*(.*?))?\s*\}")  # {date: ..., note: ...}
+MONTHS = ("january", "february", "march", "april", "may", "june", "july", "august", "september", "october",
+          "november", "december")
+# A yearly date as written: MM-DD, month first, or a day with an English month name ("5 April", "April 5",
+# "5th Apr"), the form a roll-up shows to its reader.
+YEARLY = r"[0-9]{2}-[0-9]{2}(?![0-9-])|[0-9]{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]{3,9}\.?|[A-Za-z]{3,9}\.?\s+[0-9]{1,2}(?:st|nd|rd|th)?"
+# Where the roll-up lists one: opening a list item, or alone in a table cell. Mid-sentence it is prose ("pages
+# 10-12", "on 5 April we moved"), not a listed date.
+YEARLY_ITEM = re.compile(r"^\s*(?:[-*+]|[0-9]+\.)\s+%s(%s)%s(?![0-9A-Za-z])" % (MARK, YEARLY, MARK))
+YEARLY_CELL = re.compile(r"\|\s*%s(%s)%s\s*(?=\|)" % (MARK, YEARLY, MARK))
+DATE_ITEM = re.compile(r"\{\s*date:\s*[\"']?([^,\"'}]+?)[\"']?\s*(?:,\s*note:\s*(.*?))?\s*\}")  # {date: ..., note: ...}
 DAYS_IN_MONTH = (31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)  # 02-29 comes round in a leap year
 SAYS_NOTHING = re.compile(r"(?i)[\s>*_`|-]*(none|nothing|n/?a)?[\s.*_`|-]*")
 SAMPLE = 5
@@ -75,14 +80,31 @@ def read(path):
 
 
 def month_day(s):
-    """True for `MM-DD` naming a day some year has."""
-    m = re.fullmatch(r"([0-9]{2})-([0-9]{2})", s or "")
-    return bool(m) and 1 <= int(m.group(1)) <= 12 and 1 <= int(m.group(2)) <= DAYS_IN_MONTH[int(m.group(1)) - 1]
+    """The `MM-DD` a yearly date names (`MM-DD` month first, or a day with an English month name, full or its first
+    three letters), or None when it names no day some year has. Any other numeric form is None: `6/4` reads either
+    way round."""
+    s = (s or "").strip()
+    m = re.fullmatch(r"([0-9]{2})-([0-9]{2})", s)
+    if m:
+        month, day = int(m.group(1)), int(m.group(2))
+    else:
+        m = (re.fullmatch(r"([0-9]{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]{3,9})\.?", s)
+             or re.fullmatch(r"([A-Za-z]{3,9})\.?\s+([0-9]{1,2})(?:st|nd|rd|th)?", s))
+        if not m:
+            return None
+        word, number = (m.group(2), m.group(1)) if m.group(1).isdigit() else (m.group(1), m.group(2))
+        names = [i for i, name in enumerate(MONTHS, 1) if name == word.lower() or name[:3] == word.lower()]
+        if not names:
+            return None
+        month, day = names[0], int(number)
+    if not (1 <= month <= 12 and 1 <= day <= DAYS_IN_MONTH[month - 1]):
+        return None
+    return "%02d-%02d" % (month, day)
 
 
 def yearly_dates(line):
-    """The valid MM-DD dates a roll-up line lists (see YEARLY_ITEM)."""
-    return [d for d in YEARLY_ITEM.findall(line) + YEARLY_CELL.findall(line) if month_day(d)]
+    """The yearly dates a roll-up line lists (see YEARLY_ITEM), each as its MM-DD."""
+    return [md for d in YEARLY_ITEM.findall(line) + YEARLY_CELL.findall(line) for md in [month_day(d)] if md]
 
 
 def sample(items):
@@ -139,7 +161,7 @@ def frontmatter_dates(fm):
     for it in v if isinstance(v, list) else [v] if v else []:
         d, note = date_entry(it)
         if month_day(d) and note:
-            yearly.add(d)
+            yearly.add(month_day(d))
         else:
             bad.append(shown(it))
     return days, yearly, bad_days, bad
@@ -222,7 +244,8 @@ def deadline_items(wiki, pages, ws):
         recurring.append("%s holds %d yearly date(s) no page's recurring: list carries (%s)"
                          % (DEADLINES, len(hand_yearly), sample(hand_yearly)))
     if bad:
-        recurring.append("%d recurring: entr(ies) not {date: MM-DD, note} with a day the month has (%s)"
+        recurring.append("%d recurring: entr(ies) not {date, note} with a date as MM-DD (month first) or a day and "
+                         "a month name, a day the month has (%s)"
                          % (len(bad), sample(bad)))
     missing = ["%s (%s)" % (d, ", ".join(yearly[d])) for d in sorted(swept_yearly - shown_yearly)]
     if missing:

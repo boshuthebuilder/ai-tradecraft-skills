@@ -288,7 +288,29 @@ class ContractTest(Prepared):
 
     def test_a_recurring_entry_not_month_and_day(self):
         self.add_recurring("{date: 2025-01-31, note: Self assessment return due}")
-        self.assertIn("1 recurring: entr(ies) not {date: MM-DD, note}",
+        self.assertIn("1 recurring: entr(ies) not {date, note} with a date as MM-DD (month first)",
+                      self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
+
+    def test_a_hand_kept_table_of_yearly_dates_in_words(self):
+        """The shape a real prepared folder held: a table on the roll-up, the dates written as a day and a month."""
+        p = self.page(DEADLINES)
+        write(p, read(p) + "\n## Every year\n\n| Date | What |\n| --- | --- |\n| 31 January | self assessment |\n"
+                           "| 5 April | the tax year ends |\n")
+        self.accept_again(DEADLINES)
+        self.assertIn("2 yearly date(s) no page's recurring: list carries (line 17: 01-31; line 18: 04-05)",
+                      self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
+
+    def test_a_recurring_date_in_words_shown_in_words(self):
+        self.add_recurring("{date: 31 January, note: Self assessment return due}")
+        p = self.page(DEADLINES)
+        write(p, read(p) + "\n## Every year\n\n"
+                           "- **31 January**: self assessment return due ([Tax](../20%20Finance/Tax.md))\n")
+        self.accept_again(DEADLINES)
+        self.readiness(code=0)
+
+    def test_an_ambiguous_numeric_yearly_date_is_refused(self):
+        self.add_recurring("{date: 31/1, note: Self assessment return due}")
+        self.assertIn("not {date, note} with a date as MM-DD",
                       self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
 
     def test_gemini_md_reserved(self):
