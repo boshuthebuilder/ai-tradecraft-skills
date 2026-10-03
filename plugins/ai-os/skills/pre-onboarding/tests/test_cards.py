@@ -466,6 +466,19 @@ class BuildTest(CardsCliCase):
         self.assertEqual(code, 0, err)
         self.assertIn("build: 0 new batches", out)
 
+    def test_the_default_budget_follows_the_engine(self):
+        """agy cuts a long message short, so its defaults keep every call under its byte limit; codex keeps the
+        wide ones."""
+        doc = self.record("04 Study/Reader.pdf", ["r" * 70_000])
+        code, _out, err = self.cards_py("build")  # the engine defaults to agy
+        self.assertEqual(code, 0, err)
+        self.assertEqual([bt["mode"] for bt in self.batches().values()], ["sections"])
+        shutil.rmtree(self.work)
+        code, _out, err = self.cards_py("build", "--engine", "codex")
+        self.assertEqual(code, 0, err)
+        self.assertEqual([(bt["mode"], [it["id"] for it in bt["items"]]) for bt in self.batches().values()],
+                         [("single", [doc])])
+
 
 class WorkTest(CardsCliCase):
     def two_docs(self, text_a="Rent for the flat.", text_b="Council tax bill."):
@@ -713,14 +726,14 @@ class ContaminationTest(CardsCliCase):
 
 class SectionsTest(CardsCliCase):
     def test_long_documents_are_read_in_sections_with_cached_notes(self):
-        pages = ["Page %d of the course reader. " % n + "w" * 400 for n in (1, 2, 3)]
+        pages = ["Page %d of the course reader. " % n + "w" * 3_000 for n in (1, 2, 3)]  # about 800 tokens each
         doc = self.record("04 Study/Course reader.pdf", pages)
         budget = ["--small-chars", "500", "--single-max", "1000"]
         code, _out, err = self.cards_py("build", *budget)
         self.assertEqual(code, 0, err)
         self.assertEqual([bt["mode"] for bt in self.batches().values()], ["sections"])
         self.fakes.script("codex", default={"kind": "text"})
-        work = ["--engine", "codex", "--terms", self.terms, "--section-tokens", "150"] + budget
+        work = ["--engine", "codex", "--terms", self.terms, "--section-tokens", "1000"] + budget
         code, _out, err = self.cards_py("work", *work)
         self.assertEqual(code, 0, err)
         calls = self.fakes.calls("codex")
@@ -736,7 +749,10 @@ class SectionsTest(CardsCliCase):
         for k in (1, 2, 3):
             self.assertIn("[section %d of 3] notes on section %d of 3" % (k, k), item["text"])
         cache = os.path.join(self.work, "sections")
-        self.assertEqual(sorted(os.listdir(cache)), ["%s_codex_%d_3.txt" % (doc[:16], k) for k in (1, 2, 3)])
+        self.assertEqual(len(os.listdir(cache)), 3)
+        for k in (1, 2, 3):
+            self.assertEqual(len([f for f in os.listdir(cache) if re.fullmatch(
+                r"%s_codex_%d_3_[0-9a-f]{12}\.txt" % (doc[:16], k), f)]), 1, sorted(os.listdir(cache)))
         self.assertEqual(sorted(self.written()), [doc])
         os.remove(os.path.join(self.cards, doc + ".json"))
         self.fakes.reset("codex")
@@ -745,6 +761,278 @@ class SectionsTest(CardsCliCase):
         calls = self.fakes.calls("codex")
         self.assertEqual(len(calls), 1, "cached section notes were read again")
         self.assertEqual(sent_items(calls[0]["prompt"])[0]["read"], "sectioned")
+
+
+    def section_texts(self, engine="agy"):
+        """The text each section call was sent, in order, and every call's size on the wire in bytes."""
+        calls = self.fakes.calls(engine)
+        texts = [c["prompt"].split("SECTION TEXT:\n", 1)[1] for c in calls if "SECTION TEXT:" in c["prompt"]]
+        return texts, [len(c["stdin"].encode("utf-8")) for c in calls]
+
+    def agy_work(self, doc_text):
+        """A one-page document under agy's own defaults, built and carded; returns the document's id."""
+        doc = self.record("04 Study/Annual report.txt", [doc_text])
+        code, _out, err = self.cards_py("build")
+        self.assertEqual(code, 0, err)
+        self.assertEqual([bt["mode"] for bt in self.batches().values()], ["sections"])
+        self.fakes.script("agy", default={"kind": "text"})
+        code, _out, err = self.cards_py("work", "--engine", "agy", "--model", "fake-model", "--terms", self.terms)
+        self.assertEqual(code, 0, err)
+        return doc
+
+    def test_a_single_page_document_over_the_byte_limit_is_split_to_fit(self):
+        """Text, docx, rtf and csv extractions are one page, so sections cannot split at a page boundary: the page
+        itself is split, at paragraph boundaries where it has them, and every call stays under agy's limit."""
+        text = "\n\n".join("Paragraph %d. " % k + "w" * 6_990 for k in range(40))
+        self.assertGreater(len(text), 280_000)
+        doc = self.agy_work(text)
+        texts, sizes = self.section_texts()
+        self.assertGreaterEqual(len(texts), 5)
+        self.assertTrue(all(n <= engines.AGY_MAX_MESSAGE_BYTES for n in sizes), sizes)
+        self.assertTrue(all(len(t) <= 60_000 for t in texts), [len(t) for t in texts])
+        self.assertEqual("".join(texts), "[page 1]\n" + text, "every character must be sent exactly once")
+        for t in texts:
+            self.assertRegex(t, r"^(\[page 1\]\nParagraph \d+\. |\n\nParagraph \d+\. )", "a paragraph was cut")
+        self.assertEqual(self.card_errors(), [])
+        card = self.written()[doc]
+        self.assertEqual(card["card_meta"]["batch"], os.path.basename(next(iter(self.batches())))[:-5])
+        item = sent_items(self.fakes.calls("agy")[-1]["prompt"])[0]
+        self.assertEqual(item["read"], "sectioned")
+        for k in range(1, len(texts) + 1):
+            self.assertIn("[section %d of %d] notes on" % (k, len(texts)), item["text"])
+        self.assertNotIn("(unread)", item["text"])
+
+    def test_a_page_with_no_paragraph_or_line_break_is_cut_by_characters(self):
+        text = "学习" * 75_000  # 150,000 CJK characters on one line: 450 KB
+        self.agy_work(text)
+        texts, sizes = self.section_texts()
+        self.assertEqual("".join(texts), "[page 1]\n" + text)
+        self.assertEqual([len(t) for t in texts], [60_000, 60_000, 30_009], "the first slice fills the page header's section")
+        self.assertTrue(all(n <= engines.AGY_MAX_MESSAGE_BYTES for n in sizes), sizes)
+        self.assertEqual(self.card_errors(), [])
+
+    def test_a_section_that_cannot_be_read_leaves_no_card_and_says_so(self):
+        """A card made from notes with a hole in them would claim a coverage it lacks: the document gets no card, a
+        card_err_ record names what was not read, and a rerun reads only the section that failed."""
+        text = "\n\n".join("Paragraph %d. " % k + "w" * 6_990 for k in range(40))
+        doc = self.record("04 Study/Annual report.txt", [text])
+        code, _out, err = self.cards_py("build")
+        self.assertEqual(code, 0, err)
+        fail = {"kind": "fail", "message": "agy: model overloaded"}
+        self.fakes.script("agy", replies=[{"kind": "text"}, fail, fail, fail], default={"kind": "text"})  # section 2
+        work = ["work", "--engine", "agy", "--model", "fake-model", "--terms", self.terms]
+        code, _out, err = self.cards_py(*work)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.written(), {}, "a card was written from notes with a section missing")
+        self.assertEqual(self.card_errors(), ["card_err_%s.txt" % doc])
+        why = read(os.path.join(self.work, "state", "card_err_%s.txt" % doc))
+        self.assertRegex(why, r"section 2 of \d+")
+        self.assertIn("not read", why)
+        self.assertFalse(any("Input items" in c["prompt"] for c in self.fakes.calls("agy")),
+                         "the card call ran with a section missing")
+        total = int(re.search(r"section 2 of (\d+)", why).group(1))
+        self.assertEqual(len(os.listdir(os.path.join(self.work, "sections"))), total - 1, "the others stay cached")
+        self.fakes.reset("agy")
+        self.fakes.script("agy", default={"kind": "text"})
+        code, _out, err = self.cards_py(*work)
+        self.assertEqual(code, 0, err)
+        calls = self.fakes.calls("agy")
+        self.assertEqual([("SECTION TEXT:" in c["prompt"]) for c in calls], [True, False], "only the failed section")
+        self.assertEqual(sorted(self.written()), [doc])
+        self.assertEqual(self.card_errors(), [], "a card exists now: its error record is out of date")
+        self.assertNotIn("(unread)", sent_items(calls[-1]["prompt"])[0]["text"])
+
+    def test_a_section_over_the_limit_that_splitting_cannot_fix_is_not_carded(self):
+        """Four-byte characters can still make a section over agy's limit: it is refused before the call (and not tried
+        again), and the document is left without a card rather than carded from the sections that were read."""
+        doc = self.record("04 Study/Annual report.txt", ["\U00020000" * 150_000])
+        code, _out, err = self.cards_py("build")
+        self.assertEqual(code, 0, err)
+        code, _out, err = self.cards_py("work", "--engine", "agy", "--model", "fake-model", "--terms", self.terms)
+        self.assertEqual(code, 0, err)
+        calls = self.fakes.calls("agy")
+        self.assertEqual(len(calls), 1, "only the last, short section fits; the others are refused once each")
+        self.assertTrue(all(len(c["stdin"].encode("utf-8")) <= engines.AGY_MAX_MESSAGE_BYTES for c in calls))
+        self.assertFalse(any("Input items" in c["prompt"] for c in calls), "the card call ran with sections missing")
+        self.assertEqual(self.written(), {})
+        self.assertEqual(self.card_errors(), ["card_err_%s.txt" % doc])
+        why = read(os.path.join(self.work, "state", "card_err_%s.txt" % doc))
+        self.assertIn("2 of 3 sections not read", why)
+        self.assertIn("byte limit", why)
+
+
+    def test_a_section_reply_with_no_notes_is_not_a_read_section(self):
+        doc = self.record("04 Study/Annual report.txt", ["page text " * 8_000])
+        code, _out, err = self.cards_py("build")
+        self.assertEqual(code, 0, err)
+        self.fakes.script("agy", default={"kind": "text", "no_notes": True})
+        code, _out, err = self.cards_py("work", "--engine", "agy", "--model", "fake-model", "--terms", self.terms)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.written(), {})
+        self.assertEqual(self.card_errors(), ["card_err_%s.txt" % doc])
+        self.assertIn("reply has no notes", read(os.path.join(self.work, "state", "card_err_%s.txt" % doc)))
+        self.assertEqual(os.listdir(os.path.join(self.work, "sections")), [], "an empty note was cached")
+
+
+    def test_redo_reads_a_long_document_in_sections_and_reuses_the_cached_ones(self):
+        """The documented recovery: a document left without a card because a section failed is listed in --redo, which
+        plans it as a first run would (in sections), so only the section that failed is read again."""
+        text = "\n\n".join("Paragraph %d. " % k + "w" * 6_990 for k in range(40))
+        doc = self.record("04 Study/Annual report.txt", [text])
+        code, _out, err = self.cards_py("build")
+        self.assertEqual(code, 0, err)
+        fail = {"kind": "fail", "message": "agy: model overloaded"}
+        self.fakes.script("agy", replies=[{"kind": "text"}, fail, fail, fail], default={"kind": "text"})
+        work = ["--engine", "agy", "--model", "fake-model", "--terms", self.terms]
+        code, _out, err = self.cards_py("work", *work)
+        self.assertEqual((code, self.written(), self.card_errors()), (0, {}, ["card_err_%s.txt" % doc]), err)
+        redo = os.path.join(self.tmp, "redo.txt")
+        write(redo, doc + "\n")
+        self.fakes.reset("agy")
+        self.fakes.script("agy", default={"kind": "text"})
+        code, _out, err = self.cards_py("work", *work, "--redo", redo)
+        self.assertEqual(code, 0, err)
+        calls = self.fakes.calls("agy")
+        self.assertEqual([("SECTION TEXT:" in c["prompt"]) for c in calls], [True, False], "only the failed section")
+        self.assertTrue(all(len(c["stdin"].encode("utf-8")) <= engines.AGY_MAX_MESSAGE_BYTES for c in calls))
+        card = self.written()[doc]
+        self.assertEqual(card["card_meta"]["batch"], "redo_0")
+        self.assertEqual(self.card_errors(), [])
+        self.assertEqual(read(os.path.join(self.work, "state", "redo_done_0.txt")).split(), [doc])
+        item = sent_items(calls[-1]["prompt"])[0]
+        self.assertEqual(item["read"], "sectioned")
+        self.assertNotIn("(unread)", item["text"])
+
+    def test_a_redo_of_a_short_document_is_still_one_call_and_an_unknown_id_is_refused(self):
+        doc = self.record("03 Home/Rent.pdf", ["Rent for the flat."])
+        code, _out, err = self.cards_py("build")
+        self.assertEqual(code, 0, err)
+        redo = os.path.join(self.tmp, "redo.txt")
+        write(redo, doc + "\n")
+        self.fakes.script("agy", default={"kind": "text"})
+        work = ["work", "--engine", "agy", "--model", "fake-model", "--terms", self.terms, "--redo", redo]
+        code, _out, err = self.cards_py(*work)
+        self.assertEqual(code, 0, err)
+        self.assertEqual([item_count(c) for c in self.fakes.calls("agy")], [1])
+        write(redo, "0" * 64 + "\n")
+        code, _out, err = self.cards_py(*work)
+        self.assertEqual(code, 2, err)
+        self.assertIn("has no extract record", err)
+
+    def test_a_changed_budget_never_reuses_notes_on_other_text(self):
+        """Run one reads section 1 and fails section 2; run two raises the budget. Section 1 now holds more text, so
+        its cached notes must not be reused: every character is read, or no card says it was."""
+        text = "\n\n".join("Paragraph %d. " % k + "w" * 984 for k in range(98))
+        doc = self.record("04 Study/Annual report.txt", [text])
+        code, _out, err = self.cards_py("build")
+        self.assertEqual(code, 0, err)
+        fail = {"kind": "fail", "message": "agy: model overloaded"}
+        self.fakes.script("agy", replies=[{"kind": "text"}, fail, fail, fail], default={"kind": "text"})
+        work = ["work", "--engine", "agy", "--model", "fake-model", "--terms", self.terms]
+        code, _out, err = self.cards_py(*work, "--section-chars", "60000")
+        self.assertEqual((code, self.written()), (0, {}), err)
+        self.fakes.reset("agy")
+        self.fakes.script("agy", default={"kind": "text"})
+        code, _out, err = self.cards_py(*work, "--section-chars", "65000")
+        self.assertEqual(code, 0, err)
+        texts, _sizes = self.section_texts()
+        self.assertEqual("".join(texts), "[page 1]\n" + text, "a range of the document was never read")
+        self.assertEqual(sorted(self.written()), [doc])
+        self.assertEqual(self.card_errors(), [])
+
+
+    def test_cached_notes_are_reused_only_for_the_same_model_and_only_when_whole(self):
+        """The cache is keyed by the model that wrote the notes (and the budget and the prompt), and a cached file that
+        is empty or lacks its header is a miss. To force a re-read, delete the document's files in sections/."""
+        text = "\n\n".join("Paragraph %d. " % k + "w" * 6_990 for k in range(40))
+        doc = self.record("04 Study/Annual report.txt", [text])
+        code, _out, err = self.cards_py("build")
+        self.assertEqual(code, 0, err)
+        cache = os.path.join(self.work, "sections")
+
+        def run(model):
+            self.fakes.reset("agy")
+            self.fakes.script("agy", default={"kind": "text"})
+            card = os.path.join(self.cards, doc + ".json")
+            if os.path.exists(card):
+                os.remove(card)
+            code, _out, err = self.cards_py("work", "--engine", "agy", "--model", model, "--terms", self.terms)
+            self.assertEqual((code, sorted(self.written())), (0, [doc]), err)
+            return sum("SECTION TEXT:" in c["prompt"] for c in self.fakes.calls("agy"))
+
+        sections = run("model-a")
+        self.assertGreaterEqual(sections, 5)
+        self.assertEqual(run("model-a"), 0, "the same model reads nothing again")
+        files = sorted(os.listdir(cache))
+        self.assertEqual(len(files), sections)
+        write(os.path.join(cache, files[0]), "")
+        write(os.path.join(cache, files[1]), "notes with no header, as a partly written file might leave")
+        self.assertEqual(run("model-a"), 2, "an empty or headerless cached file is read again")
+        self.assertEqual(run("model-b"), sections, "another model's notes are not reused")
+        for f in os.listdir(cache):
+            if f.startswith(doc[:16]):
+                os.remove(os.path.join(cache, f))
+        self.assertEqual(run("model-b"), sections, "deleting the document's cache files forces a re-read")
+        self.assertEqual([f for f in os.listdir(cache) if ".tmp" in f], [], "a note was left half written")
+
+    def test_a_section_budget_under_the_floor_is_refused(self):
+        self.record("04 Study/Annual report.txt", ["page text " * 8_000])
+        for flag in ("--section-tokens", "--section-chars"):
+            for value in ("1", "999"):
+                with self.subTest(flag=flag, value=value):
+                    code, _out, err = self.cards_py("build", flag, value)
+                    self.assertEqual(code, 2, err)
+                    self.assertIn("is under the 1000 floor", err)
+                    self.assertNotIn("Traceback", err)
+        code, _out, err = self.cards_py("build", "--section-tokens", "1000")
+        self.assertEqual(code, 0, err)
+
+
+class SplitSectionsTest(unittest.TestCase):
+    """The packer behind the sections: nothing lost or reordered, nothing over the limit, breaks kept where there are
+    any, whichever way a section is sized."""
+
+    TEXT = ("[page 1]\n" + "\n\n".join("Para %d. " % k + "word " * (20 + 90 * (k % 7)) for k in range(30))
+            + "\n\n[page 2]\n" + "\n".join("line %d of a table" % k for k in range(400))
+            + "\n\n[page 3]\n" + "x" * 9_000 + "\n\n[page 4]\n" + "学习" * 3_000 + "\n\n[page 5]\nShort.")
+
+    def split(self, limit, size):
+        return cards.split_sections(self.TEXT.split("\n\n[page "), limit, size)
+
+    def test_sections_join_back_and_fit_by_characters(self):
+        for limit in (500, 2_000, 7_000):
+            with self.subTest(limit=limit):
+                chunks = self.split(limit, len)
+                self.assertEqual("".join(chunks), self.TEXT)
+                self.assertTrue(all(0 < len(c) <= limit for c in chunks), [len(c) for c in chunks])
+
+    def test_sections_join_back_and_fit_by_estimated_tokens(self):
+        for limit in (150, 600, 2_000):
+            with self.subTest(limit=limit):
+                chunks = self.split(limit, common.est_tokens)
+                self.assertEqual("".join(chunks), self.TEXT)
+                self.assertTrue(all(0 < common.est_tokens(c) <= limit for c in chunks),
+                                [common.est_tokens(c) for c in chunks])
+
+    def test_short_lines_are_not_free_in_a_token_budget(self):
+        """The estimate is rounded up, so a section of two-character lines costs what it holds: 400,000 of them are
+        many sections under a 110,000-token budget, never one."""
+        page = "[page 1]\n" + "\n".join("%02d" % (k % 100) for k in range(400_000))
+        chunks = cards.split_sections(page.split("\n\n[page "), 110_000, common.est_tokens)
+        self.assertEqual("".join(chunks), page)
+        self.assertGreaterEqual(len(chunks), 4)
+        self.assertTrue(all(common.est_tokens(c) <= 110_000 for c in chunks), [common.est_tokens(c) for c in chunks])
+        self.assertEqual((common.est_tokens(""), common.est_tokens("ab"), common.est_tokens("\u4e2d" * 10)), (0, 1, 11))
+        pieces = ["\n12"] * 1_000
+        self.assertGreaterEqual(sum(common.est_tokens(x) for x in pieces), common.est_tokens("".join(pieces)))
+
+    def test_a_page_that_fits_is_not_split_and_a_long_one_breaks_at_paragraphs(self):
+        chunks = self.split(7_000, len)
+        self.assertTrue(any(c.startswith("\n\n[page 5]") or "[page 5]\nShort." in c for c in chunks))
+        long_page = "[page 1]\n" + "\n\n".join("P%d " % k + "w" * 900 for k in range(20))
+        chunks = cards.split_sections(long_page.split("\n\n[page "), 4_000, len)
+        self.assertEqual("".join(chunks), long_page)
+        self.assertTrue(all(c.startswith(("[page 1]\nP", "\n\nP")) for c in chunks), "a paragraph was cut")
 
 
 if __name__ == "__main__":

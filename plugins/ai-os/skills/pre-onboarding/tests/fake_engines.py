@@ -61,7 +61,7 @@ def card(it, r):
 
 def answer(prompt, r):
     """The reply text for a text-like kind: cards for a card prompt, notes for a section prompt, pages for a vision
-    prompt, else r["text"]."""
+    prompt, else r["text"] (`{marker}` in it taken from the prompt by r["marker_re"])."""
     items = items_in(prompt)
     if items is not None:
         cards = [card(it, r) for it in items]
@@ -86,6 +86,8 @@ def answer(prompt, r):
             del cards[-1]["summary"]
         return json.dumps({"items": cards})
     if "SECTION TEXT:" in prompt:
+        if r.get("no_notes"):
+            return json.dumps({})
         head = prompt[prompt.index("This is section"):].split(".")[0]
         return json.dumps({"notes": "notes on " + head[len("This is "):]})
     if "these image files: " in prompt:
@@ -100,7 +102,11 @@ def answer(prompt, r):
         if r.get("null_text"):
             pages[-1]["text"] = None
         return json.dumps({"pages": pages})
-    return r.get("text", "")
+    text = r.get("text", "")
+    text = text.replace("{prompt}", prompt)  # an engine that echoes what it was asked
+    if "{marker}" in text:  # the invented name a canary prompt carries: `marker_re` is that prompt, one group
+        text = text.replace("{marker}", re.search(r["marker_re"], prompt, re.S).group(1))
+    return text
 
 
 def main():
