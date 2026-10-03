@@ -431,8 +431,8 @@ Waiting to be filed: `IMG_0001.jpg` at the top of the folder (a beach photo).
 
 ## Upcoming
 
-- **2025-04-30**: lease ends ([30 Home](../30%20Home/30%20Home.md))
-- **2031-07-15**: passport expires ([10 Identity](../10%20Identity/10%20Identity.md))
+- **2025-04-30**: Lease ends ([30 Home](../30%20Home/30%20Home.md))
+- **2031-07-15**: Passport P1234567 expires ([10 Identity](../10%20Identity/10%20Identity.md))
 """))
     w(W("02 People", "02 People.md"), page([], """# 02 People
 

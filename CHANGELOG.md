@@ -60,7 +60,8 @@ under *Migrating a deployment* below.
   first, or a day and a month name (`5 April`, `April 5th`, `5 Sept`); any other numeric form is
   refused, and the roll-up shows the month in words, so a date written the wrong way round is
   visible. A page the Schema marks `derived` (the Deadlines roll-up, an open-questions list built
-  from the pages) holds nothing written by hand.
+  from the pages) holds nothing written by hand: readiness reads the Deadlines page against the
+  roll-up's own output and reports every line it does not render from the pages' frontmatter.
 - **A project files new items within itself**, replacing "a wiki is self-contained". Every new item
   is filed inside its project by the project's own routing, and one that seems to belong to another
   project is filed or flagged where it arrived, like any other: no project routes an item to

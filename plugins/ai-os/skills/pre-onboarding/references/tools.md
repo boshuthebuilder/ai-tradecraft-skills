@@ -907,49 +907,54 @@ same way, which is not a finding and not a pass either, and does not change the 
 ([rules that keep it safe](../../wiki-maintenance/SKILL.md#rules-that-keep-it-safe)), read through the keys its
 roll-up reads
 ([canonical frontmatter](../../wiki-maintenance/SKILL.md#canonical-frontmatter--the-keys-the-deterministic-sweeps-read)),
-`01 Deadlines` being the derived list of forward dates. It fixes no headings and asks for no list beyond the dates,
-so readiness checks none. A dated deadline is read as the roll-up writes it, `YYYY-MM-DD`, anywhere on the page. A
+`01 Deadlines` being the derived list of forward dates.
+
+**The Deadlines page may hold only what the roll-up renders from the pages' frontmatter; every other line is
+reported.** No date is looked for in the page's text, so no shape of hand-kept date can be missed or mistaken for
+rendered output. The page is read against the roll-up's output grammar instead:
+
+1. Each page's frontmatter (superseded pages left out) gives the entries the roll-up could write, `(date, note,
+   page)`: each `recurring` item gives its month and day, each `deadline` its date with its `deadline_note`, each
+   `deadlines` item its date, the note being what YAML reads (a quoted note without its quotes) with its whitespace
+   collapsed.
+2. The page is read line by line. The grammar is the frontmatter, the headings `# Deadlines`, `## Upcoming`,
+   `## Every year`, `## Past` and `## Could not read`, the italic intro line, `_None._`, the empty-roll-up banner (with
+   its count of pages), the callout marker `> [!warning]`, blank lines, the lines under the roll-up's own `## Could not
+   read` heading (`- <page> (<why>)`, the page one of the wiki's and the why one the roll-up writes), and entries.
+3. An entry is `- **<date>**`, then the page titles and, when there is one, the note, each after a spaced em dash
+   (family-ai-os), or `: <note>` (the fixture's roll-up), then ` (<links>)` ending the line, each link `[<page path or title>](<its path from the roll-up,
+   percent-encoded>)` to a different page of the wiki. It is split with plain string handling, and the page titles are
+   the linked pages' own, so a note is never guessed at.
+4. An entry is clean only when its `(date, note, page)` is in the set from step 1, the dated ones by their full date
+   and the recurring ones by month and day, the note exactly. One whose date no page carries is reported as that
+   date, a `YYYY-MM-DD` no page's frontmatter carries or a day and month no page's `recurring` list carries; one whose
+   date is not a date the contract reads (`5-Apr`, `5 Sept 26`) is an `unreadable yearly date`. Every other line is
+   `hand-written content in a derived page`, with its line number and its first forty characters (an invisible
+   character shown by its code): a table, a heading or a sentence of the page's own, a link or text added to an
+   entry, a note or page the frontmatter does not give, a date in link text, in separate cells, in another script or
+   with a zero-width character in it. A `YYYY-MM-DD` on such a line is also judged by the check on dated deadlines.
+
+Each line is read in one pass with bounded searches, so a line of 100,000 characters costs a pass over it. A
 frontmatter `recurring` date is read as family-ai-os's roll-up reads it, so both sides accept the same spellings:
 `MM-DD`, month first, two digits each; or a day and a month name, the day first or the month first (`5 April`,
 `April 5`), the name in full, its first three letters or `sept`, in any case, the day with an optional lower-case
 ordinal (`5th Apr`). Any other numeric form (`6/4`, `4-5`) is refused, as is a day the month cannot have (`31
 April`); 29 February is a date. The roll-up shows the month in words, so a numeric `MM-DD` written the wrong way round
-shows on the page. The sources are the pages that are not `superseded`.
+shows on the page. The sources are the pages that are not `superseded`. The grammar's text is checked against the
+real roll-up: `tests/rollups/` holds the pages family-ai-os rendered for a plain wiki, an empty one with its banner, a
+recurring-only one and one with a "Could not read" list, which must read clean.
 
-**Hand-kept dates: one rule.** The roll-up holds nothing written by hand, so readiness reads every line of it
-(table cells, list items, quotes, checkboxes, links and HTML alike, with the markup taken off first) for a date by one
-rule, and no list of shapes. A line holds a hand-kept date when it contains
-
-- (a) a number of one or two digits, with or without an ordinal (`5`, `5th`), directly beside a word of three letters
-  or more, in either order, with at most one short joining word between them (`5 April`, `April 5`, `5th of April`,
-  `April the 5th`, and so `5 Septmber` and `12 Decisions`), or
-- (b) two numbers of one to four digits joined by `-`, `/` or `.` (`04-05`, `31-12`, `6/4`, `5.4`).
-
-The run of numbers and words around the match is read whole. A run the contract reads (`5 Sept`, `04-05`) is that
-yearly date, reported when no page's `recurring` list carries it, and also when a page does but the roll-up did not
-render it from the list. Any other run is reported as an `unreadable yearly date`, as written (`31-12`, `13-01`,
-`5th of April`, `5 Septmber`), and so is a day and month with a year (`5 Sept 2026`, `5 Sept 26`, `5 Sept '26`): the
-year makes the run longer than a date, so it is never a yearly one. Over-reporting is the safe side, which is why a
-count of anything beside a word (`12 Decisions`) is reported too.
-
-Only these are left alone. A list item that opens with a date a current page carries, `YYYY-MM-DD` or a day and month
-of a `recurring` entry, is an entry the roll-up renders (`- **5 April**`, then the pages' titles, the note and links to the pages, laid out
-as the roll-up lays them): what the roll-up writes after the date, the pages' notes and titles and links to wiki
-pages, is taken out, and anything left is read by the rule, so something added to an entry is still found. A `YYYY-MM-DD` is the dated
-deadline, which the check on deadlines reads, so the rule does not. The roll-up's own count of pages read (`across 11
-pages`) is no date. Another page the Schema marks derived is not read for dates (see `other_derived_pages`).
-
-- `derived_pages_hold_nothing_hand_written`: every `YYYY-MM-DD` on the roll-up is a page's `deadline` or
-  `deadlines` date (`YYYY-MM-DD` or `{date, note}`), except the roll-up's own `last-updated`, a build stamp; the
-  roll-up shows every such date of a page the sweeps read that is not before its `last-updated` (one before it is
-  past, not forward), and a `last-updated` after today, by the tools' clock, is a finding, forward then being
-  judged from today; a deadline entry that is not a real `YYYY-MM-DD`, bare or in `{date, note}`, is a finding;
-  and a roll-up with nothing to show (no forward deadline and no recurring date) in a wiki of derived pages says
-  why (a page of headings or a bare "None" does not).
-- `recurring_dates_in_frontmatter`: every yearly date listed on the roll-up is a page's `recurring` date (a
-  hand-kept "every year" table is the usual finding), and none is unreadable; every `recurring` entry reads `{date, note}`, the date as
-  `MM-DD` (month first) or a day and a month name, a day the month has, with a note; and the roll-up lists each
-  (a `YYYY-MM-DD` on the same day does not show it).
+- `derived_pages_hold_nothing_hand_written`: the page holds only what the roll-up renders (above); every `YYYY-MM-DD`
+  on it is a page's `deadline` or `deadlines` date (`YYYY-MM-DD` or `{date, note}`); the roll-up shows every such
+  date of a page the sweeps read that is not before its `last-updated` (one before it is past, not forward), and a
+  `last-updated` after today, by the tools' clock, is a finding, forward then being judged from today; a deadline
+  entry that is not a real `YYYY-MM-DD`, bare or in `{date, note}`, is a finding; and a roll-up with nothing to show
+  (no forward deadline and no recurring date) in a wiki of derived pages says why (a page of headings or a bare
+  "None" does not).
+- `recurring_dates_in_frontmatter`: every yearly date on the roll-up is a page's `recurring` date and none is
+  unreadable; every `recurring` entry reads `{date, note}`, the date as `MM-DD` (month first) or a day and a month
+  name, a day the month has, with a note; and the roll-up lists each (a `YYYY-MM-DD` on the same day does not show
+  it).
 - `other_derived_pages`: another page the Schema marks derived (an open-questions list) shows no date its sources
   would settle, so it is named `not verified`, apart from the roll-up's result.
 

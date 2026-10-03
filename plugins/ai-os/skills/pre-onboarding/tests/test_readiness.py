@@ -207,47 +207,6 @@ class MonthDayTest(unittest.TestCase):
         for text in ("5 Apr.", "Sept. 5", "5 Sept."):
             self.assertIsNone(readiness.month_day(text), text)
 
-    def test_a_run_is_read_whole_and_a_date_beside_a_note_is_still_a_date(self):
-        for line, want in (("- 5th Apr: tax year ends", [("5th Apr", "04-05")]), ("| Sept 5 |", [("Sept 5", "09-05")]),
-                           ("| 5 Sept | school fees |", [("5 Sept", "09-05")]),
-                           ("- **9 sept**: fees", [("9 sept", "09-09")]),
-                           ("| 5 Apr. | tax year ends |", [("5 Apr", "04-05")]),
-                           ("| 5 Sept (fees) |", [("5 Sept", "09-05")]),  # a bracket ends the run
-                           ("| 5 April | 6 April |", [("5 April", "04-05"), ("6 April", "04-06")]),
-                           ("| <b>5 Sept</b> |", [("5 Sept", "09-05")]), ("1) 5 Sept", [("5 Sept", "09-05")]),
-                           ("- [ ] 5 Sept", [("5 Sept", "09-05")]), ("- [5 Sept](x.md)", [("5 Sept", "09-05")]),
-                           ("> - 5 Sept", [("5 Sept", "09-05")]), ("> 5 Sept", [("5 Sept", "09-05")]),
-                           ("- **01-31**: self assessment", [("01-31", "01-31")])):
-            self.assertEqual(readiness.hand_kept(line), want, line)
-
-    def test_a_run_the_contract_does_not_read_whole_is_unreadable_whatever_it_holds(self):
-        """The rule: a number of one or two digits (with or without an ordinal) beside a word of three letters or more,
-        with at most one short joining word between, or two numbers of one to four digits joined by - / or ., is a
-        hand-kept date; one the contract does not read is reported as written. A year makes the run longer than a
-        date, so a day and month with a year is never a yearly one, `5 Sept 26` as much as `5 Sept 2026`."""
-        for line, run in (("| 31-12 | year end |", "31-12"), ("- 31-12: year end", "31-12"), ("| 13-01 |", "13-01"),
-                          ("| 02-30 |", "02-30"), ("| 00-10 |", "00-10"), ("| 12-32 |", "12-32"),
-                          ("| 6/4 |", "6/4"), ("| 31/12 |", "31/12"), ("| 5.4 |", "5.4"),
-                          ("| 5th of April |", "5th of April"), ("| April the 5th |", "April the 5th"),
-                          ("| 5. September |", "5. September"), ("| 5 Setpember |", "5 Setpember"),
-                          ("| 5 Septmber |", "5 Septmber"), ("| 5 Sept 26 |", "5 Sept 26"),
-                          ("| 5 Sept '26 |", "5 Sept '26"), ("| 5 Sept 2026 |", "5 Sept 2026"),
-                          ("| September 5, 2026 |", "September 5, 2026"), ("- 5 April 2026: fees", "5 April 2026"),
-                          ("| 31 Sept |", "31 Sept"), ("| 31 April | nonsense |", "31 April"),
-                          ("| 32 Jan |", "32 Jan"), ("| Sept 31 |", "Sept 31"), ("> - 5 Septmber", "5 Septmber"),
-                          ("| 12 Decisions |", "12 Decisions"), ("| 5 items | none |", "5 items"),
-                          ("- 5 April tax year ends", "5 April tax year ends"), ("| 5Sept |", "5Sept"),
-                          ("| Sept. 5 |", "Sept. 5"), ("pages 10-12", "pages 10-12")):
-            self.assertEqual(readiness.hand_kept(line), [(run, None)], line)
-
-    def test_a_line_that_is_no_date_is_no_candidate(self):
-        for line in ("| Date | What |", "| --- | --- |", "| April 2026 |", "# Deadlines", "## Every year", "Alex rents",
-                     "- **2025-04-30**: lease ends", "_File-derived deadlines, rolled up from page frontmatter._",
-                     "> [!warning] The roll-up found no frontmatter deadlines across 11 pages.",
-                     "> **Roll-up found no frontmatter deadlines across 11 readable pages.**", "- 5 of", ""):
-            self.assertEqual(readiness.hand_kept(line), [], line)
-
-
 class GreenTest(Prepared):
     def test_the_fixture_is_green(self):
         res = self.readiness(code=0)
@@ -326,14 +285,16 @@ class ContractTest(Prepared):
         self.assertEqual(self.one_finding("handoff_contract.fixed_pages"), "finding: missing 91 Log/91 Log.md")
 
     def test_a_date_written_by_hand_on_the_deadlines_page(self):
-        self.edit_page(DEADLINES, "passport expires ([10 Identity](../10%20Identity/10%20Identity.md))\n",
-                       "passport expires ([10 Identity](../10%20Identity/10%20Identity.md))\n"
+        self.edit_page(DEADLINES, "Passport P1234567 expires ([10 Identity](../10%20Identity/10%20Identity.md))\n",
+                       "Passport P1234567 expires ([10 Identity](../10%20Identity/10%20Identity.md))\n"
                        "- **2026-01-31**: renew the parking permit\n")
         detail = self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written")
         self.assertIn("1 date(s) no current page's frontmatter carries (line 12: 2026-01-31)", detail)
+        self.assertIn("hand-written content in a derived page, 1 line(s) (line 12: - **2026-01-31**: renew the",
+                      detail)
 
     def test_a_page_deadline_missing_from_the_roll_up(self):
-        self.edit_page(DEADLINES, "- **2031-07-15**: passport expires "
+        self.edit_page(DEADLINES, "- **2031-07-15**: Passport P1234567 expires "
                        "([10 Identity](../10%20Identity/10%20Identity.md))\n", "")
         self.assertIn("lacks 1 page deadline(s) (2031-07-15 (10 Identity/10 Identity.md))",
                       self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written"))
@@ -354,7 +315,8 @@ class ContractTest(Prepared):
 
     def test_a_recurring_date_kept_by_hand(self):
         p = self.page(DEADLINES)
-        write(p, read(p) + "\n## Every year\n\n- **01-31**: self assessment return due\n")
+        write(p, read(p) + "\n## Every year\n\n"
+                           "- **01-31**: Self assessment return due ([Tax](../20%20Finance/Tax.md))\n")
         self.accept_again(DEADLINES)
         self.assertIn("1 yearly date(s) no page's recurring: list carries (line 15: 01-31)",
                       self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
@@ -366,7 +328,7 @@ class ContractTest(Prepared):
         self.add_recurring("{date: 01-31, note: Self assessment return due}")
         p = self.page(DEADLINES)
         write(p, read(p) + "\n## Every year\n\n"
-                           "- **01-31**: self assessment return due ([Tax](../20%20Finance/Tax.md))\n")
+                           "- **01-31**: Self assessment return due ([Tax](../20%20Finance/Tax.md))\n")
         self.accept_again(DEADLINES)
         self.readiness(code=0)
 
@@ -380,125 +342,18 @@ class ContractTest(Prepared):
         self.assertIn("1 recurring: entr(ies) not {date, note} with a date as MM-DD (month first)",
                       self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
 
-    def test_a_hand_kept_table_of_yearly_dates_in_words(self):
-        """The shape a real prepared folder held: a table on the roll-up, the dates written as a day and a month."""
-        p = self.page(DEADLINES)
-        write(p, read(p) + "\n## Every year\n\n| Date | What |\n| --- | --- |\n| 31 January | self assessment |\n"
-                           "| 5 April | the tax year ends |\n")
-        self.accept_again(DEADLINES)
-        self.assertIn("2 yearly date(s) no page's recurring: list carries (line 17: 01-31; line 18: 04-05)",
-                      self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
-
     def test_a_recurring_date_in_words_shown_in_words(self):
         self.add_recurring("{date: 31 January, note: Self assessment return due}")
         p = self.page(DEADLINES)
         write(p, read(p) + "\n## Every year\n\n"
-                           "- **31 January**: self assessment return due ([Tax](../20%20Finance/Tax.md))\n")
+                           "- **31 January**: Self assessment return due ([Tax](../20%20Finance/Tax.md))\n")
         self.accept_again(DEADLINES)
         self.readiness(code=0)
-
-    def test_a_hand_kept_row_in_the_british_abbreviation_is_flagged_like_the_others(self):
-        """`Sept` was read as no month, so a hand-kept row written `5 Sept` passed while `5 Sep` and `5 September`
-        were flagged."""
-        p = self.page(DEADLINES)
-        write(p, read(p) + "\n## Every year\n\n| Date | What |\n| --- | --- |\n| 5 Sept | school fees |\n"
-                           "| Sept 7th | school trip |\n| 5 Sep | school books |\n"
-                           "| 5 September | school fees again |\n")
-        self.accept_again(DEADLINES)
-        self.assertIn("4 yearly date(s) no page's recurring: list carries (line 17: 09-05; line 18: 09-07; "
-                      "line 19: 09-05; line 20: 09-05)",
-                      self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
-
-    def roll_up_with(self, text):
-        """The roll-up page with `text` after an "Every year" heading (not accepted again, so only the roll-up's own
-        check is read back)."""
-        p = self.page(DEADLINES)
-        shutil.copy(os.path.join(self.template, WIKI, *DEADLINES.split("/")), p)
-        write(p, read(p) + "\n## Every year\n\n" + text)
-        return self.readiness()["handoff_contract"]["recurring_dates_in_frontmatter"]
-
-    TABLE = "| Date | What |\n| --- | --- |\n| %s | school fees |\n"
-
-    def test_a_hand_kept_date_in_any_shape_is_a_finding_never_dropped(self):
-        """Each of these read as ok: the one rule is a number beside a word, or two numbers joined by - / or ., on
-        any line of the roll-up, in a cell, a list item, a quote, a checkbox, a link or HTML."""
-        unreadable = ("31-12", "13-01", "02-30", "00-10", "12-32", "6/4", "31/12", "5.4", "5th of April",
-                      "April the 5th", "5. September", "5 Setpember", "5 Septmber", "5 Sept 26", "5 Sept '26",
-                      "5 Sept 2026", "31 Sept", "31 April", "12 Decisions")
-        for cell in unreadable:
-            with self.subTest(cell=cell):
-                self.assertIn("1 unreadable yearly date(s) (line 17: %s)" % cell, self.roll_up_with(self.TABLE % cell))
-        for cell in ("5 Sept (fees)", "<b>5 Sept</b>", "[5 Sept](x.md)", "**5** Sept"):
-            with self.subTest(cell=cell):
-                self.assertIn("1 yearly date(s) no page's recurring: list carries (line 17: 09-05)",
-                              self.roll_up_with(self.TABLE % cell))
-        for line, want in (("- 31-12: year end\n", "1 unreadable yearly date(s) (line 15: 31-12)"),
-                           ("- 5th of April: fees\n", "1 unreadable yearly date(s) (line 15: 5th of April)"),
-                           ("> - 31 Sept\n", "1 unreadable yearly date(s) (line 15: 31 Sept)"),
-                           ("> - 5 Sept\n", "1 yearly date(s) no page's recurring: list carries (line 15: 09-05)"),
-                           ("- [ ] 5 Sept\n", "1 yearly date(s) no page's recurring: list carries (line 15: 09-05)"),
-                           ("- [5 Sept](x.md)\n", "1 yearly date(s) no page's recurring: list carries "
-                                                   "(line 15: 09-05)"),
-                           ("1) 5 Sept\n", "1 yearly date(s) no page's recurring: list carries (line 15: 09-05)"),
-                           ("<td>5 Sept</td>\n", "1 yearly date(s) no page's recurring: list carries "
-                                                  "(line 15: 09-05)"),
-                           ("Fees are due on 5 Sept each year.\n", "1 unreadable yearly date(s)")):
-            with self.subTest(line=line):
-                self.assertIn(want, self.roll_up_with(line))
-
-    def test_a_date_a_page_carries_but_the_roll_up_does_not_render_is_kept_by_hand(self):
-        """The date is backed, but a table row is not an entry the roll-up renders from the list."""
-        self.add_recurring("{date: 5 Sept, note: School fees due}")
-        found = self.roll_up_with(self.TABLE % "5 Sept (school fees)")
-        self.assertIn("1 yearly date(s) a page's recurring: list carries, kept by hand beside the roll-up's entries "
-                      "rather than rolled up from the list (line 17: 09-05)", found)
-
-    def rendered_checks(self, body):
-        """`readiness.deadline_items` on the roll-up page holding `body`: (dated, recurring, other derived)."""
-        p = self.page(DEADLINES)
-        write(p, read(os.path.join(self.template, WIKI, *DEADLINES.split("/"))).split("# Deadlines")[0]
-              + "# Deadlines\n\n" + body)
-        wiki = self.path(WIKI)
-        return readiness.deadline_items(wiki, readiness.W.wiki_pages(wiki), None)
-
-    def test_a_page_of_exactly_what_the_roll_up_renders_is_clean(self):
-        """The roll-up renders `- **<day> <Month name>** \u2014 <page titles> \u2014 <note> (<links>)`: titles and
-        links hold digits (`30 Home`), and a note may hold a number; none is a hand-kept date. Read through
-        `deadline_items` itself, since the roll-up's em dash is a problem of `wiki.py check`, not of this scan."""
-        self.add_recurring("{date: 04-05, note: Pay 2 instalments}")
-        self.edit_page("30 Home/30 Home.md", "status: current\n",
-                       "status: current\nrecurring:\n  - {date: 5 April, note: Pay 2 instalments}\n"
-                       "  - {date: 31 January, note: Return due in 2 weeks}\n")
-        def link(rel):
-            return "[%s](../%s.md)" % (rel, rel.replace(" ", "%20"))
-
-        def entry(when, titles, note, *rels):
-            return "- **%s** \u2014 %s \u2014 %s (%s)\n" % (when, titles, note, ", ".join(link(r) for r in rels))
-        body = ("_File-derived deadlines, rolled up deterministically from page frontmatter \u2014 do not hand-edit._"
-                "\n\n## Upcoming\n\n" + entry("2025-04-30", "30 Home", "Lease ends", "30 Home/30 Home")
-                + entry("2031-07-15", "10 Identity", "passport expires", "10 Identity/10 Identity")
-                + "\n## Every year\n\n"
-                + entry("31 January", "30 Home", "Return due in 2 weeks", "30 Home/30 Home")
-                + entry("5 April", "Tax, 30 Home", "Pay 2 instalments", "20 Finance/Tax", "30 Home/30 Home"))
-        dated, yearly, _other = self.rendered_checks(body)
-        self.assertEqual((dated, yearly), ("ok", "ok"))
-        added = entry("5 April", "Tax", "Pay 2 instalments, and 3 weeks later", "20 Finance/Tax")
-        _dated, yearly, _other = self.rendered_checks(body + added)
-        self.assertIn("1 unreadable yearly date(s) (line 19: and 3 weeks later)", yearly)
-
-    def test_the_empty_roll_up_banner_the_roll_up_renders_is_clean(self):
-        """Its own count of pages read is no date."""
-        dash = " \u2014 "
-        _dated, yearly, _other = self.rendered_checks(
-            "> **Roll-up found no frontmatter deadlines across 11 readable pages" + dash + "likely a keying fault, "
-            "not a deadline-free wiki.** Record each forward date as a `deadline:` key, and each date that falls "
-            "every year as a `recurring:` key.\n")
-        self.assertEqual(yearly, "ok")
 
     def test_a_recurring_date_written_sept_matches_the_roll_up(self):
         self.add_recurring("{date: 5 Sept, note: School fees due}")
         p = self.page(DEADLINES)
-        write(p, read(p) + "\n## Every year\n\n- **5 September**: school fees due ([Tax](../20%20Finance/Tax.md))\n")
+        write(p, read(p) + "\n## Every year\n\n- **5 September**: School fees due ([Tax](../20%20Finance/Tax.md))\n")
         self.accept_again(DEADLINES)
         self.readiness(code=0)
 
@@ -587,7 +442,8 @@ class RollUpTest(Prepared):
         self.accept_again(DEADLINES)
         self.assertIn("an empty roll-up that does not say why",
                       self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written"))
-        self.edit_page(DEADLINES, "None\n", "Nothing forward: the one page deadline, 2024-01-31, is past.\n")
+        self.edit_page(DEADLINES, "None\n", "## Upcoming\n\n_None._\n\n## Past\n\n"
+                       "- **2024-01-31**: Self assessment paid ([Tax](../20%20Finance/Tax.md))\n")
         self.readiness(code=0)
 
     def test_a_deadline_on_the_stamp_day_must_show(self):
@@ -617,43 +473,43 @@ class RollUpTest(Prepared):
                               self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written"))
                 self.edit_page(TAX, "deadline: %s\n" % entry, "")
 
-    def test_numbers_joined_by_a_dash_that_are_no_month_and_day_are_reported(self):
-        """These read as ok while only a month and day were looked for; the one rule reports two numbers joined by
-        - / or ., since a hand-kept date can be written that way round (`31-12`) and over-reporting is the safe side."""
+    def test_numbers_joined_by_a_dash_are_hand_written_content(self):
+        """Only what the roll-up renders is on the page, so a line of numbers is reported whatever it is."""
         self.add_to_roll_up("- 13-45 units of electricity\n- 01-31-2025 is not a month and day\n"
                             "- 01-3122 is a meter reading\n")
-        detail = self.one_finding("handoff_contract.recurring_dates_in_frontmatter")
-        self.assertIn("3 unreadable yearly date(s) (line 12: 13-45 units of electricity; line 13: 01-31-2025 is not a "
-                      "month and day; line 14: 01-3122 is a meter reading)", detail)
+        detail = self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written")
+        self.assertIn("hand-written content in a derived page, 3 line(s) (line 12: - 13-45 units of electricity; "
+                      "line 13: - 01-31-2025 is not a month and day; line 14: - 01-3122 is a meter reading)", detail)
 
     def test_a_single_deadline_with_a_note(self):
         """wiki-maintenance's frontmatter table allows `deadline: {date, note}` as well as a bare date."""
         self.add_frontmatter(TAX, "deadline: {date: 2026-01-31, note: Self assessment payment}\n")
         self.assertIn("lacks 1 page deadline(s) (2026-01-31 (20 Finance/Tax.md))",
                       self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written"))
-        self.add_to_roll_up("- **2026-01-31**: self assessment payment ([Tax](../20%20Finance/Tax.md))\n")
+        self.add_to_roll_up("- **2026-01-31**: Self assessment payment ([Tax](../20%20Finance/Tax.md))\n")
         self.readiness(code=0)
 
-    def test_a_past_deadline_and_a_build_stamp(self):
-        """The roll-up lists forward dates: a deadline before its last-updated need not be shown, and its
-        last-updated written on it is a build stamp, not a hand-written date."""
+    def test_a_past_deadline_need_not_be_shown_but_a_date_added_to_the_page_is_reported(self):
+        """The roll-up lists forward dates: a deadline before its last-updated need not be shown."""
         self.add_frontmatter(TAX, "deadlines:\n  - {date: 2024-01-31, note: Self assessment paid}\n")
-        self.add_to_roll_up("\nBuilt from the pages' frontmatter on 2024-06-30.\n")
         self.readiness(code=0)
         self.add_to_roll_up("Checked again on 2024-07-01.\n")
-        self.assertIn("(line 14: 2024-07-01)",
+        detail = self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written")
+        self.assertIn("1 date(s) no current page's frontmatter carries (line 12: 2024-07-01)", detail)
+        self.assertIn("hand-written content in a derived page, 1 line(s) (line 12: Checked again on 2024-07-01.)",
+                      detail)
+
+    def test_a_page_range_in_prose_is_hand_written_content(self):
+        self.add_to_roll_up("\nSee pages 10-12 of the lease.\n\n- See pages 10-12 of the lease too.\n")
+        self.assertIn("hand-written content in a derived page, 2 line(s) (line 13: See pages 10-12 of the lease.; "
+                      "line 15: - See pages 10-12 of the lease too.)",
                       self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written"))
 
-    def test_a_page_range_in_prose_is_reported_too(self):
-        """"pages 10-12" was prose when only a month and day were looked for; it is two numbers joined by a dash, so
-        the one rule reports it, on any line of the roll-up."""
-        self.add_to_roll_up("\nSee pages 10-12 of the lease.\n\n- See pages 10-12 of the lease too.\n")
-        self.assertIn("2 unreadable yearly date(s) (line 13: See pages 10-12 of the lease; line 15: See pages 10-12 of "
-                      "the lease too)", self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
-
-    def test_a_recurring_date_in_a_table_cell(self):
+    def test_a_recurring_date_in_a_table_is_hand_written_content(self):
         self.add_to_roll_up("\n| Every year | What |\n| --- | --- |\n| **01-31** | self assessment return due |\n")
-        self.assertIn("(line 15: 01-31)", self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
+        self.assertIn("hand-written content in a derived page, 3 line(s) (line 13: | Every year | What |; "
+                      "line 14: | --- | --- |; line 15: | **01-31** | self assessment return due...)",
+                      self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written"))
 
     def test_a_recurring_entry_needs_a_real_day_and_a_note(self):
         self.add_frontmatter(TAX, "recurring:\n  - {date: 02-30, note: No such day}\n")
@@ -662,12 +518,13 @@ class RollUpTest(Prepared):
         self.edit_page(TAX, "{date: 02-30, note: No such day}", "{date: 02-28}")
         self.assertIn("{date: 02-28}", self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
         self.edit_page(TAX, "{date: 02-28}", "{date: 02-29, note: Leap day review}")
-        self.add_to_roll_up("\n## Every year\n\n- **02-29**: leap day review ([Tax](../20%20Finance/Tax.md))\n")
+        self.add_to_roll_up("\n## Every year\n\n- **02-29**: Leap day review ([Tax](../20%20Finance/Tax.md))\n")
         self.readiness(code=0)
 
     def test_a_recurring_date_is_shown_only_by_its_own_month_and_day(self):
-        self.add_frontmatter(TAX, "deadline: 2026-01-31\nrecurring:\n  - {date: 01-31, note: Return due}\n")
-        self.add_to_roll_up("- **2026-01-31**: self assessment return due ([Tax](../20%20Finance/Tax.md))\n")
+        self.add_frontmatter(TAX, "deadline: 2026-01-31\ndeadline_note: Self assessment return due\n"
+                                  "recurring:\n  - {date: 01-31, note: Return due}\n")
+        self.add_to_roll_up("- **2026-01-31**: Self assessment return due ([Tax](../20%20Finance/Tax.md))\n")
         self.assertIn("lacks 1 recurring date(s) (01-31 (20 Finance/Tax.md))",
                       self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
 
@@ -676,7 +533,7 @@ class RollUpTest(Prepared):
         self.edit_page(home, "status: current", "status: superseded")
         self.assertIn("no current page's frontmatter carries (line 10: 2025-04-30)",
                       self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written"))
-        self.edit_page(DEADLINES, "- **2025-04-30**: lease ends ([30 Home](../30%20Home/30%20Home.md))\n", "")
+        self.edit_page(DEADLINES, "- **2025-04-30**: Lease ends ([30 Home](../30%20Home/30%20Home.md))\n", "")
         self.readiness(code=0)
 
     def test_another_derived_page_is_reported_apart(self):
