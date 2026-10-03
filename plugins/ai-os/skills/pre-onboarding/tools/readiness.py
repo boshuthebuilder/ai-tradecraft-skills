@@ -14,7 +14,8 @@ pass either, and the operator reads it.
   names the repair, `extract.py repath`), and no card names an isolation term its own source lacks (not verified
   without --terms). A count above zero is one finding;
 - isolation: per engine, the canary result `isolation.py canary --out` wrote to `<work>/state/canary-<engine>.json`:
-  `passed`, `failed: ...` (a finding) or `not run: ...` (not verified);
+  `passed`, `failed: ...` (a finding), `not run: ...` (not verified) or `not verified: ...` (a pass recorded without
+  the invented name the canary now plants, so one from an earlier canary, which a refusal could pass: run it again);
 - wiki: `wiki.py check`, as it reports; its problems are one finding, its not-verified states are listed;
 - wiki_handoff: the rationale file exists (`check` does not count it missing, since drafting agents run `check`
   before it is assembled), and every page is accepted: each page `check` does not report `accepted` is one
@@ -326,7 +327,7 @@ def record_checks(root, rb, live, evidence):
 
 
 def canary(work, engine):
-    """passed, failed: ... or not run: ..., from the result isolation.py canary wrote."""
+    """passed, failed: ..., not run: ... or not verified: ..., from the result isolation.py canary wrote."""
     rel = os.path.join("state", "canary-%s.json" % engine)
     path = os.path.join(work, rel)
     if not os.path.exists(path):
@@ -335,6 +336,9 @@ def canary(work, engine):
     if res.get("engine") != engine or not isinstance(res.get("pass"), bool):
         raise common.ToolError("%s is not a canary result for %s; run isolation.py canary again" % (path, engine))
     if res["pass"]:
+        if res.get("answered") is not True or not res.get("marker"):
+            return ("not verified: %s records a pass without the invented name a canary now plants, so it may be from "
+                    "a canary a refusal could pass; run isolation.py canary again" % rel)
         return "passed"
     if "reply" in res and res.get("answered") is not False:
         why = "%s isolation term(s) in the engine's reply" % res.get("hits")
@@ -432,7 +436,7 @@ def main():
     for engine, state in out["isolation"]["canary"].items():
         if state.startswith("failed"):
             findings.append(["isolation.canary." + engine, state])
-        elif state.startswith("not run"):
+        elif state.startswith(("not run", "not verified")):
             unverified.append(["isolation.canary." + engine, state])
     if out["wiki"]["problems"]:
         findings.append(["wiki.problems", "wiki.py check reports %d problem(s)" % out["wiki"]["problems"]])

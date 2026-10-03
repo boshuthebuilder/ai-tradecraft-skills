@@ -760,5 +760,152 @@ class SectionsTest(CardsCliCase):
         self.assertEqual(sent_items(calls[0]["prompt"])[0]["read"], "sectioned")
 
 
+    def section_texts(self, engine="agy"):
+        """The text each section call was sent, in order, and every call's size on the wire in bytes."""
+        calls = self.fakes.calls(engine)
+        texts = [c["prompt"].split("SECTION TEXT:\n", 1)[1] for c in calls if "SECTION TEXT:" in c["prompt"]]
+        return texts, [len(c["stdin"].encode("utf-8")) for c in calls]
+
+    def agy_work(self, doc_text):
+        """A one-page document under agy's own defaults, built and carded; returns the document's id."""
+        doc = self.record("04 Study/Annual report.txt", [doc_text])
+        code, _out, err = self.cards_py("build")
+        self.assertEqual(code, 0, err)
+        self.assertEqual([bt["mode"] for bt in self.batches().values()], ["sections"])
+        self.fakes.script("agy", default={"kind": "text"})
+        code, _out, err = self.cards_py("work", "--engine", "agy", "--model", "fake-model", "--terms", self.terms)
+        self.assertEqual(code, 0, err)
+        return doc
+
+    def test_a_single_page_document_over_the_byte_limit_is_split_to_fit(self):
+        """Text, docx, rtf and csv extractions are one page, so sections cannot split at a page boundary: the page
+        itself is split, at paragraph boundaries where it has them, and every call stays under agy's limit."""
+        text = "\n\n".join("Paragraph %d. " % k + "w" * 6_990 for k in range(40))
+        self.assertGreater(len(text), 280_000)
+        doc = self.agy_work(text)
+        texts, sizes = self.section_texts()
+        self.assertGreaterEqual(len(texts), 5)
+        self.assertTrue(all(n <= engines.AGY_MAX_MESSAGE_BYTES for n in sizes), sizes)
+        self.assertTrue(all(len(t) <= 60_000 for t in texts), [len(t) for t in texts])
+        self.assertEqual("".join(texts), "[page 1]\n" + text, "every character must be sent exactly once")
+        for t in texts:
+            self.assertRegex(t, r"^(\[page 1\]\nParagraph \d+\. |\n\nParagraph \d+\. )", "a paragraph was cut")
+        self.assertEqual(self.card_errors(), [])
+        card = self.written()[doc]
+        self.assertEqual(card["card_meta"]["batch"], os.path.basename(next(iter(self.batches())))[:-5])
+        item = sent_items(self.fakes.calls("agy")[-1]["prompt"])[0]
+        self.assertEqual(item["read"], "sectioned")
+        for k in range(1, len(texts) + 1):
+            self.assertIn("[section %d of %d] notes on" % (k, len(texts)), item["text"])
+        self.assertNotIn("(unread)", item["text"])
+
+    def test_a_page_with_no_paragraph_or_line_break_is_cut_by_characters(self):
+        text = "学习" * 75_000  # 150,000 CJK characters on one line: 450 KB
+        self.agy_work(text)
+        texts, sizes = self.section_texts()
+        self.assertEqual("".join(texts), "[page 1]\n" + text)
+        self.assertEqual([len(t) for t in texts], [60_000, 60_000, 30_009], "the first slice fills the page header's section")
+        self.assertTrue(all(n <= engines.AGY_MAX_MESSAGE_BYTES for n in sizes), sizes)
+        self.assertEqual(self.card_errors(), [])
+
+    def test_a_section_that_cannot_be_read_leaves_no_card_and_says_so(self):
+        """A card made from notes with a hole in them would claim a coverage it lacks: the document gets no card, a
+        card_err_ record names what was not read, and a rerun reads only the section that failed."""
+        text = "\n\n".join("Paragraph %d. " % k + "w" * 6_990 for k in range(40))
+        doc = self.record("04 Study/Annual report.txt", [text])
+        code, _out, err = self.cards_py("build")
+        self.assertEqual(code, 0, err)
+        fail = {"kind": "fail", "message": "agy: model overloaded"}
+        self.fakes.script("agy", replies=[{"kind": "text"}, fail, fail, fail], default={"kind": "text"})  # section 2
+        work = ["work", "--engine", "agy", "--model", "fake-model", "--terms", self.terms]
+        code, _out, err = self.cards_py(*work)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.written(), {}, "a card was written from notes with a section missing")
+        self.assertEqual(self.card_errors(), ["card_err_%s.txt" % doc])
+        why = read(os.path.join(self.work, "state", "card_err_%s.txt" % doc))
+        self.assertRegex(why, r"section 2 of \d+")
+        self.assertIn("not read", why)
+        self.assertFalse(any("Input items" in c["prompt"] for c in self.fakes.calls("agy")),
+                         "the card call ran with a section missing")
+        total = int(re.search(r"section 2 of (\d+)", why).group(1))
+        self.assertEqual(len(os.listdir(os.path.join(self.work, "sections"))), total - 1, "the others stay cached")
+        os.remove(os.path.join(self.work, "state", "card_err_%s.txt" % doc))
+        self.fakes.reset("agy")
+        self.fakes.script("agy", default={"kind": "text"})
+        code, _out, err = self.cards_py(*work)
+        self.assertEqual(code, 0, err)
+        calls = self.fakes.calls("agy")
+        self.assertEqual([("SECTION TEXT:" in c["prompt"]) for c in calls], [True, False], "only the failed section")
+        self.assertEqual(sorted(self.written()), [doc])
+        self.assertNotIn("(unread)", sent_items(calls[-1]["prompt"])[0]["text"])
+
+    def test_a_section_over_the_limit_that_splitting_cannot_fix_is_not_carded(self):
+        """Four-byte characters can still make a section over agy's limit: it is refused before the call (and not tried
+        again), and the document is left without a card rather than carded from the sections that were read."""
+        doc = self.record("04 Study/Annual report.txt", ["\U00020000" * 150_000])
+        code, _out, err = self.cards_py("build")
+        self.assertEqual(code, 0, err)
+        code, _out, err = self.cards_py("work", "--engine", "agy", "--model", "fake-model", "--terms", self.terms)
+        self.assertEqual(code, 0, err)
+        calls = self.fakes.calls("agy")
+        self.assertEqual(len(calls), 1, "only the last, short section fits; the others are refused once each")
+        self.assertTrue(all(len(c["stdin"].encode("utf-8")) <= engines.AGY_MAX_MESSAGE_BYTES for c in calls))
+        self.assertFalse(any("Input items" in c["prompt"] for c in calls), "the card call ran with sections missing")
+        self.assertEqual(self.written(), {})
+        self.assertEqual(self.card_errors(), ["card_err_%s.txt" % doc])
+        why = read(os.path.join(self.work, "state", "card_err_%s.txt" % doc))
+        self.assertIn("2 of 3 sections not read", why)
+        self.assertIn("byte limit", why)
+
+
+    def test_a_section_reply_with_no_notes_is_not_a_read_section(self):
+        doc = self.record("04 Study/Annual report.txt", ["page text " * 8_000])
+        code, _out, err = self.cards_py("build")
+        self.assertEqual(code, 0, err)
+        self.fakes.script("agy", default={"kind": "text", "no_notes": True})
+        code, _out, err = self.cards_py("work", "--engine", "agy", "--model", "fake-model", "--terms", self.terms)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.written(), {})
+        self.assertEqual(self.card_errors(), ["card_err_%s.txt" % doc])
+        self.assertIn("reply has no notes", read(os.path.join(self.work, "state", "card_err_%s.txt" % doc)))
+        self.assertEqual(os.listdir(os.path.join(self.work, "sections")), [], "an empty note was cached")
+
+
+class SplitSectionsTest(unittest.TestCase):
+    """The packer behind the sections: nothing lost or reordered, nothing over the limit, breaks kept where there are
+    any, whichever way a section is sized."""
+
+    TEXT = ("[page 1]\n" + "\n\n".join("Para %d. " % k + "word " * (20 + 90 * (k % 7)) for k in range(30))
+            + "\n\n[page 2]\n" + "\n".join("line %d of a table" % k for k in range(400))
+            + "\n\n[page 3]\n" + "x" * 9_000 + "\n\n[page 4]\n" + "学习" * 3_000 + "\n\n[page 5]\nShort.")
+
+    def split(self, limit, size, wide):
+        return cards.split_sections(self.TEXT.split("\n\n[page "), limit, size, wide)
+
+    def test_sections_join_back_and_fit_by_characters(self):
+        for limit in (500, 2_000, 7_000):
+            with self.subTest(limit=limit):
+                chunks = self.split(limit, len, 1)
+                self.assertEqual("".join(chunks), self.TEXT)
+                self.assertTrue(all(0 < len(c) <= limit for c in chunks), [len(c) for c in chunks])
+
+    def test_sections_join_back_and_fit_by_estimated_tokens(self):
+        for limit in (150, 600, 2_000):
+            with self.subTest(limit=limit):
+                chunks = self.split(limit, common.est_tokens, 1.1)
+                self.assertEqual("".join(chunks), self.TEXT)
+                # the estimate is added piece by piece, each rounded down, so a section of short lines runs over
+                self.assertTrue(all(0 < common.est_tokens(c) <= limit * 1.2 for c in chunks),
+                                [common.est_tokens(c) for c in chunks])
+
+    def test_a_page_that_fits_is_not_split_and_a_long_one_breaks_at_paragraphs(self):
+        chunks = self.split(7_000, len, 1)
+        self.assertTrue(any(c.startswith("\n\n[page 5]") or "[page 5]\nShort." in c for c in chunks))
+        long_page = "[page 1]\n" + "\n\n".join("P%d " % k + "w" * 900 for k in range(20))
+        chunks = cards.split_sections(long_page.split("\n\n[page "), 4_000, len, 1)
+        self.assertEqual("".join(chunks), long_page)
+        self.assertTrue(all(c.startswith(("[page 1]\nP", "\n\nP")) for c in chunks), "a paragraph was cut")
+
+
 if __name__ == "__main__":
     unittest.main()

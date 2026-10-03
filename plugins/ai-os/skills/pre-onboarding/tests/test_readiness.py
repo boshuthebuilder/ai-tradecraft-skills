@@ -182,7 +182,8 @@ class GreenTest(Prepared):
         terms = os.path.join(self.tmp, "terms.txt")
         write(terms, TERMS)
         for engine in ("agy", "codex"):
-            self.canary(engine, reply="NONE", hits=0, usage={}, **{"pass": True})
+            self.canary(engine, reply="NAMES: Kobelumi", hits=0, usage={}, answered=True, marker="Kobelumi",
+                        **{"pass": True})
         res = self.readiness("--terms", terms, code=0)
         self.assertEqual((res["not_verified"], res["records"]["contamination"]), ([], 0))
         self.assertEqual(res["isolation"], {"canary": {"agy": "passed", "codex": "passed"}})
@@ -574,11 +575,29 @@ class FindingTest(Prepared):
         self.assertIn(["isolation.canary.agy", res["isolation"]["canary"]["agy"]], res["not_verified"])
         self.canary("codex", error="timeout", **{"pass": False})
         self.assertIn("the engine gave no usable answer (timeout)", self.one_finding("isolation.canary.codex"))
-        self.canary("codex", reply="I cannot list that.", hits=0, answered=False, usage={},
-                    error="the engine did not reply NONE or NAMES: ...", **{"pass": False})
+        self.canary("codex", reply="I cannot list that.", hits=0, answered=False, usage={}, marker="Kobelumi",
+                    error="the reply did not repeat the test name Kobelumi", **{"pass": False})
         finding = self.one_finding("isolation.canary.codex")
-        self.assertIn("no usable answer (the engine did not reply NONE or NAMES", finding)
+        self.assertIn("no usable answer (the reply did not repeat the test name Kobelumi", finding)
         self.assertNotIn("0 isolation term(s)", finding)
+
+    def test_a_pass_without_the_marker_is_not_verified_never_passed(self):
+        """A result from the canary that a refusal could pass (no marker, or no `answered`), or one edited to claim a
+        pass, is a named not-verified state: not a pass, and not a finding either."""
+        cases = {"the old canary": dict(reply="NONE", hits=0, usage={}),
+                 "answered but no marker": dict(reply="NAMES: x", hits=0, usage={}, answered=True),
+                 "an empty marker": dict(reply="NAMES: x", hits=0, usage={}, answered=True, marker=""),
+                 "a marker but not answered": dict(reply="NAMES: x", hits=0, usage={}, answered=False,
+                                                   marker="Kobelumi")}
+        for name, fields in cases.items():
+            with self.subTest(name):
+                self.canary("agy", **dict(fields, **{"pass": True}))
+                res = self.readiness(code=0)
+                state = res["isolation"]["canary"]["agy"]
+                self.assertTrue(state.startswith("not verified: state/canary-agy.json records a pass without the "
+                                                 "invented name"), state)
+                self.assertIn(["isolation.canary.agy", state], res["not_verified"])
+                self.assertNotIn("isolation.canary.agy", [k for k, _v in res["findings"]])
 
     def test_the_rationale_file_missing(self):
         os.remove(self.path("_Audit", "wiki-rationale.md"))

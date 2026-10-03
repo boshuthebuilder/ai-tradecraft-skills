@@ -96,12 +96,19 @@ finishes. Documents are bucketed by their text: under 20 characters (bucket 1), 
 
 - **`group` and `single`** send the documents' full text in one call.
 - **`sections`**, and a `single` whose estimated tokens exceed `--single-tokens` when that is set, read the
-  document in sections first. Its text is split at page boundaries into sections of at most `--section-tokens`
-  estimated tokens (or `--section-chars` characters when that is not set). Each section gets its own call asking
-  for notes of at most 200 words, from the light engine (`--light-model` at low effort for `codex`, otherwise the
-  same engine), cached in `<work>/sections/` so a rerun does not pay for them again; a section that fails three
-  times is noted as unread. The card is then written from the notes and the document's first 20,000 characters,
-  with `read` set to `sectioned`.
+  document in sections first. Its pages are packed in order into sections of at most `--section-tokens` estimated
+  tokens (or `--section-chars` characters when that is not set): a page goes whole into the section in progress when
+  it fits there, and starts the next when it does not. A page over the budget by itself is split inside, because a
+  text, Word, rtf or csv extraction is one page however long it is: at paragraph breaks, a paragraph still too long
+  at line breaks, a line still too long at any character, so that every call fits (with `agy`, under its byte
+  limit). Each section gets its own call asking for notes of at most 200 words, from the light engine
+  (`--light-model` at low effort for `codex`, otherwise the same engine), cached in `<work>/sections/` so a rerun
+  does not pay for them again. A section that fails three times, returns no notes, or is over `agy`'s byte limit
+  (four-byte characters can still be, at 60,000 characters) is not read, and then **no card is written**: a card
+  made from notes with a hole in them would claim a read it lacks. `<work>/state/card_err_<id>.txt` names each
+  section not read, and the sections that were read stay cached, so a rerun reads only the rest. When every section
+  is read, the card is written from the notes and the document's first 20,000 characters, with `read` set to
+  `sectioned`.
 - **A token estimate** is ASCII characters divided by 3.8, plus other characters times 1.1.
 - **A quota message** stops the batch: the cards it has joined are written, and the worker sleeps for the reset
   time the message gives (10 minutes for `agy` and 30 for `codex` when it gives none), plus 90 seconds, and at

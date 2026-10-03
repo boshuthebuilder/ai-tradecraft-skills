@@ -202,14 +202,21 @@ extraction](#3-curation-rounds-each-approved-by-the-owner)). Two lessons from re
 Before any model reads this folder:
 
     python3 <tools>/isolation.py scan   --terms <terms file> --path <tools> --path "<folder>/.familyai" \
-        --if-present ~/.codex/AGENTS.md --if-present ~/.codex/AGENTS.override.md --out <work>/state/scan.json
+        --if-present ~/.codex/AGENTS.md --if-present ~/.codex/AGENTS.override.md --if-present ~/.codex/skills \
+        --out <work>/state/scan.json
     python3 <tools>/isolation.py canary --terms <terms file> --engine <engine> --model <model> \
         --out <work>/state/canary-<engine>.json
 
 `scan` checks every file a model will be shown (the tools' prompts and templates, and the settings the card
 instructions are filled from) for the terms, and exits 1 on any hit or when it found nothing to check; scan the wiki
-briefs and review prompts the same way before a model reads them (step 7). `canary` asks the engine to list every name
-in its context and fails on any term. Run it for each engine you will use, and keep both results: they are the record
+briefs and review prompts the same way before a model reads them (step 7). The `--if-present` lines are the global
+files codex reads whatever the folder (drop them on a machine without codex, and add `~/.agents/skills` where that
+folder exists): a file the machine lacks is skipped and listed in the result's `absent` and on stderr, so read
+`absent` and check it holds only files the machine really lacks. `scan` expands `~` and variables itself, and stops
+with an error on a path that still holds one, or whose folder does not exist: that is a typo, and a typo must never
+read as a clean scan. `canary` plants an invented name in the engine's context, asks it to list every name it holds
+starting with that one, and fails on any term; a reply that does not repeat the invented name (recorded as
+`marker`) proves nothing, so it fails as unanswered. Run it for each engine you will use, and keep both results: they are the record
 that the gate ran, and `readiness.py` reads each engine's canary from `<work>/state/canary-<engine>.json` (step 8).
 No lane reads them, so never start one without passing ones. A failure means the engine's context carries another
 project: fix its setup ([engine isolation](#engine-isolation)) and run the canary again.
@@ -334,6 +341,8 @@ job runs on it until then ([wiki-onboarding step 5](../wiki-onboarding/SKILL.md#
 
 ## Engine isolation
 
+<!-- provisional: agy's message limit (family-ai-os #1089) and agy's stream-event names and environment variables (#91) -->
+
 The rule is the framework's: one login per machine, the context isolated per call
 ([the architecture](../../ARCHITECTURE.md#execution-context-constraints-why-the-indirection-exists)). The
 preparation holds it in `tools/engines.py`, which every model call goes through; how, and with which flags, is in
@@ -353,11 +362,15 @@ isolation comes from what each call is given and what it is denied:
   memories, no summaries of earlier conversations and no instruction file, but it is offered tools: any tool event
   in its stream discards the reply (the vision lane alone may open its images). agy also cuts a very long
   message short and asks the model to read the rest from a stored copy (seen at about 300 KB), which a call with
-  no tools cannot do: keep every prompt to it well under that, as the card budgets do.
+  no tools cannot do: keep every prompt to it well under that, as the card budgets do. The 200,000-byte limit the
+  tools enforce is provisional: where the cut really falls, in bytes or characters, is for family-ai-os #1089 to
+  measure, and until then it is a cautious figure under the one case seen.
 
 The canary checks the isolation before the first call (step 5), and the contamination guard after, on every card.
-A canary reply must take one of its two forms, `NONE` or a `NAMES:` line: a model that refuses to list its context
-holds no term either, so a refusal fails as unanswered rather than passing.
+The canary plants an invented name and passes only a reply that repeats it: a model that refuses to list its
+context holds no term either, whatever the wording or the format of the refusal, but it cannot repeat a name it
+refused to give. The invented name shows the engine will list names it was shown, not that it read every file, so
+the scan of the files each engine reads stays part of the gate.
 
 ## Identifiers
 

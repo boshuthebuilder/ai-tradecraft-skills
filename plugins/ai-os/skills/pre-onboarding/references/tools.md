@@ -318,10 +318,12 @@ two looks a minute apart, writing `<work>/state/vision<k>.done`.
 
 ## `engines.py`
 
+<!-- provisional: agy's message limit (family-ai-os #1089) and agy's stream-event names and environment variables (#91) -->
+
 A library: the adapters every model call goes through, `Agy` (Gemini through the `agy` command-line tool) and
 `Codex` (ChatGPT through `codex exec`). The rule it holds is the skill's
-[engine isolation](../SKILL.md#engine-isolation), settled on the operator's machine (spike #91); the flags in use
-are in the file, pinned by its tests.
+[engine isolation](../SKILL.md#engine-isolation), measured on the operator's machine (spike #91); the flags in use
+are in the file, pinned by its tests, and what is still provisional is marked there.
 
 - **Each call** runs in the working directory the caller gives (a fresh, empty one from `engines.fresh_dir`), with
   the prompt on standard input, in its own process group, killed on timeout (900 seconds for `agy`, 1,500 for
@@ -338,8 +340,9 @@ are in the file, pinned by its tests.
   "try again at 5:12 PM" where the message says; `DegenerateError` for an empty answer; `ToolUseError` when the
   model used a tool (a `codex` tool item, or an `agy` stream event naming a tool, action, function or call) or `agy`
   was refused one (a denied action), the reply discarded (the vision lane alone lets `agy` open its images);
-  `PromptTooLong` before an `agy` call whose message is over 200,000 UTF-8 bytes (`AGY_MAX_MESSAGE_BYTES`): agy cuts
-  a message of about 300 KB short and leaves the model a stored copy to read with a tool these calls deny;
+  `PromptTooLong` before an `agy` call whose message is over 200,000 UTF-8 bytes (`AGY_MAX_MESSAGE_BYTES`, a
+  provisional figure until family-ai-os #1089 measures the cut): agy cuts a message of about 300 KB short and
+  leaves the model a stored copy to read with a tool these calls deny;
   `EngineError` for anything else. Two stop the run rather than the call: `SetupError` (no binary, `agy` without a
   model, a `codex` schema that is not strict) and `CredentialError` (below).
 - **A per-project state folder** (`state_home`, the engine's `HOME` or `CODEX_HOME`) is optional, and the
@@ -357,20 +360,32 @@ Keeps other projects out of model-facing context. The terms file's format is in
 [the card contract](cards.md#the-terms-file); `agy` needs `--model`.
 
 - **`scan`** reads every file named, and every `.md`, `.json`, `.py`, `.txt`, `.sh`, `.swift`, `.csv`, `.jsonl`,
-  `.toml`, `.yaml` and `.yml` file under each folder named; a path that does not exist is refused. An `--if-present` file (an engine's global instruction file, such as `~/.codex/AGENTS.md`) is read when the machine has it and listed in `absent` when it does not, never an error. It prints
-  `{checked_at, files_checked, files_with_terms, terms, pass}`, also to `--out`. A file holding a term is listed as
-  `<n>:<path>`, `n` the index of the `--path` it came from and the path relative to it, with every term and marker
-  masked as `<term>` (a later path masking alike gets `#2`, `#3`). `pass` needs at least one file checked and none
-  with a term; exit 1 otherwise. Scan every file a model is shown: the tools folder (its prompts, templates and
-  schemas), the folder's `.familyai/` (the owner context the card instructions are filled from), and the wiki
-  briefs and review prompts.
-- **`canary`** asks the engine, in a fresh empty folder, as a factual check of its setup, whether any text it was
-  given besides the message holds a personal name, family name, account name, company, property, street or
-  address, to be answered exactly `NONE` or with one line starting `NAMES:`. It writes `{engine, checked_at, terms,
-  reply, usage, hits, answered, pass}` (and `error` when there is one) to `--out`, the reply and any error with their
-  terms masked, and prints it without the reply. `pass` needs a reply in one of the two forms (a `NAMES:` line with at least one short name and no refusal wording) with no term in it: a
-  refusal ("I can't list my context") holds no term either, and proves nothing, so it fails as unanswered. Exit 0
-  on a pass.
+  `.toml`, `.yaml` and `.yml` file under each folder named; a path that does not exist is refused. It expands `~`
+  and environment variables in every path itself, so a quoted `~/.codex/AGENTS.md` works. An `--if-present` file
+  (an engine's global instruction file, such as `~/.codex/AGENTS.md`) is read when the machine has it. One missing
+  from a folder that exists is not an error: it is listed in `absent` and printed on standard error in plain words.
+  One still holding `~` or `$` after expansion, or whose folder does not exist (`~/.codx/AGENTS.md`), is refused
+  with exit 2 and no result: that is a typo or an engine the machine lacks, and it must never read as a clean scan.
+  Read `absent`: it should hold only files the machine really lacks. It prints
+  `{checked_at, files_checked, files_with_terms, absent, terms, pass}`, also to `--out`. A file holding a term is
+  listed as `<n>:<path>`, `n` the index of the path it came from (every `--path` first, then each `--if-present`
+  file the machine has) and the path relative to it, with every term and marker masked as `<term>` (a later path
+  masking alike gets `#2`, `#3`). `pass` needs at least one file checked and none with a term; exit 1 otherwise.
+  Scan every file a model is shown: the tools folder (its prompts, templates and schemas), the folder's
+  `.familyai/` (the owner context the card instructions are filled from), the wiki briefs and review prompts, and
+  the global files an engine reads whatever the folder.
+- **`canary`** plants a positive control. Each run invents a fresh name (a capitalised nonsense word, from
+  `secrets`, clear of every term), and asks the engine, in a fresh empty folder and as a factual check of its
+  setup, to list every personal, family or account name, organisation, company, property, street, address or place
+  in its whole context (system and instruction files included), starting with that one, as a `NAMES:` line or a
+  bulleted list. It writes `{engine, checked_at, terms, marker, reply, usage, hits, answered, pass}` (and `error`
+  when there is one) to `--out`, the reply and any error with their terms masked, and prints it without the reply.
+  `answered` is true only when the reply repeats the marker (any case) and does not read as a refusal: a refusal
+  holds no term either, in any wording or format, but it cannot repeat a name it declined to give, so it fails as
+  unanswered rather than passing. `pass` needs `answered` and no term in the reply. No shape is required of the
+  list (a bulleted list, multi-word organisation names and a leading sentence all pass), so a compliant model is
+  never failed for its format. The marker shows the engine will list names it was shown, not that it read every
+  file; the scan covers the files. Exit 0 on a pass.
 
 Neither writes a term out. The result files are the record that the gate ran: `readiness.py` reads each engine's
 canary from `<work>/state/canary-<engine>.json` ([`isolation.canary`](#readinesspy)), and no tool reads the scan's.
@@ -821,7 +836,9 @@ same way, which is not a finding and not a pass either, and does not change the 
   card naming an isolation term its own source lacks, by `cards.py`'s rule; `not verified` without `--terms`). A
   count above zero is one finding.
 - `isolation.canary`: per engine (`agy` and `codex`), the result `isolation.py canary --out` wrote to
-  `<work>/state/canary-<engine>.json`: `passed`, `failed: ...` (a finding) or `not run: ...` (not verified).
+  `<work>/state/canary-<engine>.json`: `passed`, `failed: ...` (a finding), `not run: ...` (not verified) or
+  `not verified: ...` (a pass recorded without `answered` and the invented `marker`, so from a canary a refusal could
+  pass: run it again).
 - `wiki`: [`wiki.py check`](#check-1)'s report, reading the Schema from `--settings-dir`; its `problems` are one
   finding and its not-verified states are listed.
 - `wiki_handoff`: `rationale_file`, a finding when `_Audit/wiki-rationale.md` is missing (`check` reports it `not
