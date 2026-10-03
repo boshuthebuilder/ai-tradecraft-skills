@@ -526,7 +526,7 @@ them ([the card contract](cards.md#what-the-engine-is-given)).
 Reads every page under the wiki folder (dot folders skipped) and prints JSON, also to `--out`, exiting 1 when
 `problems` is not zero. `--page` (repeatable) is a drafting agent's check, the command its brief names: only those
 pages are read, a link to a page the page map plans but nobody has written yet is listed in
-`links_to_planned_pages` rather than in `dead_page_links`, and `documents_not_covered`, `rationale` and `acceptance`
+`links_to_planned_pages` rather than in `dead_page_links`, `scoped_to` lists the pages read, and `documents_not_covered`, `rationale` and `acceptance`
 read `not checked: scoped to N page(s)`, since sibling sections are still being drafted; the coordinator's
 whole-wiki check judges them. Every key is a count, a list whose length is the count, or a named state; the fixture's
 values are in [`../tests/expected/wiki-check.json`](../tests/expected/wiki-check.json). `--rationale` and

@@ -314,7 +314,7 @@ def load_rulebook(root, settings_dir, required=False, verify=True):
         raise ToolError("missing folder settings: %s" % path)
     merged = dict(DEFAULTS)
     merged.update(data)
-    merged["wiki_dir"] = merged.get("wiki_dir") or os.path.basename(root) + " Wiki"
+    merged["wiki_dir"] = (merged.get("wiki_dir") or os.path.basename(root) + " Wiki").rstrip("/")
     merged["packs"] = [p.rstrip("/") for p in merged["packs"]]
     merged["_source"] = path if data else None
     return merged
@@ -432,7 +432,7 @@ def pack_matcher(root, rb):
             return True
         found = False
         for k, rx in rxs:  # every keyword is checked, so a malformed one is never hidden by an earlier match
-            m = rx.search(folder)
+            m = rx.search(nfc(folder))  # a name may be stored decomposed on disk, as for packs
             if m is not None and m.end() == m.start():
                 raise ToolError("%s: pack_keywords entry %r matched the folder %r without consuming any text; give "
                                 "it a pattern that matches part of the folder's name"

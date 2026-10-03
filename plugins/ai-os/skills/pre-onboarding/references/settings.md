@@ -37,7 +37,7 @@ An unknown version, an unknown key or a value of the wrong shape fails loud.
 | `folder_description` | text | `""` | one line on what the folder holds, for the card engine's brief |
 | `exclude` | list of paths | `[]` | paths the owner excluded from reading |
 | `keep_empty_folders` | `true` or `false` | `true` | whether emptied folders stay (the owner declines the [`rmdir` rows](../../folder-curation/references/move-plan-schema.md#rmdir-and-the-bin) among their own folders) |
-| `image_cap_mb`, `pack_keywords` | number, list of patterns | `25`; `application`, `passport`, `renew`, `visa`, `submission`, `evidence` | audit tunables; a folder whose packs go by other words lists its own patterns, each a valid regular expression |
+| `image_cap_mb`, `pack_keywords` | number, list of patterns | `25`; `application`, `passport`, `renew`, `visa`, `submission`, `evidence` | audit tunables; a folder whose packs go by other words lists its own patterns, each a valid regular expression that matches part of a folder's name (one that can match without consuming any text is refused, and a folder name that makes one do so stops the audit); an empty list turns keyword packs off |
 | `ocr_languages` | list of BCP 47 codes | `["en-GB"]` | the languages local OCR reads in, most likely first; it knows `en`, `fr`, `de` and `es` in any region, `zh-Hans` (or `zh-CN`, `zh-SG`) and `zh-Hant` (or `zh-TW`, `zh-HK`, `zh-MO`), in any letter case, and any other code fails loud |
 
 **Reserved names.** The rulebook must name every top-level name the system reserves: `CLAUDE.md`, `AGENTS.md`,

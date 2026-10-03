@@ -454,6 +454,15 @@ class PackSettingsTest(AuditCase):
         is_pack = common.pack_matcher(root, rb)
         self.assertFalse(any(is_pack(f) for f in ("Letters", "Visa renewal 2021", "")))
 
+    def test_a_keyword_matches_a_decomposed_folder_name(self):
+        root = self.folder(self.pinned(pack_keywords=["\u00e9tude"]), parent="nfc")
+        is_pack = common.pack_matcher(root, common.load_rulebook(root, os.path.join(root, ".familyai")))
+        self.assertTrue(is_pack(unicodedata.normalize("NFD", "\u00c9tude 2021")))
+
+    def test_a_trailing_slash_on_the_wiki_folder_is_dropped(self):
+        root = self.folder(self.pinned(wiki_dir="Alex Papers Wiki/"), parent="slashwiki")
+        self.assertEqual(common.load_rulebook(root, os.path.join(root, ".familyai"))["wiki_dir"], "Alex Papers Wiki")
+
     def test_a_keyword_matching_a_real_folder_without_text_fails_loud(self):
         root = self.folder(dict(self.pinned(pack_keywords=["visa", "(?=q)"]), **{"quotes/a.pdf": "a"}), parent="zw")
         rb = common.load_rulebook(root, os.path.join(root, ".familyai"))
