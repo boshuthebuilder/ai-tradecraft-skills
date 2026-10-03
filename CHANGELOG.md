@@ -158,9 +158,10 @@ under *Migrating a deployment* below.
   `--batch-chars`, `--section-chars` and `--single-max` fall from 60,000 to 50,000 characters, which is 150,000
   bytes of CJK text beside the largest card prompt's overhead. A real agy 1.2.16 capture also settles the
   stream events: its tool steps (`step_update` with `step_type: "tool"`) were not seen as tool events by the
-  earlier check, which had guessed their shape, so a tool step now discards the reply in every lane, and the
-  vision lane accepts only the steps that open its images (`view_file`, `list_dir`, `find_by_name`). Only the
-  environment-variable lists remain provisional (#91).
+  earlier check, which had guessed their shape, so a tool step now discards the reply in every lane (any step
+  other than a user input, an agent response or agy's own system message counts, whatever its keys), and the
+  vision lane accepts only the steps that open its images (`view_file`, `list_dir`, `find_by_name`) and only for
+  paths inside the call's own folder. Only the environment-variable lists remain provisional (#91).
 - **The settings twins** (#89). A folder's rulebook and its wiki's Schema page each get a
   machine-readable twin in `.familyai/`: `rulebook.json`, written with the rulebook, and
   `wiki-schema.json`, compiled by `settings.py compile` from the Schema's fixed-header tables

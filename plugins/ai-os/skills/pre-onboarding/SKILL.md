@@ -382,11 +382,12 @@ isolation comes from what each call is given and what it is denied:
   the machine's home. Each call goes in on standard input as one stream-json message, in plan mode with the
   sandbox on, from an empty working folder. Probed on the operator's machine, the model is given no saved
   memories, no summaries of earlier conversations and no instruction file, but it is offered tools: any tool step
-  in its stream discards the reply, allowed or not (agy 1.2.16 streams one as a `step_update` event with
-  `step_type: "tool"`, a `tool_name` and a `tool_info`, as a real capture shows). The vision lane alone accepts the
-  steps that open its images (`view_file`, `list_dir`, `find_by_name`), and any other tool fails there too. agy
-  also cuts a long
-  message short, silently (exit 0, a successful result, no event), and asks the model to read the rest from a
+  in its stream discards the reply, allowed or not. agy 1.2.16 streams one as a `step_update` event with
+  `step_type: "tool"`, a `tool_name` and a `tool_info`, as real captures show, and the rule does not rest on that:
+  any step other than a `user_input`, an `agent_response` or agy's own `system_message` counts, whatever its keys.
+  The vision lane alone accepts the steps that open its images, `view_file`, `list_dir` or `find_by_name`, and only
+  when every path they name is inside the call's own folder; any other tool, or a read elsewhere, fails there too.
+  agy also cuts a long message short, silently (exit 0, a successful result, no event), and asks the model to read the rest from a
   stored copy, which a call with no tools cannot do. Measured (family-ai-os #1089, agy 1.2.16, model
   `gemini-3.1-pro-high`): the cut falls at about 192,000 UTF-8 bytes of prompt text, plus or minus 150, for ASCII
   and CJK alike. The limit is on the bytes of the text, not characters, tokens or the size of the serialised

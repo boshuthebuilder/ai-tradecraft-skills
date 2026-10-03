@@ -27,6 +27,7 @@ Engine isolation section; what is still provisional is marked below: the lists o
 records what each engine really reads). agy's prompt limit (AGY_MAX_PROMPT_BYTES) and its tool steps (AGY_TOOL_WORDS)
 are settled from measurements and a real capture.
 """
+import collections
 import json
 import os
 import re
@@ -62,16 +63,26 @@ CRED_PAIRS = {("api", "key"), ("api", "keys"), ("private", "key"), ("id", "rsa")
               ("id", "ecdsa"), ("id", "dsa")}
 CRED_EXTS = {".env", ".netrc", ".keychain", ".keychain-db", ".p12", ".pfx", ".key", ".pem", ".kdbx"}
 NOT_CRED_EXTS = {".md", ".markdown", ".rst", ".html", ".pub"}
-# agy stream events that show a tool at work. agy 1.2.16 streams one as a `step_update` event whose nested step has
-# `step_type: "tool"`, a `tool_name` and a `tool_info` (ACTIVE, then DONE), settled from a real capture (the
-# fixture under tests/fixtures/agy). The check is wider than that and fails closed: an event whose type, or one of
-# whose top-level keys, or a step's type or keys, has tool, action, function or call as a whole word (tool_call,
+# agy stream events that show a tool at work. agy 1.2.16 streams a step as a `step_update` event whose nested step has
+# a `step_type`: `user_input`, `agent_response` and `system_message` (agy's own note, which carries nothing but a
+# duration) are plain, and anything else is a tool at work, whatever keys it has. The tool steps seen are
+# `step_type: "tool"` with a `tool_name` and a `tool_info` (ACTIVE, then DONE or ERROR); that is settled from real
+# captures (the fixture under tests/fixtures/agy), but the rule does not rest on it, so a step type nobody has seen
+# fails the call rather than passing it. Other events are judged by words, and fail closed: an event whose type, or one
+# of whose top-level keys, or a plain step's keys, has tool, action, function or call as a whole word (tool_call,
 # functionCall, action), unless that key's value is empty (`tool_calls: []`). The init banner lists every tool agy has
 # and is not a tool at work, so only a step is looked into.
+AGY_PLAIN_STEPS = frozenset({"user_input", "agent_response", "system_message"})
 AGY_TOOL_WORDS = {"tool", "tools", "action", "actions", "function", "functions", "call", "calls"}
-# The tools the vision lane's model may use, all of them reads of the call's own (empty but for its images) working
-# folder: names from the init banner of the same capture. Any other tool, allowed or not, discards the reply.
+# The tools the vision lane's model may use, each one a read, and only when every path it names (a parameter whose name
+# says path, directory or file, or a value that looks like one) resolves inside the call's own working folder, which
+# holds only its images (no --add-dir is passed, so there is no other folder). The tool names come from the init banner
+# of the same capture. Any other tool, or a read of any other path, discards the reply; so does any tool in the cards
+# lane, allowed or not.
 AGY_READ_TOOLS = frozenset({"view_file", "list_dir", "find_by_name"})
+AGY_PATH_WORDS = {"path", "paths", "dir", "directory", "file", "files", "folder", "root", "target"}
+PATH_LIKE = re.compile(r"^(?:/|~|file:|[A-Za-z]:[\\/])|(?:^|[\\/])\.\.(?:[\\/]|$)")
+ToolEvent = collections.namedtuple("ToolEvent", "label names params")
 KILL_GRACE = 5  # seconds to wait for the pipes after killing a timed-out engine's process group
 # agy cuts a user message at about 192,000 UTF-8 bytes of PROMPT TEXT (plus or minus 150), with no event, no field and
 # exit 0, and leaves the model a stored copy to read with a tool these calls deny, so a run that needs the end of its
@@ -156,9 +167,10 @@ def words(name):
 
 
 def tool_events(lines):
-    """The agy stream events (other than the result) that show a tool at work, as (label, tool names) pairs: see
-    AGY_TOOL_WORDS. The names are those the event gives (`tool_name`, `tool_info.name`, a top-level `name`, the `name`
-    inside a tool-keyed value): empty when it gives none, which is never a read tool."""
+    """The agy stream events (other than the result) that show a tool at work, as ToolEvent(label, names, params): see
+    AGY_PLAIN_STEPS and AGY_TOOL_WORDS. `names` are the tools the event names (`tool_name`, `tool_info.name`, a
+    top-level `name`, the `name` inside a tool-keyed value), empty when it names none, which is never a read tool.
+    `params` are the parameter dicts it carries (`tool_info.parameters`, `parameters`, `args`), empty when none."""
     found = []
     for line in lines:
         try:
@@ -167,13 +179,16 @@ def tool_events(lines):
             continue
         if not isinstance(ev, dict):
             continue
-        step = ev.get("step_update") if ev.get("event") == "step_update" else None
+        is_step = ev.get("event") == "step_update"
+        step = ev.get("step_update") if is_step else None
         step = step if isinstance(step, dict) else {}
         kind = "%s %s" % (ev.get("event", ""), ev.get("type", ""))
         keyed = _tool_keys(ev) + _tool_keys(step)
-        if words(kind) & AGY_TOOL_WORDS or words(step.get("step_type", "")) & AGY_TOOL_WORDS or keyed:
+        stepped = is_step and str(step.get("step_type", "")) not in AGY_PLAIN_STEPS
+        if words(kind) & AGY_TOOL_WORDS or stepped or keyed:
             names = frozenset(_tool_names(ev) | _tool_names(step))
-            found.append((",".join(sorted(names)) or kind.strip() or ",".join(keyed), names))
+            fallback = "step_update %s" % step.get("step_type", "") if is_step else kind.strip() or ",".join(keyed)
+            found.append(ToolEvent(",".join(sorted(names)) or fallback.strip(), names, _tool_params(ev, step)))
     return found
 
 
@@ -191,6 +206,53 @@ def _tool_names(mapping):
                 if isinstance(item, dict) and isinstance(item.get("name"), str) and item["name"]:
                     names.add(item["name"])
     return names
+
+
+def _tool_params(*mappings):
+    found = []
+    for m in mappings:
+        info = m.get("tool_info")
+        if isinstance(info, dict) and isinstance(info.get("parameters"), dict):
+            found.append(info["parameters"])
+        found += [m[k] for k in ("parameters", "params", "args", "arguments", "input") if isinstance(m.get(k), dict)]
+    return found
+
+
+def inside(folder, value):
+    """Whether the path `value` (relative ones are taken from `folder`; symbolic links and `..` are resolved) is
+    `folder` or something in it."""
+    value = value[len("file://"):] if value.startswith("file://") else value
+    if re.match(r"[A-Za-z]:[\\/]", value):
+        return False
+    base = os.path.realpath(folder)
+    target = os.path.realpath(os.path.join(base, os.path.expanduser(value)))
+    return target == base or target.startswith(base + os.sep)
+
+
+def outside_paths(value, folder, key=""):
+    """The strings in a tool's parameters that name a path outside `folder`: the value of a parameter whose name says
+    path, directory or file, and any value that looks like a path (absolute, `~`, `file:`, a drive, or with `..`)."""
+    if isinstance(value, dict):
+        return [p for k, v in value.items() for p in outside_paths(v, folder, k)]
+    if isinstance(value, list):
+        return [p for v in value for p in outside_paths(v, folder, key)]
+    if isinstance(value, str) and (words(key) & AGY_PATH_WORDS or PATH_LIKE.search(value)):
+        return [] if inside(folder, value) else [value]
+    return []
+
+
+def refused_tools(events, folder, allow_reads):
+    """The labels of the tool events that discard the reply: all of them, unless `allow_reads`, which accepts a read
+    tool (AGY_READ_TOOLS) whose every path parameter is inside `folder`."""
+    refused = []
+    for ev in events:
+        if allow_reads and ev.names and ev.names <= AGY_READ_TOOLS and ev.params:
+            outside = sorted({p for params in ev.params for p in outside_paths(params, folder)})
+            if outside:
+                refused.append("%s outside the call's folder: %s" % (ev.label, ", ".join(outside[:2])[:120]))
+            continue
+        refused.append(ev.label)
+    return refused
 
 
 def refuse_a_cut(lines, denied):
@@ -301,9 +363,9 @@ def _env(extra):
 
 class Agy:
     """`allow_reads` is for the vision lane only, where the model must open the images in its working folder: a tool
-    event is then accepted when every tool it names is in AGY_READ_TOOLS (plan mode refuses writes and commands, and
-    a denied action still fails the call). Everywhere else any tool-like event in the stream fails the call, allowed
-    or not."""
+    event is then accepted when every tool it names is in AGY_READ_TOOLS and every path it names is inside that folder
+    (plan mode refuses writes and commands, and a denied action still fails the call). Everywhere else any tool step
+    in the stream fails the call, allowed or not."""
 
     def __init__(self, model, binary=None, state_home=None, timeout=900, allow_reads=False):
         self.model, self.bin, self.home, self.timeout = model, find("agy", binary), state_home, timeout
@@ -353,8 +415,7 @@ class Agy:
         refuse_a_cut(other, denied)
         if denied:
             raise ToolUseError("agy was refused %s; reply discarded" % denied)
-        used = [label for label, names in tool_events(other)
-                if not (self.allow_reads and names and names <= AGY_READ_TOOLS)]
+        used = refused_tools(tool_events(other), cwd, self.allow_reads)
         if used:
             raise ToolUseError("agy stream shows tool use %s; reply discarded" % sorted(set(used))[:5])
         return response, result.get("usage")

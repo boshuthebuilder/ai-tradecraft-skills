@@ -24,6 +24,9 @@ import engines  # noqa: E402
 from fake_engines import Fakes, tool_env  # noqa: E402
 
 CATEGORIES = common.DEFAULTS["card_categories"]
+CUT_STREAM = os.path.join(HERE, "fixtures", "agy", "agy-1.2.16-cut-stream.redacted.jsonl")
+CUT_STDERR = os.path.join(HERE, "fixtures", "agy", "agy-1.2.16-cut-stderr.redacted.txt")
+CUT = {"kind": "replay", "stdout": CUT_STREAM, "stderr": CUT_STDERR}
 TERMS = "# isolation terms for the tests (fictional)\nZarnwick Farm|Zarnwick\nOther Project\n"
 
 
@@ -539,6 +542,33 @@ class WorkTest(CardsCliCase):
         self.assertEqual(code, 0, err)
         return a, b
 
+    def test_a_tool_step_in_the_cards_lane_discards_the_reply_and_writes_no_card(self):
+        """The cards lane lets the model use no tool: agy's tool step, here an allowed read of the call's own folder
+        with a valid answer beside it, discards the reply, through the engine `work` itself builds. Reads are for the
+        vision lane alone."""
+        a, b = self.two_docs()
+        step = {"event": "step_update", "step_update": {"conversation_id": "c-1", "step_index": 2, "state": "DONE",
+                                                        "step_type": "tool", "tool_name": "view_file",
+                                                        "tool_info": {"name": "view_file",
+                                                                      "parameters": {"AbsolutePath": "p1.png"}}}}
+        self.fakes.script("agy", default={"kind": "text", "events": [step]})
+        code, _out, err = self.work_run("agy", "--terms", self.terms)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.written(), {}, "a card was written from a call whose model used a tool")
+        self.assertEqual(self.card_errors(), sorted("card_err_%s.txt" % i for i in (a, b)))
+        self.assertIn("tool use ['view_file']", read(os.path.join(self.work, "state", "card_err_%s.txt" % a)))
+
+    def test_a_cut_prompt_halves_the_work_at_once(self):
+        """The real stream of a cut prompt, as the first call's reply: the chunk is split in two and each half is
+        carded, with no retry of the same chunk, which would be cut again."""
+        a, b = self.two_docs()
+        self.fakes.script("agy", replies=[CUT], default={"kind": "text"})
+        code, _out, err = self.work_run("agy", "--terms", self.terms)
+        self.assertEqual(code, 0, err)
+        self.assertEqual([item_count(c) for c in self.fakes.calls("agy")], [2, 1, 1])
+        self.assertEqual(sorted(self.written()), sorted([a, b]))
+        self.assertEqual(self.card_errors(), [])
+
     def test_a_swapping_engine_is_rejected_and_halved_and_never_written(self):
         for engine in ("codex", "agy"):
             with self.subTest(engine):
@@ -880,6 +910,23 @@ class SectionsTest(CardsCliCase):
                          "the first slice fills the page header's section")
         self.assertTrue(all(n <= engines.AGY_MAX_PROMPT_BYTES for n in sizes), sizes)
         self.assertEqual(self.card_errors(), [])
+
+    def test_a_section_agy_cut_is_not_read_again_at_the_same_size(self):
+        """A refusal before the call costs nothing to repeat, but a cut is a whole call: the same section would be cut
+        again, so each section is tried once, and the document gets no card, with the cause named."""
+        doc = self.record("04 Study/Annual report.txt", ["w" * 60_000])  # 60,009 characters: two sections
+        code, _out, err = self.cards_py("build")
+        self.assertEqual(code, 0, err)
+        self.assertEqual([bt["mode"] for bt in self.batches().values()], ["sections"])
+        self.fakes.script("agy", default=CUT)
+        code, _out, err = self.cards_py("work", "--engine", "agy", "--model", "fake-model", "--terms", self.terms)
+        self.assertEqual(code, 0, err)
+        self.assertEqual([("SECTION TEXT:" in c["prompt"]) for c in self.fakes.calls("agy")], [True, True])
+        self.assertEqual(self.written(), {})
+        self.assertEqual(self.card_errors(), ["card_err_%s.txt" % doc])
+        why = read(os.path.join(self.work, "state", "card_err_%s.txt" % doc))
+        self.assertIn("2 of 2 sections not read", why)
+        self.assertIn("transcript_full.jsonl", why)
 
     def test_a_section_that_cannot_be_read_leaves_no_card_and_says_so(self):
         """A card made from notes with a hole in them would claim a coverage it lacks: the document gets no card, a

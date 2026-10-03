@@ -210,7 +210,10 @@ class AgyTest(FakeEngineCase):
         self.assertEqual({events[i]["step_update"]["step_type"] for i in names}, {"tool"})
         self.assertEqual(events[refused[0]]["event"], "result")
         seen = engines.tool_events([json.dumps(ev) for ev in events])
-        self.assertEqual(seen, [("run_command", frozenset({"run_command"}))] * 2, "both states of the one tool step")
+        self.assertEqual([(e.label, e.names) for e in seen], [("run_command", frozenset({"run_command"}))] * 2,
+                         "both states of the one tool step")
+        self.assertEqual([e.params[0]["CommandLine"].endswith("transcript_full.jsonl | tail -c 1000") for e in seen],
+                         [True, True])
 
     def test_the_captured_stream_holds_only_redacted_paths_and_ids(self):
         """The capture is in a public repository: nothing in it may name a person, a machine or a conversation."""
@@ -384,33 +387,142 @@ class AgyTest(FakeEngineCase):
         result["result"].pop("denied_actions")
         if denied:
             result["result"]["denied_actions"] = denied
+        return self.replay_of(head + (steps if tool else []) + [result])
+
+    def replay_of(self, events):
+        """A reply for the fake engine that replays `events` (dicts) as agy's stream, with an empty stderr."""
         stdout, stderr = os.path.join(self.tmp, "stream.jsonl"), os.path.join(self.tmp, "stderr.txt")
         with open(stdout, "w", encoding="utf-8") as f:
-            f.write("".join(json.dumps(ev) + "\n" for ev in head + (steps if tool else []) + [result]))
+            f.write("".join(json.dumps(ev) + "\n" for ev in events))
         with open(stderr, "w", encoding="utf-8") as f:
             f.write("")
         return {"kind": "replay", "stdout": stdout, "stderr": stderr}
 
+    def capture_events(self):
+        with open(CUT_STREAM, encoding="utf-8") as f:
+            return [json.loads(line) for line in f]
+
     def test_a_tool_step_in_the_real_shape_discards_the_reply_unless_the_vision_lane_reads(self):
         """agy 1.2.16 streams a tool as `step_update` with `step_type: "tool"`, a `tool_name` and a `tool_info`, not as
         a top-level tool event. An allowed one (DONE, nothing refused, an answer) still discards the reply in the
-        cards lane; the vision lane accepts only the steps that open its images."""
-        reading = {"view_file": {"AbsolutePath": "/tmp/call/p1.png"}, "list_dir": {"DirectoryPath": "/tmp/call"},
-                   "find_by_name": {"Pattern": "*.png"}}
-        other = {"run_command": {"CommandLine": "ls /tmp/call"}, "write_to_file": {"TargetFile": "/tmp/call/x"},
+        cards lane; the vision lane accepts only the steps that read the call's own folder."""
+        cwd = self.cwd()
+        reading = {"view_file": {"AbsolutePath": os.path.join(cwd, "p1.png")}, "list_dir": {"DirectoryPath": cwd},
+                   "find_by_name": {"SearchDirectory": cwd, "Pattern": "*.png"}}
+        other = {"run_command": {"CommandLine": "ls " + cwd}, "write_to_file": {"TargetFile": os.path.join(cwd, "x")},
                  "read_url_content": {"Url": "https://example.invalid/"}, "search_web": {"query": "x"}}
         for tool, params in {**reading, **other}.items():
             with self.subTest(tool):
                 self.fakes.script("agy", default=self.real_stream(tool, **params))
                 with self.assertRaises(engines.ToolUseError) as cm:
-                    self.agy()("hello", self.cwd())
+                    self.agy()("hello", cwd)
                 self.assertIn(tool, str(cm.exception))
                 if tool in reading:
-                    self.assertEqual(self.agy(allow_reads=True)("hello", self.cwd())[0], '{"pages": []}')
+                    self.assertEqual(self.agy(allow_reads=True)("hello", cwd)[0], '{"pages": []}')
                 else:
                     with self.assertRaises(engines.ToolUseError) as cm:
-                        self.agy(allow_reads=True)("hello", self.cwd())
+                        self.agy(allow_reads=True)("hello", cwd)
                     self.assertIn(tool, str(cm.exception))
+
+    def test_a_step_that_is_not_a_plain_one_is_a_tool_step_whatever_its_keys(self):
+        """Only `step_type: "tool"` has been captured, so the rule is the other way round: a step is plain when it is
+        a user_input, an agent_response or agy's own system_message, and any other step type, or none, is a tool at
+        work, even with no tool_name and no tool_info. In the vision lane it can only be an unnamed tool, which is
+        never a read."""
+        base = {"conversation_id": "c-1", "step_index": 2, "state": "DONE"}
+        shapes = {"run_command": {"step_type": "run_command"}, "command": {"step_type": "command"},
+                  "view_file": {"step_type": "view_file"}, "browser_subagent": {"step_type": "browser_subagent"},
+                  "toolcall": {"step_type": "toolcall"}, "an unseen word": {"step_type": "planner_response"},
+                  "an empty type": {"step_type": ""}, "no type": {}, "an ERROR state": {"step_type": "tool",
+                                                                                        "state": "ERROR"}}
+        for name, extra in shapes.items():
+            for reads in (False, True):
+                with self.subTest(name, allow_reads=reads):
+                    step = {"event": "step_update", "step_update": dict(base, **extra)}
+                    self.fakes.script("agy", default=self.replay_of(
+                        self.capture_events()[:3] + [step, self.real_result()]))
+                    with self.assertRaises(engines.ToolUseError):
+                        self.agy(allow_reads=reads)("hello", self.cwd())
+        with self.subTest("a step update that is not an object"):
+            events = self.capture_events()[:3] + [{"event": "step_update", "step_update": "run_command"}]
+            self.fakes.script("agy", default=self.replay_of(events + [self.real_result()]))
+            with self.assertRaises(engines.ToolUseError):
+                self.agy()("hello", self.cwd())
+
+    def test_the_plain_steps_of_a_real_stream_are_not_tools(self):
+        """user_input and agent_response are in the capture; system_message is agy's own note, seen in a long run
+        between tool steps, with nothing but a duration."""
+        events = self.capture_events()
+        note = {"event": "step_update", "step_update": {"conversation_id": "00000000-0000-0000-0000-000000000000",
+                                                        "step_index": 3, "state": "DONE", "step_type": "system_message",
+                                                        "duration_seconds": 0.000138}}
+        self.fakes.script("agy", default=self.replay_of(events[:3] + [note] + [self.real_result()]))
+        for reads in (False, True):
+            with self.subTest(allow_reads=reads):
+                self.assertEqual(self.agy(allow_reads=reads)("hello", self.cwd())[0], '{"pages": []}')
+
+    def real_result(self, response='{"pages": []}'):
+        result = self.capture_events()[5]
+        result["result"]["response"] = response
+        result["result"].pop("denied_actions")
+        return result
+
+    def test_the_vision_lane_reads_only_inside_the_calls_own_folder(self):
+        """A read tool is accepted only when every path it names resolves inside the working folder: an absolute path
+        elsewhere (the real probes read /private/etc/hosts), `..`, `~`, a file URL, and a link inside the folder that
+        points out all fail, and so does a path in a parameter that names a directory or a pattern."""
+        cwd = self.cwd()
+        outside = os.path.join(self.tmp, "outside.png")
+        with open(outside, "w") as f:
+            f.write("x")
+        os.symlink(outside, os.path.join(cwd, "link.png"))
+        os.symlink(cwd, os.path.join(self.tmp, "alias"))
+        inside = {
+            "relative": ("view_file", {"AbsolutePath": "p1.png"}),
+            "absolute": ("view_file", {"AbsolutePath": os.path.join(cwd, "p1.png")}),
+            "through an alias of the folder": ("view_file", {"AbsolutePath": os.path.join(self.tmp, "alias",
+                                                                                           "p1.png")}),
+            "dot-dot that comes back": ("view_file", {"AbsolutePath": os.path.join(cwd, "..", os.path.basename(cwd),
+                                                                                     "p1.png")}),
+            "the folder itself": ("list_dir", {"DirectoryPath": cwd}),
+            "a search under it": ("find_by_name", {"SearchDirectory": ".", "Pattern": "*.png"}),
+        }
+        elsewhere = {
+            "an absolute path elsewhere": ("view_file", {"AbsolutePath": "/private/etc/hosts"}),
+            "a sibling folder": ("view_file", {"AbsolutePath": outside}),
+            "dot-dot out": ("view_file", {"AbsolutePath": os.path.join(cwd, "..", "outside.png")}),
+            "relative dot-dot out": ("view_file", {"AbsolutePath": "../outside.png"}),
+            "home": ("view_file", {"AbsolutePath": "~/p1.png"}),
+            "a file URL": ("view_file", {"AbsolutePath": "file:///private/etc/hosts"}),
+            "a link inside that points out": ("view_file", {"AbsolutePath": os.path.join(cwd, "link.png")}),
+            "the parent folder": ("list_dir", {"DirectoryPath": os.path.dirname(cwd)}),
+            "the root": ("list_dir", {"DirectoryPath": "/"}),
+            "a search elsewhere": ("find_by_name", {"SearchDirectory": "/Users", "Pattern": "*.png"}),
+            "a pattern that is a path": ("find_by_name", {"SearchDirectory": cwd, "Pattern": "/private/etc/*"}),
+            "a path under an unfamiliar name": ("view_file", {"Source": "/private/etc/hosts"}),
+            "a list of paths with one elsewhere": ("view_file", {"Paths": [os.path.join(cwd, "p1.png"),
+                                                                           "/private/etc/hosts"]}),
+        }
+        for name, (tool, params) in inside.items():
+            with self.subTest(name):
+                self.fakes.script("agy", default=self.real_stream(tool, **params))
+                self.assertEqual(self.agy(allow_reads=True)("hello", cwd)[0], '{"pages": []}')
+        for name, (tool, params) in elsewhere.items():
+            with self.subTest(name):
+                self.fakes.script("agy", default=self.real_stream(tool, **params))
+                with self.assertRaises(engines.ToolUseError) as cm:
+                    self.agy(allow_reads=True)("hello", cwd)
+                self.assertIn("outside the call's folder", str(cm.exception))
+                with self.assertRaises(engines.ToolUseError):
+                    self.agy()("hello", cwd)
+
+    def test_a_read_that_names_no_parameters_cannot_be_checked_and_is_refused(self):
+        events = self.capture_events()[:3]
+        step = {"event": "step_update", "step_update": {"conversation_id": "c", "step_index": 2, "state": "DONE",
+                                                        "step_type": "tool", "tool_name": "view_file"}}
+        self.fakes.script("agy", default=self.replay_of(events + [step, self.real_result()]))
+        with self.assertRaises(engines.ToolUseError):
+            self.agy(allow_reads=True)("hello", self.cwd())
 
     def test_a_real_tool_step_with_no_name_is_not_a_read(self):
         reply = self.real_stream("view_file")
@@ -427,7 +539,8 @@ class AgyTest(FakeEngineCase):
             self.agy(allow_reads=True)("hello", self.cwd())
 
     def test_a_read_tool_beside_another_tool_is_not_a_read(self):
-        reply = self.real_stream("view_file", AbsolutePath="/tmp/call/p1.png")
+        cwd = self.cwd()
+        reply = self.real_stream("view_file", AbsolutePath=os.path.join(cwd, "p1.png"))
         with open(reply["stdout"], encoding="utf-8") as f:
             events = [json.loads(line) for line in f]
         stray = json.loads(json.dumps(events[3]))
@@ -438,7 +551,7 @@ class AgyTest(FakeEngineCase):
             f.write("".join(json.dumps(ev) + "\n" for ev in events))
         self.fakes.script("agy", default=reply)
         with self.assertRaises(engines.ToolUseError) as cm:
-            self.agy(allow_reads=True)("hello", self.cwd())
+            self.agy(allow_reads=True)("hello", cwd)
         self.assertIn("run_command", str(cm.exception))
 
     def test_the_init_banner_and_the_ordinary_steps_of_a_real_stream_are_not_tools(self):
