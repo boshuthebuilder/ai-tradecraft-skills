@@ -209,7 +209,10 @@ def table_cell(text: str) -> str:
 
 Both editors draw Mermaid charts from a fenced ` ```mermaid ` block, and both bundle the same
 Mermaid release (11.13.0 in Obsidian 1.13.7 and Typora 1.14.10). Every kind a page needs for its data
-renders with it: `xychart-beta` bars and lines, `pie`, `gantt` and `timeline`. Two things still differ:
+renders with that library: `xychart-beta` bars and lines, `pie`, `gantt` and `timeline`. That was checked by
+running each editor's own copy of the library in a browser, not by opening the page in the applications, so
+treat it as expected rather than confirmed until someone opens the probe page (see the REFERENCE) in both
+apps. Two things are known to differ, read from Typora's own source:
 
 - **Typora draws a diagram only with its Diagrams preference on** (Preferences, Markdown, Syntax
   Support, Diagrams). Its documented default is off, and with it off a chart shows as its source code.
