@@ -221,11 +221,13 @@ apps. Two things are known to differ, read from Typora's own source:
 - **Callouts: use only the five GitHub alert types**, `> [!note]`, `> [!tip]`, `> [!important]`,
   `> [!warning]` and `> [!caution]`. Obsidian draws its own wider set (`info`, `todo`, `danger` and so
   on), but Typora boxes only these five (its "GitHub Style Alert" option, on by default) and shows any
-  other as a plain quotation with the marker printed. Text after the marker stays as the first line in
-  Typora; Obsidian makes it the callout's title.
+  other as a plain quotation with the marker printed. **Write the marker alone on its line** and any
+  title in bold on the next line: Typora hides the marker only when nothing follows it on its line, and
+  otherwise prints `[!note] Title` as text inside the box; Obsidian shows its default title.
 
 Generate chart blocks with a renderer rather than by hand, so the same data always gives the same
-block, and check the output with the probe method below whenever either editor moves a major version.
+block. Whenever either editor moves a major version, reopen the probe page in both apps, the method below,
+which also settles what this pass could only infer from each editor's library and source.
 
 ## Keep the render a pure function
 

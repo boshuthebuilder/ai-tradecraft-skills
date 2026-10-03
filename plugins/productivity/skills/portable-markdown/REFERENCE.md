@@ -57,8 +57,9 @@ Each editor's own bundled `mermaid.min.js` (both 11.13.0; Obsidian ships a one-l
 rendered the probe page ([`render-probe.md`](../../../ai-os/skills/pre-onboarding/tests/probe/render-probe.md), one block of each kind
 `wiki.py chart` writes) in a browser, each block mounted in the page the way the editors mount it. Typora's
 switches were read from its own source: diagrams render only when `enableDiagram` is set (default off), and a
-blockquote becomes an alert box only for `/^\s*\[!(note|warning|important|tip|caution)\]/i` when
-`enableAlert` is set (default on). The editors themselves were not driven for this pass; reopen the probe in
+blockquote becomes an alert box only for `/^\s*\[!(note|warning|important|tip|caution)\]\s*/i` when
+`enableAlert` is set (default on), and the marker itself is hidden only by the inline rule
+`/^\s*\[!(note|warning|important|tip|caution)\]\s*(\n|$)/i`, which needs nothing after it on its line. The editors themselves were not driven for this pass; reopen the probe in
 each before relying on a new kind.
 
 | construct | Obsidian 1.13.7 | Typora 1.14.10 |
@@ -70,7 +71,8 @@ each before relying on a new kind.
 | `timeline` | renders | renders, with Diagrams on |
 | any of the above, Diagrams off | n/a | the fenced source code, as text |
 | `> [!note]` / `tip` / `important` / `warning` / `caution` | callout box | alert box |
-| `> [!note] Title text` | box titled "Title text" | alert box, "Title text" as its first line |
+| `> [!note]` alone, `> **Title.** text` on the next line | box (default title), the bold line first | alert box, the bold line first |
+| `> [!note] Title text` on one line | box titled "Title text" | alert box, `[!note] Title text` printed as text |
 | `> [!info]`, `[!todo]`, `[!danger]` and other Obsidian types | callout box | plain quotation, marker printed |
 
 A gantt mounted outside the page has no width to lay out against and draws nothing (0 px wide); mounted in

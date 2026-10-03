@@ -6,8 +6,9 @@ its labels, values and dates read as in the table under it, and anything clipped
 draw in every app is taken out of the tool. The page is generated: `tests/test_charts.py --update` rewrites it from
 the golden inputs in `tests/golden/charts/`, and a test fails when it differs from the tool's output.
 
-> [!note] Callout
-> In Obsidian this is a box titled Callout; elsewhere it reads as a quotation.
+> [!note]
+> **Callout.** A box in Obsidian and in Typora. The marker stands alone on its line: Typora prints it as text when
+> anything follows it there.
 
 ## bar
 
