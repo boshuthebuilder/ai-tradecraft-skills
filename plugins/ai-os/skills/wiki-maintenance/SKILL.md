@@ -664,7 +664,7 @@ are a contract, not a style choice. The first three are **required on every deri
 | `entities` | optional | Schema-defined facet lists | hub/facet index generation |
 | `source` *(single)* / `sources` *(list)* | when file-derived | **project-root-relative** path(s) to the source file(s) — never absolute, so a folder rename or machine move is a no-op — or, for a cross-project synthesis, the source **pages** | the orphan sweep |
 | `deadline` *(single)* / `deadlines` *(list)* | when a forward date exists | `YYYY-MM-DD` (or `{date, note}`) | the Deadlines roll-up |
-| `recurring` *(list)* | when a date comes round every year | `{date, note}`, the date as `MM-DD`, month first (`04-05` is 5 April), or a day and a month name (`5 April`); never another numeric form (`6/4` reads either way round) | the Deadlines roll-up, which shows it as a day and a month name, so a date written the wrong way round is visible |
+| `recurring` *(list)* | when a date comes round every year | `{date, note}`, the date as `MM-DD`, month first (`04-05` is 5 April), or a day and a month name (`5 April`, `April 5th`, `5 Sept`: the name in full, its first three letters or `sept`, in any case); never another numeric form (`6/4` reads either way round) | the Deadlines roll-up, which shows it as a day and a month name, so a date written the wrong way round is visible |
 
 (A cross-project user-tier page is `provenance: derived` with `last-updated`/`status` but need carry no
 `source:` path and no deadline; a `provenance: manual` note carries no `source:` at all.)

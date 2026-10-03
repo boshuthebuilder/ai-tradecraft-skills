@@ -15,6 +15,7 @@
   "missing_extracts": 0,
   "missing_cards": 0,
   "malformed_cards": 0,
+  "malformed_extracts": 0,
   "bad_category": 0,
   "extract_paths_stale": 0,
   "contamination": "not verified: no --terms"

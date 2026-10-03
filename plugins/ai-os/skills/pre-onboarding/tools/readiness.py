@@ -9,10 +9,12 @@ pass either, and the operator reads it.
 - manifest: live, departed, migrating, root strays, redundant copies, hygiene and unconverted iWork entries, and the
   items on disk (reported, not findings); `live_paths_missing`, live entries whose current path is gone, is a
   finding (the manifest is not current: re-audit);
-- records: every live hashed document (those `extract.py` reads) has an extract record and a card, each card's
+- records: every live hashed document (those `extract.py` reads) has an extract record and a card, each card and
+  extract record is in its format (one that is not is counted and named, never the end of the run), each card's
   category is one the rulebook allows, every extract record's path agrees with the manifest (else the finding
   names the repair, `extract.py repath`), and no card names an isolation term its own source lacks (not verified
-  without --terms). A count above zero is one finding;
+  without --terms). A check that needed a record it could not read is not verified for that document. A count
+  above zero is one finding;
 - isolation: per engine, the canary result `isolation.py canary --out` wrote to `<work>/state/canary-<engine>.json`:
   `passed`, `failed: ...` (a finding) or `not run: ...` (not verified);
 - wiki: `wiki.py check`, as it reports; its problems are one finding, its not-verified states are listed;
@@ -31,7 +33,8 @@ pass either, and the operator reads it.
 
 Numbered sections are held by `check`: a page outside every Layout section of the compiled Schema is one of its
 problems. Exit 0 when nothing is found, 1 on any finding, 2 on a tool error (a missing or malformed manifest, such
-as a live entry without `hashed` true or false, card, extract record or canary result, or a crash).
+as a live entry without `hashed` true or false, or canary result, or a crash). A malformed card or extract record is
+a finding, never a tool error.
 
     python3 readiness.py --root R [--terms F] [--manifest M] [--out <json>]
 """
@@ -59,11 +62,16 @@ FRONTMATTER = re.compile(r"---\n(.*?)\n---\n", re.S)  # as wiki.py check reads i
 DAY = re.compile(r"(?<![0-9])[0-9]{4}-[0-9]{2}-[0-9]{2}(?![0-9])")  # a dated deadline, as the roll-up writes it
 ISO_DAY = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 MARK = r"[*_`]*"  # emphasis or code around a date
-MONTHS = ("january", "february", "march", "april", "may", "june", "july", "august", "september", "october",
-          "november", "december")
-# A yearly date as written: MM-DD, month first, or a day with an English month name ("5 April", "April 5",
-# "5th Apr"), the form a roll-up shows to its reader.
-YEARLY = r"[0-9]{2}-[0-9]{2}(?![0-9-])|[0-9]{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]{3,9}\.?|[A-Za-z]{3,9}\.?\s+[0-9]{1,2}(?:st|nd|rd|th)?"
+MONTHS = ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+          "November", "December")  # spelt out: calendar.month_name follows the locale
+MONTH_NUMBER = dict([(m.lower(), n) for n, m in enumerate(MONTHS, 1)]
+                    + [(m[:3].lower(), n) for n, m in enumerate(MONTHS, 1)] + [("sept", 9)])
+ORDINAL = r"(?:st|nd|rd|th)?"
+# A yearly date as the roll-up lists it: MM-DD, month first, or a day with an English month name ("5 April",
+# "April 5", "5th Apr"). The scan also sees one with a full stop after the month ("5 Apr."): a hand-kept date is
+# found however it is abbreviated, though `month_day` reads no such spelling from a `recurring` entry.
+YEARLY = (r"[0-9]{2}-[0-9]{2}(?![0-9-])|[0-9]{1,2}%(o)s\s+[A-Za-z]{3,9}\.?|[A-Za-z]{3,9}\.?\s+[0-9]{1,2}%(o)s"
+          % {"o": ORDINAL})
 # Where the roll-up lists one: opening a list item, or alone in a table cell. Mid-sentence it is prose ("pages
 # 10-12", "on 5 April we moved"), not a listed date.
 YEARLY_ITEM = re.compile(r"^\s*(?:[-*+]|[0-9]+\.)\s+%s(%s)%s(?![0-9A-Za-z])" % (MARK, YEARLY, MARK))
@@ -80,23 +88,22 @@ def read(path):
 
 
 def month_day(s):
-    """The `MM-DD` a yearly date names (`MM-DD` month first, or a day with an English month name, full or its first
-    three letters), or None when it names no day some year has. Any other numeric form is None: `6/4` reads either
-    way round."""
+    """The `MM-DD` a yearly date names, or None. Read as family-ai-os reads it, so both sides accept the same
+    spellings: `MM-DD`, month first, two digits each; or a day with an English month name, the day first or the
+    month first (`5 April`, `April 5`), the name in full, its first three letters or `sept`, in any case, the day
+    with an optional ordinal (`5th Apr`). Any other numeric form is None (`6/4` reads either way round), and so is a
+    day the month cannot have (`31 April`); 29 February comes round in a leap year, so it is a date."""
     s = (s or "").strip()
     m = re.fullmatch(r"([0-9]{2})-([0-9]{2})", s)
     if m:
         month, day = int(m.group(1)), int(m.group(2))
     else:
-        m = (re.fullmatch(r"([0-9]{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]{3,9})\.?", s)
-             or re.fullmatch(r"([A-Za-z]{3,9})\.?\s+([0-9]{1,2})(?:st|nd|rd|th)?", s))
+        m = (re.fullmatch(r"([0-9]{1,2})%s\s+([A-Za-z]+)" % ORDINAL, s)
+             or re.fullmatch(r"([A-Za-z]+)\s+([0-9]{1,2})%s" % ORDINAL, s))
         if not m:
             return None
         word, number = (m.group(2), m.group(1)) if m.group(1).isdigit() else (m.group(1), m.group(2))
-        names = [i for i, name in enumerate(MONTHS, 1) if name == word.lower() or name[:3] == word.lower()]
-        if not names:
-            return None
-        month, day = names[0], int(number)
+        month, day = MONTH_NUMBER.get(word.lower(), 0), int(number)
     if not (1 <= month <= 12 and 1 <= day <= DAYS_IN_MONTH[month - 1]):
         return None
     return "%02d-%02d" % (month, day)
@@ -104,7 +111,8 @@ def month_day(s):
 
 def yearly_dates(line):
     """The yearly dates a roll-up line lists (see YEARLY_ITEM), each as its MM-DD."""
-    return [md for d in YEARLY_ITEM.findall(line) + YEARLY_CELL.findall(line) for md in [month_day(d)] if md]
+    return [md for d in YEARLY_ITEM.findall(line) + YEARLY_CELL.findall(line) for md in [month_day(d.replace(".", ""))]
+            if md]
 
 
 def sample(items):
@@ -143,8 +151,8 @@ def real_day(s):
 
 def frontmatter_dates(fm):
     """(the YYYY-MM-DD dates in `deadline` and `deadlines`, each a date or {date, note}; the MM-DD dates in
-    `recurring`; the `deadline` and `deadlines` entries not read as a real YYYY-MM-DD; the `recurring` entries not in
-    the form {date: MM-DD, note}, with a day the month has and a note) of one page's frontmatter."""
+    `recurring`, each as MM-DD; the `deadline` and `deadlines` entries not read as a real YYYY-MM-DD; the `recurring`
+    entries not in the form {date, note}, the date read by `month_day`, with a note) of one page's frontmatter."""
     days, yearly, bad_days, bad = set(), set(), [], []
 
     def shown(it):
@@ -173,11 +181,12 @@ def deadline_items(wiki, pages, ws):
     (../../wiki-maintenance/SKILL.md#rules-that-keep-it-safe), read through the frontmatter keys its roll-up reads
     (#canonical-frontmatter--the-keys-the-deterministic-sweeps-read, including which pages the sweeps skip), with
     01 Deadlines the derived list of forward dates. It fixes no headings and asks for no list beyond the dates, so
-    none is checked. The roll-up writes a dated deadline as YYYY-MM-DD and a recurring date as MM-DD (opening a list
-    item or alone in a table cell): every such date on it must come from a current page's frontmatter, except the
-    roll-up's own `last-updated` (a build stamp); it must show every deadline of a page the sweeps read that is not
-    before its `last-updated` (a `last-updated` after today is a finding, and forward is then judged from today, the
-    tools' clock), and every recurring date by its own MM-DD; a roll-up with none of those to show says why; and a
+    none is checked. The roll-up writes a dated deadline as YYYY-MM-DD and shows a recurring date as a day and a month
+    name (opening a list item or alone in a table cell; MM-DD is read there too): every such date on it must come from
+    a current page's frontmatter, except the roll-up's own `last-updated` (a build stamp); it must show every
+    deadline of a page the sweeps read that is not before its `last-updated` (a `last-updated` after today is a
+    finding, and forward is then judged from today, the tools' clock), and every recurring date, compared by its
+    month and day; a roll-up with none of those to show says why; and a
     deadline entry that is not a real YYYY-MM-DD, bare or in {date, note}, is reported, as a malformed recurring
     entry is. Another page the Schema marks derived (an open-questions list) is built from the pages in a way no date
     shows, so it is named as not verified, apart."""
@@ -313,12 +322,23 @@ def manifest_counts(root, man, ents, summary_path):
         ("live_paths_missing", len(gone))])
 
 
+def unread(n, paths, why):
+    """`n`, the count a check made, or a named not-verified state when `paths` are documents it could not read."""
+    if not paths:
+        return n
+    gap = "not verified for %d document(s) whose %s" % (len(paths), why)
+    return gap if not n else "%d; %s" % (n, gap)
+
+
 def record_checks(root, rb, live, evidence):
-    """{check: [what, ...]} for the records, and each check's count or state."""
+    """{check: [what, ...]} for the records, and each check's count or state. A card or extract record that cannot be
+    read is counted with the rest and never the end of the check; a check that needed it says it is not verified."""
     audit = os.path.join(root, "_Audit")
     xdir, cdir = os.path.join(audit, "extract"), os.path.join(audit, "cards")
     found = collections.OrderedDict((k, []) for k in ("missing_extracts", "missing_cards", "malformed_cards",
-                                                      "bad_category", "extract_paths_stale", "contamination"))
+                                                      "malformed_extracts", "bad_category", "extract_paths_stale",
+                                                      "contamination"))
+    no_extract, no_terms = [], []  # documents whose extract record could not be read; whose terms check could not run
     for h, e in sorted(live.items(), key=lambda kv: kv[1]["current_path"]):
         if not isinstance(e.get("hashed"), bool):
             raise common.ToolError("manifest entry %s (%s) records no hashed true or false; it is not a manifest "
@@ -331,26 +351,38 @@ def record_checks(root, rb, live, evidence):
         except common.ToolError as ex:  # counted with the rest, never the end of the check
             found["malformed_cards"].append("%s: %s" % (path, str(ex).split(": ", 2)[-1]))
             card = False
-        x = W.load_extract(xdir, h, os.path.join(cdir, h + ".json")) \
-            if os.path.exists(os.path.join(xdir, h + ".json")) else None
+        x = None
+        if os.path.exists(os.path.join(xdir, h + ".json")):
+            try:
+                x = W.load_extract(xdir, h, os.path.join(cdir, h + ".json"))
+            except common.ToolError as ex:
+                found["malformed_extracts"].append("%s: %s" % (path, str(ex).split(": ", 1)[-1]))
+                no_extract.append(path)
+                x = False
         if x is None:
             found["missing_extracts"].append(path)
-        elif x.get("path") != path:
+        elif x is not False and x.get("path") != path:
             found["extract_paths_stale"].append("%r is now %r" % (x.get("path"), path))
         if card is None:
             found["missing_cards"].append(path)
             continue
         if card is False:
+            no_terms.append(path)
             continue
         if card.get("category") not in rb["card_categories"]:
             found["bad_category"].append("%s: %r" % (path, card.get("category")))
-        if evidence and x is not None:
+        if x is False:
+            no_terms.append(path)
+        elif evidence and x is not None:
             blob = json.dumps({k: v for k, v in card.items() if k != "card_meta"}, ensure_ascii=False)
             if isolation.contamination(blob, C.full_text(x), evidence):
                 found["contamination"].append(path)  # the terms themselves are never written out
     counts = collections.OrderedDict((k, len(v)) for k, v in found.items())
+    counts["extract_paths_stale"] = unread(counts["extract_paths_stale"], no_extract, "extract record is malformed")
     if not evidence:
         counts["contamination"] = "not verified: no --terms"
+    else:
+        counts["contamination"] = unread(counts["contamination"], no_terms, "card or extract record is malformed")
     return found, counts
 
 
@@ -448,6 +480,7 @@ def main():
     what = {"missing_extracts": "live document(s) with no extract record",
             "missing_cards": "live document(s) with no card",
             "malformed_cards": "card(s) not in the card format; re-card them (cards.py work --redo)",
+            "malformed_extracts": "extract record(s) not in the extract format; remove each and run extract.py again",
             "bad_category": "card(s) with a category the rulebook does not allow",
             "extract_paths_stale": "extract record(s) whose path the manifest no longer holds",
             "contamination": "card(s) naming an isolation term their own source lacks"}
@@ -455,15 +488,18 @@ def main():
         if hits:
             fix = "; repath them: %s" % repath_command(root, a) if key == "extract_paths_stale" else ""
             findings.append(["records." + key, "%d %s (%s)%s" % (len(hits), what[key], sample(hits), fix)])
-    if isinstance(out["records"]["contamination"], str):
-        unverified.append(["records.contamination", out["records"]["contamination"]])
+    for key in ("extract_paths_stale", "contamination"):
+        if isinstance(out["records"][key], str):
+            unverified.append(["records." + key, out["records"][key]])
     for engine, state in out["isolation"]["canary"].items():
         if state.startswith("failed"):
             findings.append(["isolation.canary." + engine, state])
         elif state.startswith("not run"):
             unverified.append(["isolation.canary." + engine, state])
     if out["wiki"]["problems"]:
-        findings.append(["wiki.problems", "wiki.py check reports %d problem(s)" % out["wiki"]["problems"]])
+        findings.append(["wiki.problems", "wiki.py check reports %d problem(s); %d backticked path(s) were not checked "
+                         "against the folder (a pattern, or outside the live folders)"
+                         % (out["wiki"]["problems"], out["wiki"]["backticked_paths_unchecked"])])
     for key, value in out["wiki"].items():
         for k, v in (value.items() if isinstance(value, dict) else [(None, value)]):
             if isinstance(v, str) and v.startswith("not verified"):

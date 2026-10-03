@@ -539,12 +539,15 @@ default that does not exist reads as `not recorded`. Line numbers count from the
   `superseded_pages` counts pages whose `status` is `superseded` (no problem).
 - `dead_source_paths`, `[page, path]`: a `sources:` entry that does not exist, or a backticked span in a page body
   holding `/` (a file or a folder; a span wrapped onto the next line reads as one) whose first segment is a live
-  top-level folder, one holding a live manifest entry or copy, and which does not exist. A span holding a pattern
-  (`*`, `?`, `[` or `<...>`, as a Schema's routing writes them) is judged up to its first patterned segment: dead
-  when those folders do not exist, otherwise counted in `backticked_paths_unchecked`, since what the pattern stands
-  in for cannot be told. Such a span under any other first segment, or patterned from its first segment, is counted
-  there too (in the fixture, the Schema's `_Inbox/`). The
-  Log's pages are history and are not read for paths.
+  top-level folder, one holding a live manifest entry or copy, and which does not exist. A span that exists as
+  written resolves, whatever it holds: file and folder names carry `[`, `]` and `?`. Otherwise a `*` or `<...>` in a
+  segment makes the span a routing pattern (as a Schema's routing writes them), judged up to its first patterned
+  segment: dead when the folders before it do not exist, else counted in `backticked_paths_unchecked`, since what the
+  pattern stands in for cannot be told. A span whose only special characters are `[`, `]` or `?` is tried as a
+  pattern: it resolves when it matches something, and is otherwise a literal path, so a missing one is dead. A span
+  under any other first segment, or patterned from its first segment, is counted in `backticked_paths_unchecked` too
+  (in the fixture, the Schema's `_Inbox/`). The Log's pages are history and are not read for paths. `readiness.py`
+  names the unchecked count in its `wiki.problems` finding, beside the problems.
 - `dead_page_links`, `[page, link]`: a link to a `.md` that resolves to nothing. A link is local when it has no
   scheme (`http:`, `mailto:`, `obsidian:`) and is not rooted at `/`, as `move` reads it (`local_link`), and a link
   with a title (`[Tax](Tax.md "t")`) is read as its target. A link to a page the page map only plans (as `brief`
@@ -810,7 +813,8 @@ The [hand-off contract](../SKILL.md#the-hand-off-contract), checked. Read-only o
 twins without trusting them, so a stale or unpinned twin is a finding rather than a refusal. It prints one JSON
 report (also to `--out`, refused inside the folder with `--read-only-root`) and exits 0 when nothing is found, 1 on
 any finding, and 2 on a tool error: a missing or malformed manifest (a live entry without `hashed` true or false
-included), card, extract record or canary result, or a crash, so 1 always means findings. The fixture's report is
+included) or canary result, or a crash, so 1 always means findings (a malformed card or extract record is a finding,
+counted with the rest). The fixture's report is
 [`../tests/expected/readiness.json`](../tests/expected/readiness.json).
 
 Each check is a count, a state, `ok`, `finding: ...` or `not verified: ...`. `findings` lists every finding as
@@ -823,10 +827,15 @@ same way, which is not a finding and not a pass either, and does not change the 
 - `records`, over the live documents `extract.py` reads (hashed ones): `missing_extracts`, `missing_cards`,
   `malformed_cards` (a card not in the card format, such as a `sensitive` that is not true or false: counted and
   named, never the end of the check, so a folder carded by an older tool shows every card to redo),
+  `malformed_extracts` (an extract record that is not JSON, not UTF-8, not an object, or whose pages are not a list
+  of page objects: counted and named the same way; remove it and run `extract.py` again),
   `bad_category` (outside the rulebook's `card_categories`), `extract_paths_stale` (a record whose path is not the
   manifest's; the finding names the [`extract.py repath`](#repath) command that repairs it) and `contamination` (a
   card naming an isolation term its own source lacks, by `cards.py`'s rule; `not verified` without `--terms`). A
-  count above zero is one finding.
+  count above zero is one finding. A check that needed a card or extract record that could not be read says so for
+  that document rather than reading it clean: `extract_paths_stale` and `contamination` become `not verified for N
+  document(s) whose ... is malformed` (after the count, `1; not verified ...`, when some documents were checked and
+  one held a finding), and are listed in `not_verified`.
 - `isolation.canary`: per engine (`agy` and `codex`), the result `isolation.py canary --out` wrote to
   `<work>/state/canary-<engine>.json`: `passed`, `failed: ...` (a finding) or `not run: ...` (not verified).
 - `wiki`: [`wiki.py check`](#check-1)'s report, reading the Schema from `--settings-dir`; its `problems` are one
@@ -858,10 +867,17 @@ roll-up reads
 ([canonical frontmatter](../../wiki-maintenance/SKILL.md#canonical-frontmatter--the-keys-the-deterministic-sweeps-read)),
 `01 Deadlines` being the derived list of forward dates. It fixes no headings and asks for no list beyond the dates,
 so readiness checks none. It reads the roll-up's dates as the roll-up writes them: a dated deadline as
-`YYYY-MM-DD`, anywhere on the page, and a recurring date as a day and a month name (`5 April`, `April 5`, `5th
-Apr`) or `MM-DD`, month first, naming a day that month has, opening a list item or alone in a table cell (one
-mid-sentence, such as "pages 10-12" or "on 5 April we moved", is prose). A frontmatter `recurring` date is read the
-same two ways and compared by its month and day. The sources are the pages that are not `superseded`.
+`YYYY-MM-DD`, anywhere on the page, and a recurring date as a day and a month name or `MM-DD`, opening a list item
+or alone in a table cell (one mid-sentence, such as "pages 10-12" or "on 5 April we moved", is prose). A frontmatter
+`recurring` date is read the same way and compared by its month and day, and it is read as family-ai-os's roll-up
+reads it, so both sides accept the same spellings: `MM-DD`, month first, two digits each; or a day and a month name,
+the day first or the month first (`5 April`, `April 5`), the name in full, its first three letters or `sept`, in any
+case, the day with an optional lower-case ordinal (`5th Apr`). Any other numeric form (`6/4`, `4-5`) is refused, as
+is a day the month cannot have (`31 April`); 29 February is a date. The roll-up shows the month in words, so a
+numeric `MM-DD` written the wrong way round shows on the page. The scan of a hand-kept list also finds a date with a
+full stop after the month (`5 Apr.`), which a `recurring` entry may not use. It reads a list item that opens with the
+date, or a date alone in a table cell between pipes: a table without outer pipes, a list item that leads with text
+and a date inside a sentence are not read. The sources are the pages that are not `superseded`.
 
 - `derived_pages_hold_nothing_hand_written`: every `YYYY-MM-DD` on the roll-up is a page's `deadline` or
   `deadlines` date (`YYYY-MM-DD` or `{date, note}`), except the roll-up's own `last-updated`, a build stamp; the

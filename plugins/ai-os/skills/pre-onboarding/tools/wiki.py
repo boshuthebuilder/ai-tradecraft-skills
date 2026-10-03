@@ -147,6 +147,7 @@ import csv
 import datetime
 import decimal
 import functools
+import glob
 import hashlib
 import json
 import os
@@ -782,13 +783,22 @@ def rationale_block_problem(lines):
 
 
 def literal_prefix(span):
-    """For a backticked path: "" when it holds no pattern, else the folders before its first segment holding `*`,
-    `?`, `[` or `<...>`, as a path ending in `/`, or None when that first segment is itself the pattern."""
+    """For a backticked path: "" when it holds no routing pattern, else the folders before its first segment holding
+    `*` or `<...>`, as a path ending in `/`, or None when that first segment is itself the pattern. `[`, `]` and `?`
+    are not patterns here: file and folder names carry them, so `path_resolves` judges those."""
     parts = span.split("/")
     for i, part in enumerate(parts):
-        if any(ch in part for ch in "*?[<>"):
+        if any(ch in part for ch in "*<>"):
             return "/".join(parts[:i]) + "/" if i else None
     return ""
+
+
+def path_resolves(root, path):
+    """True when `path` (under `root`) exists as written, else, for a path with `[`, `]` or `?` in it, when it matches
+    something as a pattern. A path that is neither is missing, never read as a pattern it may not be."""
+    if os.path.exists(os.path.join(root, path)):
+        return True
+    return any(ch in path for ch in "[]?") and bool(glob.glob(os.path.join(glob.escape(root), path)))
 
 
 def parse_rationale(text):
@@ -1013,11 +1023,14 @@ def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptan
             for line, span in spans:
                 if line <= fm_lines or "/" not in span or (line, span) in in_tables:
                     continue  # a `sources:` entry (checked above), no path, or a chart's source (checked with it)
+                top = span.split("/", 1)[0] in tops
+                if top and path_resolves(root, span):
+                    continue  # it exists as written (a name may hold `*` or `[`), or `[`, `]` or `?` match something
                 literal = literal_prefix(span)  # a pattern (`Tax return*/`, `<year>/`) is judged up to it
-                if span.split("/", 1)[0] in tops and literal is not None:
-                    if not os.path.exists(os.path.join(root, literal or span)):
-                        dead_src.append([rel, span])
-                    elif literal:
+                if top and literal is not None:
+                    if not literal or not path_resolves(root, literal):
+                        dead_src.append([rel, span])  # no pattern, or the folders before it are missing
+                    else:
                         unchecked += 1  # the folders before the pattern exist; what it stands in for cannot be told
                 else:
                     unchecked += 1
