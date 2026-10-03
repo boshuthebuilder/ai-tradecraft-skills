@@ -19,6 +19,13 @@ Per entry, on top of the scan contract's own fields:
 
 - **A type class** from the project's class policy (`classes:` in `jobs.yaml`), which decides whether
   the entry is hashed in full or counted only.
+- **A package is one item.** A document stored as a folder of member files (an iWork `.pages`,
+  `.numbers` or `.key` package) is one entry, never walked into: its id follows the manifest
+  reference's package hash rule, and the entry carries `package`.
+- **Files staged for another project.** Every live path under the migrations folder's `<Project>/`
+  (`_Migrations/<Project>/` by default) sets the entry's `migrating` flag, with that project in
+  `migration_target`. The staged file stays counted until the other project collects it; the entry is
+  then `departed`, or, where a copy stays behind, loses the flag.
 - **Duplicate groups** by content hash across the whole tree. Copies of the same bytes share one
   entry, so a group is one entry whose `copies` list holds every live path, each tagged `canonical`,
   `redundant`, `working_copy` or `pack`. A count-only entry is never a duplicate candidate.
@@ -42,9 +49,9 @@ Per entry, on top of the scan contract's own fields:
   past the search, not a replacement: when the recorded id is no longer in the folder — the ordinary
   re-export gives the export new bytes — the search runs again. A **weak** pairing is provisional
   either way: re-run the search every pass, so the export the owner makes in answer to the flag is
-  found. The comparison stays on names and timestamps: a content-level
-  match would mean opening the format the class policy says cannot be opened, and this pass makes no
-  model call.
+  found. The comparison stays on names and timestamps: a content-level match would mean reading
+  documents, which this pass never does (it hashes and names; the class policy's reading is the later
+  ingest's), and it makes no model call.
 - **Hygiene defects** (`hygiene`, kind in `look_reason`) — leading/trailing whitespace in a name,
   hidden system files, names differing only by case, path components over the filesystem's byte limit.
 - **Root strays** (`root_stray`) — anything at the folder root that is not a declared reserved name.
@@ -69,7 +76,9 @@ never from the clock**, so re-rendering an unchanged manifest is a no-op. Sectio
 8. **Hygiene**
 9. **Live vs closed** — per top-level folder
 10. **Drift since last pass** — omitted only on the first pass, which says so
-11. **Needs a look** — findings a person must judge, grouped by **class** and each carrying its
+11. **Migrating out**: each path staged for another project, grouped by its `migration_target`, with
+    the count; they leave the folder once that project collects them
+12. **Needs a look**: findings a person must judge, grouped by **class** and each carrying its
     reason. Every class this pass emits is *computed* — read from the flags and fields the walk set,
     never inferred from a phrase — so the counts do not depend on wording, and a file with several
     defects appears under each. One concern is one finding: a condition that holds for forty files

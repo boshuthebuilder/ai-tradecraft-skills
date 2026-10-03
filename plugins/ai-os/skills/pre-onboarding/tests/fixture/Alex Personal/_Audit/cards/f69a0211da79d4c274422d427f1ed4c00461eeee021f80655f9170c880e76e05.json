@@ -1,0 +1,39 @@
+{
+ "id": "f69a0211da79d4c274422d427f1ed4c00461eeee021f80655f9170c880e76e05",
+ "doc_type": "Bank Statement",
+ "party": "Alex Example",
+ "parties": [
+  "Example Bank plc",
+  "Robin Trading Ltd",
+  "Example Lettings"
+ ],
+ "doc_date": "2024-03-31",
+ "title": "Current account statement, March 2024",
+ "summary": "The Example Bank plc current account statement for March 2024: salary in from Robin Trading Ltd, rent out to Example Lettings, closing at GBP 4,160.00.",
+ "key_facts": {
+  "dates": [
+   "period 2024-03-01 to 2024-03-31"
+  ],
+  "amounts": [
+   "opening GBP 2,410.00",
+   "salary GBP 3,200.00",
+   "rent GBP 1,450.00",
+   "closing GBP 4,160.00"
+  ],
+  "reference_numbers": [
+   "account 12345678 sort code 01-02-03"
+  ]
+ },
+ "category": "Finance & Tax",
+ "language": "en",
+ "sensitive": true,
+ "confidence": "high",
+ "look": "",
+ "proposed_name": "",
+ "card_meta": {
+  "model": "fixture",
+  "via": "fixture",
+  "batch": "fixture",
+  "created_at": "2024-06-30T12:00:00+0000"
+ }
+}

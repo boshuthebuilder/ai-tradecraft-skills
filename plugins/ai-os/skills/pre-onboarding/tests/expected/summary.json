@@ -1,0 +1,105 @@
+{
+ "generated_at": "2024-06-30T12:00:00Z",
+ "items": 25,
+ "unique_contents": 18,
+ "bytes": 343081,
+ "classes": {
+  "document": 15,
+  "iwork": 2,
+  "image": 1
+ },
+ "hashed": 18,
+ "count_only": 0,
+ "duplicate_groups": 6,
+ "copy_kinds": {
+  "canonical": 6,
+  "pack": 1,
+  "redundant": 4,
+  "working_copy": 2
+ },
+ "redundant_bytes": 93075,
+ "overlaps": {
+  "04 Study <> 05 Archive": 4
+ },
+ "generic_names": 1,
+ "generic_by_folder": {
+  "(root)": 1
+ },
+ "unconverted": 1,
+ "converted_pairs": 1,
+ "hygiene": {
+  "space_before_extension": 1,
+  "whitespace_in_name": 1
+ },
+ "root_strays": [
+  "IMG_0001.jpg"
+ ],
+ "migrating": {
+  "Other Project": 1
+ },
+ "hidden": 0,
+ "symlinks": 0,
+ "placeholders": 0,
+ "not_downloaded": 0,
+ "departed": 0,
+ "drift": null,
+ "top_level": {
+  "(root)": {
+   "files": 1,
+   "unique": 1,
+   "bytes": 3177,
+   "newest": "2024-06-01T00:00:00Z",
+   "changed_last_12m": 1
+  },
+  "01 Identity": {
+   "files": 3,
+   "unique": 2,
+   "bytes": 69879,
+   "newest": "2024-06-01T00:00:00Z",
+   "changed_last_12m": 3
+  },
+  "02 Finance": {
+   "files": 5,
+   "unique": 4,
+   "bytes": 34215,
+   "newest": "2024-06-01T00:00:00Z",
+   "changed_last_12m": 5
+  },
+  "03 Home": {
+   "files": 4,
+   "unique": 4,
+   "bytes": 62180,
+   "newest": "2024-06-01T00:00:00Z",
+   "changed_last_12m": 4
+  },
+  "04 Study": {
+   "files": 5,
+   "unique": 5,
+   "bytes": 79599,
+   "newest": "2024-06-01T00:00:00Z",
+   "changed_last_12m": 5
+  },
+  "05 Archive": {
+   "files": 4,
+   "unique": 4,
+   "bytes": 79482,
+   "newest": "2024-06-01T00:00:00Z",
+   "changed_last_12m": 4
+  },
+  "06 Work": {
+   "files": 2,
+   "unique": 2,
+   "bytes": 1505,
+   "newest": "2024-06-01T00:00:00Z",
+   "changed_last_12m": 2
+  },
+  "_Migrations": {
+   "files": 1,
+   "unique": 1,
+   "bytes": 13044,
+   "newest": "2024-06-01T00:00:00Z",
+   "changed_last_12m": 1
+  }
+ },
+ "elapsed_s": 0
+}

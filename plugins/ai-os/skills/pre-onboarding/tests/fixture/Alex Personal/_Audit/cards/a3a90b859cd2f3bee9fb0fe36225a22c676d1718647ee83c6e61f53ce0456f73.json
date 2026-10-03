@@ -1,0 +1,30 @@
+{
+ "id": "a3a90b859cd2f3bee9fb0fe36225a22c676d1718647ee83c6e61f53ce0456f73",
+ "doc_type": "Presentation",
+ "party": "Alex Example",
+ "parties": [
+  "Robin Example"
+ ],
+ "doc_date": "2024",
+ "title": "Language learning plan for 2024",
+ "summary": "Alex's language plan for 2024: speak with Robin every week, aim for B2 French and HSK 4 Chinese, with the exams in June.",
+ "key_facts": {
+  "dates": [
+   "exams 2024-06"
+  ],
+  "amounts": [],
+  "reference_numbers": []
+ },
+ "category": "Language Study",
+ "language": "en",
+ "sensitive": false,
+ "confidence": "high",
+ "look": "",
+ "proposed_name": "",
+ "card_meta": {
+  "model": "fixture",
+  "via": "fixture",
+  "batch": "fixture",
+  "created_at": "2024-06-30T12:00:00+0000"
+ }
+}

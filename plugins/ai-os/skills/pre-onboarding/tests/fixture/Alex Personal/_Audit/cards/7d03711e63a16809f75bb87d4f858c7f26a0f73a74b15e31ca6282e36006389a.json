@@ -1,0 +1,28 @@
+{
+ "id": "7d03711e63a16809f75bb87d4f858c7f26a0f73a74b15e31ca6282e36006389a",
+ "doc_type": "Notes",
+ "party": "Alex Example",
+ "parties": [
+  "Example Lettings"
+ ],
+ "doc_date": "",
+ "title": "Notes on the lease",
+ "summary": "A reminder to ask Example Lettings about the boiler service.",
+ "key_facts": {
+  "dates": [],
+  "amounts": [],
+  "reference_numbers": []
+ },
+ "category": "Home & Household",
+ "language": "en",
+ "sensitive": false,
+ "confidence": "high",
+ "look": "",
+ "proposed_name": "",
+ "card_meta": {
+  "model": "fixture",
+  "via": "fixture",
+  "batch": "fixture",
+  "created_at": "2024-06-30T12:00:00+0000"
+ }
+}

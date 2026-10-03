@@ -120,35 +120,62 @@ deployment is
 pinned dependency.
 
 The first archetype implements the **in-folder knowledge wiki**: a synthesised, always-current
-layer over a folder of real files. Five skills cover the lifecycle:
+layer over a folder of real files. Six skills cover the lifecycle. There are three entry points, by
+what is being onboarded: a lived-in folder to make ready (`pre-onboarding`), a folder that is already
+tidy or has been prepared (`project-onboarding`), and a person who wants a cross-project view
+(`user-onboarding`). The other three are the components they call and the loop that follows:
 
-- **`project-onboarding`** — stand up a self-maintaining folder end to end: create its wiki (via
-  `wiki-onboarding`) and wire the two standard maintenance jobs — a reactive `ingest` pass and a
-  periodic `reconcile` pass — from the **file-ingest archetype**. The whole-project flow; composes
-  the two skills below. Also home to the job archetypes (file-ingest, user-synthesis, code,
-  folder-curation).
-- **`user-onboarding`** — onboard a *person* (an identity) rather than a folder: the
+- **`pre-onboarding`** (entry point): prepare a **lived-in** folder for the system, in an
+  interactive session. It audits the folder and tidies it only through plans the owner approves (by
+  running `folder-curation`), extracts the full text of every document and writes a summary card for
+  each, builds its wiki (by running `wiki-onboarding` under the core wiki rule), checks the result
+  against the **hand-off contract**, and hands it to `project-onboarding`. Ships the tools that do
+  the exact parts (`plugins/ai-os/skills/pre-onboarding/tools/`: standard-library Python, with a
+  small Swift helper for Apple Vision and local tools (poppler, tesseract, LibreOffice) where
+  present; generic and settings-driven), and keeps the folder's settings in machine-readable twins of
+  its rulebook and Schema.
+- **`project-onboarding`** (entry point): stand up a self-maintaining folder end to end, in **one
+  flow for cold and prepared folders**. It tells which by the hand-off contract, validates a prepared
+  folder (never rebuilding it) or creates the wiki a tidy cold folder lacks (via `wiki-onboarding`),
+  then wires the two standard maintenance jobs (a reactive `ingest` pass and a periodic `reconcile`
+  pass) from the **file-ingest archetype**, seeded from the state the folder arrives in. A messy
+  cold folder is sent to `pre-onboarding` first. Also home to the job archetypes (file-ingest,
+  user-synthesis, code, folder-curation).
+- **`user-onboarding`** (entry point): onboard a *person* (an identity) rather than a folder, with the
   storage-ownership handshake (the user owns the folder and shares it into the worker), the
   **type-1 user vault** ("second brain") skeleton, and stamping the **user-synthesis archetype**
   (an incremental `synthesise` + its periodic `reconcile` twin) so the person gets a
-  self-maintaining, cross-project view over the wikis they can access.
-- **`wiki-onboarding`** — bootstrap a wiki for a folder that doesn't have one: scan the folder
-  read-only, propose a structure that mirrors how the owner already organises it, interview them
-  on a few key points, then write the initial **Schema / Index / Log** skeleton. One-time and
-  interactive; hands off to `wiki-maintenance`.
-- **`wiki-maintenance`** — keep a wiki current: process an incoming item end to end (read → file
+  self-maintaining, cross-project view over the wikis they can access. The synthesis is also where
+  cross-project migrations are proposed, for the owner to approve.
+- **`wiki-onboarding`**: bootstrap a wiki for a folder that doesn't have one. Scan the folder
+  read-only; a librarian proposes **sections by responsibility**, the routing and the one
+  professional best suited to each page; interview the owner on a few key points; agree a page
+  contract for every page type; write the **Schema / Index / Log** skeleton (and, in a prepared
+  folder, draft every page from the evidence); and accept each page through a model that did not
+  write it. One-time and interactive; the wiki stage of `pre-onboarding`; hands off to
+  `wiki-maintenance`.
+- **`wiki-maintenance`**: keep a wiki current. Process an incoming item end to end (read → file
   by confident match → update the pages it touches → surface what needs a human → log), answer
   queries from the wiki, and run periodic reconcile (lint) passes. The method is portable; each
-  wiki's own Schema page is the authority for its exact pages and layout. Includes the provenance
+  wiki's own Schema page is the authority for its exact pages and layout. Home of the **core wiki
+  rule** (sections by responsibility, one professional per page, a contract per page type, a
+  rationale and an acceptance per page, rich pages drawn from cited data) and of the professional
+  catalogue. Includes the provenance
   model, the never-overwrite-a-human-edit guard, full private content and source-supported identifiers
   by default, with explicit owner restrictions.
-- **`folder-curation`** — adopt a **lived-in** folder, the one between a drop folder and a tidy
-  one. The audit half is deterministic and repeatable: a hash-keyed manifest over the whole library
-  with type classes, duplicate groups that know a submission pack from a redundant copy,
-  overlapping homes, and drift since the last pass. The curate half is **propose-only** — an
-  interview on a fixed depth ladder, then a move-plan the owner approves row by row, executed under
-  the shared move guards and proved by a re-audit. Hands off to `project-onboarding` when the verify
-  step is clean, and the audit keeps running afterwards as the project's periodic `audit` job.
+- **`folder-curation`**: the method for a **lived-in** folder, the one between a drop folder and a
+  tidy one, and a component of `pre-onboarding`, which runs it. The audit half is deterministic and
+  repeatable: a hash-keyed manifest over the whole library with type classes (an iWork package is
+  one item, read directly), duplicate groups that know a submission pack from a redundant copy,
+  overlapping homes, files staged for another project, and drift since the last pass. The curate
+  half is **propose-only**: an interview on a fixed depth ladder, then a move-plan the owner
+  approves row by row, executed under the shared move guards and proved by a re-audit. Approved
+  plans are also how files migrate between projects. The curated folder goes back to
+  `pre-onboarding` for its extraction, cards and wiki, and the audit keeps running afterwards as the
+  project's periodic `audit` job.
+
+A drop folder of files that belong to no project yet is `file-preprocessing`'s: it understands,
+renames and files each file into a run parcel, and shares the manifest format the audit uses.
 
 ### Using it in a Cowork session
 

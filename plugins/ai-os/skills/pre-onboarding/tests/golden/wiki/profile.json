@@ -1,0 +1,276 @@
+{
+ "folder": "Alex Personal",
+ "depth": 2,
+ "documents": 17,
+ "carded": 17,
+ "copies": 7,
+ "migrating": 1,
+ "departed": 0,
+ "uncarded": 0,
+ "categories": {
+  "Finance & Tax": 4,
+  "Home & Household": 4,
+  "Language Study": 3,
+  "Education": 2,
+  "Identity & Immigration": 2,
+  "Photos": 1,
+  "Work & Career": 1
+ },
+ "folders": [
+  {
+   "folder": "(root)",
+   "documents": 1,
+   "copies": 0,
+   "copies_of": {},
+   "carded": 1,
+   "categories": {
+    "Photos": 1
+   },
+   "dated": 0,
+   "earliest": null,
+   "latest": null,
+   "parties": []
+  },
+  {
+   "folder": "01 Identity",
+   "documents": 2,
+   "copies": 1,
+   "copies_of": {
+    "01 Identity": 1
+   },
+   "carded": 2,
+   "categories": {
+    "Identity & Immigration": 2
+   },
+   "dated": 2,
+   "earliest": "2021-05-02",
+   "latest": "2021-07-15",
+   "parties": [
+    [
+     "Alex Example",
+     2
+    ],
+    [
+     "Example Passport Agency",
+     2
+    ]
+   ]
+  },
+  {
+   "folder": "01 Identity/Passport renewal 2021",
+   "documents": 1,
+   "copies": 1,
+   "copies_of": {
+    "01 Identity": 1
+   },
+   "carded": 1,
+   "categories": {
+    "Identity & Immigration": 1
+   },
+   "dated": 1,
+   "earliest": "2021-05-02",
+   "latest": "2021-05-02",
+   "parties": [
+    [
+     "Alex Example",
+     1
+    ],
+    [
+     "Example Passport Agency",
+     1
+    ]
+   ]
+  },
+  {
+   "folder": "02 Finance",
+   "documents": 4,
+   "copies": 1,
+   "copies_of": {
+    "02 Finance": 1
+   },
+   "carded": 4,
+   "categories": {
+    "Finance & Tax": 4
+   },
+   "dated": 4,
+   "earliest": "2023",
+   "latest": "2024-03-31",
+   "parties": [
+    [
+     "Alex Example",
+     4
+    ],
+    [
+     "Example Bank plc",
+     1
+    ],
+    [
+     "Example Tax Office",
+     1
+    ],
+    [
+     "Robin Example",
+     1
+    ],
+    [
+     "Robin Trading Ltd",
+     1
+    ]
+   ]
+  },
+  {
+   "folder": "02 Finance/Tax",
+   "documents": 3,
+   "copies": 0,
+   "copies_of": {},
+   "carded": 3,
+   "categories": {
+    "Finance & Tax": 3
+   },
+   "dated": 3,
+   "earliest": "2023",
+   "latest": "2024",
+   "parties": [
+    [
+     "Alex Example",
+     3
+    ],
+    [
+     "Example Tax Office",
+     1
+    ],
+    [
+     "Robin Example",
+     1
+    ],
+    [
+     "Robin Trading Ltd",
+     1
+    ]
+   ]
+  },
+  {
+   "folder": "03 Home",
+   "documents": 4,
+   "copies": 0,
+   "copies_of": {},
+   "carded": 4,
+   "categories": {
+    "Home & Household": 4
+   },
+   "dated": 3,
+   "earliest": "2024-03-15",
+   "latest": "2024-05-01",
+   "parties": [
+    [
+     "Alex Example",
+     4
+    ],
+    [
+     "Example Lettings",
+     3
+    ],
+    [
+     "Example Energy Ltd",
+     1
+    ]
+   ]
+  },
+  {
+   "folder": "03 Home/Utilities ",
+   "documents": 1,
+   "copies": 0,
+   "copies_of": {},
+   "carded": 1,
+   "categories": {
+    "Home & Household": 1
+   },
+   "dated": 1,
+   "earliest": "2024-03-15",
+   "latest": "2024-03-15",
+   "parties": [
+    [
+     "Alex Example",
+     1
+    ],
+    [
+     "Example Energy Ltd",
+     1
+    ]
+   ]
+  },
+  {
+   "folder": "04 Study",
+   "documents": 4,
+   "copies": 1,
+   "copies_of": {
+    "06 Work": 1
+   },
+   "carded": 4,
+   "categories": {
+    "Education": 2,
+    "Language Study": 2
+   },
+   "dated": 3,
+   "earliest": "2023-06",
+   "latest": "2024-01-20",
+   "parties": [
+    [
+     "Alex Example",
+     4
+    ],
+    [
+     "Example Language School",
+     2
+    ],
+    [
+     "Robin Example",
+     1
+    ]
+   ]
+  },
+  {
+   "folder": "05 Archive",
+   "documents": 0,
+   "copies": 4,
+   "copies_of": {
+    "04 Study": 3,
+    "06 Work": 1
+   },
+   "carded": 0,
+   "categories": {},
+   "dated": 0,
+   "earliest": null,
+   "latest": null,
+   "parties": []
+  },
+  {
+   "folder": "06 Work",
+   "documents": 2,
+   "copies": 0,
+   "copies_of": {},
+   "carded": 2,
+   "categories": {
+    "Language Study": 1,
+    "Work & Career": 1
+   },
+   "dated": 2,
+   "earliest": "2022-05-01",
+   "latest": "2023-11",
+   "parties": [
+    [
+     "Alex Example",
+     2
+    ],
+    [
+     "Example Evening College",
+     1
+    ],
+    [
+     "Robin Trading Ltd",
+     1
+    ]
+   ]
+  }
+ ]
+}

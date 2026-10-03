@@ -5,6 +5,8 @@ contract (incremental, fenced to the derived areas), but it reckons the **whole*
 accessible sources rather than the slice a single source change touched. It exists because the Knowledge
 area is incrementally maintained and can therefore drift (the twin rule in `ARCHITECTURE.md`). Generic
 template — `{…}` are filled by the deployment.
+The optional `migration` field on a `needs_a_look` item carries a proposed cross-project migration,
+exactly as in `synthesise` (see the archetype's README).
 
 ---
 
@@ -59,7 +61,11 @@ Reckon the whole vault and correct drift, making the **minimal stable changes** 
 4. **Confirm the Schema still holds.** If the organising principles in `09 Schema/` no longer match how
    the vault has actually grown, propose the minimal Schema update (and say why in `needs_a_look`).
 5. **Re-derive the Index** so it reflects the reconciled tree.
-6. **A dated log line** recording the reconcile.
+6. **Proposed migrations, when the sources show one** (optional), exactly as `synthesise` sets out:
+   one `needs_a_look` item per matter with its `migration` filled, for the owner to approve or decline.
+   Seeing every accessible project at once, this pass is where files one project holds for another
+   are easiest to spot; never re-propose one the ledger holds as open or dismissed.
+7. **A dated log line** recording the reconcile.
 
 Rules: identical to `synthesise` — incremental (return only changed pages; un-returned pages are kept),
 traceable to a source, **figures copied character-for-character from the source** (name the page if it
@@ -77,8 +83,11 @@ Return JSON only (every `wiki_pages[].path` under `00 Index/` or `01 Knowledge/`
 {
   "verdict": "apply | skip",
   "wiki_pages": [{"path": "01 Knowledge/...", "action": "create | update", "body": "..."}],
-  "needs_a_look": [{"item": "...", "reason": "...", "owner_action": "null, OR one sentence naming the physical act only the owner can perform — name the exact file or place", "what_would_resolve": "one sentence — the single decision or action that closes this", "proposed_action": "optional — what you would do on a yes"}],
+  "needs_a_look": [{"item": "...", "reason": "...", "owner_action": "null, OR one sentence naming the physical act only the owner can perform: name the exact file or place", "what_would_resolve": "one sentence: the single decision or action that closes this", "proposed_action": "optional: what you would do on a yes", "migration": {"from_project": "<project id>", "to_project": "<project id>", "paths": ["<folder-relative path the from_project's page cites>"], "pages": ["<project id>: <wiki-relative page path>"]}}],
   "log_entry": "## [{date}] reconcile | <projects read> | <what drifted, what was fixed>",
   "notify": {"kind": "info | action", "priority": "low", "body": "..."}
 }
 ```
+
+`migration` is optional: include it only on an item that proposes a migration (task 6), and leave it
+out of every other item.
