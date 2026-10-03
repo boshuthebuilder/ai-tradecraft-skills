@@ -437,17 +437,26 @@ class CheckTest(Copy):
         res = self.check()
         self.assertEqual((res["problems"], res["dead_source_paths"], res["backticked_paths_unchecked"]), (0, [], 1))
 
-    def test_a_bracket_or_question_mark_pattern_that_matches_something_resolves(self):
-        write(os.path.join(self.root, "02 Finance", "Statement a.pdf"), "x")
-        self.cite("02 Finance/Statement [ab].pdf", "02 Finance/Statement ?.pdf", "02 Finance/Statement [cd].pdf")
+    def test_a_name_with_brackets_or_a_question_mark_is_never_read_as_a_pattern(self):
+        """A stale citation after a tidy that strips brackets is what the check exists to catch: `Invoice [3].pdf`
+        is not `Invoice 3.pdf`, `What?.pdf` is not `Whatx.pdf`, and a folder that is gone is not `Tax 2/`."""
+        for rel in ("02 Finance/Invoice 3.pdf", "02 Finance/Whatx.pdf", "02 Finance/Tax 2/Return.pdf"):
+            write(os.path.join(self.root, *rel.split("/")), "x")
+        spans = ("02 Finance/Invoice [3].pdf", "02 Finance/What?.pdf", "02 Finance/Tax [2024]/*.pdf")
+        self.cite(*spans)
         res = self.check()
-        self.assertEqual(res["dead_source_paths"], [[self.HOME, "02 Finance/Statement [cd].pdf"]])
+        self.assertEqual(sorted(res["dead_source_paths"]), sorted([self.HOME, s] for s in spans))
+        self.assertEqual((res["problems"], res["backticked_paths_unchecked"]), (3, 1))
 
-    def test_a_star_pattern_resolves_and_is_counted_unchecked(self):
-        self.cite("02 Finance/*.pdf", "02 Finance/Tax [2024]/*.pdf")
+    def test_a_star_pattern_is_found_when_something_matches_and_dead_when_its_folder_is_gone(self):
+        write(os.path.join(self.root, "02 Finance", "Tax [2024]", "Return.pdf"), "x")
+        self.cite("02 Finance/*.pdf", "02 Finance/Tax [2024]/*.pdf", "02 Finance/Statement*/",
+                  "02 Finance/Gone/*.pdf", "02 Finance/Tax [2023]/*.pdf")
         res = self.check()
-        self.assertEqual(res["dead_source_paths"], [[self.HOME, "02 Finance/Tax [2024]/*.pdf"]])  # the folder is dead
-        self.assertEqual(res["backticked_paths_unchecked"], 2)  # the Schema's `_Inbox/`, and the `*.pdf` pattern
+        self.assertEqual(res["dead_source_paths"], [[self.HOME, "02 Finance/Gone/*.pdf"],
+                                                    [self.HOME, "02 Finance/Tax [2023]/*.pdf"]])
+        # unchecked: the Schema's `_Inbox/`, and `Statement*/`, whose folders exist but which nothing matches
+        self.assertEqual(res["backticked_paths_unchecked"], 2)
 
     def test_the_schema_routing_covers_no_document(self):
         edit(self.page("40 Study/40 Study.md"), "| `04 Study/` | 5 | certificates, slides, essay, notes |\n", "")

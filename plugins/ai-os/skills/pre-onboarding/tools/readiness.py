@@ -67,15 +67,19 @@ MONTHS = ("January", "February", "March", "April", "May", "June", "July", "Augus
 MONTH_NUMBER = dict([(m.lower(), n) for n, m in enumerate(MONTHS, 1)]
                     + [(m[:3].lower(), n) for n, m in enumerate(MONTHS, 1)] + [("sept", 9)])
 ORDINAL = r"(?:st|nd|rd|th)?"
-# A yearly date as the roll-up lists it: MM-DD, month first, or a day with an English month name ("5 April",
-# "April 5", "5th Apr"). The scan also sees one with a full stop after the month ("5 Apr."): a hand-kept date is
-# found however it is abbreviated, though `month_day` reads no such spelling from a `recurring` entry.
-YEARLY = (r"[0-9]{2}-[0-9]{2}(?![0-9-])|[0-9]{1,2}%(o)s\s+[A-Za-z]{3,9}\.?|[A-Za-z]{3,9}\.?\s+[0-9]{1,2}%(o)s"
-          % {"o": ORDINAL})
-# Where the roll-up lists one: opening a list item, or alone in a table cell. Mid-sentence it is prose ("pages
-# 10-12", "on 5 April we moved"), not a listed date.
-YEARLY_ITEM = re.compile(r"^\s*(?:[-*+]|[0-9]+\.)\s+%s(%s)%s(?![0-9A-Za-z])" % (MARK, YEARLY, MARK))
-YEARLY_CELL = re.compile(r"\|\s*%s(%s)%s\s*(?=\|)" % (MARK, YEARLY, MARK))
+MON3 = {m[:3].lower() for m in MONTHS}  # the first three letters every month name starts with
+# What a hand-kept yearly date looks like: MM-DD, or a day beside a word of three letters or more ("5 April", "April
+# 5", "5th Sept", and so "31 Sept" or "5 Septmber", which tries to be one). The word may end in a full stop ("5
+# Apr."): the scan finds a hand-kept date however it is abbreviated, though `month_day` reads no such spelling from
+# a `recurring` entry.
+LISTED = (r"[0-9]{2}-[0-9]{2}(?![0-9-])|[0-9]{1,2}(?![0-9])%(o)s\s+[A-Za-z]{3,}\.?"
+          r"|[A-Za-z]{3,}\.?\s+[0-9]{1,2}(?![0-9])%(o)s" % {"o": ORDINAL})
+# Where the roll-up lists one: opening a list item or a quoted line, or opening a table cell. Mid-sentence it is
+# prose ("pages 10-12", "on 5 April we moved"), not a listed date.
+LEAD = r"^\s*(?:(?:>\s*)+(?:(?:[-*+]|[0-9]+\.)\s+)?|(?:[-*+]|[0-9]+\.)\s+)"
+ITEM_HEAD = re.compile(r"%s%s(%s)%s(?![0-9A-Za-z])(.*)" % (LEAD, MARK, LISTED, MARK))
+CELL_HEAD = re.compile(r"\|\s*%s(%s)%s(?![0-9A-Za-z])([^|]*)" % (MARK, LISTED, MARK))
+YEAR_AFTER = re.compile(r",?\s*[0-9]{4}(?![0-9])")  # "5 April 2026": a dated day, not a yearly one
 DATE_ITEM = re.compile(r"\{\s*date:\s*[\"']?([^,\"'}]+?)[\"']?\s*(?:,\s*note:\s*(.*?))?\s*\}")  # {date: ..., note: ...}
 DAYS_IN_MONTH = (31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)  # 02-29 comes round in a leap year
 SAYS_NOTHING = re.compile(r"(?i)[\s>*_`|-]*(none|nothing|n/?a)?[\s.*_`|-]*")
@@ -110,9 +114,23 @@ def month_day(s):
 
 
 def yearly_dates(line):
-    """The yearly dates a roll-up line lists (see YEARLY_ITEM), each as its MM-DD."""
-    return [md for d in YEARLY_ITEM.findall(line) + YEARLY_CELL.findall(line) for md in [month_day(d.replace(".", ""))]
-            if md]
+    """(the MM-DD of each yearly date a roll-up line lists (see ITEM_HEAD, CELL_HEAD), each date-shaped entry no
+    reading takes, as written): a day beside a word that starts like a month but is not one the contract reads
+    (`31 Sept`, `5 Septmber`), or a day and month with a year (`5 Sept 2026`). The text after a readable date in a
+    cell or item is a note."""
+    dates, unreadable = [], []
+    for head, rest in [m.groups() for m in ITEM_HEAD.finditer(line)] + [m.groups() for m in CELL_HEAD.finditer(line)]:
+        md = month_day(head.replace(".", ""))
+        words = re.findall(r"[A-Za-z]+", re.sub(r"(?<=[0-9])(?:st|nd|rd|th)", "", head))
+        if not words:  # MM-DD
+            if md:
+                dates.append(md)
+        elif md and not YEAR_AFTER.match(rest.lstrip()):
+            dates.append(md)
+        elif words[0].lower()[:3] in MON3:
+            text = (head + rest).strip()
+            unreadable.append(text if len(text) <= 40 else text[:40] + "...")
+    return dates, unreadable
 
 
 def sample(items):
@@ -186,10 +204,11 @@ def deadline_items(wiki, pages, ws):
     a current page's frontmatter, except the roll-up's own `last-updated` (a build stamp); it must show every
     deadline of a page the sweeps read that is not before its `last-updated` (a `last-updated` after today is a
     finding, and forward is then judged from today, the tools' clock), and every recurring date, compared by its
-    month and day; a roll-up with none of those to show says why; and a
-    deadline entry that is not a real YYYY-MM-DD, bare or in {date, note}, is reported, as a malformed recurring
-    entry is. Another page the Schema marks derived (an open-questions list) is built from the pages in a way no date
-    shows, so it is named as not verified, apart."""
+    month and day; a roll-up with none of those to show says why; a hand-kept date the contract cannot read (a day
+    beside a word that starts like a month but is not one, or a day and month with a year) is reported as an
+    unreadable yearly date, never dropped; and a deadline entry that is not a real YYYY-MM-DD, bare or in
+    {date, note}, is reported, as a malformed recurring entry is. Another page the Schema marks derived (an
+    open-questions list) is built from the pages in a way no date shows, so it is named as not verified, apart."""
     derived_dirs = tuple("%s %s/" % (s["number"], s["name"]) for s in (ws or {}).get("sections", []) if s["derived"])
     others = [p for p in pages if p != DEADLINES and p.startswith(derived_dirs)] if derived_dirs else []
     other_item = "not verified: %s (derived, built from the pages in a way no date shows)" % sample(others) \
@@ -224,16 +243,18 @@ def deadline_items(wiki, pages, ws):
     if stamp and stamp > today:  # a build not yet made: a finding, and forward is judged from today
         derived.append("%s is last-updated %s, after today (%s)" % (DEADLINES, stamp, today))
         stamp = today
-    hand, hand_yearly, shown_days, shown_yearly = [], [], set(), set()
+    hand, hand_yearly, unreadable, shown_days, shown_yearly = [], [], [], set(), set()
     for n, line in enumerate(body.splitlines(), offset + 1):
         for m in DAY.finditer(line):
             shown_days.add(m.group(0))
             if m.group(0) not in days and m.group(0) != stamp:
                 hand.append("line %d: %s" % (n, m.group(0)))
-        for d in yearly_dates(line):
+        listed, odd = yearly_dates(line)
+        for d in listed:
             shown_yearly.add(d)
             if d not in yearly:
                 hand_yearly.append("line %d: %s" % (n, d))
+        unreadable += ["line %d: %s" % (n, x) for x in odd]
     if hand:
         derived.append("%s holds %d date(s) no current page's frontmatter carries (%s)"
                        % (DEADLINES, len(hand), sample(hand)))
@@ -252,6 +273,10 @@ def deadline_items(wiki, pages, ws):
     if hand_yearly:
         recurring.append("%s holds %d yearly date(s) no page's recurring: list carries (%s)"
                          % (DEADLINES, len(hand_yearly), sample(hand_yearly)))
+    if unreadable:
+        recurring.append("%s holds %d unreadable yearly date(s) (%s); a yearly date is a page's recurring: entry, "
+                         "MM-DD (month first) or a day and a month name, and a dated one is YYYY-MM-DD in deadline:"
+                         % (DEADLINES, len(unreadable), sample(unreadable)))
     if bad:
         recurring.append("%d recurring: entr(ies) not {date, note} with a date as MM-DD (month first) or a day and "
                          "a month name, a day the month has (%s)"
@@ -322,6 +347,11 @@ def manifest_counts(root, man, ents, summary_path):
         ("live_paths_missing", len(gone))])
 
 
+def within(root, text):
+    """`text` with the folder's own path taken off, so a finding names a file as the folder holds it."""
+    return text.replace(os.path.join(root, ""), "")
+
+
 def unread(n, paths, why):
     """`n`, the count a check made, or a named not-verified state when `paths` are documents it could not read."""
     if not paths:
@@ -349,14 +379,14 @@ def record_checks(root, rb, live, evidence):
         try:
             card = W.load_card(cdir, h)
         except common.ToolError as ex:  # counted with the rest, never the end of the check
-            found["malformed_cards"].append("%s: %s" % (path, str(ex).split(": ", 2)[-1]))
+            found["malformed_cards"].append("%s: %s" % (path, within(root, str(ex).split(": ", 2)[-1])))
             card = False
         x = None
         if os.path.exists(os.path.join(xdir, h + ".json")):
             try:
                 x = W.load_extract(xdir, h, os.path.join(cdir, h + ".json"))
             except common.ToolError as ex:
-                found["malformed_extracts"].append("%s: %s" % (path, str(ex).split(": ", 1)[-1]))
+                found["malformed_extracts"].append("%s: %s" % (path, within(root, str(ex).split(": ", 1)[-1])))
                 no_extract.append(path)
                 x = False
         if x is None:
@@ -486,7 +516,11 @@ def main():
             "contamination": "card(s) naming an isolation term their own source lacks"}
     for key, hits in found.items():
         if hits:
-            fix = "; repath them: %s" % repath_command(root, a) if key == "extract_paths_stale" else ""
+            fix = ""
+            if key == "extract_paths_stale":
+                fix = ("; repath them: %s" if not found["malformed_extracts"] else
+                       "; deal with the malformed extract records first (repath refuses a record it cannot read), "
+                       "then repath them: %s") % repath_command(root, a)
             findings.append(["records." + key, "%d %s (%s)%s" % (len(hits), what[key], sample(hits), fix)])
     for key in ("extract_paths_stale", "contamination"):
         if isinstance(out["records"][key], str):

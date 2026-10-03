@@ -277,8 +277,8 @@ def load_extract(extract_dir, h, card_path):
     if not isinstance(pages, list):
         raise common.ToolError("malformed extract record %s: pages must be a list; extract the document again" % path)
     for i, p in enumerate(pages, 1):
-        n, text = (p.get("n"), p.get("text")) if isinstance(p, dict) else (None, None)
-        if not (isinstance(p, dict) and (n is None or type(n) is int) and (text is None or isinstance(text, str))):
+        if not (isinstance(p, dict) and ("n" not in p or type(p["n"]) is int)
+                and (p.get("text") is None or isinstance(p["text"], str))):  # a null n would crash full_text
             raise common.ToolError("malformed extract record %s: page %d must be an object whose n is a whole number "
                                    "and whose text is text or null; extract the document again" % (path, i))
     return xr
@@ -785,7 +785,7 @@ def rationale_block_problem(lines):
 def literal_prefix(span):
     """For a backticked path: "" when it holds no routing pattern, else the folders before its first segment holding
     `*` or `<...>`, as a path ending in `/`, or None when that first segment is itself the pattern. `[`, `]` and `?`
-    are not patterns here: file and folder names carry them, so `path_resolves` judges those."""
+    are not patterns: file and folder names carry them, so they are read as the characters they are."""
     parts = span.split("/")
     for i, part in enumerate(parts):
         if any(ch in part for ch in "*<>"):
@@ -793,12 +793,28 @@ def literal_prefix(span):
     return ""
 
 
-def path_resolves(root, path):
-    """True when `path` (under `root`) exists as written, else, for a path with `[`, `]` or `?` in it, when it matches
-    something as a pattern. A path that is neither is missing, never read as a pattern it may not be."""
-    if os.path.exists(os.path.join(root, path)):
-        return True
-    return any(ch in path for ch in "[]?") and bool(glob.glob(os.path.join(glob.escape(root), path)))
+def star_matches(root, span):
+    """True when something under `root` matches `span`, read with `*` as the only wildcard (`[`, `]` and `?` are the
+    characters they are)."""
+    pattern = "/".join(glob.escape(part).replace("[*]", "*") for part in span.split("/"))
+    return bool(glob.glob(os.path.join(glob.escape(root), pattern)))
+
+
+def span_state(root, span):
+    """`found`, `dead` or `unchecked` for a backticked path under a live top-level folder. A path that exists as
+    written is found. One with no pattern, or whose folders before a `*` or `<...>` pattern are missing, is dead
+    (a name is never read as a pattern it is not: `Invoice [3].pdf` is not `Invoice 3.pdf`). A `*` pattern with its
+    folders present is found when something matches it, and unchecked when nothing does or when it holds a `<...>`
+    placeholder, since what a pattern stands in for cannot be told; one patterned from its first segment is
+    unchecked."""
+    if os.path.exists(os.path.join(root, span)):
+        return "found"
+    literal = literal_prefix(span)
+    if literal is None:
+        return "unchecked"
+    if not literal or not os.path.exists(os.path.join(root, literal)):
+        return "dead"
+    return "found" if not re.search("[<>]", span) and star_matches(root, span) else "unchecked"
 
 
 def parse_rationale(text):
@@ -1023,16 +1039,10 @@ def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptan
             for line, span in spans:
                 if line <= fm_lines or "/" not in span or (line, span) in in_tables:
                     continue  # a `sources:` entry (checked above), no path, or a chart's source (checked with it)
-                top = span.split("/", 1)[0] in tops
-                if top and path_resolves(root, span):
-                    continue  # it exists as written (a name may hold `*` or `[`), or `[`, `]` or `?` match something
-                literal = literal_prefix(span)  # a pattern (`Tax return*/`, `<year>/`) is judged up to it
-                if top and literal is not None:
-                    if not literal or not path_resolves(root, literal):
-                        dead_src.append([rel, span])  # no pattern, or the folders before it are missing
-                    else:
-                        unchecked += 1  # the folders before the pattern exist; what it stands in for cannot be told
-                else:
+                state = span_state(root, span) if span.split("/", 1)[0] in tops else "unchecked"
+                if state == "dead":
+                    dead_src.append([rel, span])
+                elif state == "unchecked":
                     unchecked += 1
         for lk, _anchor, _title in LINK.findall(body):
             if not local_link(lk):

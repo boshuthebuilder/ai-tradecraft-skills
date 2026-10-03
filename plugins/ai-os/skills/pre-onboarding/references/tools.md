@@ -540,14 +540,15 @@ default that does not exist reads as `not recorded`. Line numbers count from the
 - `dead_source_paths`, `[page, path]`: a `sources:` entry that does not exist, or a backticked span in a page body
   holding `/` (a file or a folder; a span wrapped onto the next line reads as one) whose first segment is a live
   top-level folder, one holding a live manifest entry or copy, and which does not exist. A span that exists as
-  written resolves, whatever it holds: file and folder names carry `[`, `]` and `?`. Otherwise a `*` or `<...>` in a
-  segment makes the span a routing pattern (as a Schema's routing writes them), judged up to its first patterned
-  segment: dead when the folders before it do not exist, else counted in `backticked_paths_unchecked`, since what the
-  pattern stands in for cannot be told. A span whose only special characters are `[`, `]` or `?` is tried as a
-  pattern: it resolves when it matches something, and is otherwise a literal path, so a missing one is dead. A span
-  under any other first segment, or patterned from its first segment, is counted in `backticked_paths_unchecked` too
-  (in the fixture, the Schema's `_Inbox/`). The Log's pages are history and are not read for paths. `readiness.py`
-  names the unchecked count in its `wiki.problems` finding, beside the problems.
+  written is found, whatever it holds. `[`, `]` and `?` are the characters they are, never a pattern, since file and
+  folder names carry them: `Invoice [3].pdf` is not `Invoice 3.pdf`, so a stale one is dead. Only a `*` or a
+  `<...>` in a segment makes a span a routing pattern (as a Schema's routing writes them), judged up to its first
+  patterned segment: dead when the folders before it do not exist; when they do, a `*` pattern is found if something
+  matches it, and otherwise (nothing matches, or it holds a `<...>` placeholder) counted in
+  `backticked_paths_unchecked`, since what the pattern stands in for cannot be told. A span under any other first
+  segment, or patterned from its first segment, is counted there too (in the fixture, the Schema's `_Inbox/`). The
+  Log's pages are history and are not read for paths. `readiness.py` names the unchecked count in its `wiki.problems`
+  finding, beside the problems.
 - `dead_page_links`, `[page, link]`: a link to a `.md` that resolves to nothing. A link is local when it has no
   scheme (`http:`, `mailto:`, `obsidian:`) and is not rooted at `/`, as `move` reads it (`local_link`), and a link
   with a title (`[Tax](Tax.md "t")`) is read as its target. A link to a page the page map only plans (as `brief`
@@ -827,10 +828,12 @@ same way, which is not a finding and not a pass either, and does not change the 
 - `records`, over the live documents `extract.py` reads (hashed ones): `missing_extracts`, `missing_cards`,
   `malformed_cards` (a card not in the card format, such as a `sensitive` that is not true or false: counted and
   named, never the end of the check, so a folder carded by an older tool shows every card to redo),
-  `malformed_extracts` (an extract record that is not JSON, not UTF-8, not an object, or whose pages are not a list
-  of page objects: counted and named the same way; remove it and run `extract.py` again),
+  `malformed_extracts` (an extract record that is not JSON, not UTF-8, not an object, unreadable, or whose pages are
+  not a list of page objects with a whole-number `n` when they have one: counted and named the same way, by the
+  document's path and the reason, with no absolute path; remove it and run `extract.py` again),
   `bad_category` (outside the rulebook's `card_categories`), `extract_paths_stale` (a record whose path is not the
-  manifest's; the finding names the [`extract.py repath`](#repath) command that repairs it) and `contamination` (a
+  manifest's; the finding names the [`extract.py repath`](#repath) command that repairs it, after the malformed
+  extract records, which `repath` cannot read, are dealt with) and `contamination` (a
   card naming an isolation term its own source lacks, by `cards.py`'s rule; `not verified` without `--terms`). A
   count above zero is one finding. A check that needed a card or extract record that could not be read says so for
   that document rather than reading it clean: `extract_paths_stale` and `contamination` become `not verified for N
@@ -874,10 +877,13 @@ reads it, so both sides accept the same spellings: `MM-DD`, month first, two dig
 the day first or the month first (`5 April`, `April 5`), the name in full, its first three letters or `sept`, in any
 case, the day with an optional lower-case ordinal (`5th Apr`). Any other numeric form (`6/4`, `4-5`) is refused, as
 is a day the month cannot have (`31 April`); 29 February is a date. The roll-up shows the month in words, so a
-numeric `MM-DD` written the wrong way round shows on the page. The scan of a hand-kept list also finds a date with a
-full stop after the month (`5 Apr.`), which a `recurring` entry may not use. It reads a list item that opens with the
-date, or a date alone in a table cell between pipes: a table without outer pipes, a list item that leads with text
-and a date inside a sentence are not read. The sources are the pages that are not `superseded`.
+numeric `MM-DD` written the wrong way round shows on the page. The scan finds a date that opens a list item, a
+quoted line (`> - 5 Sept`) or a table cell between pipes, with a note after it if there is one (`5 Sept (fees)`),
+and a date with a full stop after the month (`5 Apr.`), which a `recurring` entry may not use. A hand-kept date it
+cannot read is reported as an `unreadable yearly date`, never dropped: a day beside a word of three letters or more
+that starts like a month name but is not one the contract reads (`31 Sept`, `5 Septmber`), or a day and month with a
+year (`5 Sept 2026`). A table without outer pipes, a list item that leads with text, an unquoted line and a date
+inside a sentence are not read. The sources are the pages that are not `superseded`.
 
 - `derived_pages_hold_nothing_hand_written`: every `YYYY-MM-DD` on the roll-up is a page's `deadline` or
   `deadlines` date (`YYYY-MM-DD` or `{date, note}`), except the roll-up's own `last-updated`, a build stamp; the
@@ -887,7 +893,7 @@ and a date inside a sentence are not read. The sources are the pages that are no
   and a roll-up with nothing to show (no forward deadline and no recurring date) in a wiki of derived pages says
   why (a page of headings or a bare "None" does not).
 - `recurring_dates_in_frontmatter`: every yearly date listed on the roll-up is a page's `recurring` date (a
-  hand-kept "every year" table is the usual finding); every `recurring` entry reads `{date, note}`, the date as
+  hand-kept "every year" table is the usual finding), and none is unreadable; every `recurring` entry reads `{date, note}`, the date as
   `MM-DD` (month first) or a day and a month name, a day the month has, with a note; and the roll-up lists each
   (a `YYYY-MM-DD` on the same day does not show it).
 - `other_derived_pages`: another page the Schema marks derived (an open-questions list) shows no date its sources

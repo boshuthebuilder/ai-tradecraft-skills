@@ -208,12 +208,25 @@ class MonthDayTest(unittest.TestCase):
             self.assertIsNone(readiness.month_day(text), text)
 
     def test_the_roll_up_scan_lists_a_date_by_its_place_on_the_line(self):
-        for line, want in (("- 5th Apr: tax year ends", ["04-05"]), ("| Sept 5 |", ["09-05"]),
-                           ("| 5 Sept | school fees |", ["09-05"]), ("- **9 sept**: fees", ["09-09"]),
-                           ("| 5 Apr. | tax year ends |", ["04-05"]),  # a hand-kept date is found however it is spelt
-                           ("| 31 April | nonsense |", []), ("the move was on 5 April, and we", []),
-                           ("| 5 items | none |", [])):
+        for line, want in (("- 5th Apr: tax year ends", (["04-05"], [])), ("| Sept 5 |", (["09-05"], [])),
+                           ("| 5 Sept | school fees |", (["09-05"], [])), ("- **9 sept**: fees", (["09-09"], [])),
+                           ("| 5 Apr. | tax year ends |", (["04-05"], [])),  # found however it is spelt
+                           ("> - 5 Sept", (["09-05"], [])), ("> 5 Sept", (["09-05"], [])),
+                           ("| 5 Sept (fees) |", (["09-05"], [])),  # the text after a readable date is a note
+                           ("| 5 April | 6 April |", (["04-05", "04-06"], [])),
+                           ("the move was on 5 April, and we", ([], [])), ("| 5 items | none |", ([], [])),
+                           ("| Date | What |", ([], [])), ("| April 2026 |", ([], [])), ("pages 10-12", ([], []))):
             self.assertEqual(readiness.yearly_dates(line), want, line)
+
+    def test_the_roll_up_scan_reports_a_date_shaped_entry_it_cannot_read(self):
+        """A day beside a word that starts like a month but is not one the contract reads, or a day and month with
+        a year, is a hand-kept yearly date: reported as written, never dropped."""
+        for line, odd in (("| 31 Sept |", "31 Sept"), ("| 31 April | nonsense |", "31 April"),
+                          ("| 5 Septmber |", "5 Septmber"), ("| 5 Sept 2026 |", "5 Sept 2026"),
+                          ("| September 5, 2026 |", "September 5, 2026"),
+                          ("- 5 April 2026: fees", "5 April 2026: fees"),
+                          ("> - 5 Septmber", "5 Septmber"), ("| 32 Jan |", "32 Jan"), ("| Sept 31 |", "Sept 31")):
+            self.assertEqual(readiness.yearly_dates(line), ([], [odd]), line)
 
 
 class GreenTest(Prepared):
@@ -369,6 +382,34 @@ class ContractTest(Prepared):
         self.assertIn("4 yearly date(s) no page's recurring: list carries (line 17: 09-05; line 18: 09-07; "
                       "line 19: 09-05; line 20: 09-05)",
                       self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
+
+    def roll_up_with(self, text):
+        """The roll-up page with `text` after an "Every year" heading, accepted again."""
+        p = self.page(DEADLINES)
+        shutil.copy(os.path.join(self.template, WIKI, *DEADLINES.split("/")), p)
+        write(p, read(p) + "\n## Every year\n\n" + text)
+        self.accept_again(DEADLINES)
+
+    def test_a_hand_kept_date_the_contract_cannot_read_is_a_finding_never_dropped(self):
+        """Each of these read as ok: a day that month does not have, a mistyped month, a year, and the same day
+        written as a note beside it or in a quoted list."""
+        table = "| Date | What |\n| --- | --- |\n| %s | school fees |\n"
+        for text, want in ((table % "31 Sept", "1 unreadable yearly date(s) (line 17: 31 Sept)"),
+                           (table % "31 April", "1 unreadable yearly date(s) (line 17: 31 April)"),
+                           (table % "5 Septmber", "1 unreadable yearly date(s) (line 17: 5 Septmber)"),
+                           (table % "5 Sept 2026", "1 unreadable yearly date(s) (line 17: 5 Sept 2026)"),
+                           (table % "5 Sept (fees)", "1 yearly date(s) no page's recurring: list carries "
+                                                     "(line 17: 09-05)"),
+                           ("> - 5 Sept\n", "1 yearly date(s) no page's recurring: list carries (line 15: 09-05)"),
+                           ("> - 31 Sept\n", "1 unreadable yearly date(s) (line 15: 31 Sept)")):
+            with self.subTest(text=text):
+                self.roll_up_with(text)
+                self.assertIn(want, self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
+
+    def test_a_recurring_date_shown_with_a_note_in_its_cell_is_backed(self):
+        self.add_recurring("{date: 5 Sept, note: School fees due}")
+        self.roll_up_with("| Date | What |\n| --- | --- |\n| 5 Sept (school fees) | [Tax](../20%20Finance/Tax.md) |\n")
+        self.readiness(code=0)
 
     def test_a_recurring_date_written_sept_matches_the_roll_up(self):
         self.add_recurring("{date: 5 Sept, note: School fees due}")
@@ -698,7 +739,7 @@ class FindingTest(Prepared):
         """A missing path is a problem even when its name holds `[` or `?`; the paths a run could not check are
         counted next to the problems, in the finding and in the wiki block, not only as a not-verified string."""
         self.edit_page(TAX, "Nothing is due:", "Nothing is due (see `02 Finance/Statement [final].pdf` and "
-                       "`02 Finance/*.pdf`):")
+                       "`02 Finance/Statement*/`):")
         res = self.readiness(code=1)
         self.assertEqual(res["findings"], [["wiki.problems", "wiki.py check reports 1 problem(s); 2 backticked "
                                             "path(s) were not checked against the folder (a pattern, or outside the "
@@ -760,6 +801,52 @@ class FindingTest(Prepared):
         self.assertEqual(sorted(k for k, _v in res["findings"]),
                          ["records.bad_category", "records.extract_paths_stale", "records.malformed_cards",
                           "records.malformed_extracts"])
+
+    def test_an_extract_page_with_a_null_number_is_counted_not_a_crash(self):
+        """`full_text` formats the page number, so a null one ended a `--terms` run (exit 2) before anything was
+        counted; the loader refuses it, and it is counted like any malformed record."""
+        terms = os.path.join(self.tmp, "terms.txt")
+        write(terms, TERMS)
+        p = self.path("_Audit", "extract", self.ids()["06 Work/Contract.docx"] + ".json")
+        write(p, json.dumps(dict(json.loads(read(p)), pages=[{"n": None, "text": "x"}])))
+        res = self.readiness("--terms", terms, code=1)
+        self.assertEqual(res["records"]["malformed_extracts"], 1)
+        self.assertIn("06 Work/Contract.docx: page 1 must be an object whose n is a whole number",
+                      dict(res["findings"])["records.malformed_extracts"])
+
+    def test_an_unreadable_record_is_named_by_its_path_in_the_folder(self):
+        """A record that is a folder, or has no read permission, names the file as the folder holds it: no finding
+        carries the absolute path of the machine it was run on."""
+        ids = self.ids()
+        extract = self.path("_Audit", "extract", ids["06 Work/Contract.docx"] + ".json")
+        card = self.card("04 Study/Notes.rtf")
+        for p in (extract, card):
+            os.remove(p)
+            os.mkdir(p)
+        locked = self.path("_Audit", "extract", ids["04 Study/Slides.pptx"] + ".json")
+        os.chmod(locked, 0)
+        self.addCleanup(os.chmod, locked, 0o644)
+        res = self.readiness(code=1)
+        found = dict(res["findings"])
+        self.assertIn("06 Work/Contract.docx: cannot read _Audit/extract/", found["records.malformed_extracts"])
+        self.assertIn("04 Study/Notes.rtf: cannot read _Audit/cards/", found["records.malformed_cards"])
+        self.assertEqual(res["records"]["malformed_extracts"], 1 if os.access(locked, os.R_OK) else 2)
+        self.assertNotIn(self.root, json.dumps(res["findings"]))
+
+    def test_the_repath_advice_says_to_deal_with_a_malformed_record_first(self):
+        """`extract.py repath` refuses a record it cannot read, so the advice puts the malformed ones first."""
+        ids = self.ids()
+        p = self.path("_Audit", "extract", ids["04 Study/Notes.rtf"] + ".json")
+        write(p, json.dumps(dict(json.loads(read(p)), path="04 Study/Old notes.rtf")))
+        self.assertIn("; repath them: extract.py repath", dict(self.readiness(code=1)["findings"])[
+            "records.extract_paths_stale"])
+        write(self.path("_Audit", "extract", ids["06 Work/Contract.docx"] + ".json"), "{")
+        detail = dict(self.readiness(code=1)["findings"])["records.extract_paths_stale"]
+        self.assertIn("deal with the malformed extract records first (repath refuses a record it cannot read), "
+                      "then repath them: extract.py repath", detail)
+        code, _out, err = run("extract.py", "repath", "--root", self.root, "--work", self.work, "--apply")
+        self.assertEqual(code, 2, "the advice is right: repath refuses beside a record it cannot read")
+        self.assertIn("cannot repath", err)
 
     def test_a_check_that_needed_a_malformed_extract_record_is_not_verified(self):
         """The stale-path check reads each record's path, so a record it could not read is not verified, never a
