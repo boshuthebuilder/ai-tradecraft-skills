@@ -16,7 +16,9 @@ pass either, and the operator reads it.
   without --terms). A check that needed a record it could not read is not verified for that document. A count
   above zero is one finding;
 - isolation: per engine, the canary result `isolation.py canary --out` wrote to `<work>/state/canary-<engine>.json`:
-  `passed`, `failed: ...` (a finding) or `not run: ...` (not verified);
+  `passed (model M, effort E)`, naming the model that was cleared, to compare with the model the cards ran on,
+  `failed: ...` (a finding), `not run: ...` (not verified) or `not verified: ...` (a pass recorded without
+  the invented name the canary now plants, so one from an earlier canary, which a refusal could pass: run it again);
 - wiki: `wiki.py check`, as it reports; its problems are one finding, its not-verified states are listed;
 - wiki_handoff: the rationale file exists (`check` does not count it missing, since drafting agents run `check`
   before it is assembled), and every page is accepted: each page `check` does not report `accepted` is one
@@ -496,7 +498,7 @@ def record_checks(root, rb, live, evidence):
 
 
 def canary(work, engine):
-    """passed, failed: ... or not run: ..., from the result isolation.py canary wrote."""
+    """passed, failed: ..., not run: ... or not verified: ..., from the result isolation.py canary wrote."""
     rel = os.path.join("state", "canary-%s.json" % engine)
     path = os.path.join(work, rel)
     if not os.path.exists(path):
@@ -505,9 +507,15 @@ def canary(work, engine):
     if res.get("engine") != engine or not isinstance(res.get("pass"), bool):
         raise common.ToolError("%s is not a canary result for %s; run isolation.py canary again" % (path, engine))
     if res["pass"]:
-        return "passed"
-    why = ("%s isolation term(s) in the engine's reply" % res.get("hits") if "reply" in res
-           else "the engine gave no answer (%s)" % res.get("error", "no error recorded"))
+        if res.get("answered") is not True or not res.get("marker"):
+            return ("not verified: %s records a pass without the invented name a canary now plants, so it may be from "
+                    "a canary a refusal could pass; run isolation.py canary again" % rel)
+        effort = res.get("effort")  # agy's is in its model id; the cards' model is `card_meta.model`, to compare by eye
+        return "passed (model %s%s)" % (res.get("model", "not recorded"), ", effort %s" % effort if effort else "")
+    if "reply" in res and res.get("answered") is not False:
+        why = "%s isolation term(s) in the engine's reply" % res.get("hits")
+    else:  # no reply at all, or one in neither of the canary's forms (a refusal): the reason is the error
+        why = "the engine gave no usable answer (%s)" % res.get("error", "no error recorded")
     return "failed: %s, checked %s" % (why, res.get("checked_at"))
 
 
@@ -611,7 +619,7 @@ def main():
     for engine, state in out["isolation"]["canary"].items():
         if state.startswith("failed"):
             findings.append(["isolation.canary." + engine, state])
-        elif state.startswith("not run"):
+        elif state.startswith(("not run", "not verified")):
             unverified.append(["isolation.canary." + engine, state])
     if out["wiki"]["problems"]:
         findings.append(["wiki.problems", "wiki.py check reports %d problem(s); %d backticked path(s) were not checked "

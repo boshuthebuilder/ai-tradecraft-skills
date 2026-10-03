@@ -183,8 +183,9 @@ a tool, never written by hand**: a deterministic renderer turns the table into t
 prepared folder, `pre-onboarding`'s `wiki.py chart`), so the same data always gives the same block. Where
 the data cannot support a visual (a series of fewer than three points, units or currencies mixed with no
 policy, events without dates), or no renderer is at hand, the page keeps the table or a sentence and
-draws nothing. Which chart kinds render in which editor belongs in `productivity:portable-markdown`;
-until it records them, check each kind in the owner's editor before relying on it.
+draws nothing. Which chart kinds and callout types render in which editor, and any editor setting they
+need, is recorded once in `productivity:portable-markdown` ("Charts and callouts"); a page uses only what
+it lists, and the table beside every chart is what keeps the page whole where a chart does not draw.
 
 ### History pages
 
@@ -617,7 +618,8 @@ with no inline maintainer, the scheduled passes are the primary path.
   Deadlines page. A page the Schema marks `derived` (the Deadlines roll-up, an open-questions list built
   from the pages) holds nothing written by hand. **An empty roll-up must say why:** zero
   rows found while derived pages exist is a likely keying fault, rendered as a loud banner on the
-  Deadlines page ("roll-up found no frontmatter deadlines across N pages") — never a bare "None". A
+  Deadlines page (a `> [!warning]` callout, its marker alone on its line, then "roll-up found no
+  frontmatter deadlines across N pages") — never a bare "None". A
   deployment's deterministic roll-up enforces this in code (prose can't hold it); a hand-kept wiki
   applies it by hand.
 - **A project files within itself; the owner's synthesis proposes migrations.** Keep a wiki about *its

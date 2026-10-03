@@ -96,17 +96,32 @@ finishes. Documents are bucketed by their text: under 20 characters (bucket 1), 
 
 - **`group` and `single`** send the documents' full text in one call.
 - **`sections`**, and a `single` whose estimated tokens exceed `--single-tokens` when that is set, read the
-  document in sections first. Its text is split at page boundaries into sections of at most `--section-tokens`
-  estimated tokens (or `--section-chars` characters when that is not set). Each section gets its own call asking
-  for notes of at most 200 words, from the light engine (`--light-model` at low effort for `codex`, otherwise the
-  same engine), cached in `<work>/sections/` so a rerun does not pay for them again; a section that fails three
-  times is noted as unread. The card is then written from the notes and the document's first 20,000 characters,
-  with `read` set to `sectioned`.
-- **A token estimate** is ASCII characters divided by 3.8, plus other characters times 1.1.
+  document in sections first. Its pages are packed in order into sections of at most `--section-tokens` estimated
+  tokens (or `--section-chars` characters when that is not set): a page goes whole into the section in progress when
+  it fits there, and starts the next when it does not. A page over the budget by itself is split inside, because a
+  text, Word, rtf or csv extraction is one page however long it is: at paragraph breaks, a paragraph still too long
+  at line breaks, a line still too long at any character, so that every call fits (with `agy`, under its byte
+  limit). Each section gets its own call asking for notes of at most 200 words, from the light engine
+  (`--light-model` at low effort for `codex`, otherwise the same engine), cached in `<work>/sections/`, each file named
+  by a hash of the section's own text, the budget, the model and effort that wrote the notes and the prompt, so a
+  rerun does not pay for them again and a changed budget, model or prompt never reuses old notes. A cached file that
+  is empty, or lacks its `[section k of n]` header, is a miss. To force a re-read, delete the document's files in
+  `<work>/sections/` (they start with the first 16 characters of its id). A section budget under 1,000 (characters
+  or estimated tokens) is refused. A section that fails three times, returns no notes, or is over `agy`'s byte limit
+  (four-byte characters can still be, at 60,000 characters) is not read, and then **no card is written**: a card
+  made from notes with a hole in them would claim a read it lacks. `<work>/state/card_err_<id>.txt` names each
+  section not read (and is removed once the document's card is written), and the sections that were read stay
+  cached, so a rerun reads only the rest. When every section
+  is read, the card is written from the notes and the document's first 20,000 characters, with `read` set to
+  `sectioned`.
+- **A token estimate** is ASCII characters divided by 3.8, plus other characters times 1.1, rounded up, so that a
+  short line is never free and a section's estimate is never below what its pieces add to.
 - **A quota message** stops the batch: the cards it has joined are written, and the worker sleeps for the reset
   time the message gives (10 minutes for `agy` and 30 for `codex` when it gives none), plus 90 seconds, and at
   most five hours, then goes on with what is left.
-- **`--redo <file>`** re-cards the ids listed in the file, one per call, even though their cards exist; an id is
+- **`--redo <file>`** re-cards the ids listed in the file, one per call, even though their cards exist, each sent as
+  a first run would send it (its size decides: a long document is read in sections, reusing the cached notes, so
+  only a section that failed is read again); an id is
   added to `<work>/state/redo_done_<k>.txt`, the ones done so far, only once its card is written.
 
 Each call goes through [`engines.py`](tools.md#enginespy): a fresh empty working directory, the prompt on standard

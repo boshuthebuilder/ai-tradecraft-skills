@@ -264,11 +264,18 @@ class GreenTest(Prepared):
     def test_terms_and_passing_canaries_leave_nothing_unverified(self):
         terms = os.path.join(self.tmp, "terms.txt")
         write(terms, TERMS)
-        for engine in ("agy", "codex"):
-            self.canary(engine, reply="NONE", hits=0, usage={}, **{"pass": True})
+        self.canary("agy", reply="NAMES: Kobelumi", hits=0, usage={}, answered=True, marker="Kobelumi",
+                    model="gemini-fake-high", effort=None, **{"pass": True})
+        self.canary("codex", reply="NAMES: Kobelumi", hits=0, usage={}, answered=True, marker="Kobelumi",
+                    model="gpt-fake", effort="low", **{"pass": True})
         res = self.readiness("--terms", terms, code=0)
         self.assertEqual((res["not_verified"], res["records"]["contamination"]), ([], 0))
-        self.assertEqual(res["isolation"], {"canary": {"agy": "passed", "codex": "passed"}})
+        self.assertEqual(res["isolation"], {"canary": {"agy": "passed (model gemini-fake-high)",
+                                                       "codex": "passed (model gpt-fake, effort low)"}})
+        self.canary("agy", reply="NAMES: Kobelumi", hits=0, usage={}, answered=True, marker="Kobelumi",
+                    **{"pass": True})  # from a canary that recorded no model
+        self.assertEqual(self.readiness("--terms", terms, code=0)["isolation"]["canary"]["agy"],
+                         "passed (model not recorded)")
 
     def test_settings_outside_the_folder(self):
         """The wiki check reads the Schema from --settings-dir too, so its professional checks are verified."""
@@ -342,7 +349,7 @@ class ContractTest(Prepared):
         self.assertIn("an empty roll-up that does not say why",
                       self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written"))
         self.edit_page(DEADLINES, "None\n",
-                       "> [!warning] The roll-up found no frontmatter deadlines across 11 pages.\n")
+                       "> [!warning]\n> The roll-up found no frontmatter deadlines across 11 pages.\n")
         self.readiness(code=0)
 
     def test_a_recurring_date_kept_by_hand(self):
@@ -794,7 +801,30 @@ class FindingTest(Prepared):
                                             "reply, checked 2024-06-30T12:00:00+0000"]])
         self.assertIn(["isolation.canary.agy", res["isolation"]["canary"]["agy"]], res["not_verified"])
         self.canary("codex", error="timeout", **{"pass": False})
-        self.assertIn("the engine gave no answer (timeout)", self.one_finding("isolation.canary.codex"))
+        self.assertIn("the engine gave no usable answer (timeout)", self.one_finding("isolation.canary.codex"))
+        self.canary("codex", reply="I cannot list that.", hits=0, answered=False, usage={}, marker="Kobelumi",
+                    error="the reply did not repeat the test name Kobelumi", **{"pass": False})
+        finding = self.one_finding("isolation.canary.codex")
+        self.assertIn("no usable answer (the reply did not repeat the test name Kobelumi", finding)
+        self.assertNotIn("0 isolation term(s)", finding)
+
+    def test_a_pass_without_the_marker_is_not_verified_never_passed(self):
+        """A result from the canary that a refusal could pass (no marker, or no `answered`), or one edited to claim a
+        pass, is a named not-verified state: not a pass, and not a finding either."""
+        cases = {"the old canary": dict(reply="NONE", hits=0, usage={}),
+                 "answered but no marker": dict(reply="NAMES: x", hits=0, usage={}, answered=True),
+                 "an empty marker": dict(reply="NAMES: x", hits=0, usage={}, answered=True, marker=""),
+                 "a marker but not answered": dict(reply="NAMES: x", hits=0, usage={}, answered=False,
+                                                   marker="Kobelumi")}
+        for name, fields in cases.items():
+            with self.subTest(name):
+                self.canary("agy", **dict(fields, **{"pass": True}))
+                res = self.readiness(code=0)
+                state = res["isolation"]["canary"]["agy"]
+                self.assertTrue(state.startswith("not verified: state/canary-agy.json records a pass without the "
+                                                 "invented name"), state)
+                self.assertIn(["isolation.canary.agy", state], res["not_verified"])
+                self.assertNotIn("isolation.canary.agy", [k for k, _v in res["findings"]])
 
     def test_the_rationale_file_missing(self):
         os.remove(self.path("_Audit", "wiki-rationale.md"))

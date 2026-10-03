@@ -413,8 +413,8 @@ The constitution of Alex's wiki (fictional fixture).
     w(W("91 Log", "91 Log.md"), page([], "# 91 Log\n\n## [2024-06-30] build | Wiki built from the fixture folder."))
     w(W("00 Index", "00 Index.md"), page([], """# 00 Index
 
-> [!note] Needs attention
-> The electricity bill of GBP 96.40 is due by 2024-04-01.
+> [!note]
+> **Needs attention.** The electricity bill of GBP 96.40 is due by 2024-04-01.
 
 Waiting to be filed: `IMG_0001.jpg` at the top of the folder (a beach photo).
 

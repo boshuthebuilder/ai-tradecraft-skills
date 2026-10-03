@@ -474,8 +474,10 @@ def parse_json(text):
 
 
 def est_tokens(text):
+    """ASCII characters over 3.8 plus the others times 1.1, rounded up (in whole numbers, so a sum of pieces never
+    undercounts what the pieces make together: a short line is not free)."""
     ascii_chars = sum(1 for ch in text if ord(ch) < 128)
-    return int(ascii_chars / 3.8 + (len(text) - ascii_chars) * 1.1)
+    return -(-(ascii_chars * 50 + (len(text) - ascii_chars) * 209) // 190)
 
 
 def run_main(fn):

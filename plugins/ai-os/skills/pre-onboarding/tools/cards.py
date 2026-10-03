@@ -7,7 +7,10 @@
 Batches: small documents share a call (group), long ones get their own (single), and documents over the context
 budget are read section by section into cached notes, then carded from the notes (sections). Instructions come from
 `templates/card-instructions.md`, filled from the folder's own settings (people, description, categories,
-identifier policy).
+identifier policy). A section is at most the budget, whatever the document: a page over it (a text, Word or csv
+extraction is one page) is split at paragraph, then line, then character breaks. A section that cannot be read means
+no card, a `card_err_<id>.txt` naming it, and the notes already read cached for the rerun: a card made from the rest
+would claim a read it lacks.
 
 The join is deterministic: each call issues short ids (d1, d2, ...) for the items it sends, and a reply is applied
 only when it passes three checks, each catching something different:
@@ -36,6 +39,7 @@ writes <work>/state/ALERT, writes none of them and stops every worker. With --re
 its card is written.
 """
 import glob
+import hashlib
 import json
 import os
 import re
@@ -50,6 +54,7 @@ import isolation  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FINAL = {"ok", "partial", "blank", "photo", "listed", "no_reader", "failed"}
+MIN_SECTION = 1_000  # the smallest section budget (characters or estimated tokens) a run accepts
 TYPES = {"object": dict, "array": list, "string": str, "boolean": bool}
 RUN = re.compile(r"\d+(?:[ ,./\-]\d+)*")  # digits, and the single separators that may sit inside one number
 YEAR = re.compile(r"(?:19|20)\d\d$")
@@ -71,6 +76,11 @@ def load_json(path):
 def read_text(path):
     with open(path, encoding="utf-8") as f:
         return f.read()
+
+
+def mode_for(chars, b):
+    """How a document of `chars` characters is sent: with others (group), alone (single) or in sections."""
+    return "group" if chars <= b.small_chars else "single" if chars <= b.single_max else "sections"
 
 
 class Budget:
@@ -174,9 +184,8 @@ def build(a):
             if it is None:
                 break
             if it["chars"] > b.small_chars:
-                mode = "single" if it["chars"] <= b.single_max else "sections"
                 common.Writer().json(os.path.join(run.batches, "%d_%05d.json" % (bk, seq)),
-                                     {"bucket": bk, "mode": mode, "items": [it]})
+                                     {"bucket": bk, "mode": mode_for(it["chars"], b), "items": [it]})
                 seq, made = seq + 1, made + 1
                 continue
             cur.append(it)
@@ -349,55 +358,136 @@ def run_items(run, engine, instr, items, schema, log, sink, depth=0):
         run_items(run, engine, instr, items[h:], schema, log, sink, depth + 1)
         return
     for it in items:
-        with open(os.path.join(run.state, "card_err_%s.txt" % it["id"]), "w", encoding="utf-8") as f:
-            f.write(last)
+        record_failure(run, it["id"], last)
+
+
+def record_failure(run, eid, why):
+    with open(os.path.join(run.state, "card_err_%s.txt" % eid), "w", encoding="utf-8") as f:
+        f.write(why)
+
+
+class SectionsUnread(Exception):
+    """A section of a long document could not be read. A card made from the others would claim a read it lacks, so
+    the document gets no card."""
+
+
+def widest_fit(limit, size):
+    """How many characters of the costliest kind (a wide one) `size` still puts within `limit`, at least one."""
+    lo, hi = 1, max(1, limit)
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if size("\u4e2d" * mid) <= limit:
+            lo = mid
+        else:
+            hi = mid - 1
+    return lo
+
+
+def split_sections(blocks, limit, size):
+    """`blocks` (a document's pages) packed in order into sections none over `limit` by `size`. A page goes whole into
+    the section in progress when it fits there, else starts the next; a page over the limit by itself is split at
+    paragraph breaks, a paragraph still over at line breaks, a line still over at any character, each break kept at
+    the start of the part after it. Joined, the sections are the blocks again."""
+    chunks, cur, used = [], "", 0
+    step = widest_fit(limit, size)  # characters that always fit
+
+    def add(piece, seps):
+        nonlocal cur, used
+        n = size(piece)
+        if used + n <= limit:
+            cur, used = cur + piece, used + n
+        elif n <= limit:
+            chunks.append(cur)
+            cur, used = piece, n
+        elif seps:
+            head, *rest = piece.split(seps[0])
+            add(head, seps[1:])
+            for part in rest:
+                add(seps[0] + part, seps[1:])
+        else:
+            width = widest_fit(limit - used, size)  # the first slice fills the section in progress
+            while piece:
+                add(piece[:width], ())
+                piece, width = piece[width:], step
+
+    for i, block in enumerate(blocks):
+        add(block if i == 0 else "\n\n[page " + block, ("\n\n", "\n"))
+    if cur:
+        chunks.append(cur)
+    return chunks
+
+
+def read_section(engine_light, rb, path, k, n, text, log):
+    """(notes, None) for one section, or (None, why) after three tries; a section over agy's byte limit is not
+    retried, since the same text would be refused again."""
+    last = "?"
+    for attempt in range(3):
+        d = engines.fresh_dir("sections_")
+        try:
+            resp, _usage = engine_light(engines.NO_TOOLS + SECTION_PROMPT.format(
+                path=path, k=k, n=n, text=text,
+                identifier_rule="Write reference numbers %s." % identifier_rule(rb)), d)
+            obj = common.parse_json(resp)
+            notes = obj.get("notes") if isinstance(obj, dict) else None
+            if not isinstance(notes, str) or not notes.strip():
+                raise ValueError("reply has no notes")
+            return "[section %d of %d] %s" % (k, n, notes), None
+        except (engines.QuotaError, common.ToolError):
+            raise
+        except engines.PromptTooLong as ex:
+            return None, str(ex)[:200]
+        except (engines.EngineError, ValueError) as ex:
+            last = str(ex)[:200]
+            log("  section %d/%d attempt %d failed: %s" % (k, n, attempt + 1, last[:160]))
+        finally:
+            shutil.rmtree(d, True)
+    return None, last
+
+
+def cached_note(path, k, n):
+    """The notes a cache file holds, or None (a miss, read again) when there is none or it is no note: it must carry
+    its `[section k of n]` header and something after it, which a partly written file would not."""
+    if not os.path.exists(path):
+        return None
+    note = read_text(path)
+    head = "[section %d of %d]" % (k, n)
+    return note if note.startswith(head) and note[len(head):].strip() else None
 
 
 def sections_text(run, engine_light, eid, log, engine_name):
+    """The text a long document is carded from: the notes on every section, then its first 20,000 characters. Raises
+    SectionsUnread when any section could not be read; the notes that were read stay cached for the rerun."""
     it = run.payload(eid)
     text = it["text"]
     b = run.budget
     size = common.est_tokens if b.section_tokens else len
     limit = b.section_tokens or b.section_chars
-    chunks, cur, cur_n = [], "", 0
-    for block in text.split("\n\n[page "):
-        piece = block if not chunks and not cur else "\n\n[page " + block
-        n = size(piece)
-        if cur and cur_n + n > limit:
-            chunks.append(cur)
-            cur, cur_n = "", 0
-        cur += piece
-        cur_n += n
-    if cur:
-        chunks.append(cur)
+    chunks = split_sections(text.split("\n\n[page "), limit, size)
+    # What the notes depend on, besides the section's own text: the budget, the model and effort that wrote them, and
+    # the prompt (the template and the identifier rule). A change to any of them reads the section again.
+    basis = "\n".join(["tokens" if b.section_tokens else "chars", str(limit), getattr(engine_light, "model", None) or
+                       "cli-default", str(getattr(engine_light, "effort", None)),
+                       engines.NO_TOOLS + SECTION_PROMPT + identifier_rule(run.rb)])
     cache = os.path.join(run.work, "sections")
     os.makedirs(cache, exist_ok=True)
-    notes = []
+    notes, unread = [], []
     for k, c in enumerate(chunks, 1):
-        cp = os.path.join(cache, "%s_%s_%d_%d.txt" % (eid[:16], engine_name, k, len(chunks)))
-        if os.path.exists(cp):
-            with open(cp, encoding="utf-8") as f:
-                notes.append(f.read())
+        digest = hashlib.sha256((basis + "\n" + c).encode("utf-8")).hexdigest()[:12]
+        cp = os.path.join(cache, "%s_%s_%d_%d_%s.txt" % (eid[:16], engine_name, k, len(chunks), digest))
+        note = cached_note(cp, k, len(chunks))
+        if note is not None:
+            notes.append(note)
             continue
-        for attempt in range(3):
-            d = engines.fresh_dir("sections_")
-            try:
-                resp, _usage = engine_light(engines.NO_TOOLS + SECTION_PROMPT.format(
-                    path=it["path"], k=k, n=len(chunks), text=c,
-                    identifier_rule="Write reference numbers %s." % identifier_rule(run.rb)), d)
-                note = "[section %d of %d] %s" % (k, len(chunks), common.parse_json(resp).get("notes", ""))
-                with open(cp, "w", encoding="utf-8") as f:
-                    f.write(note)
-                notes.append(note)
-                break
-            except (engines.QuotaError, common.ToolError):
-                raise
-            except (engines.EngineError, ValueError) as ex:
-                log("  section %d/%d attempt %d failed: %s" % (k, len(chunks), attempt + 1, str(ex)[:160]))
-            finally:
-                shutil.rmtree(d, True)
-        else:
-            notes.append("[section %d of %d] (unread)" % (k, len(chunks)))
+        note, why = read_section(engine_light, run.rb, it["path"], k, len(chunks), c, log)
+        if note is None:
+            unread.append("section %d of %d: %s" % (k, len(chunks), why))
+            continue
+        run.writer.text(cp, note)
+        notes.append(note)
+    if unread:
+        raise SectionsUnread("%d of %d sections not read, so no card is written from the rest (rerun once the cause "
+                             "is fixed; the sections already read are cached): %s"
+                             % (len(unread), len(chunks), "; ".join(unread)))
     return "SECTION NOTES (the document was read in %d sections):\n%s\n\nOPENING TEXT:\n%s" % (
         len(chunks), "\n".join(notes), text[:20000])
 
@@ -417,6 +507,18 @@ def write_cards(run, cards, batch_name, evidence, meta, log):
     for eid, c in cards.items():
         c["card_meta"] = dict(meta, batch=batch_name, created_at=common.now_local())
         run.writer.json(os.path.join(run.cards, eid + ".json"), c, indent=1)
+        stale = os.path.join(run.state, "card_err_%s.txt" % eid)
+        if os.path.exists(stale):
+            os.remove(stale)  # the card exists now: the record of why it did not is out of date
+
+
+def redo_mode(run, eid):
+    """A redone document is sent as a first run would send it (its size decides: a long one in sections, with their
+    cached notes), never whole in one call: that is what a document with sections left to read cannot survive."""
+    path = os.path.join(run.extract, eid + ".json")
+    if not os.path.exists(path):
+        raise common.ToolError("--redo names %s, which has no extract record in %s" % (eid, run.extract))
+    return mode_for(len(full_text(load_json(path))), run.budget)
 
 
 def work(a):
@@ -441,8 +543,8 @@ def work(a):
     run.writer.makedirs(run.cards)
     if a.redo:
         ids = [x.strip() for x in read_text(a.redo).splitlines() if x.strip()]
-        batches = [{"name": "redo_%d" % i, "mode": "group", "items": [{"id": x}]} for i, x in enumerate(ids)
-                   if i % wn == wi]
+        batches = [{"name": "redo_%d" % i, "mode": redo_mode(run, x), "items": [{"id": x}]}
+                   for i, x in enumerate(ids) if i % wn == wi]
         done_p = os.path.join(run.state, "redo_done_%d.txt" % wi)
         redone = {x.strip() for x in read_text(done_p).splitlines()} if os.path.exists(done_p) else set()
 
@@ -486,6 +588,10 @@ def work(a):
                 write_cards(run, sink, bt["name"], evidence, meta, log)
                 written(sink)
                 todo = []
+            except SectionsUnread as ex:
+                record_failure(run, todo[0], str(ex))
+                log("  %s: %s" % (todo[0][:12], ex))
+                todo = []
             except engines.QuotaError as ex:
                 write_cards(run, sink, bt["name"], evidence, meta, log)
                 written(sink)
@@ -515,14 +621,25 @@ def main():
     ap.add_argument("--worker", default="0/1")
     ap.add_argument("--redo", help="file of ids to re-card even though cards exist")
     ap.add_argument("--small-chars", type=int, default=60_000)
-    ap.add_argument("--batch-chars", type=int, default=180_000)
+    ap.add_argument("--batch-chars", type=int, help="default 180000; agy 60000")
     ap.add_argument("--batch-items", type=int, default=30)
     ap.add_argument("--textless-batch", type=int, default=60)
-    ap.add_argument("--section-chars", type=int, default=400_000)
-    ap.add_argument("--single-max", type=int, default=600_000)
+    ap.add_argument("--section-chars", type=int, help="default 400000; agy 60000")
+    ap.add_argument("--single-max", type=int, help="default 600000; agy 60000")
     ap.add_argument("--section-tokens", type=int, help="budget sections by estimated tokens (codex: 110000)")
     ap.add_argument("--single-tokens", type=int, help="largest single call in estimated tokens (codex: 150000)")
     a = ap.parse_args()
+    # agy refuses a message over engines.AGY_MAX_MESSAGE_BYTES; 60,000 characters stays under it even at three bytes
+    # a character (CJK text), with room for the instructions
+    wide = {"batch_chars": 180_000, "section_chars": 400_000, "single_max": 600_000}
+    for k, v in wide.items():
+        if getattr(a, k) is None:
+            setattr(a, k, 60_000 if a.engine == "agy" else v)
+    for flag in ("section_chars", "section_tokens"):
+        if getattr(a, flag) is not None and getattr(a, flag) < MIN_SECTION:
+            raise common.ToolError("--%s %d is under the %d floor: a section that small is many calls for nothing, "
+                                   "and below a wide character's cost it cannot be split" %
+                                   (flag.replace("_", "-"), getattr(a, flag), MIN_SECTION))
     if a.cmd == "work" and not (a.terms or a.no_isolation_terms):
         raise common.ToolError("give --terms (the isolation list) or --no-isolation-terms")
     if a.cmd == "work" and a.engine == "agy" and not a.model:
