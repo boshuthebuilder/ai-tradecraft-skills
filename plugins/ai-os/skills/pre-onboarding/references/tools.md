@@ -913,28 +913,48 @@ roll-up reads
 reported.** No date is looked for in the page's text, so no shape of hand-kept date can be missed or mistaken for
 rendered output. The page is read against the roll-up's output grammar instead:
 
-1. Each page's frontmatter (superseded pages left out) gives the entries the roll-up could write, `(date, note,
-   page)`: each `recurring` item gives its month and day, each `deadline` its date with its `deadline_note`, each
-   `deadlines` item its date, the note being what YAML reads (a quoted note without its quotes) with its whitespace
-   collapsed.
-2. The page is read line by line. The grammar is the frontmatter, the headings `# Deadlines`, `## Upcoming`,
-   `## Every year`, `## Past` and `## Could not read`, the italic intro line, `_None._`, the empty-roll-up banner (with
-   its count of pages), the callout marker `> [!warning]`, blank lines, the lines under the roll-up's own `## Could not
-   read` heading (`- <page> (<why>)`, the page one of the wiki's and the why one the roll-up writes), and entries.
+1. Each page is read as the roll-up reads it, and what the roll-up could write is worked out from it (superseded pages
+   left out):
+   - the entries `(date, note, page)`: each `recurring` item gives its month and day, each `deadline` its date with its
+     `deadline_note`, each `deadlines` item its date, the note being what YAML reads, with its whitespace collapsed;
+   - the lines of its "Could not read" list, in its exact wording: `- <page> (unreadable: <exception class>)` for a
+     page that cannot be read (a file that is not UTF-8), `- <page> (malformed frontmatter)` for one whose fence never
+     closes or holds no mapping, and `- <page> (unreadable recurring date: <the first 60 characters of the item as
+     Python writes it>; <the way to write it>)` for each `recurring` date it refuses.
+2. The page is read line by line. The grammar is its frontmatter, which holds `provenance: derived`, `status:
+   current` and a `last-updated` day, once each, and nothing else; the headings `# Deadlines`, `## Upcoming`,
+   `## Every year`, `## Past` and `## Could not read`; the italic intro; `_None._`; blank lines; the empty-roll-up
+   banner, which is accepted only directly after the intro or the title, only when the pages give no entry at all,
+   and with any count of pages (a callout is its marker line, then its text line); the lines under `## Could not
+   read`, each one in the set from step 1; and entries. A line that appears twice is reported.
 3. An entry is `- **<date>**`, then the page titles and, when there is one, the note, each after a spaced em dash
-   (family-ai-os), or `: <note>` (the fixture's roll-up), then ` (<links>)` ending the line, each link `[<page path or title>](<its path from the roll-up,
-   percent-encoded>)` to a different page of the wiki. It is split with plain string handling, and the page titles are
-   the linked pages' own, so a note is never guessed at.
-4. An entry is clean only when its `(date, note, page)` is in the set from step 1, the dated ones by their full date
-   and the recurring ones by month and day, the note exactly. One whose date no page carries is reported as that
-   date, a `YYYY-MM-DD` no page's frontmatter carries or a day and month no page's `recurring` list carries; one whose
-   date is not a date the contract reads (`5-Apr`, `5 Sept 26`) is an `unreadable yearly date`. Every other line is
-   `hand-written content in a derived page`, with its line number and its first forty characters (an invisible
-   character shown by its code): a table, a heading or a sentence of the page's own, a link or text added to an
-   entry, a note or page the frontmatter does not give, a date in link text, in separate cells, in another script or
-   with a zero-width character in it. A `YYYY-MM-DD` on such a line is also judged by the check on dated deadlines.
+   (family-ai-os), or `: <note>` (the fixture's roll-up), then ` (<links>)` ending the line. The links are read from
+   the end of the line, each `[<page path without .md, or its title>](<its path from the roll-up, percent-encoded>)`
+   to a different page of the wiki, so a page name holding brackets, `](` or a long encoded name is read by its own
+   text and no target length is capped. The titles are the linked pages' own, so a note is never guessed at.
+4. An entry is clean only when its date is in the form the roll-up writes (`<day> <Month name>`, no ordinal and no
+   leading zero, or `YYYY-MM-DD`) and its `(date, note, page)` is in the set from step 1, the dated ones by their full
+   date and the recurring ones by month and day, the note exactly. `04-05` or `April 5th` in an entry line is
+   hand-edited. One whose date no page carries is reported as that date, a `YYYY-MM-DD` no page's frontmatter carries
+   or a day and month no page's `recurring` list carries; one whose date is not a date the contract reads (`5-Apr`,
+   `5 Sept 26`) is an `unreadable yearly date`. Every other line is `hand-written content in a derived page`, with
+   its line number and its first forty characters (an invisible character shown by its code): a table, a heading or
+   a sentence of the page's own, a link or text added to an entry, a note or page the frontmatter does not give, a
+   date in link text, in separate cells, in another script or with a zero-width character in it, a line in the page's
+   frontmatter that the roll-up does not write, a line of "Could not read" it did not write. A `YYYY-MM-DD` on a line
+   that is no entry is also judged by the check on dated deadlines.
 
-Each line is read in one pass with bounded searches, so a line of 100,000 characters costs a pass over it. A
+The notes are read by the two rules of YAML the roll-up meets in practice, and no more: in a plain scalar ` #` starts a
+comment (`deadline_note: Invoice #42 due` is `Invoice`), and in a flow mapping an unquoted comma ends the value
+(`{date: 04-05, note: Pay tax, file the return}` has the note `Pay tax`, and a key of its own after it). A quoted note
+is read without its quotes. YAML's other coercions are an accepted residual: a plain `yes`, `12:30` or `null` is not
+turned into a Boolean, a time or nothing, and a double-quoted note's `\n` or `\u` escapes are not read, so a note
+written so is reported rather than missed; and a page whose YAML the roll-up rejects for a reason other than a fence
+that never closes or a block with no mapping is reported when the roll-up lists it as malformed.
+
+Completeness is by date, not by entry: a page dropped from a folded line, or an entry deleted while its date shows
+elsewhere, is not reported. The roll-up regenerates the page, so readiness checks only that nothing hand-written is on
+it. Every search is bounded and each line is read in one pass, so a line of 100,000 characters costs a pass over it. A
 frontmatter `recurring` date is read as family-ai-os's roll-up reads it, so both sides accept the same spellings:
 `MM-DD`, month first, two digits each; or a day and a month name, the day first or the month first (`5 April`,
 `April 5`), the name in full, its first three letters or `sept`, in any case, the day with an optional lower-case
@@ -942,7 +962,8 @@ ordinal (`5th Apr`). Any other numeric form (`6/4`, `4-5`) is refused, as is a d
 April`); 29 February is a date. The roll-up shows the month in words, so a numeric `MM-DD` written the wrong way round
 shows on the page. The sources are the pages that are not `superseded`. The grammar's text is checked against the
 real roll-up: `tests/rollups/` holds the pages family-ai-os rendered for a plain wiki, an empty one with its banner, a
-recurring-only one and one with a "Could not read" list, which must read clean.
+recurring-only one, one with a "Could not read" list, one of page names holding brackets and long encoded targets and
+one of the YAML rules, which must read clean (`rollups/capture.py` refreshes them).
 
 - `derived_pages_hold_nothing_hand_written`: the page holds only what the roll-up renders (above); every `YYYY-MM-DD`
   on it is a page's `deadline` or `deadlines` date (`YYYY-MM-DD` or `{date, note}`); the roll-up shows every such

@@ -1002,8 +1002,13 @@ def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptan
         if only is not None and rel not in only:
             continue  # a sibling's page is never opened: it may be mid-write
         path = os.path.join(wiki, *rel.split("/"))
-        t = read_text(path)
-        shas[rel] = common.sha256_file(path)
+        try:
+            shas[rel] = common.sha256_file(path)
+            t = read_text(path)
+        except (OSError, UnicodeDecodeError):  # a page that cannot be read is not one that conforms
+            shas.setdefault(rel, "")
+            fm_bad.append(rel)
+            continue
         m = re.match(r"---\n(.*?)\n---\n", t, re.S)
         fm = parse_fm(m.group(1)) if m else {}
         fm_lines = t[:m.end()].count("\n") if m else 0

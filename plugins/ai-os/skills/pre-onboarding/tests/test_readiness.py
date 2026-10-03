@@ -316,7 +316,7 @@ class ContractTest(Prepared):
     def test_a_recurring_date_kept_by_hand(self):
         p = self.page(DEADLINES)
         write(p, read(p) + "\n## Every year\n\n"
-                           "- **01-31**: Self assessment return due ([Tax](../20%20Finance/Tax.md))\n")
+                           "- **31 January**: Self assessment return due ([Tax](../20%20Finance/Tax.md))\n")
         self.accept_again(DEADLINES)
         self.assertIn("1 yearly date(s) no page's recurring: list carries (line 15: 01-31)",
                       self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
@@ -328,7 +328,7 @@ class ContractTest(Prepared):
         self.add_recurring("{date: 01-31, note: Self assessment return due}")
         p = self.page(DEADLINES)
         write(p, read(p) + "\n## Every year\n\n"
-                           "- **01-31**: Self assessment return due ([Tax](../20%20Finance/Tax.md))\n")
+                           "- **31 January**: Self assessment return due ([Tax](../20%20Finance/Tax.md))\n")
         self.accept_again(DEADLINES)
         self.readiness(code=0)
 
@@ -518,7 +518,7 @@ class RollUpTest(Prepared):
         self.edit_page(TAX, "{date: 02-30, note: No such day}", "{date: 02-28}")
         self.assertIn("{date: 02-28}", self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
         self.edit_page(TAX, "{date: 02-28}", "{date: 02-29, note: Leap day review}")
-        self.add_to_roll_up("\n## Every year\n\n- **02-29**: Leap day review ([Tax](../20%20Finance/Tax.md))\n")
+        self.add_to_roll_up("\n## Every year\n\n- **29 February**: Leap day review ([Tax](../20%20Finance/Tax.md))\n")
         self.readiness(code=0)
 
     def test_a_recurring_date_is_shown_only_by_its_own_month_and_day(self):
@@ -908,12 +908,22 @@ class FindingTest(Prepared):
         self.assertIn("manifest missing", self.refused())
 
     def test_a_crash_exits_2_never_1(self):
-        """Exit 1 means findings, so an unforeseen failure (here a page that is not UTF-8) is a tool error."""
-        with open(self.page(TAX), "ab") as f:
+        """Exit 1 means findings, so an unforeseen failure (here a terms file that is not UTF-8) is a tool error."""
+        terms = os.path.join(self.tmp, "terms.txt")
+        with open(terms, "wb") as f:
             f.write(b"\xff\xfe")
-        got, _out, err = run("readiness.py", "--root", self.root, "--work", self.work)
+        got, _out, err = run("readiness.py", "--root", self.root, "--work", self.work, "--terms", terms)
         self.assertEqual(got, 2, err)
         self.assertIn("UnicodeDecodeError", err)
+
+    def test_a_wiki_page_that_is_not_utf8_is_a_malformed_page_not_a_crash(self):
+        """The roll-up lists such a page as unreadable and `wiki.py check` counts it as one that does not conform:
+        readiness reports it and goes on, with every other check run."""
+        with open(self.page(TAX), "ab") as f:
+            f.write(b"\xff\xfe")
+        res = self.readiness(code=1)
+        self.assertIn(TAX, res["wiki"]["frontmatter_bad"])
+        self.assertEqual([k for k, _v in res["findings"]], ["wiki.problems", "wiki_handoff.pages_not_accepted"])
 
 
 class RepathTest(Prepared):

@@ -73,25 +73,25 @@ MONTH_NUMBER = dict([(m.lower(), n) for n, m in enumerate(MONTHS, 1)]
 ORDINAL = r"(?:st|nd|rd|th)?"
 EM = "\u2014"  # the roll-up's separator, as data: family-ai-os writes `- **5 April** \u2014 Tax \u2014 note (links)`
 UNREAD = "## Could not read"
+TITLE, MARKER = "# Deadlines", "> [!warning]"
+INTRO = ("_File-derived deadlines, rolled up deterministically from page frontmatter " + EM + " do not hand-edit, "
+         "regenerated each run. (Calendar events live in `Coming Events`.)_")
+UNREAD_INTRO = "_These pages, or entries on them, were skipped. Fix their frontmatter so any deadline is picked up:_"
 # What the roll-up writes besides its entries, exactly: its headings, its intro, the line for an empty section, the
 # line over its list of what it could not read and the marker of a callout.
-ROLL_UP_LINES = frozenset((
-    "# Deadlines", "## Upcoming", "## Every year", "## Past", UNREAD, "_None._", "> [!warning]",
-    "_File-derived deadlines, rolled up deterministically from page frontmatter " + EM + " do not hand-edit, "
-    "regenerated each run. (Calendar events live in `Coming Events`.)_",
-    "_These pages, or entries on them, were skipped. Fix their frontmatter so any deadline is picked up:_"))
-# The banner an empty roll-up carries over a wiki that has pages, with `{}` for the count of pages it read.
+ROLL_UP_LINES = frozenset((TITLE, "## Upcoming", "## Every year", "## Past", UNREAD, "_None._", MARKER, INTRO,
+                           UNREAD_INTRO))
+# The banner an empty roll-up carries over a wiki that has pages, with `{}` for the count of pages it read: a callout
+# of two lines (the marker, then the text) or one line.
 BANNERS = (
     "> The roll-up found no frontmatter deadlines across {} pages.",
     "> **Roll-up found no frontmatter deadlines across {} readable pages " + EM + " likely a keying fault, not a "
     "deadline-free wiki.** Dates recorded in prose are invisible to this roll-up; record each forward date as a "
     "`deadline:`/`deadlines:` key, and each date that falls every year as a `recurring:` key, on the page that owns it "
     "(the reconcile conformance count names the pages to fix).")
-UNREAD_HINTS = ("; write the date as MM-DD, month first, or as a day and a month name",
-                "; name the date with the key `date`, as in {date: MM-DD, note: ...}")
-DATE_ITEM = re.compile(r"\{\s*date:\s*[\"']?([^,\"'}]+?)[\"']?\s*(?:,\s*note:\s*(.*?))?\s*\}")  # {date: ..., note: ...}
+DATE_HINT = "; write the date as MM-DD, month first, or as a day and a month name"
+KEY_HINT = "; name the date with the key `date`, as in {date: MM-DD, note: ...}"
 DAYS_IN_MONTH = (31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)  # 02-29 comes round in a leap year
-SAYS_NOTHING = re.compile(r"(?i)[\s>*_`|-]*(none|nothing|n/?a)?[\s.*_`|-]*")
 SAMPLE = 5
 
 
@@ -122,96 +122,84 @@ def month_day(s):
     return "%02d-%02d" % (month, day)
 
 
+def rendered_month_day(md):
+    """The form the roll-up writes a yearly date in: the day, then the month's name (`5 April`)."""
+    return "%d %s" % (int(md[3:]), MONTHS[int(md[:2]) - 1])
+
+
 def banner(line):
-    """True for the line an empty roll-up writes about the pages it read (see BANNERS)."""
-    for template in BANNERS:
+    """0 for the callout text of an empty roll-up, 1 for its one-line banner (see BANNERS), else None; the count of
+    pages in either is one number."""
+    for kind, template in enumerate(BANNERS):
         head, tail = template.split("{}")
         count = line[len(head):len(line) - len(tail)]
         if line.startswith(head) and line.endswith(tail) and count.isascii() and count.isdigit():
+            return kind
+    return None
+
+
+def says_nothing(line):
+    """True for a line that is only markup, or markup around `none`, `nothing` or `n/a`, in one pass."""
+    start = 0
+    while start < len(line) and (line[start].isspace() or line[start] in ">*_`|-"):
+        start += 1
+    for word in ("", "nothing", "none", "n/a", "na"):
+        stop = start + len(word)
+        if line[start:stop].lower() == word and all(c.isspace() or c in ".*_`|-" for c in line[stop:]):
             return True
     return False
 
 
-def parse_links(tail, pages):
-    """The pages a roll-up entry links, in order, when `tail` is exactly its links (`[text](target), [text](target)`),
-    each text the page's path without `.md` or its title and each target the page's path from the roll-up, percent
-    encoded; else None. Plain splitting, each piece bounded, so a long line costs a long line and no more."""
-    here, linked, pos = posixpath.dirname(DEADLINES), [], 0
-    while len(linked) < 50 and tail.startswith("[", pos):
-        mid = tail.find("](", pos + 1, pos + 302)
-        end = tail.find(")", mid + 2, mid + 302) if mid > 0 else -1
-        if end < 0:
-            return None
-        target = urllib.parse.unquote(tail[mid + 2:end])
-        page = posixpath.normpath(posixpath.join(here, target))
-        if (page not in pages or page in linked or target != posixpath.relpath(page, here)
-                or tail[pos + 1:mid] not in (page[:-3], posixpath.basename(page)[:-3])):
-            return None  # a page is linked once on a line, as the roll-up folds its entries
-        linked.append(page)
-        pos = end + 1
-        if pos == len(tail):
-            return linked
-        if not tail.startswith(", ", pos):
-            return None
-        pos += 2
-    return None
-
-
 def parse_entry(line, pages):
     """(the date as written, the note, the pages linked) for a line laid out as the roll-up lays out an entry, else
-    None: `- **<date>**`, then ` \u2014 <titles>[ \u2014 <note>]` (family-ai-os) or `: <note>` (the fixture's roll-up),
-    then ` (<links>)` ending the line. The titles are the linked pages' own, so a line is split by what its links say
-    and not by guessing where a note stops."""
-    if not line.startswith("- **"):
+    None: `- **<date>**`, then the titles and the note, each after a spaced em dash (family-ai-os), or `: <note>` (the
+    fixture's roll-up), then ` (<links>)` ending the line. The links are read from the end of the line, each a page
+    of the wiki named by its path from the roll-up and written as its path without `.md` or its title, so a page name
+    holding brackets is read by its own text; the titles are the linked pages' own, so a note is never guessed at.
+    Plain string handling, one pass over the line."""
+    if not line.startswith("- **") or not line.endswith(")"):
         return None
-    close = line.find("**", 4, 80)
-    rest = line[close + 2:] if close > 0 else ""
-    if rest.startswith(" " + EM + " "):
-        rest, titled = rest[3:], True
-    elif rest.startswith(": "):
-        rest, titled = rest[2:], False
+    close = line.find("**", 4)
+    if close < 0:
+        return None
+    if line.startswith(" " + EM + " ", close + 2):
+        body, titled = close + 5, True
+    elif line.startswith(": ", close + 2):
+        body, titled = close + 4, False
     else:
         return None
-    end = len(rest)
-    for _ in range(8):  # a note may hold " ([" itself, but not many times
-        cut = rest.rfind(" ([", 0, end)
-        if cut < 0 or not rest.endswith(")"):
+    here, linked, taken, pos = posixpath.dirname(DEADLINES), [], set(), len(line) - 1
+    while True:
+        mid = line.rfind("](", body, pos - 1) if pos > body and line[pos - 1] == ")" else -1
+        if mid < 0:
             return None
-        linked = parse_links(rest[cut + 2:-1], pages)
-        if linked:
+        target = urllib.parse.unquote(line[mid + 2:pos - 1])
+        page = posixpath.normpath(posixpath.join(here, target))
+        if page in taken or page not in pages or target != posixpath.relpath(page, here):
+            return None
+        for text in (page[:-3], posixpath.basename(page)[:-3]):
+            if line[mid - len(text) - 1:mid] == "[" + text and mid - len(text) - 1 >= body:
+                start = mid - len(text) - 1
+                break
+        else:
+            return None
+        linked.append(page)
+        taken.add(page)
+        if start - 2 >= body and line.startswith(", ", start - 2):
+            pos = start - 2
+        elif start - 2 >= body and line.startswith(" (", start - 2):
+            cut = start - 2
             break
-        end = cut + 2
-    else:
-        return None
-    middle = rest[:cut]
+        else:
+            return None
+    linked.reverse()
+    middle = line[body:cut]
     if not titled:
         return line[4:close], middle, linked
     titles = ", ".join(dict.fromkeys(posixpath.basename(x)[:-3] for x in linked))
     if middle == titles:
         return line[4:close], "", linked
     return (line[4:close], middle[len(titles) + 3:], linked) if middle.startswith(titles + " " + EM + " ") else None
-
-
-def unread_line(line, pages, refusing):
-    """True for a line of the roll-up's own list of what it could not read: `- <page> (<why>)`, the page one of the
-    wiki's, and the why one the roll-up writes (a page that cannot be read, a malformed frontmatter, or a recurring
-    date it refuses, which that page must hold)."""
-    cut = 2
-    for _ in range(8):
-        cut = line.find(" (", cut)
-        if cut < 0 or not line.startswith("- ") or not line.endswith(")"):
-            return False
-        why = line[cut + 2:-1]
-        if line[2:cut] in pages:
-            if why == "malformed frontmatter":
-                return True
-            if why.startswith("unreadable: ") and why[12:].isidentifier():
-                return True
-            if why.startswith("unreadable recurring date: ") and line[2:cut] in refusing:
-                hint = next((h for h in UNREAD_HINTS if why.endswith(h)), None)
-                return hint is not None and len(why) - len("unreadable recurring date: ") - len(hint) <= 60
-        cut += 2
-    return False
 
 
 def excerpt(line):
@@ -231,28 +219,134 @@ def split_page(text):
     return (W.parse_fm(m.group(1)), text[m.end():], text[:m.end()].count("\n")) if m else ({}, text, 0)
 
 
-# ------------------------------------------------------------------------------------ derived pages
+# ------------------------------------------------------------------------------------ the frontmatter as YAML reads it
 
-def scalar(text):
-    """`text` as YAML reads a scalar: a quoted one without its quotes (and the quote written as `''` or `\\"` inside
-    it), any other as it is. The roll-up reads the frontmatter with a YAML reader, so a note written
-    `"Renew: 2 weeks before"` is rendered without the quotes."""
-    text = (text or "").strip()
-    if len(text) >= 2 and text[0] == text[-1] and text[0] in "\"'":
-        inner = text[1:-1]
-        return inner.replace("''", "'") if text[0] == "'" else inner.replace('\\"', '"').replace("\\\\", "\\")
+def quoted(text):
+    """(the value, the text after it) for `text` opening with a quote: a `'` scalar writes its quote twice, a `"`
+    scalar escapes `"` and `\\` with a backslash (its other escapes are not read); None when it never closes."""
+    quote, out, i = text[0], [], 1
+    while i < len(text):
+        c = text[i]
+        if c == quote:
+            if quote == "'" and text.startswith("''", i):
+                out.append("'")
+                i += 2
+                continue
+            return "".join(out), text[i + 1:]
+        if quote == '"' and c == "\\" and text[i + 1:i + 2] in ('"', "\\"):
+            out.append(text[i + 1])
+            i += 2
+            continue
+        out.append(c)
+        i += 1
+    return None
+
+
+def block_value(text):
+    """A plain or quoted scalar of a block mapping or list, as YAML reads it: a plain one ends at ` #`, where a
+    comment starts (`Invoice #42 due` is `Invoice`); a quoted one is without its quotes."""
+    text = text.strip()
+    if text[:1] in ("'", '"'):
+        got = quoted(text)
+        if got:
+            return got[0]
+    if text.startswith("#"):
+        return ""
+    cut = text.find(" #")
+    return (text[:cut] if cut >= 0 else text).strip()
+
+
+def flow_scalar(s, i, is_key):
+    """(the scalar of the flow mapping `s` at `i`, whether it was quoted, where it ends): quoted, or plain up to the
+    next comma, which ends it (`Pay tax, file the return` is `Pay tax` and a key of its own), or for a key its colon;
+    a plain one ends at ` #` too."""
+    n = len(s)
+    while i < n and s[i] in " \t":
+        i += 1
+    if s[i:i + 1] in ("'", '"'):
+        got = quoted(s[i:])
+        if got:
+            return got[0], True, n - len(got[1])
+    j = i
+    while j < n and s[j] != "," and not (is_key and s[j] == ":" and s[j + 1:j + 2] in ("", " ", "\t")):
+        j += 1
+    text = s[i:j]
+    cut = 0 if text.startswith("#") else text.find(" #")
+    return (text[:cut] if cut >= 0 else text).strip(), False, j
+
+
+def flow_pairs(inner):
+    """[(key, value or None, whether the value was quoted)] for the inside of a flow mapping, in order."""
+    pairs, i, n = [], 0, len(inner)
+    while i < n:
+        key, _quoted, i = flow_scalar(inner, i, True)
+        value, was_quoted = None, False
+        if i < n and inner[i] == ":":
+            value, was_quoted, i = flow_scalar(inner, i + 1, False)
+        while i < n and inner[i] != ",":
+            i += 1
+        i += 1
+        if key or value:
+            pairs.append((key, value or None, was_quoted))
+    return pairs
+
+
+def item_mapping(it):
+    """The pairs of a frontmatter list item written `{...}`, as {key: (value, quoted)}, else None; wiki.py's reading
+    of `{date: ..., note: ...}` as a dict is put back to the text it came from."""
+    if isinstance(it, dict):
+        it = "{date: %s, note: %s}" % (it.get("date", ""), it.get("note", ""))
+    text = str(it).strip()
+    if not (text.startswith("{") and text.endswith("}")):
+        return None
+    return {key: (value, was_quoted) for key, value, was_quoted in flow_pairs(text[1:-1])}
+
+
+def yaml_value(text, was_quoted):
+    """The Python value YAML gives a scalar, so far as a refused item shows it: a plain date, whole number or decimal
+    is one (`datetime.date(2025, 1, 31)`), nothing is None; the rest, `yes`, `12:30`, `null` and the escapes of a
+    quoted scalar apart, is the text."""
+    if text is None or (not text and not was_quoted):
+        return None
+    if was_quoted:
+        return text
+    try:
+        if ISO_DAY.fullmatch(text):
+            return datetime.date(int(text[:4]), int(text[5:7]), int(text[8:]))
+        if re.fullmatch(r"[-+]?[0-9]+", text):
+            return int(text)
+        if re.fullmatch(r"[-+]?[0-9]*\.[0-9]+", text):
+            return float(text)
+    except ValueError:
+        pass
     return text
 
 
 def date_entry(it):
     """(date, note) of one frontmatter date entry: `{date: ..., note: ...}` (as wiki.py parses it, or as text), or a
     bare date; the note is None when there is none."""
-    if isinstance(it, dict):
-        return scalar(str(it.get("date", ""))), scalar(it.get("note") or "") or None
-    text = str(it).strip()
-    m = DATE_ITEM.fullmatch(text)
-    return (m.group(1), scalar(m.group(2)) or None) if m else (scalar(text), None)
+    mapping = item_mapping(it)
+    if mapping is None:
+        return block_value(str(it)), None
+    return (mapping.get("date", ("", False))[0] or ""), (mapping.get("note", (None, False))[0] or None)
 
+
+def refused_item(it):
+    """What the roll-up writes for a `recurring` item it refuses, `repr(item)[:60]` and the way to write it, or None
+    when it reads the item: its date must be a month and day as `month_day` reads."""
+    mapping = item_mapping(it)
+    if mapping is None:
+        item = yaml_value(block_value(str(it)), False)
+        date, keyed = item, False
+    else:
+        item = {key: yaml_value(value, was_quoted) for key, (value, was_quoted) in mapping.items()}
+        date, keyed = item.get("date"), True
+    if isinstance(date, str) and month_day(date):
+        return None
+    return repr(item)[:60] + (KEY_HINT if keyed and "date" not in item else DATE_HINT)
+
+
+# ------------------------------------------------------------------------------------ derived pages
 
 def real_day(s):
     """True for `YYYY-MM-DD` naming a day the calendar has."""
@@ -270,9 +364,9 @@ def frontmatter_dates(fm):
     `recurring`, each as MM-DD; the `deadline` and `deadlines` entries not read as a real YYYY-MM-DD; the `recurring`
     entries not in the form {date, note}, the date read by `month_day`, with a note; the entries the roll-up renders
     from this page, as {(date, note)}, the date a YYYY-MM-DD or an MM-DD and the note as the roll-up writes it (a
-    `deadline`'s note is its `deadline_note`, a bare date has none); whether a `recurring` date is one the roll-up
-    refuses) of one page's frontmatter."""
-    days, yearly, bad_days, bad, rendered, refused = set(), set(), [], [], set(), False
+    `deadline`'s note is its `deadline_note`, a bare date has none); what the roll-up writes for each `recurring` item
+    it refuses) of one page's frontmatter."""
+    days, yearly, bad_days, bad, rendered, refused = set(), set(), [], [], set(), []
 
     def shown(it):
         return it if isinstance(it, str) else json.dumps(it, ensure_ascii=False)
@@ -284,7 +378,7 @@ def frontmatter_dates(fm):
         for it in v if isinstance(v, list) else [v] if v else []:
             d, note = date_entry(it)
             if key == "deadline" and note is None and isinstance(fm.get("deadline_note"), str):
-                note = scalar(fm["deadline_note"])
+                note = block_value(fm["deadline_note"])
             if real_day(d):
                 days.add(d)
                 rendered.add((d, written(note)))
@@ -295,13 +389,34 @@ def frontmatter_dates(fm):
         d, note = date_entry(it)
         if month_day(d):
             rendered.add((month_day(d), written(note)))
-        else:
-            refused = True
+        got = refused_item(it)
+        if got:
+            refused.append(got)
         if month_day(d) and note:
             yearly.add(month_day(d))
         else:
             bad.append(shown(it))
     return days, yearly, bad_days, bad, rendered, refused
+
+
+def frontmatter_block(text):
+    """The text between the fences of a page's frontmatter, as the roll-up finds them, or None when it opens none."""
+    if not text.startswith("---"):
+        return None
+    end = text.find("\n---", 3)
+    return text[3:end] if end >= 0 else None
+
+
+def malformed(text):
+    """True for a page the roll-up lists as having a malformed frontmatter, so far as this tool can tell: a fence that
+    never closes, or a block that holds no mapping. (YAML the roll-up rejects for another reason is not told.)"""
+    if not text.startswith("---"):
+        return False
+    block = frontmatter_block(text)
+    if block is None:
+        return True
+    lines = [x for x in block.split("\n") if x.strip() and not x.lstrip().startswith("#")]
+    return bool(lines) and not any(":" in x and not x.startswith((" ", "\t", "-")) for x in lines)
 
 
 def deadline_items(wiki, pages, ws):
@@ -312,22 +427,26 @@ def deadline_items(wiki, pages, ws):
     01 Deadlines the derived list of forward dates.
 
     The page may hold only what the roll-up renders from the pages' frontmatter; every other line is reported.
-    Each page's frontmatter gives the entries the roll-up could write, `(date, note, page)`: a `recurring` item's
-    month and day, a `deadline` with its `deadline_note`, a `deadlines` item's date, each with the note as YAML reads
-    it, whitespace collapsed. The page is then read line by line against the roll-up's output grammar (see
-    ROLL_UP_LINES, BANNERS, `parse_entry` and `unread_line`): its frontmatter, its headings, intro, `_None._` and
-    banner lines, the lines under its own "Could not read" heading, blank lines, and entries, whether laid out as
-    family-ai-os lays them out or as the fixture's roll-up does. An entry is split by plain string handling into date,
-    note and page links, and is clean only when its `(date, note, page)` is in that set, the dated ones by their full
-    date and the recurring ones by month and day. An entry whose date no page carries is reported as that date (a
-    YYYY-MM-DD no page's frontmatter carries, or a day and month no page's `recurring` list carries); one whose date is
-    not a date the contract reads is an unreadable yearly date; every other line is hand-written content, with its line
-    number and its start. Each line is read in one pass, so a long line costs a long line and no more. The roll-up
-    must also show every deadline of a page the sweeps read that is not before its `last-updated` (a `last-updated`
-    after today is a finding, and forward is then judged from today, the tools' clock) and every recurring date; a
-    roll-up with none of those to show says why; and a deadline entry that is not a real YYYY-MM-DD, or a recurring
-    entry the contract does not read, is reported. Another page the Schema marks derived (an open-questions list) is
-    built from the pages in a way no date shows, so it is named as not verified, apart."""
+    What the roll-up could write is worked out from the pages, each read as YAML reads it (a quoted note without its
+    quotes, a plain note ending at ` #` and, in a flow mapping, at a comma): its entries, `(date, note, page)`; the
+    pages it could not read, whose frontmatter is malformed, or whose `recurring` dates it refuses, as the lines of its
+    "Could not read" list. The page is then read line by line against the roll-up's output grammar (see ROLL_UP_LINES,
+    BANNERS and `parse_entry`): its frontmatter, which holds only `provenance: derived`, `status: current` and a
+    `last-updated` day, once each; its headings, intro, `_None._` and blank lines; the empty-roll-up banner, only
+    directly after the intro or title and only when the pages give no entry; the lines under its "Could not read"
+    heading, each one the roll-up writes; and entries, laid out as family-ai-os lays them out or as the fixture's
+    roll-up does. An entry is split by plain string handling into date, note and page links, and is clean only when
+    its date is in the form the roll-up writes (`5 April`, `YYYY-MM-DD`) and its `(date, note, page)` is in that set,
+    the dated ones by their full date and the recurring ones by month and day. An entry whose date no page carries is
+    reported as that date (a YYYY-MM-DD no page's frontmatter carries, or a day and month no page's `recurring` list
+    carries); one whose date is not a date the contract reads is an unreadable yearly date; every other line, a line
+    that appears twice included, is hand-written content, with its line number and its start. Each line is read in
+    one pass, so a long line costs a long line and no more. The roll-up must also show every deadline of a page the
+    sweeps read that is not before its `last-updated` (a `last-updated` after today is a finding, and forward is
+    then judged from today, the tools' clock) and every recurring date; a roll-up with none of those to show says
+    why; and a deadline entry that is not a real YYYY-MM-DD, or a recurring entry the contract does not read, is
+    reported. Another page the Schema marks derived (an open-questions list) is built from the pages in a way no date
+    shows, so it is named as not verified, apart."""
     derived_dirs = tuple("%s %s/" % (s["number"], s["name"]) for s in (ws or {}).get("sections", []) if s["derived"])
     others = [p for p in pages if p != DEADLINES and p.startswith(derived_dirs)] if derived_dirs else []
     other_item = "not verified: %s (derived, built from the pages in a way no date shows)" % sample(others) \
@@ -337,18 +456,29 @@ def deadline_items(wiki, pages, ws):
         return why, why, other_item
     days, yearly = collections.defaultdict(list), collections.defaultdict(list)  # date: the current pages holding it
     swept_days, swept_yearly, bad_days, bad, any_derived = set(), set(), [], [], False
-    entries, refusing = set(), set()  # (date, note, page) the roll-up renders; pages with a recurring date it refuses
+    entries, unread = set(), set()  # (date, note, page) the roll-up renders; its list of what it could not read
     for p in pages:
         if p == DEADLINES or p in others:
             continue
-        fm, _body, _n = split_page(read(os.path.join(wiki, *p.split("/"))))
+        listed = not p.endswith((".proposed.md", ".superseded.md"))  # siblings the roll-up never reads
+        try:
+            text = read(os.path.join(wiki, *p.split("/")))
+        except (OSError, UnicodeDecodeError) as e:  # a malformed page: wiki.py check counts it, and so does the roll-up
+            if listed:
+                unread.add("- %s (unreadable: %s)" % (p, type(e).__name__))
+            continue
+        if malformed(text):
+            if listed:
+                unread.add("- %s (malformed frontmatter)" % p)
+            continue
+        block = frontmatter_block(text)
+        fm = W.parse_fm(block) if block is not None else {}
         if fm.get("status") == "superseded":
             continue  # no longer the wiki's: the roll-up shows none of its dates
         d, y, bd, b, rendered, refused = frontmatter_dates(fm)
-        if not p.endswith((".proposed.md", ".superseded.md")):  # a sibling the roll-up never reads
+        if listed:
             entries |= {(key, note, p) for key, note in rendered}
-            if refused:
-                refusing.add(p)
+            unread |= {"- %s (unreadable recurring date: %s)" % (p, why) for why in refused}
         for x in d:
             days[x].append(p)
         for x in y:
@@ -359,7 +489,8 @@ def deadline_items(wiki, pages, ws):
         bad_days += ["%s: %s" % (p, e) for e in bd]
         bad += ["%s: %s" % (p, e) for e in b]
         any_derived = any_derived or fm.get("provenance") == "derived"
-    fm, body, offset = split_page(read(os.path.join(wiki, *DEADLINES.split("/"))))
+    text = read(os.path.join(wiki, *DEADLINES.split("/")))
+    fm, body, offset = split_page(text)
     derived = []
     stamp = str(fm.get("last-updated", "")).strip().strip("\"'")
     stamp = stamp if real_day(stamp) else None
@@ -368,14 +499,37 @@ def deadline_items(wiki, pages, ws):
         derived.append("%s is last-updated %s, after today (%s)" % (DEADLINES, stamp, today))
         stamp = today
     hand, hand_yearly, written, unreadable, shown_days, shown_yearly = [], [], [], [], set(), set()
-    page_set, dates, section = set(pages), {key for key, _note, _page in entries}, None
+    page_set, dates, section, seen, prev = set(pages), {key for key, _note, _page in entries}, None, set(), None
+    frontmatter = FRONTMATTER.match(text)
+    keys = set()
+    for n, line in enumerate(frontmatter.group(1).split("\n") if frontmatter else [], 2):
+        key = line.partition(":")[0]
+        if line.strip() and (key in keys or not (line in ("provenance: derived", "status: current")
+                                                 or line.startswith("last-updated: ") and real_day(line[14:]))):
+            written.append("line %d: %s" % (n, excerpt(line)))  # the roll-up writes three keys, once each
+        keys.add(key)
     for n, line in enumerate(body.splitlines(), offset + 1):
-        if not line.strip() or line in ROLL_UP_LINES or banner(line):
+        if not line.strip():
+            continue
+        before, prev = prev, line
+        if line in seen:  # a line the roll-up writes once
+            written.append("line %d: %s" % (n, excerpt(line)))
+            continue
+        seen.add(line)
+        if line in ROLL_UP_LINES and line != MARKER:
             section = line if line.startswith("#") else section
             continue
-        entry = None if section == UNREAD else parse_entry(line, page_set)
-        if section == UNREAD and unread_line(line, page_set, refusing):
+        kind = banner(line)
+        if line == MARKER or kind is not None:  # the banner of an empty roll-up, in the place the roll-up puts it
+            if not entries and (before == MARKER if kind == 0 else before in (INTRO, TITLE)):
+                continue
+            written.append("line %d: %s" % (n, excerpt(line)))
             continue
+        if section == UNREAD:
+            if line not in unread:
+                written.append("line %d: %s" % (n, excerpt(line)))
+            continue
+        entry = parse_entry(line, page_set)
         if entry is None:  # nothing the roll-up writes: a date in it is still the dated check's to judge
             written.append("line %d: %s" % (n, excerpt(line)))
             hand += ["line %d: %s" % (n, m.group(0)) for m in DAY.finditer(line)
@@ -390,6 +544,9 @@ def deadline_items(wiki, pages, ws):
                 continue
         elif month_day(when):
             key = month_day(when)
+            if when != rendered_month_day(key):  # a spelling the roll-up does not write: hand-edited
+                written.append("line %d: %s" % (n, excerpt(line)))
+                continue
             shown_yearly.add(key)
             if key not in dates:
                 hand_yearly.append("line %d: %s" % (n, key))
@@ -413,7 +570,7 @@ def deadline_items(wiki, pages, ws):
         derived.append("%d deadline entr(ies) not a real YYYY-MM-DD or {date, note} (%s)"
                        % (len(bad_days), sample(bad_days)))
     says = [line for line in body.splitlines() if line.strip() and not line.lstrip().startswith("#")
-            and not SAYS_NOTHING.fullmatch(line)]
+            and not says_nothing(line)]
     if not forward and not swept_yearly and any_derived and not says:  # nothing to list, and no word why
         derived.append("%s is an empty roll-up that does not say why" % DEADLINES)
     recurring = []
