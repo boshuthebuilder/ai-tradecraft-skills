@@ -455,10 +455,10 @@ class PackSettingsTest(AuditCase):
         self.assertFalse(any(is_pack(f) for f in ("Letters", "Visa renewal 2021", "")))
 
     def test_a_pack_keyword_that_matches_an_empty_name_is_refused(self):
-        for n, keyword in enumerate(("^", "a*", "(visa)?")):
+        for n, keyword in enumerate(("^", "a*", "(visa)?", "(?=.)", "(?=V)", "\\b")):
             with self.subTest(keyword=keyword):
                 root = self.folder(self.pinned(pack_keywords=["visa", keyword]), parent="empty%d" % n)
-                with self.assertRaisesRegex(common.ToolError, "matches an empty name"):
+                with self.assertRaisesRegex(common.ToolError, "without consuming any text"):
                     common.load_rulebook(root, os.path.join(root, ".familyai"))
 
     def test_an_invalid_pack_keyword_is_refused_by_name(self):

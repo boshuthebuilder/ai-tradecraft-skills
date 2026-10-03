@@ -227,6 +227,9 @@ def read_json_object(path):
     return data
 
 
+EMPTY_PROBES = ("", "a", "Z", "0", " ", "/", "\u00e9", "Visa renewal 2021/Letters")  # names a zero-width keyword matches
+
+
 def validate_rulebook(data, path):
     """Fail loud on a rulebook.json with an unknown version or key, or a value of the wrong shape."""
     def bad(key, want):
@@ -254,8 +257,9 @@ def validate_rulebook(data, path):
             re.compile("(%s)" % k)
         except re.error as e:
             raise ToolError("%s: pack_keywords entry %r is not a valid regular expression (%s)" % (path, k, e))
-        if re.search(k, "", re.I) is not None:
-            raise ToolError("%s: pack_keywords entry %r matches an empty name, so it would match every folder" % (path, k))
+        if any(m is not None and m.end() == m.start() for m in (re.search(k, s, re.I) for s in EMPTY_PROBES)):
+            raise ToolError("%s: pack_keywords entry %r can match without consuming any text (an empty name, a "
+                            "lookahead), so it would match every folder" % (path, k))
     try:
         re.compile("(" + "|".join(data.get("pack_keywords", [])) + ")")
     except re.error as e:
@@ -418,9 +422,12 @@ def pack_matcher(root, rb):
                         "rulebook.json packs (and name it in the rulebook, which `settings.py check` verifies)"
                         % (rb.get("_source") or "rulebook.json", p, root))
     # an empty alternation would match every folder, so no keywords means no keyword matches
-    rx = re.compile("(" + "|".join(rb["pack_keywords"]) + ")", re.I) if rb["pack_keywords"] else None
+    # each keyword on its own, and only a match that consumes text counts: in one alternation a zero-width
+    # alternative would win at every position and shadow the real keywords after it
+    rxs = [re.compile(k, re.I) for k in rb["pack_keywords"]]
     listed = [nfc(p) + "/" for p in rb["packs"]]
-    return lambda folder: bool(rx and rx.search(folder)) or any((nfc(folder) + "/").startswith(pk) for pk in listed)
+    return lambda folder: (any(m.end() > m.start() for rx in rxs for m in rx.finditer(folder))
+                           or any((nfc(folder) + "/").startswith(pk) for pk in listed))
 
 
 def page_voice(ws, page):
