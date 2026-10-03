@@ -885,9 +885,11 @@ class MalformedInputTest(Copy):
                     self.assertIn(why, err)
 
     def test_an_extract_page_of_the_wrong_shape(self):
-        """Re-review 1: a page whose n is not a whole number or whose text is not text or null."""
+        """Re-review 1: a page whose n is not a whole number (null included: `full_text` would crash on it) or
+        whose text is not text or null."""
         path = os.path.join(self.root, "_Audit", "extract", self.ids["06 Work/Contract.docx"] + ".json")
-        for page in ({"n": 1, "text": 123}, {"n": "1", "text": "hi"}, {"n": True, "text": "hi"}, "page one"):
+        for page in ({"n": 1, "text": 123}, {"n": "1", "text": "hi"}, {"n": True, "text": "hi"},
+                     {"n": None, "text": "hi"}, "page one"):
             with self.subTest(page=page):
                 write(path, json.dumps({"id": "x", "pages": [{"n": 1, "text": "fine"}, page]}))
                 err = self.refused("bundles")

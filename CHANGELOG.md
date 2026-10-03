@@ -55,10 +55,13 @@ under *Migrating a deployment* below.
   and a page is accepted again after a change to its anatomy, contract or professional. Before, an
   independent reader review applied only to contract-driven pages.
 - **Recurring dates live in page frontmatter.** A new canonical key, `recurring:`, a list of
-  `{date: MM-DD, note}`, holds a date that comes round every year, and the Deadlines roll-up reads
-  it; such a date is never kept by hand in a table on the Deadlines page. A page the Schema marks
-  `derived` (the Deadlines roll-up, an open-questions list built from the pages) holds nothing
-  written by hand.
+  `{date, note}`, holds a date that comes round every year, and the Deadlines roll-up reads
+  it; such a date is never kept by hand in a table on the Deadlines page. The date is `MM-DD`, month
+  first, or a day and a month name (`5 April`, `April 5th`, `5 Sept`); any other numeric form is
+  refused, and the roll-up shows the month in words, so a date written the wrong way round is
+  visible. A page the Schema marks `derived` (the Deadlines roll-up, an open-questions list built
+  from the pages) holds nothing written by hand: readiness reads the Deadlines page against the
+  roll-up's own output and reports every line it does not render from the pages' frontmatter.
 - **A project files new items within itself**, replacing "a wiki is self-contained". Every new item
   is filed inside its project by the project's own routing, and one that seems to belong to another
   project is filed or flagged where it arrived, like any other: no project routes an item to
