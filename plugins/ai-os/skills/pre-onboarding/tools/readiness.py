@@ -294,8 +294,8 @@ def record_checks(root, rb, live, evidence):
     """{check: [what, ...]} for the records, and each check's count or state."""
     audit = os.path.join(root, "_Audit")
     xdir, cdir = os.path.join(audit, "extract"), os.path.join(audit, "cards")
-    found = collections.OrderedDict((k, []) for k in ("missing_extracts", "missing_cards", "bad_category",
-                                                      "extract_paths_stale", "contamination"))
+    found = collections.OrderedDict((k, []) for k in ("missing_extracts", "missing_cards", "malformed_cards",
+                                                      "bad_category", "extract_paths_stale", "contamination"))
     for h, e in sorted(live.items(), key=lambda kv: kv[1]["current_path"]):
         if not isinstance(e.get("hashed"), bool):
             raise common.ToolError("manifest entry %s (%s) records no hashed true or false; it is not a manifest "
@@ -303,7 +303,11 @@ def record_checks(root, rb, live, evidence):
         if not e["hashed"]:
             continue  # counted only, never read: extract.py makes no record for it
         path = e["current_path"]
-        card = W.load_card(cdir, h)
+        try:
+            card = W.load_card(cdir, h)
+        except common.ToolError as ex:  # counted with the rest, never the end of the check
+            found["malformed_cards"].append("%s: %s" % (path, str(ex).split(": ", 2)[-1]))
+            card = False
         x = W.load_extract(xdir, h, os.path.join(cdir, h + ".json")) \
             if os.path.exists(os.path.join(xdir, h + ".json")) else None
         if x is None:
@@ -312,6 +316,8 @@ def record_checks(root, rb, live, evidence):
             found["extract_paths_stale"].append("%r is now %r" % (x.get("path"), path))
         if card is None:
             found["missing_cards"].append(path)
+            continue
+        if card is False:
             continue
         if card.get("category") not in rb["card_categories"]:
             found["bad_category"].append("%s: %r" % (path, card.get("category")))
@@ -418,6 +424,7 @@ def main():
         unverified.append(["manifest.items_on_disk", out["manifest"]["items_on_disk"]])
     what = {"missing_extracts": "live document(s) with no extract record",
             "missing_cards": "live document(s) with no card",
+            "malformed_cards": "card(s) not in the card format; re-card them (cards.py work --redo)",
             "bad_category": "card(s) with a category the rulebook does not allow",
             "extract_paths_stale": "extract record(s) whose path the manifest no longer holds",
             "contamination": "card(s) naming an isolation term their own source lacks"}

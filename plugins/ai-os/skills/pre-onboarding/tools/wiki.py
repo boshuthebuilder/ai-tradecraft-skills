@@ -781,6 +781,16 @@ def rationale_block_problem(lines):
     return None
 
 
+def literal_prefix(span):
+    """For a backticked path: "" when it holds no pattern, else the folders before its first segment holding `*`,
+    `?`, `[` or `<...>`, as a path ending in `/`, or None when that first segment is itself the pattern."""
+    parts = span.split("/")
+    for i, part in enumerate(parts):
+        if any(ch in part for ch in "*?[<>"):
+            return "/".join(parts[:i]) + "/" if i else None
+    return ""
+
+
 def parse_rationale(text):
     """The rationale file as ([(heading, lines under it)], [[place, what is wrong]] for the file itself): blocks in
     file order, each heading's text after `### ` stripped, its lines up to the next heading with trailing blank
@@ -1003,9 +1013,12 @@ def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptan
             for line, span in spans:
                 if line <= fm_lines or "/" not in span or (line, span) in in_tables:
                     continue  # a `sources:` entry (checked above), no path, or a chart's source (checked with it)
-                if span.split("/", 1)[0] in tops:
-                    if not os.path.exists(os.path.join(root, span)):
+                literal = literal_prefix(span)  # a pattern (`Tax return*/`, `<year>/`) is judged up to it
+                if span.split("/", 1)[0] in tops and literal is not None:
+                    if not os.path.exists(os.path.join(root, literal or span)):
                         dead_src.append([rel, span])
+                    elif literal:
+                        unchecked += 1  # the folders before the pattern exist; what it stands in for cannot be told
                 else:
                     unchecked += 1
         for lk, _anchor, _title in LINK.findall(body):

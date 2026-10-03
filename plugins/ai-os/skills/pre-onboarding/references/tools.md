@@ -539,8 +539,11 @@ default that does not exist reads as `not recorded`. Line numbers count from the
   `superseded_pages` counts pages whose `status` is `superseded` (no problem).
 - `dead_source_paths`, `[page, path]`: a `sources:` entry that does not exist, or a backticked span in a page body
   holding `/` (a file or a folder; a span wrapped onto the next line reads as one) whose first segment is a live
-  top-level folder, one holding a live manifest entry or copy, and which does not exist. Such a span under any
-  other first segment is counted in `backticked_paths_unchecked` (in the fixture, the Schema's `_Inbox/`). The
+  top-level folder, one holding a live manifest entry or copy, and which does not exist. A span holding a pattern
+  (`*`, `?`, `[` or `<...>`, as a Schema's routing writes them) is judged up to its first patterned segment: dead
+  when those folders do not exist, otherwise counted in `backticked_paths_unchecked`, since what the pattern stands
+  in for cannot be told. Such a span under any other first segment, or patterned from its first segment, is counted
+  there too (in the fixture, the Schema's `_Inbox/`). The
   Log's pages are history and are not read for paths.
 - `dead_page_links`, `[page, link]`: a link to a `.md` that resolves to nothing. A link is local when it has no
   scheme (`http:`, `mailto:`, `obsidian:`) and is not rooted at `/`, as `move` reads it (`local_link`), and a link
@@ -818,6 +821,8 @@ same way, which is not a finding and not a pass either, and does not change the 
   the items on disk, reported, not findings; `live_paths_missing` counts live entries whose current path is gone, a
   finding (the manifest is not current: re-audit).
 - `records`, over the live documents `extract.py` reads (hashed ones): `missing_extracts`, `missing_cards`,
+  `malformed_cards` (a card not in the card format, such as a `sensitive` that is not true or false: counted and
+  named, never the end of the check, so a folder carded by an older tool shows every card to redo),
   `bad_category` (outside the rulebook's `card_categories`), `extract_paths_stale` (a record whose path is not the
   manifest's; the finding names the [`extract.py repath`](#repath) command that repairs it) and `contamination` (a
   card naming an isolation term its own source lacks, by `cards.py`'s rule; `not verified` without `--terms`). A

@@ -407,6 +407,14 @@ class CheckTest(Copy):
         res = self.check()
         self.assertEqual((res["problems"], res["backticked_paths_unchecked"]), (0, 2))
 
+    def test_a_pattern_in_a_path_is_judged_up_to_the_pattern(self):
+        """A routing pattern names folders that exist; only the part a pattern stands in for cannot be told."""
+        edit(self.page("30 Home/30 Home.md"), "Alex rents", "Statements go to `02 Finance/Statement*/` and "
+             "`02 Finance/<year>/x.pdf`; scans to `02 Finance/Gone/*.pdf`.\n\nAlex rents")
+        res = self.check()
+        self.assertEqual(res["dead_source_paths"], [["30 Home/30 Home.md", "02 Finance/Gone/*.pdf"]])
+        self.assertEqual(res["backticked_paths_unchecked"], 3)
+
     def test_the_schema_routing_covers_no_document(self):
         edit(self.page("40 Study/40 Study.md"), "| `04 Study/` | 5 | certificates, slides, essay, notes |\n", "")
         res = self.check()

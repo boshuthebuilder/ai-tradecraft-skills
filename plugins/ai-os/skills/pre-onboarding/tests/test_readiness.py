@@ -171,7 +171,8 @@ class GreenTest(Prepared):
         res = self.readiness(code=0)
         self.assertEqual(res["findings"], [])
         self.assertEqual([k for k, _v in res["not_verified"]], GREEN_UNVERIFIED)
-        self.assertEqual(res["records"], {"missing_extracts": 0, "missing_cards": 0, "bad_category": 0,
+        self.assertEqual(res["records"], {"missing_extracts": 0, "missing_cards": 0, "malformed_cards": 0,
+                                          "bad_category": 0,
                                           "extract_paths_stale": 0, "contamination": "not verified: no --terms"})
         self.assertEqual(res["wiki_handoff"], {"rationale_file": "ok", "pages_accepted": "12/12",
                                                "pages_not_accepted": 0, "pages_not_verified": 0,
@@ -596,11 +597,13 @@ class FindingTest(Prepared):
         self.edit_page(TAX, "Nothing is due:", "Nothing is due \u2014")
         self.assertEqual(self.one_finding("wiki.problems"), "wiki.py check reports 1 problem(s)")
 
+    def test_a_malformed_card_is_a_counted_finding_not_the_end(self):
+        """Every malformed card is counted and named, and the other checks still run: stopping at the first one
+        hid how many a folder held (a real prepared folder had 67)."""
+        write(self.card("06 Work/Contract.docx"), "[]")
+        self.assertIn("1 card(s) not in the card format", self.one_finding("records.malformed_cards"))
+
     def test_tool_errors_exit_2(self):
-        p = self.card("06 Work/Contract.docx")
-        write(p, "[]")
-        self.assertIn("malformed card", self.refused())
-        os.remove(p)
         self.canary("agy", reply="NONE")  # no pass recorded
         self.assertIn("is not a canary result for agy", self.refused())
         os.remove(self.path("_Audit", "manifest.json"))
