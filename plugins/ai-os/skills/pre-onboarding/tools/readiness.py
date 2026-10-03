@@ -219,97 +219,309 @@ def split_page(text):
     return (W.parse_fm(m.group(1)), text[m.end():], text[:m.end()].count("\n")) if m else ({}, text, 0)
 
 
-# ------------------------------------------------------------------------------------ the frontmatter as YAML reads it
+# ------------------------------------------------------------------------------------ the frontmatter this check reads
 
-def quoted(text):
-    """(the value, the text after it) for `text` opening with a quote: a `'` scalar writes its quote twice, a `"`
-    scalar escapes `"` and `\\` with a backslash (its other escapes are not read); None when it never closes."""
-    quote, out, i = text[0], [], 1
-    while i < len(text):
-        c = text[i]
-        if c == quote:
-            if quote == "'" and text.startswith("''", i):
-                out.append("'")
-                i += 2
+MAX_LINE, MAX_BLOCK = 20000, 200000  # a longer line or block is not read: the time to read it is bounded by this
+KEY = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
+INDICATORS = {"&": "an anchor", "*": "an alias", "!": "a tag", "|": "a block scalar", ">": "a folded scalar",
+              "%": "a directive", "@": "a reserved indicator", "`": "a reserved indicator"}
+FLOW_STOP = re.compile(r"[,}\[\]{#:]")
+DERIVED_NAMES = frozenset(("index.md", "log.md", "deadlines.md", "coming events.md", "open questions.md", "schema.md",
+                           "conventions.md"))  # pages the roll-up never reads as a source, as family-ai-os names them
+
+
+class OutOfScope(Exception):
+    """A frontmatter construct this check does not read; the argument names it."""
+
+
+class Malformed(Exception):
+    """A frontmatter the roll-up cannot read as a mapping, for a reason that needs no YAML reader to see."""
+
+
+class Scalar:
+    """A scalar of the frontmatter: its text (None for no value), whether it was quoted, and how it was written."""
+    __slots__ = ("text", "quoted", "raw")
+
+    def __init__(self, text, quoted, raw):
+        self.text, self.quoted, self.raw = text, quoted, raw
+
+
+class Mapping(dict):
+    """The pairs of a flow or block mapping, {key: Scalar} in order, with the text it was written as in `raw`."""
+    raw = ""
+
+
+def quoted(s, i):
+    """(the value, the index after it) of the quoted scalar of `s` opening at `i`, or None when it never closes on
+    the line. A `'` scalar writes its quote twice; a `"` scalar escapes `"` and `\\` with a backslash, and its other
+    escapes are not read. It scans in place, so a line of many quoted scalars is read in one pass."""
+    quote, parts, j = s[i], [], i + 1
+    while True:
+        k = s.find(quote, j)
+        if k < 0:
+            return None
+        if quote == '"':
+            b = s.find("\\", j, k)
+            if b >= 0:
+                if s[b + 1:b + 2] not in ('"', "\\"):
+                    raise OutOfScope("an escape in a double-quoted scalar")
+                parts.append(s[j:b] + s[b + 1])
+                j = b + 2
                 continue
-            return "".join(out), text[i + 1:]
-        if quote == '"' and c == "\\" and text[i + 1:i + 2] in ('"', "\\"):
-            out.append(text[i + 1])
-            i += 2
+        parts.append(s[j:k])
+        if quote == "'" and s.startswith("''", k):
+            parts.append("'")
+            j = k + 2
             continue
-        out.append(c)
-        i += 1
+        return "".join(parts), k + 1
+
+
+def after(s, k):
+    """The index of the first character of `s` from `k` that is not a space or a tab."""
+    while k < len(s) and s[k] in " \t":
+        k += 1
+    return k
+
+
+def comment_only(tail):
+    """True when `tail` is empty or only a comment (a space, then `#`)."""
+    return not tail.strip() or tail[:1] in " \t" and tail.lstrip().startswith("#")
+
+
+def flow_scalar(s, j, is_key):
+    """(the Scalar of the flow mapping `s` at `j`, the index after it): quoted, or plain up to the next comma or `}`
+    (and for a key its colon), so an unquoted comma ends a value and what follows is a key of its own."""
+    j = after(s, j)
+    if j >= len(s):
+        raise OutOfScope("a flow mapping that does not close on its line")
+    c = s[j]
+    if c in "'\"":
+        got = quoted(s, j)
+        if got is None:
+            raise OutOfScope("an unclosed quote")
+        k = after(s, got[1])
+        if k >= len(s) or s[k] not in (",", "}") and not (is_key and s[k] == ":"):
+            raise OutOfScope("text after a quoted scalar")
+        return Scalar(got[0], True, s[j:got[1]]), k
+    if c in INDICATORS:
+        raise OutOfScope(INDICATORS[c])
+    if c in "[{":
+        raise OutOfScope("a nested flow collection")
+    k = j
+    while True:
+        m = FLOW_STOP.search(s, k)
+        if not m:
+            raise OutOfScope("a flow mapping that does not close on its line")
+        p, ch = m.start(), m.group()
+        if ch in ",}":
+            break
+        if ch == ":":
+            if s[p + 1:p + 2] in ("", " ", "\t", ",", "}"):
+                if is_key:
+                    break
+                raise OutOfScope("a colon and space inside a plain scalar")
+        elif ch == "#":
+            if s[p - 1:p] in " \t":
+                raise OutOfScope("a comment inside a flow mapping")
+        else:
+            raise OutOfScope("brackets in a plain scalar of a flow mapping")
+        k = p + 1
+    text = s[j:p].strip()
+    return Scalar(text or None, False, text), p
+
+
+def flow_mapping(s, i):
+    """(the Mapping of the flow mapping of `s` opening at `i`, the index after its `}`): on one line, its values
+    scalars, an unquoted comma ending each."""
+    pairs, j = Mapping(), i + 1
+    while True:
+        j = after(s, j)
+        if j >= len(s):
+            raise OutOfScope("a flow mapping that does not close on its line")
+        if s[j] == "}":
+            pairs.raw = s[i:j + 1]
+            return pairs, j + 1
+        key, j = flow_scalar(s, j, True)
+        value = Scalar(None, False, "")
+        if key.text is None:
+            raise OutOfScope("an empty key in a flow mapping")
+        if j < len(s) and s[j] == ":":
+            value, j = flow_scalar(s, j + 1, False)
+        if j < len(s) and s[j] == ",":
+            j += 1
+        elif j >= len(s) or s[j] != "}":
+            raise OutOfScope("text after a flow mapping value")
+        pairs[key.text] = value
+
+
+def block_value(rest):
+    """What follows `key:` or a list dash, as a Scalar, a Mapping (a flow mapping), [] (for `[]`), or None for no
+    value. A plain scalar ends at ` #`, where a comment starts; a quoted one is without its quotes."""
+    rest = rest.lstrip(" ")
+    if not rest or rest.startswith("#"):
+        return None
+    c = rest[0]
+    if c in "'\"":
+        got = quoted(rest, 0)
+        if got is None:
+            raise OutOfScope("an unclosed quote")
+        if not comment_only(rest[got[1]:]):
+            raise OutOfScope("text after a quoted scalar")
+        return Scalar(got[0], True, rest[:got[1]])
+    if c in INDICATORS:
+        raise OutOfScope(INDICATORS[c])
+    if c == "[":
+        if rest.startswith("[]") and comment_only(rest[2:]):
+            return []
+        raise OutOfScope("a flow sequence")
+    if c == "{":
+        mapping, k = flow_mapping(rest, 0)
+        if not comment_only(rest[k:]):
+            raise OutOfScope("text after a flow mapping")
+        return mapping
+    if c in "-?:" and rest[1:2] in ("", " "):
+        raise OutOfScope("a block indicator inside a value")
+    cut = rest.find(" #")
+    text = (rest[:cut] if cut >= 0 else rest).strip()
+    if ": " in text or text.endswith(":"):
+        raise OutOfScope("a colon and space inside a plain scalar")
+    return Scalar(text, False, text)
+
+
+def key_of(line, start=0):
+    """The key of a plain `key: value` pair of `line` from `start`, and the index of its value, else None."""
+    m = KEY.match(line, start)
+    if m and line[m.end():m.end() + 1] == ":" and line[m.end() + 1:m.end() + 2] in ("", " "):
+        return m.group(), m.end() + 1
     return None
 
 
-def block_value(text):
-    """A plain or quoted scalar of a block mapping or list, as YAML reads it: a plain one ends at ` #`, where a
-    comment starts (`Invoice #42 due` is `Invoice`); a quoted one is without its quotes."""
-    text = text.strip()
-    if text[:1] in ("'", '"'):
-        got = quoted(text)
-        if got:
-            return got[0]
-    if text.startswith("#"):
-        return ""
-    cut = text.find(" #")
-    return (text[:cut] if cut >= 0 else text).strip()
+def indent_of(line):
+    return len(line) - len(line.lstrip(" "))
 
 
-def flow_scalar(s, i, is_key):
-    """(the scalar of the flow mapping `s` at `i`, whether it was quoted, where it ends): quoted, or plain up to the
-    next comma, which ends it (`Pay tax, file the return` is `Pay tax` and a key of its own), or for a key its colon;
-    a plain one ends at ` #` too."""
-    n = len(s)
-    while i < n and s[i] in " \t":
-        i += 1
-    if s[i:i + 1] in ("'", '"'):
-        got = quoted(s[i:])
-        if got:
-            return got[0], True, n - len(got[1])
-    j = i
-    while j < n and s[j] != "," and not (is_key and s[j] == ":" and s[j + 1:j + 2] in ("", " ", "\t")):
-        j += 1
-    text = s[i:j]
-    cut = 0 if text.startswith("#") else text.find(" #")
-    return (text[:cut] if cut >= 0 else text).strip(), False, j
+def skippable(line):
+    return not line.strip() or line.lstrip().startswith("#")
 
 
-def flow_pairs(inner):
-    """[(key, value or None, whether the value was quoted)] for the inside of a flow mapping, in order."""
-    pairs, i, n = [], 0, len(inner)
-    while i < n:
-        key, _quoted, i = flow_scalar(inner, i, True)
-        value, was_quoted = None, False
-        if i < n and inner[i] == ":":
-            value, was_quoted, i = flow_scalar(inner, i + 1, False)
-        while i < n and inner[i] != ",":
-            i += 1
-        i += 1
-        if key or value:
-            pairs.append((key, value or None, was_quoted))
-    return pairs
+def read_list(lines, i):
+    """(the items, the index after them) of the block list under the key whose line is just before line `i`, or
+    (None, i) when none follows. An item is a flow mapping, a `key: value` mapping of plain pairs over its lines, or a
+    scalar."""
+    n, items, indent, j = len(lines), [], None, i
+    while j < n:
+        line = lines[j]
+        if skippable(line):
+            j += 1
+            continue
+        k = indent_of(line)
+        if len(line) > MAX_LINE:
+            raise OutOfScope("a line over %d characters" % MAX_LINE)
+        if line[k:k + 1] == "\t":
+            raise OutOfScope("a tab for indentation")
+        if not (line[k] == "-" and line[k + 1:k + 2] in ("", " ")):
+            break
+        if indent not in (None, k):
+            raise OutOfScope("list items at different indents")
+        indent = k
+        at = after(line, k + 1)
+        body, j = line[at:], j + 1
+        if not body or body.startswith("#"):
+            raise OutOfScope("an item on the lines after its dash")
+        if body[0] == "[":
+            raise OutOfScope("a flow sequence")
+        if body[0] == "-" and body[1:2] in ("", " "):
+            raise OutOfScope("a nested list")
+        first = key_of(body)
+        if body[0] == "{" or first is None:
+            value = block_value(body)
+            items.append(value)
+            continue
+        pairs, raws = Mapping(), []
+        key, start = first
+        while True:
+            value = block_value(body[start:])
+            if not isinstance(value, Scalar):
+                raise OutOfScope("a nested block in a list item")
+            pairs[key] = value
+            raws.append("%s: %s" % (key, value.raw))
+            while j < n and skippable(lines[j]):
+                j += 1
+            if j >= n or indent_of(lines[j]) < at:
+                break
+            if indent_of(lines[j]) > at or key_of(lines[j], at) is None:
+                raise OutOfScope("a nested block in a list item")
+            if len(lines[j]) > MAX_LINE:
+                raise OutOfScope("a line over %d characters" % MAX_LINE)
+            body, (key, start), j = lines[j][at:], key_of(lines[j], at), j + 1
+            start -= at
+        pairs.raw = "{" + ", ".join(raws) + "}"
+        items.append(pairs)
+    return (items, j) if items else (None, i)
 
 
-def item_mapping(it):
-    """The pairs of a frontmatter list item written `{...}`, as {key: (value, quoted)}, else None; wiki.py's reading
-    of `{date: ..., note: ...}` as a dict is put back to the text it came from."""
-    if isinstance(it, dict):
-        it = "{date: %s, note: %s}" % (it.get("date", ""), it.get("note", ""))
-    text = str(it).strip()
-    if not (text.startswith("{") and text.endswith("}")):
-        return None
-    return {key: (value, was_quoted) for key, value, was_quoted in flow_pairs(text[1:-1])}
+def read_frontmatter(text):
+    """The frontmatter of a page as {key: value} within the subset this check reads, `{}` for a page that opens none:
+    a fence at column 0 and plain `key: value` pairs at column 0, their values plain, single-quoted or double-quoted
+    scalars (an empty quoted one is kept as an empty string), a flow mapping of one line, or a block list of flow
+    mappings, of mappings of plain pairs, or of scalars, with a ` #` comment after a scalar or a closing `}`. Raises
+    Malformed for a page the roll-up cannot read as a mapping whatever YAML says (a fence that never closes, a
+    list or a bare word where the keys should be), and OutOfScope, naming it, for any other construct."""
+    if not text.startswith("---"):
+        return {}
+    end = text.find("\n---", 3)
+    if end < 0:
+        raise Malformed()
+    if end > MAX_BLOCK:
+        raise OutOfScope("frontmatter over %d characters" % MAX_BLOCK)
+    lines = [x.rstrip("\r") for x in text[3:end].split("\n")]
+    if lines[0].strip():
+        raise OutOfScope("text after the opening fence")
+    lines = lines[1:]
+    content = [x.lstrip() for x in lines if not skippable(x)]
+    if content and (content[0] == "-" or content[0].startswith("- ") or content[0][0] not in "{?&*!|>%@`\"'["
+                    and not any(":" in x for x in content)):
+        raise Malformed()
+    fm, i = {}, 0
+    while i < len(lines):
+        line, i = lines[i], i + 1
+        if skippable(line):
+            continue
+        if len(line) > MAX_LINE:
+            raise OutOfScope("a line over %d characters" % MAX_LINE)
+        if line[0] == "\t":
+            raise OutOfScope("a tab for indentation")
+        if line[0] == " ":
+            raise OutOfScope("indented frontmatter" if not fm else "a multi-line scalar or an indented block")
+        if line.startswith("? ") or line == "?":
+            raise OutOfScope("a `? ` key")
+        if line.rstrip() == "...":
+            raise OutOfScope("a document end marker")
+        if line.startswith("- ") or line.rstrip() == "-":
+            raise OutOfScope("a block sequence that is not under a key")
+        if line[0] in INDICATORS or line[0] in "\"'[{":
+            raise OutOfScope(INDICATORS.get(line[0], "a key that is not a plain word"))
+        pair = key_of(line)
+        if pair is None:
+            raise OutOfScope("a line that is not a plain `key: value` pair")
+        key, start = pair
+        value = block_value(line[start:])
+        if value is None:
+            value, i = read_list(lines, i)
+        if key == "status" and isinstance(value, Scalar) and value.quoted:
+            raise OutOfScope("a quoted status")
+        fm[key] = value
+    return fm
 
 
 def yaml_value(text, was_quoted):
     """The Python value YAML gives a scalar, so far as a refused item shows it: a plain date, whole number or decimal
     is one (`datetime.date(2025, 1, 31)`), nothing is None; the rest, `yes`, `12:30`, `null` and the escapes of a
-    quoted scalar apart, is the text."""
-    if text is None or (not text and not was_quoted):
-        return None
+    quoted scalar apart, is the text. A quoted scalar is always its text, an empty one included."""
     if was_quoted:
         return text
+    if not text:
+        return None
     try:
         if ISO_DAY.fullmatch(text):
             return datetime.date(int(text[:4]), int(text[5:7]), int(text[8:]))
@@ -322,25 +534,34 @@ def yaml_value(text, was_quoted):
     return text
 
 
+def items_of(value):
+    """The list items a key's value stands for: a list is its items, a lone scalar or mapping is one item, and no
+    value is none."""
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    return [] if isinstance(value, Scalar) and value.text is None and not value.quoted else [value]
+
+
 def date_entry(it):
-    """(date, note) of one frontmatter date entry: `{date: ..., note: ...}` (as wiki.py parses it, or as text), or a
-    bare date; the note is None when there is none."""
-    mapping = item_mapping(it)
-    if mapping is None:
-        return block_value(str(it)), None
-    return (mapping.get("date", ("", False))[0] or ""), (mapping.get("note", (None, False))[0] or None)
+    """(date, note) of one frontmatter date item, a Mapping (`date` and `note`) or a Scalar (a bare date); the note
+    is None when there is none."""
+    if isinstance(it, Mapping):
+        date, note = it.get("date"), it.get("note")
+        return (date.text or "") if date else "", (note.text or None) if note else None
+    return it.text or "", None
 
 
 def refused_item(it):
     """What the roll-up writes for a `recurring` item it refuses, `repr(item)[:60]` and the way to write it, or None
     when it reads the item: its date must be a month and day as `month_day` reads."""
-    mapping = item_mapping(it)
-    if mapping is None:
-        item = yaml_value(block_value(str(it)), False)
-        date, keyed = item, False
-    else:
-        item = {key: yaml_value(value, was_quoted) for key, (value, was_quoted) in mapping.items()}
+    if isinstance(it, Mapping):
+        item = {key: yaml_value(value.text, value.quoted) for key, value in it.items()}
         date, keyed = item.get("date"), True
+    else:
+        item = yaml_value(it.text, it.quoted)
+        date, keyed = item, False
     if isinstance(date, str) and month_day(date):
         return None
     return repr(item)[:60] + (KEY_HINT if keyed and "date" not in item else DATE_HINT)
@@ -365,27 +586,24 @@ def frontmatter_dates(fm):
     entries not in the form {date, note}, the date read by `month_day`, with a note; the entries the roll-up renders
     from this page, as {(date, note)}, the date a YYYY-MM-DD or an MM-DD and the note as the roll-up writes it (a
     `deadline`'s note is its `deadline_note`, a bare date has none); what the roll-up writes for each `recurring` item
-    it refuses) of one page's frontmatter."""
+    it refuses) of one page's frontmatter, read by `read_frontmatter`. A date is the first ten characters of its
+    text, as the roll-up reads it."""
     days, yearly, bad_days, bad, rendered, refused = set(), set(), [], [], set(), []
-
-    def shown(it):
-        return it if isinstance(it, str) else json.dumps(it, ensure_ascii=False)
 
     def written(note):
         return " ".join((note or "").split())
     for key in ("deadline", "deadlines"):
-        v = fm.get(key)
-        for it in v if isinstance(v, list) else [v] if v else []:
+        for it in items_of(fm.get(key)):
             d, note = date_entry(it)
-            if key == "deadline" and note is None and isinstance(fm.get("deadline_note"), str):
-                note = block_value(fm["deadline_note"])
+            d = d.strip()[:10]
+            if key == "deadline" and note is None and isinstance(fm.get("deadline_note"), Scalar):
+                note = fm["deadline_note"].text
             if real_day(d):
                 days.add(d)
                 rendered.add((d, written(note)))
             else:
-                bad_days.append("%s: %s" % (key, shown(it)))
-    v = fm.get("recurring")
-    for it in v if isinstance(v, list) else [v] if v else []:
+                bad_days.append("%s: %s" % (key, it.raw))
+    for it in items_of(fm.get("recurring")):
         d, note = date_entry(it)
         if month_day(d):
             rendered.add((month_day(d), written(note)))
@@ -395,45 +613,48 @@ def frontmatter_dates(fm):
         if month_day(d) and note:
             yearly.add(month_day(d))
         else:
-            bad.append(shown(it))
+            bad.append(it.raw)
     return days, yearly, bad_days, bad, rendered, refused
 
 
-def frontmatter_block(text):
-    """The text between the fences of a page's frontmatter, as the roll-up finds them, or None when it opens none."""
-    if not text.startswith("---"):
-        return None
-    end = text.find("\n---", 3)
-    return text[3:end] if end >= 0 else None
+def roll_up_pages(wiki):
+    """Every `.md` page under the wiki folder as the roll-up lists them, relative with `/` separators, sorted: pages
+    under a dot folder and dot files too, which `wiki.py check` leaves out."""
+    out = []
+    for d, ds, fs in os.walk(wiki):
+        ds.sort()
+        out += [os.path.relpath(os.path.join(d, f), wiki).replace(os.sep, "/") for f in sorted(fs) if f.endswith(".md")]
+    return sorted(out)
 
 
-def malformed(text):
-    """True for a page the roll-up lists as having a malformed frontmatter, so far as this tool can tell: a fence that
-    never closes, or a block that holds no mapping. (YAML the roll-up rejects for another reason is not told.)"""
-    if not text.startswith("---"):
-        return False
-    block = frontmatter_block(text)
-    if block is None:
-        return True
-    lines = [x for x in block.split("\n") if x.strip() and not x.lstrip().startswith("#")]
-    return bool(lines) and not any(":" in x and not x.startswith((" ", "\t", "-")) for x in lines)
+def read_by_roll_up(p):
+    """False for a page the roll-up never reads as a source: its derived pages, and a page's `.proposed.md` and
+    `.superseded.md` siblings."""
+    name = posixpath.basename(p)
+    return not (name.endswith((".proposed.md", ".superseded.md")) or re.sub(r"^[0-9]{1,2}\s+", "", name).lower()
+                in DERIVED_NAMES)
 
 
 def deadline_items(wiki, pages, ws):
-    """(derived pages hold nothing hand-written, recurring dates in frontmatter, other derived pages): each "ok",
-    "finding: ..." or "not verified: ...". The rule is wiki-maintenance's "Deadlines are derived, not authored"
+    """(derived pages hold nothing hand-written, recurring dates in frontmatter, other derived pages, the pages whose
+    frontmatter this check does not read): the first three each "ok", "finding: ..." or "not verified: ...", the last a
+    list of "not verified: ..." states. The rule is wiki-maintenance's "Deadlines are derived, not authored"
     (../../wiki-maintenance/SKILL.md#rules-that-keep-it-safe), read through the frontmatter keys its roll-up reads
     (#canonical-frontmatter--the-keys-the-deterministic-sweeps-read, including which pages the sweeps skip), with
     01 Deadlines the derived list of forward dates.
 
     The page may hold only what the roll-up renders from the pages' frontmatter; every other line is reported.
-    What the roll-up could write is worked out from the pages, each read as YAML reads it (a quoted note without its
-    quotes, a plain note ending at ` #` and, in a flow mapping, at a comma): its entries, `(date, note, page)`; the
-    pages it could not read, whose frontmatter is malformed, or whose `recurring` dates it refuses, as the lines of its
-    "Could not read" list. The page is then read line by line against the roll-up's output grammar (see ROLL_UP_LINES,
-    BANNERS and `parse_entry`): its frontmatter, which holds only `provenance: derived`, `status: current` and a
-    `last-updated` day, once each; its headings, intro, `_None._` and blank lines; the empty-roll-up banner, only
-    directly after the intro or title and only when the pages give no entry; the lines under its "Could not read"
+    What the roll-up could write is worked out from the pages, every `.md` under the wiki folder bar its derived pages
+    and the `.proposed.md` and `.superseded.md` siblings, each read by `read_frontmatter` (a defined subset of YAML,
+    plain, quoted and flow scalars with a comma ending a flow value and ` #` a comment): its entries, `(date, note,
+    page)`; the pages it could not read, whose frontmatter is malformed, or whose `recurring` dates it refuses, as the
+    lines of its "Could not read" list, each as many times as the roll-up writes it. A page whose frontmatter uses
+    YAML outside that subset is named as not verified, and the judgements that need it are withheld: whether an
+    entry is backed by the pages, and the "Could not read" list; every line outside the roll-up's grammar is
+    still reported. The page is then read line by line against that grammar (see ROLL_UP_LINES, BANNERS and
+    `parse_entry`): its frontmatter, which holds only `provenance: derived`, `status: current` and a `last-updated`
+    day, once each; its headings, intro, `_None._` and blank lines; the empty-roll-up banner, only directly after the
+    intro or title and, when the pages are read, only when they give no entry; the lines under its "Could not read"
     heading, each one the roll-up writes; and entries, laid out as family-ai-os lays them out or as the fixture's
     roll-up does. An entry is split by plain string handling into date, note and page links, and is clean only when
     its date is in the form the roll-up writes (`5 April`, `YYYY-MM-DD`) and its `(date, note, page)` is in that set,
@@ -446,50 +667,56 @@ def deadline_items(wiki, pages, ws):
     then judged from today, the tools' clock) and every recurring date; a roll-up with none of those to show says
     why; and a deadline entry that is not a real YYYY-MM-DD, or a recurring entry the contract does not read, is
     reported. Another page the Schema marks derived (an open-questions list) is built from the pages in a way no date
-    shows, so it is named as not verified, apart."""
+    shows, so it is named as not verified, apart. A Deadlines page that cannot be read as UTF-8 is a finding."""
     derived_dirs = tuple("%s %s/" % (s["number"], s["name"]) for s in (ws or {}).get("sections", []) if s["derived"])
     others = [p for p in pages if p != DEADLINES and p.startswith(derived_dirs)] if derived_dirs else []
     other_item = "not verified: %s (derived, built from the pages in a way no date shows)" % sample(others) \
         if others else "ok"
     if DEADLINES not in pages:
         why = "not verified: no %s (fixed_pages reports it)" % DEADLINES
-        return why, why, other_item
+        return why, why, other_item, []
     days, yearly = collections.defaultdict(list), collections.defaultdict(list)  # date: the current pages holding it
     swept_days, swept_yearly, bad_days, bad, any_derived = set(), set(), [], [], False
-    entries, unread = set(), set()  # (date, note, page) the roll-up renders; its list of what it could not read
-    for p in pages:
-        if p == DEADLINES or p in others:
+    entries, unread, outside = set(), collections.Counter(), []  # what the roll-up renders and could not read
+    every = roll_up_pages(wiki)
+    for p in every:
+        if p == DEADLINES or p in others or not read_by_roll_up(p):
             continue
-        listed = not p.endswith((".proposed.md", ".superseded.md"))  # siblings the roll-up never reads
         try:
             text = read(os.path.join(wiki, *p.split("/")))
         except (OSError, UnicodeDecodeError) as e:  # a malformed page: wiki.py check counts it, and so does the roll-up
-            if listed:
-                unread.add("- %s (unreadable: %s)" % (p, type(e).__name__))
+            unread["- %s (unreadable: %s)" % (p, type(e).__name__)] += 1
             continue
-        if malformed(text):
-            if listed:
-                unread.add("- %s (malformed frontmatter)" % p)
+        try:
+            fm = read_frontmatter(text)
+        except Malformed:
+            unread["- %s (malformed frontmatter)" % p] += 1
             continue
-        block = frontmatter_block(text)
-        fm = W.parse_fm(block) if block is not None else {}
-        if fm.get("status") == "superseded":
+        except OutOfScope as e:
+            outside.append("not verified: %s uses YAML this check does not read (%s)" % (p, e))
+            continue
+        if fm.get("status") is not None and getattr(fm["status"], "text", None) == "superseded":
             continue  # no longer the wiki's: the roll-up shows none of its dates
         d, y, bd, b, rendered, refused = frontmatter_dates(fm)
-        if listed:
-            entries |= {(key, note, p) for key, note in rendered}
-            unread |= {"- %s (unreadable recurring date: %s)" % (p, why) for why in refused}
+        entries |= {(key, note, p) for key, note in rendered}
+        unread.update("- %s (unreadable recurring date: %s)" % (p, why) for why in refused)
         for x in d:
             days[x].append(p)
         for x in y:
             yearly[x].append(p)
-        if fm.get("provenance") not in ("manual", "calendar"):
+        provenance = getattr(fm.get("provenance"), "text", None)
+        if provenance not in ("manual", "calendar"):
             swept_days |= d
             swept_yearly |= y
         bad_days += ["%s: %s" % (p, e) for e in bd]
         bad += ["%s: %s" % (p, e) for e in b]
-        any_derived = any_derived or fm.get("provenance") == "derived"
-    text = read(os.path.join(wiki, *DEADLINES.split("/")))
+        any_derived = any_derived or provenance == "derived"
+    verified = not outside  # every page read: what the roll-up could write is known
+    try:
+        text = read(os.path.join(wiki, *DEADLINES.split("/")))
+    except (OSError, UnicodeDecodeError) as e:  # a hand-kept table saved by another editor: a finding, not a crash
+        return ("finding: %s cannot be read as UTF-8 text (%s)" % (DEADLINES, type(e).__name__),
+                "not verified: %s cannot be read" % DEADLINES, other_item, outside)
     fm, body, offset = split_page(text)
     derived = []
     stamp = str(fm.get("last-updated", "")).strip().strip("\"'")
@@ -499,7 +726,7 @@ def deadline_items(wiki, pages, ws):
         derived.append("%s is last-updated %s, after today (%s)" % (DEADLINES, stamp, today))
         stamp = today
     hand, hand_yearly, written, unreadable, shown_days, shown_yearly = [], [], [], [], set(), set()
-    page_set, dates, section, seen, prev = set(pages), {key for key, _note, _page in entries}, None, set(), None
+    page_set, dates, section, seen, prev = set(every), {key for key, _note, _page in entries}, None, set(), None
     frontmatter = FRONTMATTER.match(text)
     keys = set()
     for n, line in enumerate(frontmatter.group(1).split("\n") if frontmatter else [], 2):
@@ -512,6 +739,11 @@ def deadline_items(wiki, pages, ws):
         if not line.strip():
             continue
         before, prev = prev, line
+        if section == UNREAD and line not in ROLL_UP_LINES:  # a line of its list, once for each the roll-up writes
+            if verified and not unread[line]:
+                written.append("line %d: %s" % (n, excerpt(line)))
+            unread[line] -= 1
+            continue
         if line in seen:  # a line the roll-up writes once
             written.append("line %d: %s" % (n, excerpt(line)))
             continue
@@ -521,25 +753,22 @@ def deadline_items(wiki, pages, ws):
             continue
         kind = banner(line)
         if line == MARKER or kind is not None:  # the banner of an empty roll-up, in the place the roll-up puts it
-            if not entries and (before == MARKER if kind == 0 else before in (INTRO, TITLE)):
+            if (not entries or not verified) and (before == MARKER if kind == 0 else before in (INTRO, TITLE)):
                 continue
             written.append("line %d: %s" % (n, excerpt(line)))
-            continue
-        if section == UNREAD:
-            if line not in unread:
-                written.append("line %d: %s" % (n, excerpt(line)))
             continue
         entry = parse_entry(line, page_set)
         if entry is None:  # nothing the roll-up writes: a date in it is still the dated check's to judge
             written.append("line %d: %s" % (n, excerpt(line)))
-            hand += ["line %d: %s" % (n, m.group(0)) for m in DAY.finditer(line)
-                     if m.group(0) not in days and m.group(0) != stamp]
+            if verified:
+                hand += ["line %d: %s" % (n, m.group(0)) for m in DAY.finditer(line)
+                         if m.group(0) not in days and m.group(0) != stamp]
             continue
         when, note, linked = entry
         if DAY.fullmatch(when):
             shown_days.add(when)
             key = when
-            if when not in days and when != stamp:
+            if verified and when not in days and when != stamp:
                 hand.append("line %d: %s" % (n, when))
                 continue
         elif month_day(when):
@@ -548,13 +777,13 @@ def deadline_items(wiki, pages, ws):
                 written.append("line %d: %s" % (n, excerpt(line)))
                 continue
             shown_yearly.add(key)
-            if key not in dates:
+            if verified and key not in dates:
                 hand_yearly.append("line %d: %s" % (n, key))
                 continue
         else:
             unreadable.append("line %d: %s" % (n, excerpt(when)))
             continue
-        if not all((key, note, page) in entries for page in linked):  # not what the pages' frontmatter gives
+        if verified and not all((key, note, page) in entries for page in linked):  # not what the pages give
             written.append("line %d: %s" % (n, excerpt(line)))
     if hand:
         derived.append("%s holds %d date(s) no current page's frontmatter carries (%s)"
@@ -589,7 +818,7 @@ def deadline_items(wiki, pages, ws):
     if missing:
         recurring.append("%s lacks %d recurring date(s) (%s)" % (DEADLINES, len(missing), sample(missing)))
     return ("finding: " + "; ".join(derived) if derived else "ok",
-            "finding: " + "; ".join(recurring) if recurring else "ok", other_item)
+            "finding: " + "; ".join(recurring) if recurring else "ok", other_item, outside)
 
 
 # ------------------------------------------------------------------------------------ the hand-off contract
@@ -603,7 +832,7 @@ def contract(root, rb, settings_dir, ws, pages, rulebook_text):
     missing = [p for p in FIXED if p not in pages]
     items["fixed_pages"] = "ok" if not missing else "finding: missing %s" % ", ".join(missing)
     items["derived_pages_hold_nothing_hand_written"], items["recurring_dates_in_frontmatter"], \
-        items["other_derived_pages"] = deadline_items(wiki, pages, ws)
+        items["other_derived_pages"], outside = deadline_items(wiki, pages, ws)
     # The rulebook is prose, read by keyword and substring: each filename written anywhere in it reserves it, and a
     # line naming the migrations folder with "new file", "dropped", "goes to" or "go to" routes new files there.
     if rulebook_text is None:
@@ -628,7 +857,7 @@ def contract(root, rb, settings_dir, ws, pages, rulebook_text):
         items["settings_wiki_schema_json"] = "ok"
     except common.ToolError as e:
         items["settings_wiki_schema_json"] = "finding: %s" % e
-    return items
+    return items, outside
 
 
 # ------------------------------------------------------------------------------------ the other checks
@@ -812,7 +1041,7 @@ def main():
     out["scratch"] = {"left_in_audit": sorted(d for d in os.listdir(audit) if d not in AUDIT_DIRS
                                               and os.path.isdir(os.path.join(audit, d)))
                       if os.path.isdir(audit) else []}
-    out["handoff_contract"] = contract(root, rb, settings_dir, ws, pages, rulebook_text)
+    out["handoff_contract"], outside = contract(root, rb, settings_dir, ws, pages, rulebook_text)
 
     findings, unverified = [], []
     if gone:
@@ -875,6 +1104,7 @@ def main():
             findings.append(["handoff_contract." + key, value])
         elif value.startswith("not verified"):
             unverified.append(["handoff_contract." + key, value])
+    unverified += [["handoff_contract.frontmatter_read", why] for why in outside]  # pages the check does not read
     out["findings"], out["not_verified"] = findings, unverified
     out["summary"] = collections.OrderedDict([("findings", len(findings)), ("not_verified", len(unverified))])
     text = json.dumps(out, ensure_ascii=False, indent=1)

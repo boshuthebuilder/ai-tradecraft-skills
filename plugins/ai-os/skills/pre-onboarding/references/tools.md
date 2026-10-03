@@ -913,14 +913,49 @@ roll-up reads
 reported.** No date is looked for in the page's text, so no shape of hand-kept date can be missed or mistaken for
 rendered output. The page is read against the roll-up's output grammar instead:
 
-1. Each page is read as the roll-up reads it, and what the roll-up could write is worked out from it (superseded pages
-   left out):
-   - the entries `(date, note, page)`: each `recurring` item gives its month and day, each `deadline` its date with its
-     `deadline_note`, each `deadlines` item its date, the note being what YAML reads, with its whitespace collapsed;
-   - the lines of its "Could not read" list, in its exact wording: `- <page> (unreadable: <exception class>)` for a
-     page that cannot be read (a file that is not UTF-8), `- <page> (malformed frontmatter)` for one whose fence never
-     closes or holds no mapping, and `- <page> (unreadable recurring date: <the first 60 characters of the item as
-     Python writes it>; <the way to write it>)` for each `recurring` date it refuses.
+1. Each page the roll-up reads (every `.md` under the wiki folder, dot folders and dot files included, but not its
+   derived pages, `Index`, `Log`, `Deadlines`, `Coming Events`, `Open Questions`, `Schema` and `Conventions`, nor a
+   `.proposed.md` or `.superseded.md` sibling) is read by the frontmatter subset below, and what the roll-up could
+   write is worked out from it (superseded pages left out):
+   - the entries `(date, note, page)`: each `recurring` item gives its month and day, each `deadline` its date (its
+     first ten characters) with its `deadline_note`, each `deadlines` item its date, the note being what YAML reads,
+     with its whitespace collapsed;
+   - the lines of its "Could not read" list, in its exact wording, **each as many times as the roll-up writes it**:
+     `- <page> (unreadable: <exception class>)` for a page that cannot be read (a file that is not UTF-8),
+     `- <page> (malformed frontmatter)` for one the roll-up cannot read as a mapping whatever YAML says (below), and
+     `- <page> (unreadable recurring date: <the first 60 characters of the item as Python writes it>; <the way to write
+     it>)` for each `recurring` item it refuses, a quoted bare item staying a string and a quoted empty value `''`.
+
+**The frontmatter subset.** Readiness reads a defined subset of the frontmatter, or says it did not. The subset is a
+fence at column 0 (`---`, the page's first line, closed by a line starting `---`), and between the fences:
+
+- plain `key: value` pairs at column 0, the key a word (`[A-Za-z_][A-Za-z0-9_-]*`);
+- a value that is a plain, single-quoted or double-quoted scalar (an empty quoted one is the empty string, not no
+  value; a double-quoted scalar's only escapes are `\"` and `\\`), a flow mapping `{date: ..., note: ...}` on one line,
+  or `[]`, or no value, which a block list under it may follow;
+- a block list, its items at one indent (column 0 included) each a flow mapping, a block mapping of plain `key: value`
+  pairs over its lines, or a bare scalar (a quoted bare item stays a string, never a date);
+- a trailing ` # comment` after a scalar or after a flow mapping's closing `}`, and whole-line comments;
+- in a flow mapping, an unquoted comma ends a value and what follows is a key of its own.
+
+Anything else makes the deadline check say `not verified: <page> uses YAML this check does not read (<construct>)`,
+which is neither a finding nor a pass and is listed in `not_verified` (`handoff_contract.frontmatter_read`). The
+constructs named are: indented frontmatter and a multi-line scalar, a `? ` key, a `...` marker, anchors, aliases and
+tags, `|` and `>` scalars, a flow mapping over several lines or with a comment inside, a flow sequence, a nested flow or
+block collection, a quoted `status`, a quoted key or a key that is not a plain word, a colon and space inside a plain
+scalar, an unclosed quote or text after a quoted scalar, a double-quoted escape other than `\"` and `\\`, a tab for
+indentation, a directive, list items at different indents, a line over 20,000 characters, a block over 200,000, and
+text after the opening fence. While any page is out of scope the judgements that depend on reading it are withheld:
+whether an entry is backed by the pages, and the "Could not read" list. The rest is still judged, because it does not
+depend on the YAML: every line of the Deadlines page outside the roll-up's grammar, an entry's date form, an
+unreadable date, a duplicated line, the Deadlines page's own frontmatter.
+
+A frontmatter is `malformed` only for what needs no YAML reader to see: a fence that never closes, a list where the
+keys should be (the first line is a `-` item), or bare words with no colon anywhere. What PyYAML would read but the
+subset does not is out of scope, never malformed. Within the subset nothing is guessed: YAML's other coercions are an
+accepted residual (a plain `yes`, `12:30`, `null` or `0405` is read as its text, so a note or a refused item that
+YAML would turn into another type is reported as not what the roll-up wrote, never missed).
+
 2. The page is read line by line. The grammar is its frontmatter, which holds `provenance: derived`, `status:
    current` and a `last-updated` day, once each, and nothing else; the headings `# Deadlines`, `## Upcoming`,
    `## Every year`, `## Past` and `## Could not read`; the italic intro; `_None._`; blank lines; the empty-roll-up
@@ -944,14 +979,6 @@ rendered output. The page is read against the roll-up's output grammar instead:
    frontmatter that the roll-up does not write, a line of "Could not read" it did not write. A `YYYY-MM-DD` on a line
    that is no entry is also judged by the check on dated deadlines.
 
-The notes are read by the two rules of YAML the roll-up meets in practice, and no more: in a plain scalar ` #` starts a
-comment (`deadline_note: Invoice #42 due` is `Invoice`), and in a flow mapping an unquoted comma ends the value
-(`{date: 04-05, note: Pay tax, file the return}` has the note `Pay tax`, and a key of its own after it). A quoted note
-is read without its quotes. YAML's other coercions are an accepted residual: a plain `yes`, `12:30` or `null` is not
-turned into a Boolean, a time or nothing, and a double-quoted note's `\n` or `\u` escapes are not read, so a note
-written so is reported rather than missed; and a page whose YAML the roll-up rejects for a reason other than a fence
-that never closes or a block with no mapping is reported when the roll-up lists it as malformed.
-
 Completeness is by date, not by entry: a page dropped from a folded line, or an entry deleted while its date shows
 elsewhere, is not reported. The roll-up regenerates the page, so readiness checks only that nothing hand-written is on
 it. Every search is bounded and each line is read in one pass, so a line of 100,000 characters costs a pass over it. A
@@ -962,8 +989,10 @@ ordinal (`5th Apr`). Any other numeric form (`6/4`, `4-5`) is refused, as is a d
 April`); 29 February is a date. The roll-up shows the month in words, so a numeric `MM-DD` written the wrong way round
 shows on the page. The sources are the pages that are not `superseded`. The grammar's text is checked against the
 real roll-up: `tests/rollups/` holds the pages family-ai-os rendered for a plain wiki, an empty one with its banner, a
-recurring-only one, one with a "Could not read" list, one of page names holding brackets and long encoded targets and
-one of the YAML rules, which must read clean (`rollups/capture.py` refreshes them).
+recurring-only one, one with a "Could not read" list, one of page names holding brackets and long encoded targets, one
+of the YAML rules (a comma, a comment, a comment after `}`, block items), one of refused items (a quoted empty value, a
+quoted bare item, the same item twice) and one of pages under a dot folder and of `.superseded.md` and `.proposed.md`
+siblings; each must read clean (`rollups/capture.py` refreshes them).
 
 - `derived_pages_hold_nothing_hand_written`: the page holds only what the roll-up renders (above); every `YYYY-MM-DD`
   on it is a page's `deadline` or `deadlines` date (`YYYY-MM-DD` or `{date, note}`); the roll-up shows every such

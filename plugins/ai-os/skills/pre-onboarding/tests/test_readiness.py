@@ -465,13 +465,31 @@ class RollUpTest(Prepared):
         self.edit_page(DEADLINES, "last-updated: %s\n" % value, "last-updated: 2024-06-30\n")
 
     def test_a_deadline_entry_that_cannot_be_read(self):
-        for entry in ("20250131", "[2025-01-31]", "2025-02-30", "{date: 2025-02-30, note: No such day}"):
+        for entry in ("20250131", "2025-02-30", "{date: 2025-02-30, note: No such day}"):
             with self.subTest(entry=entry):
                 self.add_frontmatter(TAX, "deadline: %s\n" % entry)
                 self.assertIn("1 deadline entr(ies) not a real YYYY-MM-DD or {date, note} (20 Finance/Tax.md: "
                               "deadline: %s)" % entry,
                               self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written"))
                 self.edit_page(TAX, "deadline: %s\n" % entry, "")
+
+    def test_a_deadline_written_as_a_flow_sequence_is_not_read(self):
+        """The reader reads a defined subset of YAML; `[2025-01-31]` is outside it, so it is named, not judged."""
+        self.add_frontmatter(TAX, "deadline: [2025-01-31]\n")
+        res = self.readiness(code=0)
+        self.assertIn(["handoff_contract.frontmatter_read", "not verified: 20 Finance/Tax.md uses YAML this check does "
+                       "not read (a flow sequence)"], res["not_verified"])
+        self.assertEqual(res["findings"], [])
+
+    def test_a_page_with_yaml_outside_the_subset_is_not_verified_never_failed_or_passed(self):
+        """The Tax page uses an anchor: named in `not_verified`, no finding, the exit code the findings alone give."""
+        self.add_frontmatter(TAX, "recurring:\n  - &first {date: 5 April, note: Tax year ends}\n")
+        res = self.readiness(code=0)
+        self.assertIn(["handoff_contract.frontmatter_read", "not verified: 20 Finance/Tax.md uses YAML this check does "
+                       "not read (an anchor)"], res["not_verified"])
+        self.assertEqual(res["findings"], [])
+        self.assertEqual(res["summary"], {"findings": 0, "not_verified": len(res["not_verified"])})
+        self.assertNotIn("frontmatter_read", res["handoff_contract"])  # no key of its own: the report keeps its shape
 
     def test_numbers_joined_by_a_dash_are_hand_written_content(self):
         """Only what the roll-up renders is on the page, so a line of numbers is reported whatever it is."""
@@ -513,7 +531,7 @@ class RollUpTest(Prepared):
 
     def test_a_recurring_entry_needs_a_real_day_and_a_note(self):
         self.add_frontmatter(TAX, "recurring:\n  - {date: 02-30, note: No such day}\n")
-        self.assertIn('{"date": "02-30", "note": "No such day"}',
+        self.assertIn("(20 Finance/Tax.md: {date: 02-30, note: No such day})",
                       self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
         self.edit_page(TAX, "{date: 02-30, note: No such day}", "{date: 02-28}")
         self.assertIn("{date: 02-28}", self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
@@ -915,6 +933,25 @@ class FindingTest(Prepared):
         got, _out, err = run("readiness.py", "--root", self.root, "--work", self.work, "--terms", terms)
         self.assertEqual(got, 2, err)
         self.assertIn("UnicodeDecodeError", err)
+
+    def test_a_deadlines_page_that_is_not_utf8_is_a_finding_not_a_crash(self):
+        """A hand-kept table saved by another editor, as UTF-16 or as Latin-1: through the real CLI every other check
+        still runs and the report names the page."""
+        page = self.page(DEADLINES)
+        text = read(page)
+        for encoding in ("utf-16", "latin-1"):
+            with self.subTest(encoding=encoding):
+                with open(page, "wb") as f:
+                    f.write((text + "\n| Fees | caf\u00e9 |\n").encode(encoding))
+                res = self.readiness(code=1)
+                found = dict(res["findings"])
+                self.assertIn("01 Deadlines/01 Deadlines.md cannot be read as UTF-8 text (UnicodeDecodeError)",
+                              found["handoff_contract.derived_pages_hold_nothing_hand_written"])
+                self.assertIn(DEADLINES, res["wiki"]["frontmatter_bad"])  # `wiki.py check` counted it too
+                self.assertEqual(res["records"]["missing_cards"], 0)  # the other checks ran
+                self.assertEqual(res["wiki"]["pages"], 12)
+                self.assertIn(["handoff_contract.recurring_dates_in_frontmatter",
+                               "not verified: 01 Deadlines/01 Deadlines.md cannot be read"], res["not_verified"])
 
     def test_a_wiki_page_that_is_not_utf8_is_a_malformed_page_not_a_crash(self):
         """The roll-up lists such a page as unreadable and `wiki.py check` counts it as one that does not conform:

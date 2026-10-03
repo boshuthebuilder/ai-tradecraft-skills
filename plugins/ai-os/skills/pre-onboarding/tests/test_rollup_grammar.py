@@ -64,6 +64,10 @@ class Scenario(unittest.TestCase):
 
     def check(self, wiki):
         """(dated, recurring, other derived pages) as readiness reports them for this wiki."""
+        return self.full(wiki)[:3]
+
+    def full(self, wiki):
+        """The same and, last, the pages whose frontmatter the check does not read, each named as not verified."""
         return readiness.deadline_items(wiki, readiness.W.wiki_pages(wiki), None)
 
     def page(self, scenario="plain", change=None):
@@ -122,9 +126,24 @@ class RealOutputTest(Scenario):
             self.assertIn(text, yaml)
 
     def test_a_plain_page_and_the_empty_forms_are_clean(self):
-        for scenario in ("plain", "recurring-only", "banner", "paths", "yaml"):
+        for scenario in ("plain", "recurring-only", "banner", "paths", "yaml", "hidden"):
             with self.subTest(scenario=scenario):
                 self.assertEqual(self.page(scenario), ("ok", "ok", "ok"))
+
+    def test_the_scenarios_hold_the_shapes_the_last_review_named(self):
+        yaml = read(os.path.join(ROLLUPS, "yaml", PAGE))
+        for text in ("Annual return (", "Block item (", "Block deadline ("):  # a comment after `}`, block mapping items
+            self.assertIn(text, yaml)
+        refused = read(os.path.join(ROLLUPS, "refused", PAGE))
+        for text in ("{'date': '6/4', 'note': ''}", "{'date': '', 'note': 'x'}", "(unreadable recurring date: '5';",
+                     "datetime.date(2025, 1, 31)", "'2025-01-31'"):  # quoted empties, bare quoted items
+            self.assertIn(text, refused)
+        self.assertEqual(refused.count("{'date': '31 April', 'note': 'nonsense'}"), 2)  # the same item twice
+        hidden = read(os.path.join(ROLLUPS, "hidden", PAGE))
+        for text in ("[.trash/Old](../.trash/Old.md)", "[20 Finance/.Draft](../20%20Finance/.Draft.md)"):
+            self.assertIn(text, hidden)  # pages under a dot folder, and a dot file
+        for text in ("Before the edit", "A proposal", "2031-01-01", "2032-01-01"):
+            self.assertNotIn(text, hidden)  # a .superseded.md or .proposed.md sibling
 
     def test_the_could_not_read_list_is_clean_and_only_the_pages_own_fault_is_reported(self):
         dated, recurring, _other = self.page("could-not-read")
@@ -132,10 +151,16 @@ class RealOutputTest(Scenario):
         self.assertTrue(recurring.startswith("finding: 3 recurring: entr(ies) not {date, note}"), recurring)
         self.assertNotIn(HAND, recurring)
 
+    def test_the_refused_items_read_clean_and_only_the_pages_own_fault_is_reported(self):
+        dated, recurring, _other, outside = self.full(self.wiki("refused"))
+        self.assertEqual((dated, outside), ("ok", []))
+        self.assertTrue(recurring.startswith("finding: 8 recurring: entr(ies) not {date, note}"), recurring)
+        self.assertNotIn(HAND, recurring)
+
     def test_the_fixture_renderers_output_is_clean(self):
         """The fixture's roll-up writes `: <note>` where family-ai-os writes the dash, and the pages' own notes."""
         self.assertEqual(readiness.deadline_items(FIXTURE_WIKI, readiness.W.wiki_pages(FIXTURE_WIKI), None),
-                         ("ok", "ok", "ok"))
+                         ("ok", "ok", "ok", []))
 
 
 class ChangedOutputTest(Scenario):
@@ -318,37 +343,150 @@ class GrammarTest(unittest.TestCase):
             with self.subTest(line=line):
                 self.assertFalse(readiness.says_nothing(line))
 
+    @staticmethod
+    def frontmatter(block):
+        return readiness.read_frontmatter("---\n%s\n---\n# Page\n" % block)
+
+    def item(self, text, key="recurring"):
+        """The one list item the key holds, written `text`."""
+        return self.frontmatter("%s:\n  - %s" % (key, text))[key][0]
+
     def test_a_note_is_read_as_yaml_reads_it(self):
-        """A quoted scalar without its quotes; a plain one ends at ` #`; in a flow mapping a comma ends the value and
-        what follows is a key of its own."""
-        for text, want in (('"Renew: 2 weeks"', "Renew: 2 weeks"), ("'It''s due'", "It's due"),
-                           ('"say \\"hi\\""', 'say "hi"'), ("plain", "plain"), ("  spaced  ", "spaced"),
-                           ("Invoice #42 due", "Invoice"), ("#42", ""), ("a#b", "a#b"), ('"half', '"half'), ("", "")):
-            self.assertEqual(readiness.block_value(text), want, text)
-        self.assertEqual(readiness.flow_pairs("date: 04-05, note: Pay tax, file the return"),
-                         [("date", "04-05", False), ("note", "Pay tax", False), ("file the return", None, False)])
-        self.assertEqual(readiness.flow_pairs("note: \"Pay tax, file the return\", date: 7 July"),
-                         [("note", "Pay tax, file the return", True), ("date", "7 July", False)])
-        self.assertEqual(readiness.flow_pairs("date: 1 May, note: 'a, b'"),
-                         [("date", "1 May", False), ("note", "a, b", True)])
-        self.assertEqual(readiness.date_entry("{date: 04-05, note: Pay tax, file the return}"), ("04-05", "Pay tax"))
-        self.assertEqual(readiness.date_entry({"date": "04-05", "note": "Pay tax, file the return"}),
-                         ("04-05", "Pay tax"))
-        self.assertEqual(readiness.date_entry("2030-08-01 # the cutoff"), ("2030-08-01", None))
+        """A quoted scalar without its quotes; a plain one ends at ` #`; in a flow mapping an unquoted comma ends the
+        value and what follows is a key of its own; a comment may follow a scalar or a closing brace."""
+        for text, want in (("{date: 04-05, note: Pay tax, file the return}", ("04-05", "Pay tax")),
+                           ('{date: 04-05, note: "Pay tax, file the return"}', ("04-05", "Pay tax, file the return")),
+                           ("{date: 1 May, note: 'a, b'}", ("1 May", "a, b")),
+                           ("{date: 1 May, note: 'It''s'}", ("1 May", "It's")),
+                           ('{date: 1 May, note: "say \\"hi\\""}', ("1 May", 'say "hi"')),
+                           ("{note: x, date: 7 July}", ("7 July", "x")),
+                           ("{date: 04-05, note: Annual}  # yearly", ("04-05", "Annual")),
+                           ("{date: 2026-04-05, note: a} # b}", ("2026-04-05", "a")),
+                           ("{date: 04-05}", ("04-05", None)), ("{date: 04-05, note: }", ("04-05", None)),
+                           ("{date: 04-05, note: \"\"}", ("04-05", None)),
+                           ("{date: 04-05, note: a:b}", ("04-05", "a:b")),
+                           ("5 April", ("5 April", None)), ("2030-08-01 # the cutoff", ("2030-08-01", None)),
+                           ('"2025-01-31"', ("2025-01-31", None)), ("  5 April  ", ("5 April", None))):
+            self.assertEqual(readiness.date_entry(self.item(text)), want, text)
+        self.assertEqual(self.frontmatter("deadline_note: Invoice #42 due")["deadline_note"].text, "Invoice")
+        self.assertEqual(self.frontmatter("deadline_note: a#b")["deadline_note"].text, "a#b")
+        self.assertEqual(self.frontmatter("deadline_note: \"Invoice #42 due\" # c")["deadline_note"].text,
+                         "Invoice #42 due")
+        self.assertEqual(self.frontmatter("a: b\na: c")["a"].text, "c")  # a repeated key: the last one
+
+    def test_the_subset_reads_blocks_of_every_shape_it_names(self):
+        fm = self.frontmatter("provenance: derived # c\nrecurring:\n- {date: 5 April, note: A}\n"
+                              "- date: 6 April\n  note: B\n- 7 April # bare\ndeadlines: []\n"
+                              "deadline:\nlist:\n    - x\n    - \"y\"\n# a comment\nempty:   # none\nflow: {a: 1}")
+        self.assertEqual(fm["provenance"].text, "derived")
+        self.assertEqual([readiness.date_entry(it) for it in fm["recurring"]],
+                         [("5 April", "A"), ("6 April", "B"), ("7 April", None)])
+        self.assertEqual((fm["deadlines"], fm["deadline"], fm["empty"]), ([], None, None))
+        self.assertEqual([x.text for x in fm["list"]], ["x", "y"])
+        self.assertEqual(fm["flow"]["a"].text, "1")
+        self.assertEqual(readiness.read_frontmatter("# no frontmatter"), {})
+        self.assertEqual(readiness.read_frontmatter("---\n---\n# x"), {})
 
     def test_a_refused_recurring_item_is_written_as_the_roll_up_writes_it(self):
         hint = readiness.DATE_HINT
         for item, want in (("{date: 31 April, note: nonsense}", "{'date': '31 April', 'note': 'nonsense'}" + hint),
-                           ("6/4", "'6/4'" + hint),
+                           ("6/4", "'6/4'" + hint), ("{date: 6/4, note: \"\"}", "{'date': '6/4', 'note': ''}" + hint),
+                           ("{date: '', note: x}", "{'date': '', 'note': 'x'}" + hint),
+                           ('"2025-01-31"', "'2025-01-31'" + hint), ("2025-01-31", "datetime.date(2025, 1, 31)" + hint),
+                           ('"5"', "'5'" + hint), ("5", "5" + hint),
                            ("{note: no date key}", "{'note': 'no date key'}" + readiness.KEY_HINT),
                            ("{date: 2025-01-31, note: Self}",
                             "{'date': datetime.date(2025, 1, 31), 'note': 'Self'}" + hint),
                            ("{date: 04-31, note: a, b}", "{'date': '04-31', 'note': 'a', 'b': None}" + hint),
                            ("{date: 6.4}", "{'date': 6.4}" + hint)):
-            self.assertEqual(readiness.refused_item(item), want, item)
-        self.assertEqual(len(readiness.refused_item("{date: 31 April, note: %s}" % ("x" * 100)).split(";")[0]), 60)
-        for item in ("{date: 04-05, note: x}", "{date: 5 April}", "5 April", "{date: '04-05'}"):
-            self.assertIsNone(readiness.refused_item(item), item)
+            self.assertEqual(readiness.refused_item(self.item(item)), want, item)
+        long_item = self.item("{date: 31 April, note: %s}" % ("x" * 100))
+        self.assertEqual(len(readiness.refused_item(long_item).split(";")[0]), 60)
+        for item in ("{date: 04-05, note: x}", "{date: 5 April}", "5 April", "{date: '04-05'}", '"04-05"'):
+            self.assertIsNone(readiness.refused_item(self.item(item)), item)
+
+    def test_a_date_is_its_first_ten_characters(self):
+        days, _y, bad_days, _b, rendered, _r = readiness.frontmatter_dates(self.frontmatter(
+            "deadline: 2030-05-01 (approx)\ndeadlines:\n  - 20250131\n  - \"2030-01-02\""))
+        self.assertEqual((sorted(days), len(bad_days), sorted(rendered)),
+                         (["2030-01-02", "2030-05-01"], 1, [("2030-01-02", ""), ("2030-05-01", "")]))
+
+    OUT_OF_SCOPE = (
+        ('  title: Tax\n  status: current', 'indented frontmatter'),
+        ('a: b\n  c: d', 'a multi-line scalar or an indented block'),
+        ('? complex\n: key', 'a `? ` key'),
+        ('a: b\n...', 'a document end marker'),
+        ('a: &x b', 'an anchor'),
+        ('a: *x', 'an alias'),
+        ('a: !!str b', 'a tag'),
+        ('a: |\n  b', 'a block scalar'),
+        ('a: >\n  b', 'a folded scalar'),
+        ('a: b\n  c', 'a multi-line scalar or an indented block'),
+        ('recurring:\n  - {date: 5 April,\n    note: x}', 'a flow mapping that does not close on its line'),
+        ('recurring:\n  - {date: 5 April, note: a # b}', 'a comment inside a flow mapping'),
+        ('status: "superseded"', 'a quoted status'),
+        ('a: [b, c]', 'a flow sequence'),
+        ('recurring:\n  - [a]', 'a flow sequence'),
+        ('recurring:\n  - {a: {b: 1}}', 'a nested flow collection'),
+        ('recurring:\n  - {a: [1]}', 'a nested flow collection'),
+        ('recurring:\n  - {a: b [c]}', 'brackets in a plain scalar of a flow mapping'),
+        ('a: b\n\tc: d', 'a tab for indentation'),
+        ('%YAML 1.2\na: b', 'a directive'),
+        ('"a": b', 'a key that is not a plain word'),
+        ('my key: b', 'a line that is not a plain `key: value` pair'),
+        ('a: b: c', 'a colon and space inside a plain scalar'),
+        ('a: "b', 'an unclosed quote'),
+        ('a: "b" c', 'text after a quoted scalar'),
+        ('a: "b\\n"', 'an escape in a double-quoted scalar'),
+        ('a: b\n- c', 'a block sequence that is not under a key'),
+        ('a:\n  - b\n    - c', 'list items at different indents'),
+        ('a:\n  - b\n - c', 'list items at different indents'),
+        ('a:\n  -\n    b', 'an item on the lines after its dash'),
+        ('a:\n  - - b', 'a nested list'),
+        ('a:\n  - k: v\n      w: x', 'a nested block in a list item'),
+        ('a:\n  - k:\n      v', 'a nested block in a list item'),
+        ('a: - b', 'a block indicator inside a value'),
+        ('a: b # c\nd: {e: f} g', 'text after a flow mapping'),
+        ("a: " + "x" * 20001, "a line over 20000 characters"),
+        ("a:\n  - {" + "''," * 7000 + "}", "a line over 20000 characters"),
+        ('{a: b}', 'a key that is not a plain word'),
+        ("a: b\n" + "c: d\n" * 40000, "frontmatter over 200000 characters"),
+        ('a: {b: c', 'a flow mapping that does not close on its line'),
+        ('a: {,}', 'an empty key in a flow mapping'),
+        ('a: {b: c} d', 'text after a flow mapping'),
+    )
+
+    def test_anything_outside_the_subset_is_named(self):
+        for block, construct in self.OUT_OF_SCOPE:
+            with self.subTest(block=block[:40]):
+                with self.assertRaises(readiness.OutOfScope) as got:
+                    self.frontmatter(block)
+                self.assertEqual(str(got.exception), construct)
+
+    def test_text_after_the_opening_fence_is_outside_the_subset(self):
+        with self.assertRaises(readiness.OutOfScope) as got:
+            readiness.read_frontmatter("--- text\na: b\n---\n")
+        self.assertEqual(str(got.exception), "text after the opening fence")
+
+    def test_a_frontmatter_the_roll_up_cannot_read_as_a_mapping_is_malformed(self):
+        for text in ("---\nkey: v\nno fence closes", "---\n- a\n- b\n---\n", "---\n  - a\n---\n",
+                     "---\njust text\n---\n", "---\nplain words\nmore words\n---\n"):
+            with self.subTest(text=text[:30]):
+                with self.assertRaises(readiness.Malformed):
+                    readiness.read_frontmatter(text)
+
+    def test_a_frontmatter_pyyaml_reads_is_never_malformed_here(self):
+        """Whatever the subset does not read is outside it, never called malformed: the roll-up writes nothing for
+        these pages, and a line saying it did would not be the roll-up's."""
+        for text in ("---\n  title: Tax\n---\n", "---\n? a\n: b\n---\n", "---\na: b\n...\n---\n",
+                     "---\n{a: b,\n c: d}\n---\n", "---\n\"a\": b\n---\n", "---\n&x a: b\n---\n",
+                     "---\n!!map\na: b\n---\n",
+                     "---\na: b\n---\n", "---\n# only a comment\n---\n", "---\n---\n# x"):
+            with self.subTest(text=text[:30]):
+                try:
+                    readiness.read_frontmatter(text)
+                except readiness.OutOfScope:
+                    pass
 
 
 class FrontmatterTest(Scenario):
@@ -404,6 +542,15 @@ class CouldNotReadTest(Scenario):
     def test_a_line_written_twice_is_reported(self):
         self.assert_hand(self.replace(self.ITEM + "\n", self.ITEM + "\n" + self.ITEM + "\n"))
 
+    def test_a_line_is_expected_as_many_times_as_the_roll_up_writes_it(self):
+        """The same refused item twice on a page is two lines, so a third is hand-written."""
+        item = ("- 30 Home/Bad.md (unreadable recurring date: {'date': '31 April', 'note': 'nonsense'}%s)"
+                % readiness.DATE_HINT)
+        self.assertEqual(self.page("refused")[0], "ok")
+        dated, _recurring = self.reported(self.replace(item + "\n", item + "\n" + item + "\n"), "refused")
+        self.assertIn(HAND, dated)
+        self.assertIn("1 line(s)", dated)
+
     def test_the_heading_above_the_roll_up_makes_nothing_clean(self):
         """`## Could not read` placed first, with date-shaped text under it: none of it is the roll-up's."""
         self.assert_hand(self.replace("## Upcoming", "## Could not read\n\n- 20 Finance/Tax.md (unreadable: Due5April)"
@@ -423,12 +570,6 @@ class CouldNotReadTest(Scenario):
         write(path, read(path).replace("20 Finance/Binary.md (unreadable: PermissionError)",
                                        "20 Finance/Tax.md (unreadable: UnicodeDecodeError)"))
         self.assertIn(HAND, self.check(wiki)[0])
-
-    def test_a_malformed_frontmatter_is_the_one_the_roll_up_cannot_read(self):
-        for text, bad in (("---\nkey: v\nno fence closes", True), ("---\n- a\n- b\n---\n", True),
-                          ("---\njust text\n---\n", True), ("---\n---\n# x", False), ("---\nkey: v\n---\n", False),
-                          ("# no frontmatter", False), ("---\n# only a comment\n---\n", False)):
-            self.assertEqual(readiness.malformed(text), bad, text)
 
 
 class EntryFormTest(Scenario):
@@ -495,6 +636,97 @@ class YamlRuleTest(Scenario):
         self.assertEqual(self.check(wiki), ("ok", "ok", "ok"))
 
 
+class OutOfScopeTest(Scenario):
+    """A page whose frontmatter uses YAML outside the subset is named as not verified: never a finding, never clean."""
+
+    PAGE_NAME = "30 Home/Insurance.md"
+
+    def outside(self, block, scenario="plain", change=None):
+        """The result for the scenario's wiki with the page's frontmatter replaced by `block`."""
+        wiki = self.wiki(scenario)
+        write(os.path.join(wiki, *self.PAGE_NAME.split("/")), "---\n%s\n---\n# Insurance\n" % block)
+        if change:
+            path = os.path.join(wiki, PAGE)
+            write(path, change(read(path)))
+        return self.full(wiki)
+
+    def named(self, construct):
+        return ["not verified: %s uses YAML this check does not read (%s)" % (self.PAGE_NAME, construct)]
+
+    def test_each_construct_is_named_and_the_roll_up_is_neither_failed_nor_passed(self):
+        for block, construct in GrammarTest.OUT_OF_SCOPE:
+            with self.subTest(construct=construct, block=block[:30]):
+                dated, recurring, other, outside = self.outside(block)
+                self.assertEqual(outside, self.named(construct))
+                self.assertEqual((dated, recurring, other), ("ok", "ok", "ok"))  # not a finding
+
+    def test_the_lines_outside_the_roll_ups_grammar_are_still_reported(self):
+        _dated, _recurring, _other, outside = self.outside("a: &x b", change=self.append("| 5 | April |"))
+        self.assertEqual(outside, self.named("an anchor"))
+        dated = self.outside("a: &x b", change=self.append("| 5 | April |"))[0]
+        self.assertIn("hand-written content in a derived page, 1 line(s)", dated)
+        dated = self.outside("a: &x b", change=self.replace("**12 May** %s Insurance %s Ask Alex" % (EM, EM),
+                                                          "**12 May** %s Insurance %s Ask Robin" % (EM, EM)))[0]
+        self.assertEqual(dated, "ok")  # whether an entry is backed needs the page, so it is withheld
+        _d, recurring, _o, _out = self.outside("a: &x b", change=self.replace("**12 May**", "**13 May**"))
+        self.assertEqual(recurring, "ok")
+        dated = self.outside("a: &x b", change=self.replace("**2030-05-01**", "**2030-05-02**"))[0]
+        self.assertNotIn("no current page's frontmatter carries", dated)  # which pages carry it is not known
+        self.assertIn("lacks 1 page deadline(s) (2030-05-01 (20 Finance/Tax.md))", dated)  # a page that is read
+        dated = self.outside("a: &x b", change=self.replace("**12 May**", "**05-12**"))[0]
+        self.assertIn(HAND, dated)  # a date in a form the roll-up does not write needs no page
+        _d, recurring, _o, _out = self.outside("a: &x b", change=self.replace("**12 May**", "**5-May**"))
+        self.assertIn("unreadable yearly date", recurring)
+
+    def test_the_could_not_read_list_is_not_judged_while_a_page_is_unread(self):
+        change = self.replace("## Past\n", "## Past\n\n## Could not read\n\n"
+                              "- 20 Finance/Tax.md (unreadable: Whatever)\n")
+        dated, _recurring, _other, outside = self.outside("a: &x b", change=change)
+        self.assertEqual((dated, len(outside)), ("ok", 1))
+        dated = self.outside("a: b", change=change)[0]  # every page read: the line is not the roll-up's
+        self.assertIn(HAND, dated)
+
+    def test_a_page_named_once_for_the_first_construct_it_uses(self):
+        _d, _r, _o, outside = self.outside("a: &x b\nc: *x\nd: !!str e")
+        self.assertEqual(outside, self.named("an anchor"))
+
+    def test_a_banner_is_judged_by_its_place_alone_while_a_page_is_unread(self):
+        text = read(os.path.join(ROLLUPS, "banner", PAGE))
+        banner_line = next(x for x in text.split("\n") if x.startswith("> **Roll-up"))
+        change = self.replace("_File-derived deadlines", banner_line + "\n\n_File-derived deadlines")
+        self.assertEqual(self.outside("a: &x b", "plain", change)[0], "ok")  # the entries it needs are not known
+        self.assertIn(HAND, self.outside("a: b", "plain", change)[0])  # every page read: entries exist
+        below = self.replace("## Upcoming\n\n", "## Upcoming\n\n" + banner_line + "\n\n")
+        self.assertIn(HAND, self.outside("a: &x b", "plain", below)[0])  # below a heading: not its place
+
+    def test_a_page_the_roll_up_never_reads_is_not_named(self):
+        for name in ("30 Home/Insurance.superseded.md", "30 Home/Insurance.proposed.md", "02 Home/Index.md",
+                     "01 Deadlines/Log.md"):
+            wiki = self.wiki("plain")
+            os.makedirs(os.path.dirname(os.path.join(wiki, *name.split("/"))), exist_ok=True)
+            write(os.path.join(wiki, *name.split("/")), "---\na: &x b\n---\n")
+            self.assertEqual(self.full(wiki), ("ok", "ok", "ok", []), name)
+
+
+class HiddenPageTest(Scenario):
+    """The roll-up reads every `.md` under the wiki folder, dot folders and dot files included, and no `.superseded.md`
+    or `.proposed.md` sibling."""
+
+    def test_a_page_under_a_dot_folder_is_a_source(self):
+        dated, recurring = self.reported(self.replace(
+            "- **6 April** %s Old %s Deleted note ([.trash/Old](../.trash/Old.md))\n" % (EM, EM), ""), "hidden")
+        self.assertIn("lacks 1 recurring date(s) (04-06 (.trash/Old.md))", recurring)
+
+    def test_a_sibling_is_not_a_source(self):
+        entry = "- **9 September** %s Tax %s Before the edit ([20 Finance/Tax](../20%%20Finance/Tax.md))\n" % (EM, EM)
+        _dated, recurring = self.reported(self.replace("## Every year\n\n", "## Every year\n\n" + entry), "hidden")
+        self.assertIn("no page's recurring: list carries (line", recurring)
+
+    def test_a_date_only_a_sibling_holds_is_not_a_page_deadline(self):
+        dated, recurring, _other, _outside = self.full(self.wiki("hidden"))
+        self.assertEqual((dated, recurring), ("ok", "ok"))  # 2031-01-01 and 2032-01-01 are not required of the roll-up
+
+
 class UnreadablePageTest(Scenario):
     """One page that cannot be read does not stop the check."""
 
@@ -535,7 +767,21 @@ class SpeedTest(Scenario):
               "a" + " " * 100000 + "b", "{" + "," * 100000 + "}", "{" + ":" * 100000 + "}", "{" + "'" * 100000 + "}",
               "{date: \"" + "\\" * 100000 + "}", "{" + "a: " * 33000 + "}", "x #" * 33000, "#" + "x" * 100000,
               "\"" + "x" * 100000, "{date: 04-05, note: " + "'" * 100000 + "}", "5" * 100000, "5." * 50000,
-              "5 April" + " " * 100000 + "x", "{note: " + ", " * 50000 + "}")
+              "5 April" + " " * 100000 + "x", "{note: " + ", " * 50000 + "}",
+              "{" + "'', " * 400000 + "}", "{" + '"", ' * 400000 + "}", "{date: 04-05, note: " + "'x', " * 320000 + "}",
+              "'" + "''" * 800000 + "'", "{" + "'a': 'b', " * 160000 + "}")
+
+    def test_many_quoted_scalars_within_the_cap_are_read_in_one_pass(self):
+        """The reader scans in place: a flow mapping of 4,000 quoted scalars is read, not copied 4,000 times."""
+        item = "{" + "'', " * 4000 + "'a': \"b\"}"
+        start = time.perf_counter()
+        got = readiness.read_frontmatter("---\nrecurring:\n  - %s\n---\n" % item)
+        self.assertLess(time.perf_counter() - start, 0.2)
+        self.assertEqual(list(got["recurring"][0]), ["", "a"])
+        start = time.perf_counter()
+        value, end = readiness.quoted("'" + "''" * 9000 + "'", 0)
+        self.assertLess(time.perf_counter() - start, 0.2)
+        self.assertEqual((value, end), ("'" * 9000, 18002))
 
     def test_a_long_frontmatter_item_is_read_in_a_second(self):
         for shape in self.SHAPES:
