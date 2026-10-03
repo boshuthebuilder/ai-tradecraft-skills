@@ -125,6 +125,12 @@ class AgyTest(FakeEngineCase):
             engines.Agy(None, binary=self.fakes.path("agy"))
         self.assertEqual(self.fakes.calls("agy"), [])
 
+    def test_a_message_agy_would_cut_short_is_refused_before_the_call(self):
+        with self.assertRaises(engines.PromptTooLong) as cm:
+            self.agy()("\u4e2d" * 70_000, self.cwd())  # 210,000 bytes of CJK text
+        self.assertIn("over agy's 200000-byte limit", str(cm.exception))
+        self.assertEqual(self.fakes.calls("agy"), [])
+
     def test_a_denied_action_fails_even_with_an_answer(self):
         self.fakes.script("agy", default={"kind": "text", "text": '{"items": []}', "denied": ["write_file plan.md"]})
         with self.assertRaises(engines.ToolUseError) as cm:

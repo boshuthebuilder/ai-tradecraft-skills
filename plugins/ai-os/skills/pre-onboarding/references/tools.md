@@ -318,12 +318,10 @@ two looks a minute apart, writing `<work>/state/vision<k>.done`.
 
 ## `engines.py`
 
-<!-- provisional: #91 -->
-
 A library: the adapters every model call goes through, `Agy` (Gemini through the `agy` command-line tool) and
 `Codex` (ChatGPT through `codex exec`). The rule it holds is the skill's
-[engine isolation](../SKILL.md#engine-isolation); the flags in use are in the file, pinned by its tests, and the
-isolation spike may change them.
+[engine isolation](../SKILL.md#engine-isolation), settled on the operator's machine (spike #91); the flags in use
+are in the file, pinned by its tests.
 
 - **Each call** runs in the working directory the caller gives (a fresh, empty one from `engines.fresh_dir`), with
   the prompt on standard input, in its own process group, killed on timeout (900 seconds for `agy`, 1,500 for
@@ -340,10 +338,13 @@ isolation spike may change them.
   "try again at 5:12 PM" where the message says; `DegenerateError` for an empty answer; `ToolUseError` when the
   model used a tool (a `codex` tool item, or an `agy` stream event naming a tool, action, function or call) or `agy`
   was refused one (a denied action), the reply discarded (the vision lane alone lets `agy` open its images);
+  `PromptTooLong` before an `agy` call whose message is over 200,000 UTF-8 bytes (`AGY_MAX_MESSAGE_BYTES`): agy cuts
+  a message of about 300 KB short and leaves the model a stored copy to read with a tool these calls deny;
   `EngineError` for anything else. Two stop the run rather than the call: `SetupError` (no binary, `agy` without a
   model, a `codex` schema that is not strict) and `CredentialError` (below).
-- **A per-project state folder** (`state_home`, the engine's `HOME` or `CODEX_HOME`) is optional; no caller sets
-  one yet. When set, it is scanned before and after every call, and a regular file (not a symbolic link) whose name
+- **A per-project state folder** (`state_home`, the engine's `HOME` or `CODEX_HOME`) is optional, and the
+  preparation sets none: both engines keep their one login as a file in the machine's home, so a separate folder
+  would need it copied. When set, it is scanned before and after every call, and a regular file (not a symbolic link) whose name
   is shaped like a credential store (`auth.json`, `oauth_creds.json`, `tokens.json`, `cookies.sqlite`, `.netrc`,
   `.env`, `id_rsa`, `*.pem` and the like; notes and public keys excepted) stops the run.
 
@@ -363,10 +364,13 @@ Keeps other projects out of model-facing context. The terms file's format is in
   with a term; exit 1 otherwise. Scan every file a model is shown: the tools folder (its prompts, templates and
   schemas), the folder's `.familyai/` (the owner context the card instructions are filled from), and the wiki
   briefs and review prompts.
-- **`canary`** asks the engine, in a fresh empty folder, to list every personal name, family name, company,
-  property, street or address in its context other than the message. It writes `{engine, checked_at, terms, reply,
-  usage, hits, pass}` (or `error`) to `--out`, the reply and any error with their terms masked, and prints it
-  without the reply; `pass` needs a reply with no term in it. Exit 0 on a pass.
+- **`canary`** asks the engine, in a fresh empty folder, as a factual check of its setup, whether any text it was
+  given besides the message holds a personal name, family name, account name, company, property, street or
+  address, to be answered exactly `NONE` or with one line starting `NAMES:`. It writes `{engine, checked_at, terms,
+  reply, usage, hits, answered, pass}` (and `error` when there is one) to `--out`, the reply and any error with their
+  terms masked, and prints it without the reply. `pass` needs a reply in one of the two forms with no term in it: a
+  refusal ("I can't list my context") holds no term either, and proves nothing, so it fails as unanswered. Exit 0
+  on a pass.
 
 Neither writes a term out. The result files are the record that the gate ran: `readiness.py` reads each engine's
 canary from `<work>/state/canary-<engine>.json` ([`isolation.canary`](#readinesspy)), and no tool reads the scan's.
@@ -393,7 +397,7 @@ One card per live document. What a card holds, how it is written and joined, and
 | `--terms`, `--no-isolation-terms` | the isolation list, or the logged statement that none is needed; `work` needs one of them | none |
 | `--worker` | take every Nth batch file, from the kth | `0/1` |
 | `--redo` | a file of ids to card again, one per line | none |
-| `--small-chars`, `--batch-chars`, `--batch-items`, `--textless-batch`, `--section-chars`, `--single-max` | the batch budgets, in characters and items | 60,000; 180,000; 30; 60; 400,000; 600,000 |
+| `--small-chars`, `--batch-chars`, `--batch-items`, `--textless-batch`, `--section-chars`, `--single-max` | the batch budgets, in characters and items | 60,000; 180,000; 30; 60; 400,000; 600,000, except that with `--engine agy` (the default) `--batch-chars`, `--section-chars` and `--single-max` default to 60,000, which keeps a call under agy's byte limit even for CJK text |
 | `--section-tokens`, `--single-tokens` | budgets in estimated tokens instead (for `codex`, 110,000 and 150,000) | unset |
 
 Batches go in `<work>/batches/`, section notes in `<work>/sections/`; a worker writes `<work>/state/cards<k>.done`

@@ -515,14 +515,20 @@ def main():
     ap.add_argument("--worker", default="0/1")
     ap.add_argument("--redo", help="file of ids to re-card even though cards exist")
     ap.add_argument("--small-chars", type=int, default=60_000)
-    ap.add_argument("--batch-chars", type=int, default=180_000)
+    ap.add_argument("--batch-chars", type=int, help="default 180000; agy 60000")
     ap.add_argument("--batch-items", type=int, default=30)
     ap.add_argument("--textless-batch", type=int, default=60)
-    ap.add_argument("--section-chars", type=int, default=400_000)
-    ap.add_argument("--single-max", type=int, default=600_000)
+    ap.add_argument("--section-chars", type=int, help="default 400000; agy 60000")
+    ap.add_argument("--single-max", type=int, help="default 600000; agy 60000")
     ap.add_argument("--section-tokens", type=int, help="budget sections by estimated tokens (codex: 110000)")
     ap.add_argument("--single-tokens", type=int, help="largest single call in estimated tokens (codex: 150000)")
     a = ap.parse_args()
+    # agy refuses a message over engines.AGY_MAX_MESSAGE_BYTES; 60,000 characters stays under it even at three bytes
+    # a character (CJK text), with room for the instructions
+    wide = {"batch_chars": 180_000, "section_chars": 400_000, "single_max": 600_000}
+    for k, v in wide.items():
+        if getattr(a, k) is None:
+            setattr(a, k, 60_000 if a.engine == "agy" else v)
     if a.cmd == "work" and not (a.terms or a.no_isolation_terms):
         raise common.ToolError("give --terms (the isolation list) or --no-isolation-terms")
     if a.cmd == "work" and a.engine == "agy" and not a.model:

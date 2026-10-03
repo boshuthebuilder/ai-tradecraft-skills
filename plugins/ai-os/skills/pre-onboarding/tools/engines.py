@@ -63,6 +63,9 @@ NOT_CRED_EXTS = {".md", ".markdown", ".rst", ".html", ".pub"}
 # (`tool_calls: []`). Fail-closed and provisional: the isolation spike (issue #91) records agy's real event names.
 AGY_TOOL_WORDS = {"tool", "tools", "action", "actions", "function", "functions", "call", "calls"}
 KILL_GRACE = 5  # seconds to wait for the pipes after killing a timed-out engine's process group
+# agy cuts a long message short (seen at about 300 KB) and leaves the model a stored copy to read with a tool these calls
+# deny; refusing well below that keeps every call whole (the cut itself is being measured: family-ai-os #1089)
+AGY_MAX_MESSAGE_BYTES = 200_000
 AGY_MODEL_REQUIRED = "--model is required for agy (it has no default here; its effort is encoded in the model id)"
 CODEX_OFF = ["shell_tool", "unified_exec", "shell_snapshot", "memories", "apps", "browser_use",
              "browser_use_external", "computer_use", "in_app_browser", "image_generation", "multi_agent", "plugins",
@@ -81,6 +84,11 @@ class QuotaError(EngineError):
     def __init__(self, msg, reset_seconds=None):
         super().__init__(msg)
         self.reset_seconds = reset_seconds
+
+
+class PromptTooLong(EngineError):
+    """A message agy would cut short: it keeps the start and asks the model to read the rest from a stored copy with a
+    tool, which these calls deny, so the model would answer from part of its input."""
 
 
 class DegenerateError(EngineError):
@@ -245,6 +253,10 @@ class Agy:
 
     def __call__(self, prompt, cwd, schema=None, model=None):
         msg = json.dumps({"event": "user", "message": {"role": "user", "content": prompt}}, ensure_ascii=False)
+        size = len(msg.encode("utf-8"))
+        if size > AGY_MAX_MESSAGE_BYTES:
+            raise PromptTooLong("a %d-byte message is over agy's %d-byte limit here (it cuts one of about 300 KB "
+                                "short); split the input" % (size, AGY_MAX_MESSAGE_BYTES))
         cmd = [self.bin, "--input-format", "stream-json", "--output-format", "stream-json", "--model",
                model or self.model, "--sandbox", "--mode", "plan", "-p="]
         if schema:

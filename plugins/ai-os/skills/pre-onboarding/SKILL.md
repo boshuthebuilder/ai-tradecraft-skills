@@ -202,7 +202,7 @@ extraction](#3-curation-rounds-each-approved-by-the-owner)). Two lessons from re
 Before any model reads this folder:
 
     python3 <tools>/isolation.py scan   --terms <terms file> --path <tools> --path "<folder>/.familyai" \
-        --out <work>/state/scan.json
+        --path ~/.codex/AGENTS.md --out <work>/state/scan.json
     python3 <tools>/isolation.py canary --terms <terms file> --engine <engine> --model <model> \
         --out <work>/state/canary-<engine>.json
 
@@ -334,15 +334,30 @@ job runs on it until then ([wiki-onboarding step 5](../wiki-onboarding/SKILL.md#
 
 ## Engine isolation
 
-<!-- provisional: #91 -->
-
 The rule is the framework's: one login per machine, the context isolated per call
 ([the architecture](../../ARCHITECTURE.md#execution-context-constraints-why-the-indirection-exists)). The
 preparation holds it in `tools/engines.py`, which every model call goes through; how, and with which flags, is in
-[the tool reference](references/tools.md#enginespy). A per-project state folder, where one is used, holds no
-credential file; no caller sets one yet, and whether one is needed is for the isolation spike on the operator's
-machine to settle. The canary checks the isolation before the first call (step 5), and the contamination guard
-after, on every card.
+[the tool reference](references/tools.md#enginespy). Both engines run with the machine's own home and its one
+login: neither can reach that login from another folder without its token file being copied or linked there, and
+a copy that a token refresh rotates logs the main install out. So no per-project state folder is used, and
+isolation comes from what each call is given and what it is denied:
+
+- **codex** runs `exec --ephemeral` (no session file written), `--ignore-user-config` and `--ignore-rules`, with
+  memories and every tool feature disabled, in an empty working folder. What still reaches the model is the
+  machine's global instruction file, `~/.codex/AGENTS.md` (and `AGENTS.override.md` when present): no setting
+  drops it without a separate codex home. Treat it as model-facing: the gate's `scan` reads it (step 5), and it
+  must hold nothing from any project.
+- **agy** keeps its login in a token file in its own state folder (not the macOS keychain), so it too runs with
+  the machine's home. Each call goes in on standard input as one stream-json message, in plan mode with the
+  sandbox on, from an empty working folder. Probed on the operator's machine, the model is given no saved
+  memories, no summaries of earlier conversations and no instruction file, but it is offered tools: any tool event
+  in its stream discards the reply (the vision lane alone may open its images). agy also cuts a very long
+  message short and asks the model to read the rest from a stored copy (seen at about 300 KB), which a call with
+  no tools cannot do: keep every prompt to it well under that, as the card budgets do.
+
+The canary checks the isolation before the first call (step 5), and the contamination guard after, on every card.
+A canary reply must take one of its two forms, `NONE` or a `NAMES:` line: a model that refuses to list its context
+holds no term either, so a refusal fails as unanswered rather than passing.
 
 ## Identifiers
 

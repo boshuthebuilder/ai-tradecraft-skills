@@ -188,6 +188,18 @@ class CanaryTest(Case):
         self.assertEqual((res["hits"], res["pass"]), (1, False))
         self.assertEqual(res["reply"], "Names: Alex, <term>.", "the artefact must not carry the term")
 
+    def test_a_refusal_proves_nothing_and_fails(self):
+        self.fakes.script("codex", default={"kind": "text", "text": "I can't enumerate or reveal hidden context."})
+        code, res, _stdout, _err = self.canary("codex")
+        self.assertEqual(code, 1)
+        self.assertEqual((res["hits"], res["answered"], res["pass"]), (0, False, False))
+        self.assertIn("proves nothing", res["error"])
+
+    def test_names_that_are_not_terms_pass(self):
+        self.fakes.script("codex", default={"kind": "text", "text": "NAMES: an-account, GitHub"})
+        code, res, _stdout, _err = self.canary("codex")
+        self.assertEqual((code, res["answered"], res["hits"], res["pass"]), (0, True, 0, True))
+
     def test_an_engine_failure_fails_and_is_recorded(self):
         self.fakes.script("codex", default={"kind": "quota", "rc": 1, "message": "usage limit reached"})
         code, res, _stdout, _err = self.canary("codex")

@@ -466,6 +466,19 @@ class BuildTest(CardsCliCase):
         self.assertEqual(code, 0, err)
         self.assertIn("build: 0 new batches", out)
 
+    def test_the_default_budget_follows_the_engine(self):
+        """agy cuts a long message short, so its defaults keep every call under its byte limit; codex keeps the
+        wide ones."""
+        doc = self.record("04 Study/Reader.pdf", ["r" * 70_000])
+        code, _out, err = self.cards_py("build")  # the engine defaults to agy
+        self.assertEqual(code, 0, err)
+        self.assertEqual([bt["mode"] for bt in self.batches().values()], ["sections"])
+        shutil.rmtree(self.work)
+        code, _out, err = self.cards_py("build", "--engine", "codex")
+        self.assertEqual(code, 0, err)
+        self.assertEqual([(bt["mode"], [it["id"] for it in bt["items"]]) for bt in self.batches().values()],
+                         [("single", [doc])])
+
 
 class WorkTest(CardsCliCase):
     def two_docs(self, text_a="Rent for the flat.", text_b="Council tax bill."):
