@@ -454,6 +454,15 @@ class PackSettingsTest(AuditCase):
         is_pack = common.pack_matcher(root, rb)
         self.assertFalse(any(is_pack(f) for f in ("Letters", "Visa renewal 2021", "")))
 
+    def test_a_keyword_matching_a_real_folder_without_text_fails_loud(self):
+        root = self.folder(dict(self.pinned(pack_keywords=["visa", "(?=q)"]), **{"quotes/a.pdf": "a"}), parent="zw")
+        rb = common.load_rulebook(root, os.path.join(root, ".familyai"))
+        is_pack = common.pack_matcher(root, rb)
+        self.assertTrue(is_pack("Visa renewal"))
+        self.assertFalse(is_pack("Letters"))
+        with self.assertRaisesRegex(common.ToolError, "without consuming any text"):
+            is_pack("quotes")
+
     def test_a_pack_keyword_that_matches_an_empty_name_is_refused(self):
         for n, keyword in enumerate(("^", "a*", "(visa)?", "(?=.)", "(?=V)", "\\b")):
             with self.subTest(keyword=keyword):

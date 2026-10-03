@@ -422,12 +422,24 @@ def pack_matcher(root, rb):
                         "rulebook.json packs (and name it in the rulebook, which `settings.py check` verifies)"
                         % (rb.get("_source") or "rulebook.json", p, root))
     # an empty alternation would match every folder, so no keywords means no keyword matches
-    # each keyword on its own, and only a match that consumes text counts: in one alternation a zero-width
-    # alternative would win at every position and shadow the real keywords after it
-    rxs = [re.compile(k, re.I) for k in rb["pack_keywords"]]
+    # each keyword on its own (in one alternation a zero-width alternative would shadow the keywords after it),
+    # and a match that consumes no text fails loud: no finite probe at load can rule out one like `(?=q)`
+    rxs = [(k, re.compile(k, re.I)) for k in rb["pack_keywords"]]
     listed = [nfc(p) + "/" for p in rb["packs"]]
-    return lambda folder: (any(m.end() > m.start() for rx in rxs for m in rx.finditer(folder))
-                           or any((nfc(folder) + "/").startswith(pk) for pk in listed))
+
+    def is_pack(folder):
+        if any((nfc(folder) + "/").startswith(pk) for pk in listed):
+            return True
+        for k, rx in rxs:
+            m = rx.search(folder)
+            if m is not None and m.end() == m.start():
+                raise ToolError("%s: pack_keywords entry %r matched the folder %r without consuming any text; give "
+                                "it a pattern that matches part of the folder's name"
+                                % (rb.get("_source") or "rulebook.json", k, folder))
+            if m is not None:
+                return True
+        return False
+    return is_pack
 
 
 def page_voice(ws, page):
