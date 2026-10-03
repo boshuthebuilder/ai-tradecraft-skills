@@ -54,6 +54,7 @@ import isolation  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FINAL = {"ok", "partial", "blank", "photo", "listed", "no_reader", "failed"}
+MIN_SECTION = 1_000  # the smallest section budget (characters or estimated tokens) a run accepts
 TYPES = {"object": dict, "array": list, "string": str, "boolean": bool}
 RUN = re.compile(r"\d+(?:[ ,./\-]\d+)*")  # digits, and the single separators that may sit inside one number
 YEAR = re.compile(r"(?:19|20)\d\d$")
@@ -443,6 +444,16 @@ def read_section(engine_light, rb, path, k, n, text, log):
     return None, last
 
 
+def cached_note(path, k, n):
+    """The notes a cache file holds, or None (a miss, read again) when there is none or it is no note: it must carry
+    its `[section k of n]` header and something after it, which a partly written file would not."""
+    if not os.path.exists(path):
+        return None
+    note = read_text(path)
+    head = "[section %d of %d]" % (k, n)
+    return note if note.startswith(head) and note[len(head):].strip() else None
+
+
 def sections_text(run, engine_light, eid, log, engine_name):
     """The text a long document is carded from: the notes on every section, then its first 20,000 characters. Raises
     SectionsUnread when any section could not be read; the notes that were read stay cached for the rerun."""
@@ -452,24 +463,26 @@ def sections_text(run, engine_light, eid, log, engine_name):
     size = common.est_tokens if b.section_tokens else len
     limit = b.section_tokens or b.section_chars
     chunks = split_sections(text.split("\n\n[page "), limit, size)
-    budget = "%s:%d" % ("tokens" if b.section_tokens else "chars", limit)
+    # What the notes depend on, besides the section's own text: the budget, the model and effort that wrote them, and
+    # the prompt (the template and the identifier rule). A change to any of them reads the section again.
+    basis = "\n".join(["tokens" if b.section_tokens else "chars", str(limit), getattr(engine_light, "model", None) or
+                       "cli-default", str(getattr(engine_light, "effort", None)),
+                       engines.NO_TOOLS + SECTION_PROMPT + identifier_rule(run.rb)])
     cache = os.path.join(run.work, "sections")
     os.makedirs(cache, exist_ok=True)
     notes, unread = [], []
     for k, c in enumerate(chunks, 1):
-        # named by the section's own text and the budget, so a changed budget can never reuse notes on other text
-        digest = hashlib.sha256((budget + "\n" + c).encode("utf-8")).hexdigest()[:12]
+        digest = hashlib.sha256((basis + "\n" + c).encode("utf-8")).hexdigest()[:12]
         cp = os.path.join(cache, "%s_%s_%d_%d_%s.txt" % (eid[:16], engine_name, k, len(chunks), digest))
-        if os.path.exists(cp):
-            with open(cp, encoding="utf-8") as f:
-                notes.append(f.read())
+        note = cached_note(cp, k, len(chunks))
+        if note is not None:
+            notes.append(note)
             continue
         note, why = read_section(engine_light, run.rb, it["path"], k, len(chunks), c, log)
         if note is None:
             unread.append("section %d of %d: %s" % (k, len(chunks), why))
             continue
-        with open(cp, "w", encoding="utf-8") as f:
-            f.write(note)
+        run.writer.text(cp, note)
         notes.append(note)
     if unread:
         raise SectionsUnread("%d of %d sections not read, so no card is written from the rest (rerun once the cause "
@@ -622,6 +635,11 @@ def main():
     for k, v in wide.items():
         if getattr(a, k) is None:
             setattr(a, k, 60_000 if a.engine == "agy" else v)
+    for flag in ("section_chars", "section_tokens"):
+        if getattr(a, flag) is not None and getattr(a, flag) < MIN_SECTION:
+            raise common.ToolError("--%s %d is under the %d floor: a section that small is many calls for nothing, "
+                                   "and below a wide character's cost it cannot be split" %
+                                   (flag.replace("_", "-"), getattr(a, flag), MIN_SECTION))
     if a.cmd == "work" and not (a.terms or a.no_isolation_terms):
         raise common.ToolError("give --terms (the isolation list) or --no-isolation-terms")
     if a.cmd == "work" and a.engine == "agy" and not a.model:

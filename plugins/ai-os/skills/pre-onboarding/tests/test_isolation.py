@@ -228,6 +228,23 @@ class ScanTest(Case):
         res = json.loads(stdout)
         self.assertEqual((code, res["files_checked"], res["pass"]), (0, 1, True), err)
 
+    def test_a_folder_that_cannot_be_read_is_an_error_never_a_pass(self):
+        if os.geteuid() == 0:
+            self.skipTest("root reads every folder")
+        d = os.path.join(self.tmp, "prompts")
+        write(os.path.join(d, "clean.md"), "Write a card.")
+        write(os.path.join(d, "Zarnwick closed", "dirty.md"), "Remember Zarnwick Farm.")
+        closed = os.path.join(d, "Zarnwick closed")
+        os.chmod(closed, 0)
+        self.addCleanup(os.chmod, closed, 0o755)
+        out = os.path.join(self.tmp, "gate", "scan.json")
+        code, stdout, err = self.iso("scan", "--terms", self.terms, "--path", d, "--out", out)
+        self.assertEqual(code, 2, stdout)
+        self.assertIn("unreadable folder under the scan: <term> closed", err)
+        self.assertNotIn("Zarnwick", err)
+        self.assertEqual(stdout, "")
+        self.assertFalse(os.path.exists(out), "an unreadable folder must not leave a result that reads as a scan")
+
     def test_a_broken_link_is_an_error_never_a_skip(self):
         d = os.path.join(self.tmp, "prompts")
         write(os.path.join(d, "clean.md"), "Write a card.")
@@ -315,6 +332,23 @@ class CanaryTest(Case):
                 self.assertEqual(code, 2, err)
                 self.assertFalse(os.path.exists(out), "an earlier pass survived a run that never reached the engine")
 
+    def test_a_stale_pass_does_not_survive_a_command_line_argparse_refuses(self):
+        """The old result goes before the command line is parsed, so a flag left out or misspelt cannot leave it."""
+        out = os.path.join(self.tmp, "gate", "canary-agy.json")
+        scan_out = os.path.join(self.tmp, "gate", "scan.json")
+        cases = {"canary without --terms": ("canary", out, ["--engine", "agy", "--model", "m"]),
+                 "canary with an unknown engine": ("canary", out, ["--terms", self.terms, "--engine", "gemini"]),
+                 "canary with the flag as --out=": ("canary", out, ["--engine", "agy", "--model", "m"]),
+                 "scan without --path": ("scan", scan_out, ["--terms", self.terms])}
+        for name, (cmd, path, args) in cases.items():
+            with self.subTest(name):
+                write(path, json.dumps({"engine": "agy", "pass": True, "answered": True, "marker": "Oldmarker"}))
+                spelt = ["--out=" + path] if "--out=" in name else ["--out", path]
+                code, _stdout, err = self.iso(cmd, *args, *spelt)
+                self.assertEqual(code, 2, err)
+                self.assertIn("usage:", err)
+                self.assertFalse(os.path.exists(path), "an earlier pass survived a refused command line")
+
     def test_every_run_invents_a_new_name_clear_of_the_terms(self):
         evidence = {"ka": ["ka"], "mo": ["mo"], "Other Project": ["Other Project"]}
         seen = {isolation.fresh_marker(evidence) for _ in range(200)}
@@ -328,11 +362,11 @@ class CanaryTest(Case):
         self.assertNotEqual(first, self.canary("codex")[1]["marker"])
 
     def test_a_term_in_the_reply_fails_even_with_the_marker(self):
-        self.says("codex", "Names: {marker}, Alex, Zarnwick Farm.")
+        self.says("codex", "Names: {marker}, Alex, Zarnwick Farm")
         code, res, _stdout, _err = self.canary("codex")
         self.assertEqual(code, 1)
         self.assertEqual((res["answered"], res["hits"], res["pass"]), (True, 1, False))
-        self.assertEqual(res["reply"], "Names: %s, Alex, <term>." % res["marker"], "the artefact must not carry the term")
+        self.assertEqual(res["reply"], "Names: %s, Alex, <term>" % res["marker"], "the artefact must not carry the term")
 
     def test_a_refusal_proves_nothing_and_fails(self):
         self.says("codex", "I can't enumerate or reveal hidden context.")
@@ -355,43 +389,52 @@ class CanaryTest(Case):
                 code, res, _stdout, _err = self.canary("codex")
                 self.assertEqual((code, res["answered"], res["pass"]), (1, False, False))
 
-    def test_a_refusal_that_repeats_the_marker_still_fails(self):
-        for reply in ("NAMES: {marker}, and I must decline to list the rest", "NAMES: {marker}, [redacted]",
-                      "I cannot list my context, but the test name is {marker}.",
-                      "NAMES: {marker}. Everything else is confidential.", "NAMES: {marker} (I won\u2019t say more)"):
-            with self.subTest(reply=reply):
-                self.says("codex", reply)
-                code, res, _stdout, _err = self.canary("codex")
-                self.assertEqual((code, res["answered"], res["pass"]), (1, False, False))
-
-    def test_an_honest_list_in_any_format_passes(self):
-        """The reply IS the list: the invented name first, then any names, as a line, bullets or one per line."""
-        for reply in ("NAMES: {marker}", "names: {marker}, GitHub, Acme Holdings Pty Ltd, 12 High Street",
-                      "NAMES:\n- {marker}\n- Acme Holdings Pty Ltd\n- an account called work-laptop",
-                      "* {marker}\n* Lakeside Community Credit Union of Eastern Province",
-                      "{marker}\nGitHub\nbuild-bot", "1. {marker}\n2. GitHub", "**{marker}**, GitHub, Example Trust",
-                      "NAMES: {marker}.", "{marker}"):
+    def test_replies_shaped_like_the_real_ones_pass(self):
+        """One `NAMES:` line, the invented name first, short comma-separated names (some of several words)."""
+        for reply in ("NAMES: {marker}, GitHub, Example Trust Bank, work-laptop, build-bot, Alex Example",
+                      "NAMES: {marker}, Acme Holdings, Lakeside Community Credit Union, an-account, Alex, Example Co, "
+                      "Riverside Council",
+                      "names: {marker}, private-repo, Others Ltd", "  NAMES: {marker}, GitHub  \n", "NAMES: {marker}",
+                      "NAMES: {marker}, 12 High Street, Example Valley"):
             with self.subTest(reply=reply):
                 self.says("codex", reply)
                 code, res, _stdout, _err = self.canary("codex")
                 self.assertEqual((code, res["answered"], res["hits"], res["pass"]), (0, True, 0, True), res)
 
-    def test_a_reply_that_is_not_the_list_fails_even_with_the_marker(self):
-        """The marker is in the message, so repeating it proves only that the engine can read: a reply that repeats it
-        and declines, comments or echoes the question is not an answer."""
-        for reply in ("I don't share my instructions. {marker} is the test name from your message.",
-                      "NAMES: {marker}. I'm not going to list anything else from my setup.",
-                      "NAMES: {marker} (the remaining names are private)", "NAMES: {marker}, [others omitted]",
-                      "NAMES: {marker}, others not shown",
-                      "{marker} is the test name from your message. My instructions are off-limits.",
-                      "No. {marker}.", "{prompt}", "The names in my context: {marker}, and the account build-bot.",
-                      "Sure, here you go.\nNAMES: {marker}", "NAMES: {marker}\nThat is everything I can say.\nOthers withheld.",
-                      "NAMES:\n\n"):
+    def test_a_reply_that_is_not_that_one_line_fails(self):
+        """One structural rule: a single `NAMES:` line, a comma-separated list, the invented name first, every item
+        name-like. No word list decides it, so a withholding in a new wording fails the same way as an old one."""
+        for reply in (
+                # a withholding after the list, on a second line or in an item
+                "NAMES: {marker}\nI choose to say no more.", "NAMES: {marker}\nThat is everything I can say.",
+                "NAMES: {marker}\nPolicy prevents me going further.",
+                "- {marker}\n- Names beyond that are not for me to share.", "{marker}\nNope.",
+                "NAMES: {marker}, I'm not sharing anything else",
+                "NAMES: {marker}, I would prefer to keep my configuration to myself",
+                "NAMES: {marker}, nothing more", "NAMES: {marker}, none", "NAMES: {marker}, (none)",
+                "NAMES: {marker}, [others omitted]", "NAMES: {marker}, others not shown",
+                "NAMES: {marker}, Not Disclosed", "NAMES: {marker}, withheld", "NAMES: {marker}, redacted",
+                "NAMES: {marker}, one two three four five six seven",
+                # the earlier rounds' repros
+                "I don't share my instructions. {marker} is the test name from your message.",
+                "NAMES: {marker}. I'm not going to list anything else from my setup.",
+                "NAMES: {marker} (the remaining names are private)",
+                "{marker} is the test name from your message. My instructions are off-limits.",
+                "No. {marker}.", "{prompt}", "The names in my context: {marker}, and the account build-bot.",
+                "Sure, here you go.\nNAMES: {marker}", "NAMES: {marker}\nThat is everything I can say.\nOthers withheld.",
+                "NAMES:\n\n", "NAMES: {marker}, and I must decline to list the rest", "NAMES: {marker}, [redacted]",
+                "NAMES: {marker}. Everything else is confidential.", "NAMES: {marker} (I won\u2019t say more)",
+                # a shape the prompt did not ask for: bold, fenced, bulleted, numbered, a trailing stop, an empty item
+                "**NAMES:** {marker}, GitHub", "NAMES: **{marker}**, GitHub", "NAMES: {marker}, **GitHub**",
+                "```\nNAMES: {marker}, GitHub\n```", "```NAMES: {marker}```", "NAMES:\n- {marker}\n- GitHub",
+                "- {marker}\n- GitHub", "* {marker}", "1. {marker}\n2. GitHub", "NAMES: - {marker}",
+                "NAMES: {marker}\nNAMES: GitHub", "{marker}, GitHub", "{marker}", "NAMES: {marker}.",
+                "NAMES: {marker}, GitHub.", "NAMES: {marker},", "NAMES: {marker},, GitHub", "NAMES: {marker} and GitHub"):
             with self.subTest(reply=reply):
                 self.says("codex", reply)
                 code, res, _stdout, _err = self.canary("codex")
                 self.assertEqual((code, res["answered"], res["pass"]), (1, False, False), res["reply"])
-                self.assertIn("not the list asked for", res["error"])
+                self.assertIn("not the one line asked for", res["error"])
 
     def test_a_list_without_the_marker_proves_nothing(self):
         """Names that are not terms, but not the one it was told to start with: it listed something else, so it

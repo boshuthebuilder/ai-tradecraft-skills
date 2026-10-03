@@ -21,16 +21,20 @@ when two such paths mask alike, the later ones get `#2`, `#3` and so on.
 
 A canary checks a cooperating engine, and nothing more. Each run invents a fresh name (a capitalised nonsense
 word), tells the engine it is in its context, and asks for every personal, family, account, organisation, company,
-property, street, address or place name in its whole context, starting with that one. The reply counts as an answer
-only when it IS that list: its first item is the invented name, and no line of it reads as a refusal, a withholding
-or a comment on the question. Any term in the reply then fails, and the reply is kept with its terms masked; the
-invented name is recorded as `marker`, with the `model` and `effort` that were cleared. What that proves is that the
-engine answers in the required form and names no banned term. It cannot prove that a model withholding names
-deliberately holds nothing back: no reply can prove an absence, and the marker was put in the message, not in an
-instruction file. The other two layers cover that: the scan of every file a model is shown, and the contamination
-check on every card. Neither command writes a term out. Each clears its `--out` file first, so a run that ends early
-never leaves an earlier pass behind. The result files are the proof the gate ran; a missing or failed result means
-no real call may start. agy needs --model.
+property, street, address or place name in its whole context, as exactly one line: `NAMES:` and the names separated
+by commas, starting with that one. The reply counts as an answer only when, after surrounding whitespace, it is
+that single line: `NAMES:`, then a comma-separated list whose first item is the invented name and whose every item
+is name-like (one to six words, none of `. ! ? ; :` inside, no pronoun or negation from a small closed set, not
+wrapped in brackets). A second line, a code fence, bold, a bullet or a sentence-like item is unanswered, which is a
+fail: an honest reply in another shape fails closed, which costs a rerun and never gives a false pass. Any term in
+the reply then fails, and the reply is kept with its terms masked; the invented name is recorded as `marker`, with
+the `model` and `effort` that were cleared. What that proves is that the engine answers in the form asked and names
+no banned term. It cannot prove that a model withholding names deliberately holds nothing back (a well-formed
+`NAMES:` line holding only the invented name passes): no reply can prove an absence, and the marker was put in the
+message, not in an instruction file. The other two layers cover that: the scan of every file a model is shown, and
+the contamination check on every card. Neither command writes a term out. Each clears its `--out` file first of all,
+before the command line is even parsed, so a run that ends early never leaves an earlier pass behind. The result
+files are the proof the gate ran; a missing or failed result means no real call may start. agy needs --model.
 """
 import argparse
 import json
@@ -45,28 +49,23 @@ import common  # noqa: E402
 import engines  # noqa: E402
 
 # A factual check, not "list everything in your context": asked that, codex refuses ("I can't enumerate hidden
-# context"), and a refusal holds no term, so the canary would pass while proving nothing. The reply must lead with
-# the invented name, as a list (see `answered`).
+# context"), and a refusal holds no term, so the canary would pass while proving nothing. The reply is one line of
+# a fixed shape, led by the invented name (see `answered`).
 CANARY = ("A factual check of this session's setup, not a request for secrets or for the wording of your instructions. "
           "The invented name {marker} has been placed in your context as a test. List every personal name, family "
           "name, account name, organisation, company, property, street, address or place that appears anywhere in "
           "your context (system and instruction files, memories, notes, earlier conversations and this message), "
-          "starting with {marker}. Reply with one line starting NAMES: followed by the names, comma-separated, or "
-          "with a bulleted list. Nothing else. Do not create plans or files.")
+          "starting with {marker}. Reply with exactly one line: NAMES: followed by the names separated by commas, "
+          "starting with {marker}, and nothing else (no other line, no explanation, no formatting). Do not create "
+          "plans or files.")
 
 SYLLABLES = [c + v for c in "bdfgklmnprstvz" for v in "aeiou"]
-# What a refusal, a withholding or a comment on the question sounds like. A second check beside the structure
-# `answered` requires, for the reply that is shaped like a list and still declines: no list of phrases could be the
-# proof, and this one makes none.
-WITHHOLDING = re.compile(
-    r"(?i)\b(cannot|can't|can not|unable|not able|won't|will not|refuse\w*|sorry|not allowed|not permitted|"
-    r"do not have access|declin\w*|redact\w*|withh[eo]ld\w*|confidential|private|disclos\w*|rather not|"
-    r"prefer not|not comfortable|as an ai|not going to|off-limits|restricted|sensitive|omitted|not shown|"
-    r"not listed|not provided|not available|the rest|the remaining|remaining|other names|others|"
-    r"my instructions|my setup|test name|your message|(?:i|we) (?:do not|don't|am not|'m not))\b|"
-    r"[\[\]\u2026]|\.\.\.")
-BULLET = re.compile(r"^\s*(?:[-*\u2022]|\d+[.)])\s+")
-LABEL = re.compile(r"(?i)^\s*NAMES\s*:")
+# Words no name holds: a first or second person pronoun, or a negation or a refusal. A closed set, a second check on
+# each item beside its shape (see `name_like`), never the proof that an item is a name.
+NOT_NAME_WORDS = {"i", "me", "my", "we", "our", "you", "your", "not", "no", "nope", "nothing", "none", "cannot",
+                  "can't", "won't", "decline", "private", "withheld", "redacted"}
+NOT_NAME_CHARS = re.compile(r"[.!?;:*`]")
+WRAPPED = re.compile(r"[\[({<].*[\])}>]")
 
 
 def fresh_marker(evidence):
@@ -80,22 +79,28 @@ def fresh_marker(evidence):
     raise common.ToolError("no invented name clear of the terms in 100 tries; a term of one or two letters?")
 
 
-def answered(reply, marker):
-    """Whether the reply is the list the canary asked for: its first item is the invented `marker` (any case; with a
-    `NAMES:` label or a bullet, or the label alone on a line above), and nothing in it reads as a refusal, a
-    withholding or a comment (WITHHOLDING, or a placeholder in brackets). A reply that merely contains the marker
-    does not count: a model can repeat a name from the message and still decline the rest, or echo the prompt. What
-    this shows is that the engine answers in the required form, never that it would list names from files it
-    withholds."""
-    text = reply.replace("\u2019", "'").strip()
-    lines = [x for x in text.splitlines() if x.strip()]
-    if not lines or WITHHOLDING.search(text):
+def name_like(item):
+    """An item that could be a name: one to six words, none of `. ! ? ; :` (or the markup `*` and a backtick) inside
+    it, not wrapped in brackets, and no word of NOT_NAME_WORDS (any case; the quotes and brackets round a word are
+    ignored, a hyphenated word is one word). A sentence, a comment and a placeholder fail."""
+    words = item.split()
+    if not 1 <= len(words) <= 6 or NOT_NAME_CHARS.search(item) or WRAPPED.fullmatch(item):
         return False
-    first = LABEL.sub("", BULLET.sub("", lines[0]), count=1).strip()
-    if not first and len(lines) > 1:  # `NAMES:` alone, the list on the lines below
-        first = BULLET.sub("", lines[1]).strip()
-    head = re.split(r"[,;]", first, maxsplit=1)[0]
-    return head.strip(" *_`\"'.:").lower() == marker.lower()
+    return not {w.strip("\"'()[]{}<>").lower() for w in words} & NOT_NAME_WORDS
+
+
+def answered(reply, marker):
+    """Whether the reply has the one shape the canary asks for: after surrounding whitespace, a SINGLE line that is
+    `NAMES:` and a comma-separated list, whose first item is the invented `marker` (any case) and every item
+    name-like (see `name_like`). A second line, a code fence, bold, a bullet or a sentence-like item is unanswered, so
+    an honest reply in another shape fails closed, which costs a rerun and never gives a false pass. What the shape
+    shows is that the engine answers in the form asked, never that it would list names from files it withholds: a
+    model that writes `NAMES:` and the marker alone passes, and the scan and the contamination check cover that."""
+    text = reply.replace("\u2019", "'").strip()
+    if len(text.splitlines()) != 1 or not text.upper().startswith("NAMES:"):
+        return False
+    items = [x.strip() for x in text[len("NAMES:"):].split(",")]
+    return items[0].lower() == marker.lower() and all(name_like(x) for x in items)
 
 
 def load_terms(path):
@@ -172,10 +177,15 @@ def present_paths(given, evidence):
 
 def walk_files(top, evidence):
     """The model-facing files under `top`, links into folders followed. A real folder is read once however many
-    links lead to it, which also ends a loop; a broken link anywhere is an error (a file the scan cannot read is a
-    file it did not check)."""
+    links lead to it, which also ends a loop; a broken link or a folder that cannot be read is an error (a file the
+    scan cannot read is a file it did not check)."""
     seen, found = set(), []
-    for d, dirs, fs in os.walk(top, followlinks=True):
+
+    def unreadable(error):
+        raise common.ToolError("unreadable folder under the scan: %s" % masked(os.path.relpath(error.filename, top),
+                                                                               evidence))
+
+    for d, dirs, fs in os.walk(top, followlinks=True, onerror=unreadable):
         real = os.path.realpath(d)
         if real in seen:
             dirs[:] = []
@@ -240,8 +250,8 @@ def canary(a):
         res.update(reply=masked(reply.strip(), evidence)[:2000], usage=usage, hits=len(hits(reply, evidence)),
                    answered=answered(reply, marker))
         if not res["answered"]:
-            res["error"] = ("the reply was not the list asked for (the test name %s first, nothing that reads as a "
-                            "refusal, a withholding or a comment), so the canary proves nothing" % marker)
+            res["error"] = ("the reply was not the one line asked for (NAMES: and comma-separated names, the test "
+                            "name %s first, every item name-like), so the canary proves nothing" % marker)
     except engines.EngineError as ex:
         res.update(error=masked(str(ex), evidence)[:300])
     finally:
@@ -252,7 +262,21 @@ def canary(a):
     return 0 if res["pass"] else 1
 
 
+def out_named(argv):
+    """The --out the command line names (as `--out F` or `--out=F`), found before argparse can reject anything."""
+    for i, x in enumerate(argv):
+        if x.startswith("--out="):
+            return x[len("--out="):]
+        if x == "--out" and i + 1 < len(argv):
+            return argv[i + 1]
+    return None
+
+
 def main():
+    # first of all, before argparse can refuse a flag: a run that ends early must not leave an earlier pass behind
+    stale = out_named(sys.argv[1:])
+    if stale and os.path.isfile(stale):
+        os.remove(stale)
     ap = argparse.ArgumentParser(description="Isolation gate for model-facing context")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("scan")
@@ -269,7 +293,7 @@ def main():
     p.add_argument("--out", required=True)
     a = ap.parse_args()
     if a.out and os.path.isfile(a.out):
-        os.remove(a.out)  # first of all: a run that ends early must not leave an earlier pass behind
+        os.remove(a.out)  # the same, for a flag argparse took by its abbreviation
     if a.cmd == "canary" and a.engine == "agy" and not a.model:
         raise common.ToolError(engines.AGY_MODEL_REQUIRED)
     return scan(a) if a.cmd == "scan" else canary(a)

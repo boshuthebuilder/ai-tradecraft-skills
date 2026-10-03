@@ -103,8 +103,11 @@ finishes. Documents are bucketed by their text: under 20 characters (bucket 1), 
   at line breaks, a line still too long at any character, so that every call fits (with `agy`, under its byte
   limit). Each section gets its own call asking for notes of at most 200 words, from the light engine
   (`--light-model` at low effort for `codex`, otherwise the same engine), cached in `<work>/sections/`, each file named
-  by a hash of the section's own text and the budget, so a rerun does not pay for them again and a changed budget
-  never reuses notes on other text. A section that fails three times, returns no notes, or is over `agy`'s byte limit
+  by a hash of the section's own text, the budget, the model and effort that wrote the notes and the prompt, so a
+  rerun does not pay for them again and a changed budget, model or prompt never reuses old notes. A cached file that
+  is empty, or lacks its `[section k of n]` header, is a miss. To force a re-read, delete the document's files in
+  `<work>/sections/` (they start with the first 16 characters of its id). A section budget under 1,000 (characters
+  or estimated tokens) is refused. A section that fails three times, returns no notes, or is over `agy`'s byte limit
   (four-byte characters can still be, at 60,000 characters) is not read, and then **no card is written**: a card
   made from notes with a hole in them would claim a read it lacks. `<work>/state/card_err_<id>.txt` names each
   section not read (and is removed once the document's card is written), and the sections that were read stay

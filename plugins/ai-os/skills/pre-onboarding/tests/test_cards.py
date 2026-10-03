@@ -726,14 +726,14 @@ class ContaminationTest(CardsCliCase):
 
 class SectionsTest(CardsCliCase):
     def test_long_documents_are_read_in_sections_with_cached_notes(self):
-        pages = ["Page %d of the course reader. " % n + "w" * 400 for n in (1, 2, 3)]
+        pages = ["Page %d of the course reader. " % n + "w" * 3_000 for n in (1, 2, 3)]  # about 800 tokens each
         doc = self.record("04 Study/Course reader.pdf", pages)
         budget = ["--small-chars", "500", "--single-max", "1000"]
         code, _out, err = self.cards_py("build", *budget)
         self.assertEqual(code, 0, err)
         self.assertEqual([bt["mode"] for bt in self.batches().values()], ["sections"])
         self.fakes.script("codex", default={"kind": "text"})
-        work = ["--engine", "codex", "--terms", self.terms, "--section-tokens", "150"] + budget
+        work = ["--engine", "codex", "--terms", self.terms, "--section-tokens", "1000"] + budget
         code, _out, err = self.cards_py("work", *work)
         self.assertEqual(code, 0, err)
         calls = self.fakes.calls("codex")
@@ -939,6 +939,53 @@ class SectionsTest(CardsCliCase):
         self.assertEqual("".join(texts), "[page 1]\n" + text, "a range of the document was never read")
         self.assertEqual(sorted(self.written()), [doc])
         self.assertEqual(self.card_errors(), [])
+
+
+    def test_cached_notes_are_reused_only_for_the_same_model_and_only_when_whole(self):
+        """The cache is keyed by the model that wrote the notes (and the budget and the prompt), and a cached file that
+        is empty or lacks its header is a miss. To force a re-read, delete the document's files in sections/."""
+        text = "\n\n".join("Paragraph %d. " % k + "w" * 6_990 for k in range(40))
+        doc = self.record("04 Study/Annual report.txt", [text])
+        code, _out, err = self.cards_py("build")
+        self.assertEqual(code, 0, err)
+        cache = os.path.join(self.work, "sections")
+
+        def run(model):
+            self.fakes.reset("agy")
+            self.fakes.script("agy", default={"kind": "text"})
+            card = os.path.join(self.cards, doc + ".json")
+            if os.path.exists(card):
+                os.remove(card)
+            code, _out, err = self.cards_py("work", "--engine", "agy", "--model", model, "--terms", self.terms)
+            self.assertEqual((code, sorted(self.written())), (0, [doc]), err)
+            return sum("SECTION TEXT:" in c["prompt"] for c in self.fakes.calls("agy"))
+
+        sections = run("model-a")
+        self.assertGreaterEqual(sections, 5)
+        self.assertEqual(run("model-a"), 0, "the same model reads nothing again")
+        files = sorted(os.listdir(cache))
+        self.assertEqual(len(files), sections)
+        write(os.path.join(cache, files[0]), "")
+        write(os.path.join(cache, files[1]), "notes with no header, as a partly written file might leave")
+        self.assertEqual(run("model-a"), 2, "an empty or headerless cached file is read again")
+        self.assertEqual(run("model-b"), sections, "another model's notes are not reused")
+        for f in os.listdir(cache):
+            if f.startswith(doc[:16]):
+                os.remove(os.path.join(cache, f))
+        self.assertEqual(run("model-b"), sections, "deleting the document's cache files forces a re-read")
+        self.assertEqual([f for f in os.listdir(cache) if ".tmp" in f], [], "a note was left half written")
+
+    def test_a_section_budget_under_the_floor_is_refused(self):
+        self.record("04 Study/Annual report.txt", ["page text " * 8_000])
+        for flag in ("--section-tokens", "--section-chars"):
+            for value in ("1", "999"):
+                with self.subTest(flag=flag, value=value):
+                    code, _out, err = self.cards_py("build", flag, value)
+                    self.assertEqual(code, 2, err)
+                    self.assertIn("is under the 1000 floor", err)
+                    self.assertNotIn("Traceback", err)
+        code, _out, err = self.cards_py("build", "--section-tokens", "1000")
+        self.assertEqual(code, 0, err)
 
 
 class SplitSectionsTest(unittest.TestCase):

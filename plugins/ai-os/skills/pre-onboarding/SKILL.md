@@ -219,17 +219,21 @@ really lacks. `scan` expands `~` and variables itself, follows links into folder
 one is an error, never a skip), and stops with an error on a path that still holds `~` or `$`, or whose folder does
 not exist: that is a typo, and a typo must never read as a clean scan.
 
-`canary` checks a cooperating engine: it plants an invented name in the engine's context, asks the engine to list
-every name it holds starting with that one, and passes only a reply that is that list (the invented name first,
-nothing that reads as a refusal, a withholding or a comment) with no term in it. The invented name is recorded as
-`marker`. It cannot prove that a model withholding names deliberately holds nothing back; no reply can prove an
-absence. The scan above, and the contamination check on every card, cover that. Run the canary for each engine you
+`canary` checks a cooperating engine: it plants an invented name in the engine's context and asks the engine for
+every name it holds, as exactly one line, `NAMES:` and the names separated by commas, starting with that one. It
+passes only a reply of that one shape, with no term in it: after surrounding whitespace a single line, `NAMES:` and a
+comma-separated list, the first item the invented name (recorded as `marker`), every item name-like (one to six
+words, none of `. ! ? ; :` inside, no pronoun or negation from a small closed set, not wrapped in brackets). A second
+line, a fence, bold, a bullet or a sentence-like item fails as unanswered: an honest reply in another shape costs a
+rerun and never gives a false pass. It cannot prove that a model withholding names deliberately holds nothing back (a
+well-formed line holding only the invented name passes); no reply can prove an absence. The scan above, and the
+contamination check on every card, cover that. Run the canary for each engine you
 will use, with the `--model` the cards will use: models of one engine answer differently, and some refuse the
 question outright, which fails the canary. A model that refuses cannot be cleared for this folder, so card with one
 that answers. The result records the `model` and `effort` that were cleared, and `readiness.py` names them: compare
 them with the model the cards ran on (`card_meta.model`). A codex `--light-model` and the vision model are not
-covered by the engine's one result. Each command clears its `--out` file before it starts, so a run that stops early
-leaves no earlier pass behind. Keep both results: they are the record
+covered by the engine's one result. Each command clears its `--out` file before it even reads its command line, so a
+run that stops early (or is refused) leaves no earlier pass behind. Keep both results: they are the record
 that the gate ran, and `readiness.py` reads each engine's canary from `<work>/state/canary-<engine>.json` (step 8).
 No lane reads them, so never start one without passing ones. A failure means the engine's context carries another
 project: fix its setup ([engine isolation](#engine-isolation)) and run the canary again.
@@ -386,8 +390,8 @@ isolation comes from what each call is given and what it is denied:
 The canary checks the isolation before the first call (step 5), and the contamination guard after, on every card.
 Three layers hold the rule, and each covers what the others cannot:
 
-- **The canary** checks a cooperating engine: that it answers the question in the required form (an invented name
-  first, as a list), and that its answer names no banned term. It cannot prove that a model withholding names
+- **The canary** checks a cooperating engine: that it answers the question in the required form (one `NAMES:` line,
+  an invented name first, short comma-separated names), and that its answer names no banned term. It cannot prove that a model withholding names
   deliberately holds nothing back: no reply can prove an absence, and the invented name is in the message, not in an
   instruction file.
 - **The scan** reads every file a model is shown, including the global files each engine reads.
