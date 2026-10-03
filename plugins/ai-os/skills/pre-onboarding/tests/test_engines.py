@@ -8,6 +8,7 @@ tests change with them, deliberately.
 """
 import json
 import os
+import re
 import shutil
 import signal
 import sys
@@ -31,6 +32,8 @@ CODEX_OFF = ["shell_tool", "unified_exec", "shell_snapshot", "memories", "apps",
              "remote_plugin", "code_mode_host", "hooks", "goals", "tool_suggest", "skill_mcp_dependency_install",
              "workspace_dependencies"]
 PROMPT = "Summarise this. Café, 中文, naïve.\nSecond line."
+CUT_STREAM = os.path.join(HERE, "fixtures", "agy", "agy-1.2.16-cut-stream.redacted.jsonl")
+CUT_STDERR = os.path.join(HERE, "fixtures", "agy", "agy-1.2.16-cut-stderr.redacted.txt")
 
 
 def strict_problems(schema, where="$"):
@@ -163,16 +166,62 @@ class AgyTest(FakeEngineCase):
             self.agy()("a" * 180_001, self.cwd())
         self.assertEqual(len(self.fakes.calls("agy")), 1)
 
+    def tool_step(self, command, state="DONE"):
+        """A tool step in the shape agy 1.2.16 streams (the capture under tests/fixtures/agy)."""
+        return {"event": "step_update", "step_update": {"conversation_id": "c-1", "step_index": 2, "state": state,
+                                                        "step_type": "tool", "tool_name": "run_command",
+                                                        "tool_info": {"name": "run_command",
+                                                                      "parameters": {"CommandLine": command}}}}
+
     def cut_stream(self, **reply):
-        """What agy 1.2.16 streams when it cut the message and the model went for the stored full copy: a step that
-        names transcript_full.jsonl, then a successful result that carries a refused `command`."""
-        step = {"event": "step_update", "step_update": {"step_index": 2, "state": "DONE", "step_type": "tool",
-                                                        "tool": "run_command",
-                                                        "parameters": {"command": "tail -c 4000 /h/.gemini/brain/c-1/"
-                                                                       ".system_generated/logs/transcript_full.jsonl"}}}
-        base = {"kind": "empty", "events": [step], "denied": [{"action": "command", "display_name": "Command"}]}
+        """What agy streams when it cut the message and the model went for the stored full copy: a step that names
+        transcript_full.jsonl, then a successful result that carries a refused `command`. The two are on different
+        lines."""
+        read = ("tail -c 1000 /Users/example/.gemini/antigravity-cli/brain/c-1/.system_generated/logs/"
+                "transcript_full.jsonl")
+        base = {"kind": "empty", "events": [self.tool_step(read, "ACTIVE"), self.tool_step(read)],
+                "denied": [{"action": "command", "display_name": "RunCommand"}]}
         base.update(reply)
         return base
+
+    def test_the_real_stream_of_a_cut_prompt_is_a_cut(self):
+        """Replayed byte for byte from agy 1.2.16, which cut a 250,260-byte synthetic prompt whose question needs the
+        end of it: the model's tool steps name transcript_full.jsonl (twice, ACTIVE then DONE) and only the final
+        result carries the refused `command`, so the evidence has to be put together across the stream."""
+        self.fakes.script("agy", default={"kind": "replay", "stdout": CUT_STREAM, "stderr": CUT_STDERR})
+        for reads in (False, True):
+            with self.subTest(allow_reads=reads):
+                with self.assertRaises(engines.PromptCut) as cm:
+                    self.agy(allow_reads=reads)("hello", self.cwd())
+                self.assertIn("transcript_full.jsonl", str(cm.exception))
+        self.assertEqual(len(self.fakes.calls("agy")), 2, "the capture was not run through the adapter")
+
+    def test_in_the_real_stream_the_two_halves_of_the_evidence_are_on_different_lines(self):
+        """What the test above depends on, stated: a check that wanted the file name and the denial on one line would
+        never fire on a real stream."""
+        with open(CUT_STREAM, encoding="utf-8") as f:
+            events = [json.loads(line) for line in f]
+        names = [i for i, ev in enumerate(events) if "transcript_full.jsonl" in json.dumps(ev)]
+        refused = [i for i, ev in enumerate(events) if any("command" in engines.words(d.get("action"))
+                                                           for d in (ev.get("result") or {}).get("denied_actions", []))]
+        self.assertEqual(len(names), 2)
+        self.assertEqual(len(refused), 1)
+        self.assertEqual(set(names) & set(refused), set())
+        self.assertEqual({events[i]["step_update"]["step_type"] for i in names}, {"tool"})
+        self.assertEqual(events[refused[0]]["event"], "result")
+        self.assertEqual(engines.tool_events([json.dumps(ev) for ev in events]), [],
+                         "agy's tool steps are now seen as tool events: the check above no longer stands alone")
+
+    def test_the_captured_stream_holds_only_redacted_paths_and_ids(self):
+        """The capture is in a public repository: nothing in it may name a person, a machine or a conversation."""
+        text = ""
+        for path in (CUT_STREAM, CUT_STDERR):
+            with open(path, encoding="utf-8") as f:
+                text += f.read()
+        self.assertEqual(set(re.findall(r"/(?:Users|home)/[^/\\\"]+", text)), {"/Users/example"})
+        ids = set(re.findall(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", text))
+        self.assertEqual(ids, {"00000000-0000-0000-0000-000000000000"})
+        self.assertEqual(set(re.findall(r"\S+@\S+", text)), set())
 
     def test_a_stream_that_shows_the_stored_copy_being_read_means_the_prompt_was_cut(self):
         cases = {
@@ -195,9 +244,8 @@ class AgyTest(FakeEngineCase):
         file with nothing refused is read as the tool event it is (a failure everywhere but the vision lane)."""
         step = self.cut_stream()["events"]
         named_only = {"kind": "text", "text": "fine", "events": step + [{"event": "tool_call", "name": "view_file"}]}
-        command_only = {"kind": "empty", "denied": [{"action": "command"}],
-                        "events": [{"event": "step_update", "step_update": {"step_type": "tool", "tool": "run_command",
-                                                                            "parameters": {"command": "ls"}}}]}
+        command_only = {"kind": "empty", "denied": [{"action": "command", "display_name": "RunCommand"}],
+                        "events": [self.tool_step("ls")]}
         other_denial = self.cut_stream(denied=[{"action": "write_file"}])
         not_a_list = self.cut_stream(denied=True)
         self.fakes.script("agy", default=named_only)

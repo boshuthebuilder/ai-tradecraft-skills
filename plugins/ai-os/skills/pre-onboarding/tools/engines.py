@@ -170,8 +170,11 @@ def refuse_a_cut(lines, denied):
     """Raise PromptCut on positive evidence of a cut that the size check did not foresee: an agy stream event (the
     lines other than the result) naming the stored copy of the message, with a `command` refused in the result. That
     is the model's own attempt to read the rest. Absence proves nothing, since a task answerable from the head leaves
-    no trace, so this only turns a failure into a clearer one; it never certifies a pass. The event's shape is not
-    pinned (issue #91), so the file name is looked for anywhere in a line."""
+    no trace, so this only turns a failure into a clearer one; it never certifies a pass. The two halves are on
+    different lines (a real agy 1.2.16 capture, tests/fixtures/agy: `step_update` tool steps whose `tool_info`
+    names the file, ACTIVE then DONE, and only the final result carrying `denied_actions`), so they are put
+    together across the stream. The step's shape is not otherwise pinned (issue #91), so the file name is looked
+    for anywhere in a line."""
     if not isinstance(denied, list):
         return
     refused = any("command" in words(d.get("action") if isinstance(d, dict) else d) for d in denied)

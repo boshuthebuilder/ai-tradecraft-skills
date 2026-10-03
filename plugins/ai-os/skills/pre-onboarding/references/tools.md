@@ -345,10 +345,12 @@ are in the file, pinned by its tests, and what is still provisional is marked th
   tool these calls deny. The figure is measured on agy 1.2.16 (family-ai-os #1089), is the same for ASCII and CJK,
   counts the text's bytes (not characters, tokens or the serialised message) and sits 6% under the cut; an agy
   upgrade calls for a re-probe, about six calls. `PromptCut`, a `PromptTooLong`, when a prompt that passed that
-  check was cut all the same: a stream event names `transcript_full.jsonl` (agy's stored copy) and the result
-  refuses a `command`. That evidence only ever turns a failure into a clearer one, since a cut the task does not
-  notice leaves no trace. `EngineError` for anything else. Two stop the run rather than the call: `SetupError` (no
-  binary, `agy` without a model, a `codex` schema that is not strict) and `CredentialError` (below).
+  check was cut all the same: a stream event names `transcript_full.jsonl` (agy's stored copy) and the final
+  result refuses a `command`. The two are on different lines of a real stream (the model's tool steps, then the
+  result), so they are combined across it. That evidence only ever turns a failure into a clearer one, since a cut
+  the task does not notice leaves no trace. `EngineError` for anything else. Two stop the run rather than the
+  call: `SetupError` (no binary, `agy` without a model, a `codex` schema that is not strict) and
+  `CredentialError` (below).
 - **A per-project state folder** (`state_home`, the engine's `HOME` or `CODEX_HOME`) is optional, and the
   preparation sets none: both engines keep their one login as a file in the machine's home, so a separate folder
   would need it copied. When set, it is scanned before and after every call, and a regular file (not a symbolic link) whose name
