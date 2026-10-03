@@ -224,7 +224,7 @@ every name it holds, as exactly one line, `NAMES:` and the names separated by co
 passes only a reply of that one shape, with no term in it: after surrounding whitespace a single line, `NAMES:` and a
 comma-separated list, the first item the invented name (recorded as `marker`), every item name-like (one to six
 words, none of `. ! ? ; :` inside, no pronoun or negation from a small closed set, not wrapped in brackets). A second
-line, a fence, bold, a bullet or a sentence-like item fails as unanswered: an honest reply in another shape costs a
+line, a fence, bold, a bullet or an item that fails the name-like test fails as unanswered: an honest reply in another shape costs a
 rerun and never gives a false pass. It cannot prove that a model withholding names deliberately holds nothing back (a
 well-formed line holding only the invented name passes); no reply can prove an absence. The scan above, and the
 contamination check on every card, cover that. Run the canary for each engine you

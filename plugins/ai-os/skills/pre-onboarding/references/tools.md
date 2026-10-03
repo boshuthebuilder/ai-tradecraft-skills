@@ -390,7 +390,7 @@ Keeps other projects out of model-facing context. The terms file's format is in
   six words, none of `. ! ? ; :` (or `*` or a backtick) inside it, no word (any case) from the closed set i, me, my,
   we, our, you, your, not, no, nope, nothing, none, cannot, can't, won't, decline, private, withheld, redacted, and
   not wrapped in brackets. Anything else is unanswered, which fails: a second line, a code fence, bold, a bullet, a
-  trailing full stop, an empty item or a sentence-like item. An honest reply in another shape fails closed, which
+  trailing full stop, an empty item or an item that fails the name-like test. An honest reply in another shape fails closed, which
   costs a rerun and never gives a false pass. `pass` needs `answered` and no term in the reply. What it proves is that
   the engine answers in the form asked and names no banned term. It cannot prove that a model withholding names
   deliberately holds nothing back (a well-formed `NAMES:` line holding only the invented name passes): no reply can

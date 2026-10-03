@@ -245,6 +245,23 @@ class ScanTest(Case):
         self.assertEqual(stdout, "")
         self.assertFalse(os.path.exists(out), "an unreadable folder must not leave a result that reads as a scan")
 
+    def test_a_file_that_cannot_be_read_is_an_error_with_its_path_masked(self):
+        if os.geteuid() == 0:
+            self.skipTest("root reads every file")
+        d = os.path.join(self.tmp, "prompts")
+        write(os.path.join(d, "clean.md"), "Write a card.")
+        closed = os.path.join(d, "Zarnwick notes.md")
+        write(closed, "Remember Zarnwick Farm.")
+        os.chmod(closed, 0)
+        self.addCleanup(os.chmod, closed, 0o644)
+        out = os.path.join(self.tmp, "gate", "scan.json")
+        code, stdout, err = self.iso("scan", "--terms", self.terms, "--path", d, "--out", out)
+        self.assertEqual(code, 2, stdout)
+        self.assertIn("unreadable file under the scan: <term> notes.md", err)
+        self.assertNotIn("Zarnwick", err)
+        self.assertNotIn("Traceback", err)
+        self.assertFalse(os.path.exists(out))
+
     def test_a_broken_link_is_an_error_never_a_skip(self):
         d = os.path.join(self.tmp, "prompts")
         write(os.path.join(d, "clean.md"), "Write a card.")
@@ -349,6 +366,20 @@ class CanaryTest(Case):
                 self.assertIn("usage:", err)
                 self.assertFalse(os.path.exists(path), "an earlier pass survived a refused command line")
 
+    def test_every_out_named_goes_and_no_flag_is_taken_by_abbreviation(self):
+        first = os.path.join(self.tmp, "gate", "canary-a.json")
+        second = os.path.join(self.tmp, "gate", "canary-b.json")
+        for path in (first, second):
+            write(path, json.dumps({"engine": "agy", "pass": True, "answered": True, "marker": "Oldmarker"}))
+        code, _stdout, err = self.iso("canary", "--engine", "agy", "--model", "m", "--out", first, "--out", second)
+        self.assertEqual(code, 2, err)
+        self.assertFalse(os.path.exists(first) or os.path.exists(second), "an earlier pass survived")
+        write(first, json.dumps({"engine": "agy", "pass": True, "answered": True, "marker": "Oldmarker"}))
+        code, _stdout, err = self.iso("canary", "--terms", self.terms, "--engine", "agy", "--model", "m",
+                                      "--ou", first)
+        self.assertEqual(code, 2, err)
+        self.assertIn("usage:", err)
+
     def test_every_run_invents_a_new_name_clear_of_the_terms(self):
         evidence = {"ka": ["ka"], "mo": ["mo"], "Other Project": ["Other Project"]}
         seen = {isolation.fresh_marker(evidence) for _ in range(200)}
@@ -435,6 +466,25 @@ class CanaryTest(Case):
                 code, res, _stdout, _err = self.canary("codex")
                 self.assertEqual((code, res["answered"], res["pass"]), (1, False, False), res["reply"])
                 self.assertIn("not the one line asked for", res["error"])
+
+    def test_a_closed_set_word_is_caught_however_it_is_spelt(self):
+        """The pronouns and negations are matched as words, not as spellings: a contraction counts as its first part
+        or, ending n't, as a negation, and the marks round a word (any quote, an underscore, an ellipsis) are dropped.
+        Each of these passed while the set was matched against the word as written."""
+        for reply in ("NAMES: {marker}, I'm unable to list more", "NAMES: {marker}, I'll stop here",
+                      "NAMES: {marker}, don't share more", "NAMES: {marker}, we're done",
+                      "NAMES: {marker}, “redacted”", "NAMES: {marker}, _none_", "NAMES: {marker}, none…",
+                      "NAMES: {marker}, I’m done", "NAMES: {marker}, isn't listed", "NAMES: {marker}, ‘my’ list"):
+            with self.subTest(reply=reply):
+                self.says("codex", reply)
+                code, res, _stdout, _err = self.canary("codex")
+                self.assertEqual((code, res["answered"], res["pass"]), (1, False, False), res["reply"])
+        for reply in ("NAMES: {marker}, O'Brien Lettings, Children's Trust, St John's Road",
+                      "NAMES: {marker}, ‘Example’ Holdings"):
+            with self.subTest(reply=reply):
+                self.says("codex", reply)
+                code, res, _stdout, _err = self.canary("codex")
+                self.assertEqual((code, res["answered"], res["pass"]), (0, True, True), res["reply"])
 
     def test_a_list_without_the_marker_proves_nothing(self):
         """Names that are not terms, but not the one it was told to start with: it listed something else, so it

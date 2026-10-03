@@ -25,8 +25,8 @@ property, street, address or place name in its whole context, as exactly one lin
 by commas, starting with that one. The reply counts as an answer only when, after surrounding whitespace, it is
 that single line: `NAMES:`, then a comma-separated list whose first item is the invented name and whose every item
 is name-like (one to six words, none of `. ! ? ; :` inside, no pronoun or negation from a small closed set, not
-wrapped in brackets). A second line, a code fence, bold, a bullet or a sentence-like item is unanswered, which is a
-fail: an honest reply in another shape fails closed, which costs a rerun and never gives a false pass. Any term in
+wrapped in brackets). A second line, a code fence, bold, a bullet or an item that fails the name-like test is unanswered,
+which is a fail: an honest reply in another shape fails closed, which costs a rerun and never gives a false pass. Any term in
 the reply then fails, and the reply is kept with its terms masked; the invented name is recorded as `marker`, with
 the `model` and `effort` that were cleared. What that proves is that the engine answers in the form asked and names
 no banned term. It cannot prove that a model withholding names deliberately holds nothing back (a well-formed
@@ -66,6 +66,16 @@ NOT_NAME_WORDS = {"i", "me", "my", "we", "our", "you", "your", "not", "no", "nop
                   "can't", "won't", "decline", "private", "withheld", "redacted"}
 NOT_NAME_CHARS = re.compile(r"[.!?;:*`]")
 WRAPPED = re.compile(r"[\[({<].*[\])}>]")
+EDGE = re.compile(r"^[\W_]+|[\W_]+$")
+APOSTROPHES = str.maketrans({"‘": "'", "’": "'", "ʼ": "'", "`": "'"})
+
+
+def not_name_word(word):
+    """Whether a word is one NOT_NAME_WORDS rules out, however it is spelt: the marks round it (quotes of any kind,
+    brackets, underscores, an ellipsis) are dropped, and a contraction counts as its first part (`I'm`, `we're` and
+    `I'll` are `i` and `we`) or, ending `n't`, as a negation (`don't`, `isn't`)."""
+    word = EDGE.sub("", word.translate(APOSTROPHES)).lower()
+    return word in NOT_NAME_WORDS or word.split("'")[0] in NOT_NAME_WORDS or word.endswith("n't")
 
 
 def fresh_marker(evidence):
@@ -81,18 +91,19 @@ def fresh_marker(evidence):
 
 def name_like(item):
     """An item that could be a name: one to six words, none of `. ! ? ; :` (or the markup `*` and a backtick) inside
-    it, not wrapped in brackets, and no word of NOT_NAME_WORDS (any case; the quotes and brackets round a word are
-    ignored, a hyphenated word is one word). A sentence, a comment and a placeholder fail."""
+    it, not wrapped in brackets, and no word that `not_name_word` rules out (a hyphenated word is one word). Only
+    those conditions fail an item: a short phrase that breaks none of them (`that is all`) passes, which is the
+    settled residual of a check on a cooperating engine."""
     words = item.split()
     if not 1 <= len(words) <= 6 or NOT_NAME_CHARS.search(item) or WRAPPED.fullmatch(item):
         return False
-    return not {w.strip("\"'()[]{}<>").lower() for w in words} & NOT_NAME_WORDS
+    return not any(not_name_word(w) for w in words)
 
 
 def answered(reply, marker):
     """Whether the reply has the one shape the canary asks for: after surrounding whitespace, a SINGLE line that is
     `NAMES:` and a comma-separated list, whose first item is the invented `marker` (any case) and every item
-    name-like (see `name_like`). A second line, a code fence, bold, a bullet or a sentence-like item is unanswered, so
+    name-like (see `name_like`). A second line, a code fence, bold, a bullet or an item that fails `name_like` is unanswered, so
     an honest reply in another shape fails closed, which costs a rerun and never gives a false pass. What the shape
     shows is that the engine answers in the form asked, never that it would list names from files it withholds: a
     model that writes `NAMES:` and the marker alone passes, and the scan and the contamination check cover that."""
@@ -218,8 +229,11 @@ def scan(a):
             raise common.ToolError("scan path missing (argument %d)" % n)
         for f in files:
             checked += 1
-            with open(f, encoding="utf-8", errors="replace") as fh:
-                h = hits(fh.read(), evidence)
+            try:
+                with open(f, encoding="utf-8", errors="replace") as fh:
+                    h = hits(fh.read(), evidence)
+            except OSError:  # a file the scan cannot read is a file it did not check
+                raise common.ToolError("unreadable file under the scan: %s" % masked(os.path.relpath(f, base), evidence))
             if h:
                 key = "%d:%s" % (n, masked(os.path.relpath(f, base), evidence))
                 k = 2
@@ -262,38 +276,38 @@ def canary(a):
     return 0 if res["pass"] else 1
 
 
-def out_named(argv):
-    """The --out the command line names (as `--out F` or `--out=F`), found before argparse can reject anything."""
+def outs_named(argv):
+    """Every --out the command line names (as `--out F` or `--out=F`), found before argparse can reject anything.
+    Flags are never taken by abbreviation (`allow_abbrev=False`), so these are the only spellings."""
+    outs = []
     for i, x in enumerate(argv):
         if x.startswith("--out="):
-            return x[len("--out="):]
-        if x == "--out" and i + 1 < len(argv):
-            return argv[i + 1]
-    return None
+            outs.append(x[len("--out="):])
+        elif x == "--out" and i + 1 < len(argv):
+            outs.append(argv[i + 1])
+    return outs
 
 
 def main():
     # first of all, before argparse can refuse a flag: a run that ends early must not leave an earlier pass behind
-    stale = out_named(sys.argv[1:])
-    if stale and os.path.isfile(stale):
-        os.remove(stale)
-    ap = argparse.ArgumentParser(description="Isolation gate for model-facing context")
+    for stale in outs_named(sys.argv[1:]):
+        if os.path.isfile(stale):
+            os.remove(stale)
+    ap = argparse.ArgumentParser(description="Isolation gate for model-facing context", allow_abbrev=False)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    p = sub.add_parser("scan")
+    p = sub.add_parser("scan", allow_abbrev=False)
     p.add_argument("--terms", required=True)
     p.add_argument("--path", action="append", required=True)
     p.add_argument("--if-present", action="append", help="a model-facing file read when this machine has it (an "
                    "engine's global instructions); one missing from a folder that exists is listed as absent, one "
                    "whose folder is missing or that still holds ~ or $ is an error")
     p.add_argument("--out", help="also write the result here, as the gate's liveness artefact")
-    p = sub.add_parser("canary")
+    p = sub.add_parser("canary", allow_abbrev=False)
     p.add_argument("--terms", required=True)
     p.add_argument("--engine", choices=["agy", "codex"], required=True)
     p.add_argument("--model")
     p.add_argument("--out", required=True)
     a = ap.parse_args()
-    if a.out and os.path.isfile(a.out):
-        os.remove(a.out)  # the same, for a flag argparse took by its abbreviation
     if a.cmd == "canary" and a.engine == "agy" and not a.model:
         raise common.ToolError(engines.AGY_MODEL_REQUIRED)
     return scan(a) if a.cmd == "scan" else canary(a)
