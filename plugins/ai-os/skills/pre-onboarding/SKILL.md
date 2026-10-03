@@ -328,7 +328,7 @@ either, so read them and tell the owner.
 
 Tell the owner what was prepared (the rounds run, the documents read and carded, the pages accepted, anything
 left open). If they read the wiki in Typora, tell them to turn on Preferences, Markdown, Syntax Support,
-Diagrams, or its charts show as code ([portable-markdown](../../../productivity/skills/portable-markdown/SKILL.md#charts-and-callouts)).
+Diagrams, then restart Typora, or its charts show as code ([portable-markdown](../../../productivity/skills/portable-markdown/SKILL.md#charts-and-callouts)).
 Then run [`project-onboarding`](../project-onboarding/SKILL.md) on the folder from its step 1. It finds
 a wiki with a Schema, so it does not onboard one again, and an audit pair and rulebook, so it stamps the
 folder-curation archetype's `audit` job beside the file-ingest pair. The wiki was built during preparation, and no

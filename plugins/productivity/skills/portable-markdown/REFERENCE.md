@@ -64,15 +64,15 @@ each before relying on a new kind.
 
 | construct | Obsidian 1.13.7 | Typora 1.14.10 |
 | --- | --- | --- |
-| `xychart-beta` bar | renders | renders, with Diagrams on |
-| `xychart-beta` line | renders | renders, with Diagrams on |
-| `pie` | renders | renders, with Diagrams on |
-| `gantt` (validity bar) | renders | renders, with Diagrams on |
-| `timeline` | renders | renders, with Diagrams on |
+| `xychart-beta` bar | renders | renders, with Diagrams on and Typora restarted |
+| `xychart-beta` line | renders | renders, with Diagrams on and Typora restarted |
+| `pie` | renders | renders, with Diagrams on and Typora restarted |
+| `gantt` (validity bar) | renders | renders, with Diagrams on and Typora restarted |
+| `timeline` | renders | renders, with Diagrams on and Typora restarted |
 | any of the above, Diagrams off | n/a | the fenced source code, as text |
 | `> [!note]` / `tip` / `important` / `warning` / `caution` | callout box | alert box |
 | `> [!note]` alone, `> **Title.** text` on the next line | box (default title), the bold line first | alert box, the bold line first |
-| `> [!note] Title text` on one line | box titled "Title text" | alert box, `[!note] Title text` printed as text |
+| `> [!note] Title text` on one line | box titled "Title text" | read from Typora's source, not seen: on opening, an alert box with `[!note] Title text` printed as text; after an edit to it, likely a plain quotation |
 | `> [!info]`, `[!todo]`, `[!danger]` and other Obsidian types | callout box | plain quotation, marker printed |
 
 A gantt mounted outside the page has no width to lay out against and draws nothing (0 px wide); mounted in

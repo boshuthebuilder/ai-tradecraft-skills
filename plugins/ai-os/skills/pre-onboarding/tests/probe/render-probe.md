@@ -1,6 +1,6 @@
 # Render probe
 
-One chart of each kind `wiki.py chart` renders, each followed by its data table, and one Obsidian callout. Open
+One chart of each kind `wiki.py chart` renders, each followed by its data table, and one callout, its marker alone on its line. Open
 this page in each Markdown app the wiki will be read in. For every section, note whether the chart draws, whether
 its labels, values and dates read as in the table under it, and anything clipped or misplaced. A kind that does not
 draw in every app is taken out of the tool. The page is generated: `tests/test_charts.py --update` rewrites it from

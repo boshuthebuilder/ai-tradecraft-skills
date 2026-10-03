@@ -215,8 +215,9 @@ treat it as expected rather than confirmed until someone opens the probe page (s
 apps. Two things are known to differ, read from Typora's own source:
 
 - **Typora draws a diagram only with its Diagrams preference on** (Preferences, Markdown, Syntax
-  Support, Diagrams). Its documented default is off, and with it off a chart shows as its source code.
-  Tell a Typora reader to turn it on once. A chart must therefore never be the only place its data
+  Support, Diagrams), and Typora applies that panel's settings only after a restart. Its documented
+  default is off, and with it off a chart shows as its source code.
+  Tell a Typora reader to turn it on once and restart Typora. A chart must therefore never be the only place its data
   lives: keep the table it was drawn from beside it, so the page reads the same with the chart off.
 - **Callouts: use only the five GitHub alert types**, `> [!note]`, `> [!tip]`, `> [!important]`,
   `> [!warning]` and `> [!caution]`. Obsidian draws its own wider set (`info`, `todo`, `danger` and so
