@@ -372,6 +372,31 @@ class CheckTest(Copy):
         self.assertIn(["00 Index/00 Index.md", "../40%20Study/40%20Study.md"], res["dead_page_links"])
         self.assertEqual(res["links_outside_page_map"], [])
 
+    def test_a_drafting_agents_check_is_scoped_to_its_pages(self):
+        """Sections are drafted in parallel: an agent is answerable for its own pages, and a link to a page the map
+        plans but a sibling has not written yet is pending, not dead."""
+        os.remove(self.page("40 Study/40 Study.md"))
+        write(self.page(TAX), read(self.page(TAX)) + "\nA dash \u2014 here.\n")
+        index = "00 Index/00 Index.md"
+        res = self.check("--page", index)
+        self.assertEqual((res["problems"], res["dead_page_links"], res["em_dash_lines"]), (0, [], 0))
+        self.assertEqual(res["links_to_planned_pages"], [[index, "../40%20Study/40%20Study.md"]])
+        self.assertEqual((res["scoped_to"], res["frontmatter_conforming"]), ([index], "1/1"))
+        for key in ("documents_not_covered", "rationale", "acceptance"):
+            self.assertTrue(res[key].startswith("not checked: scoped to 1 page(s)"), key)
+        res = self.check("--page", TAX)
+        self.assertEqual((res["problems"], res["em_dash_where"][0][0]), (1, TAX))
+        res = self.check()
+        self.assertIn([index, "../40%20Study/40%20Study.md"], res["dead_page_links"])
+        self.assertNotIn("links_to_planned_pages", res)
+        self.assertIn("is not a page in", self.refused("check", "--page", "40 Study/40 Study.md"))
+
+    def test_a_scoped_check_never_opens_a_siblings_page(self):
+        with open(self.page(TAX), "wb") as f:
+            f.write(b"\xff\xfe half written by another agent")
+        res = self.check("--page", "00 Index/00 Index.md")
+        self.assertEqual((res["problems"], res["frontmatter_conforming"]), (0, "1/1"))
+
     def test_a_path_given_that_does_not_exist_is_refused(self):
         for flag in ("--rationale", "--acceptance"):
             with self.subTest(flag=flag):
@@ -610,6 +635,21 @@ class ReviewPromptsTest(Copy):
         self.assertIn("- `02 Finance/Bank statement 2024-03 (1).pdf`: no card, a copy of "
                       "`02 Finance/Bank statement 2024-03.pdf`", bank)
 
+    def test_a_folder_cited_without_its_trailing_slash(self):
+        write(self.page(TAX), read(self.page(TAX)) + "\nThe working papers are in `02 Finance/Tax`.\n")
+        out = os.path.join(self.tmp, "p")
+        self.prompts(TAX, out=out)
+        tax = read(os.path.join(out, "20 Finance", "Tax.professional.md"))
+        self.assertRegex(tax, r"- `02 Finance/Tax`: a folder, \d+ files? directly in it")
+        self.assertNotIn("`02 Finance/Tax`: not a document or folder", tax)
+
+    def test_a_file_given_as_the_cards_folder_is_refused(self):
+        cards = os.path.join(self.tmp, "cards.json")
+        write(cards, "{}")
+        err = self.refused("review-prompts", "--page", TAX, "--author-model", "model-a", "--reviewer-model",
+                           "model-b", "--cards", cards)
+        self.assertIn("is a file, not a folder of card records", err)
+
     def test_a_document_cited_by_its_copy_too_gives_its_facts_once(self):
         ids = {e["current_path"]: h for h, e in json.loads(read(MANIFEST))["entries"].items()}
         statement = "02 Finance/Bank statement 2024-03.pdf"
@@ -719,6 +759,16 @@ class AcceptTest(Copy):
                 self.assertIn("records[0] is not a record", self.refused("check"))
         write(os.path.join(self.root, ACCEPTANCE), json.dumps(dict(good, version=2)))
         self.assertIn("not an acceptance record", self.refused("check"))
+
+    def test_a_loaded_verdict_reviewed_by_its_author_fails_loud(self):
+        self.accept(TAX, "owner")
+        good = json.loads(read(os.path.join(self.root, ACCEPTANCE)))
+        rec = dict(good["records"][0], reviewer_model=" Model-A ")
+        write(os.path.join(self.root, ACCEPTANCE), json.dumps(dict(good, records=[rec])))
+        self.assertIn("records[0] was reviewed by its author model", self.refused("check"))
+        refusal = dict(rec, verdict="refused", reason="the reviewer model is the author model")
+        write(os.path.join(self.root, ACCEPTANCE), json.dumps(dict(good, records=[refusal])))
+        self.assertEqual(self.state(self.check(), TAX)[0], "refused")
 
     def test_reviewer_equal_to_author_is_refused_and_recorded(self):
         err = self.refused("accept", "--reply", self.reply(TAX, "owner"), "--author-model", " Model-A ",

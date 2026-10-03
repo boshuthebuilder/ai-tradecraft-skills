@@ -493,7 +493,8 @@ description, people with aliases, identifier policy, boundaries); the page map; 
 the Schema fixes filled in; the JSON a drafting agent returns, which is what [wiki-onboarding step
 4a](../../wiki-onboarding/SKILL.md#4a-draft-the-pages-when-every-document-has-been-read) names (`pages`, each with its
 `path`, `text`, `rationale` and `index_entry`, then `open_questions` and `check_result`); and the checker command
-every drafting agent runs, `python3 <tools>/wiki.py check --root <root> --work <work>`. The page map is every page
+every drafting agent runs, `python3 <tools>/wiki.py check --root <root> --work <work> --page <page> ...`, scoped to
+the pages briefed. The page map is every page
 under the wiki folder, every page in the Schema's Page professionals table, each Layout section's folder note (`<NN
 Name>/<NN Name>.md`) and the pages briefed, each marked `exists` or `planned`. It refuses stale bundles, and writes
 `--out` only outside the folder. The same inputs render the same bytes.
@@ -519,10 +520,15 @@ them ([the card contract](cards.md#what-the-engine-is-given)).
 
 ### `check`
 
-    wiki.py check --root <folder> [--rationale <file.md>] [--acceptance <file.json>] [--out <file.json>]
+    wiki.py check --root <folder> [--page <page> ...] [--rationale <file.md>] [--acceptance <file.json>]
+                  [--out <file.json>]
 
 Reads every page under the wiki folder (dot folders skipped) and prints JSON, also to `--out`, exiting 1 when
-`problems` is not zero. Every key is a count, a list whose length is the count, or a named state; the fixture's
+`problems` is not zero. `--page` (repeatable) is a drafting agent's check, the command its brief names: only those
+pages are read, a link to a page the page map plans but nobody has written yet is listed in
+`links_to_planned_pages` rather than in `dead_page_links`, `scoped_to` lists the pages read, and `documents_not_covered`, `rationale` and `acceptance`
+read `not checked: scoped to N page(s)`, since sibling sections are still being drafted; the coordinator's
+whole-wiki check judges them. Every key is a count, a list whose length is the count, or a named state; the fixture's
 values are in [`../tests/expected/wiki-check.json`](../tests/expected/wiki-check.json). `--rationale` and
 `--acceptance` read those files from elsewhere; a path given that does not exist is refused (exit 2), while a
 default that does not exist reads as `not recorded`. Line numbers count from the page's first line.

@@ -71,6 +71,7 @@ it does not know, as it ignores unknown flags.
 | `plan_ref` | string, optional | `plans/<date>/move-plan.csv#<seq>` of the last approved row that touched this entry |
 | `package` | bool, optional | present and `true` when the entry is a **package**: a document its format stores as a folder of member files (an iWork `.pages`, `.numbers` or `.key` saved that way), audited as one item. Its id follows the package hash rule below; `size` is its members' total and `mtime` its newest member's |
 | `migration_target` | string, optional | present only while `migrating` is flagged: the project a live path of the entry is staged for, the folder name directly under the migrations folder (`_Migrations/<Project>/…` by default) |
+| `migration_targets` | list of strings, optional | present only when identical copies of the entry are staged for more than one project: every such project, sorted (`migration_target` then names the first staged path's) |
 | `convert_candidate` | object, optional | on a proprietary-class entry, the export the audit found for it: `{id, path, match}`. `id` is the export's own sha256 and is the authority — the pairing is re-confirmed by it first, so renaming either file does not break it; `path` is where that content sat at the last scan. `match` is `stem` (identical normalised stem) or `stem_near` (normalised stem plus a modifier — "final", "signed", an appended date), and records how the pairing was *first* established. Absent means no candidate was found at all. A `stem` match means the file **is** converted, so the entry carries no `unconverted` flag; a `stem_near` match is `unconverted` *with* the candidate named, so a `convert` row can point at what it thinks is not the export |
 
 **Duplicates do not mint entries.** Copies of the same bytes share one hash, so they share one key
@@ -91,9 +92,15 @@ verifies a move by hash, and every consumer that matches a package to its entry 
 exactly this way: a second definition makes every package look edited on the next pass, or refuses
 every package move as a hash mismatch.
 
-`package` and `migration_target`, like the `migrating` flag below, were added to `/2` under the
-extension rule at the top of this file, so the schema string stays `family-ai-preprocess-manifest/2`
-and every earlier `/2` file stays valid.
+`package`, `migration_target` and `migration_targets`, like the `migrating` flag below, were added to
+`/2` under the extension rule at the top of this file, so the schema string stays
+`family-ai-preprocess-manifest/2` and every earlier `/2` file stays valid. `package` is not an extra a
+reader may skip, though: a package entry's `current_path` names a folder and its id hashes the member
+stream above. A consumer that hashes, moves or verifies entries reads `package` before it does any of
+those, and a consumer that does not know the field refuses a manifest holding a package entry rather
+than treat it as a file. The version did not move because no released consumer hashed `/2` entries
+before the field existed (the preparation tools, the only `/2` readers, wrote packages from their first
+pass), and a `/3` would have orphaned every prepared folder's existing manifest for no reader's benefit.
 
 ## Flags
 

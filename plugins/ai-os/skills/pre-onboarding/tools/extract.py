@@ -192,6 +192,16 @@ def cjk(t):
     return len(re.findall(r"[一-鿿]", t))
 
 
+def textutil_format(path):
+    """Whether a file textutil can convert sits under an Office name: RTF, a legacy Word file (an OLE container) or
+    HTML, which a person or an old export may have saved as .docx. Anything else is not read as text."""
+    with open(path, "rb") as f:
+        head = f.read(512)
+    lead = head.lstrip(b"\xef\xbb\xbf \t\r\n").lower()
+    return (head.startswith(b"{\\rtf") or head.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1")
+            or lead.startswith(b"<!doctype html") or lead.startswith(b"<html"))
+
+
 def vision(ctx, img):
     first, second = ctx.vision_passes
     a = ctx.ocr.read(img, first)
@@ -416,8 +426,8 @@ def process(ctx, e):
         try:
             pages = office_zip(path, ext)
         except (zipfile.BadZipFile, KeyError, RuntimeError):
-            if not ctx.bins["textutil"]:
-                raise
+            if not ctx.bins["textutil"] or not (zipfile.is_zipfile(path) or textutil_format(path)):
+                raise  # textutil reads any other file as plain text: its bytes would pass as the text
             o, rc, _err = run([ctx.bins["textutil"], "-convert", "txt", "-stdout", path], 300)
             if rc != 0 and not o.strip():
                 raise

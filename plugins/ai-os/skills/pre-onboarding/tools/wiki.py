@@ -8,7 +8,7 @@
     wiki.py brief   --root R --page P [--page P ...] [--out <md>]
                                                            the drafting brief for a set of pages, from
                                                            templates/page-brief.md
-    wiki.py check   --root R [--rationale <md>] [--acceptance <json>] [--out <json>]
+    wiki.py check   --root R [--page P ...] [--rationale <md>] [--acceptance <json>] [--out <json>]
                                                            deterministic checks; every item a count, zero included,
                                                            or a named not-verified state; acceptance reported apart
     wiki.py rationale --root R --returns <dir|json> [--out <md>]
@@ -46,7 +46,10 @@ folder or reserved); a page with no single professional (`common.page_voice` ref
 Professional lens, up to its first `;`, does not name the page's professional (names compared case-folded, spaces
 collapsed). Each heading is reported once, by the first that holds of: repeated, malformed, for no page, lens. Without
 a compiled Schema the professional checks are `not verified`; without a rationale file, `rationale` is `not
-recorded`. A --rationale or --acceptance path given that does not exist is refused.
+recorded`. A --rationale or --acceptance path given that does not exist is refused. With --page (a drafting agent's
+check, the command its brief names) only those pages are read: a link to a page the page map plans but nobody has
+written yet is listed in `links_to_planned_pages` rather than as dead, and coverage, rationale and acceptance read
+`not checked`, left to the coordinator's whole-wiki check.
 
 Rationale: `_Audit/wiki-rationale.md`, as `wiki-maintenance` defines it: the line `# Wiki rationale`, then per page
 a heading `### <page path>` and exactly five lines, `- Reader and use: `, `- Professional lens: `, `- Shape: `,
@@ -655,8 +658,9 @@ def return_shape(pages):
                        for p in pages],
              "open_questions": ["<for the owner or the coordinating agent: a gap, sources that disagree, a dated "
                                 "rule left unchecked, a page the evidence shows is missing>"],
-             "check_result": {"problems_on_these_pages": 0,
-                              "findings_on_other_pages": ["<a finding the checker names on a page not yours>"]}}
+             "check_result": {"problems": 0,
+                              "links_to_planned_pages": ["<a link to a page the map plans but nobody has written "
+                                                         "yet>"]}}
     return json.dumps(shape, ensure_ascii=False, indent=1)
 
 
@@ -706,6 +710,8 @@ def brief(a):
     checker = ["python3", os.path.join(HERE, "wiki.py"), "check", "--root", root, "--work", work]
     checker += ["--settings-dir", settings_dir] if a.settings_dir else []
     checker += ["--manifest", os.path.realpath(mpath)] if a.manifest else []
+    for p in pages:
+        checker += ["--page", p]
     text = render_template(
         "page-brief.md", folder_name=os.path.basename(root), owner_context=owner_context(root, rb),
         pages="\n\n".join(entries),
@@ -876,6 +882,9 @@ def load_acceptance(path):
         if not ok:
             raise common.ToolError("%s: records[%d] is not a record in the acceptance format (tools/README.md)"
                                    % (path, i))
+        if r["verdict"] != "refused" and norm_name(r["author_model"]) == norm_name(r["reviewer_model"]):
+            raise common.ToolError("%s: records[%d] was reviewed by its author model %r; only a refusal may be "
+                                   "recorded by the model that wrote the page" % (path, i, r["reviewer_model"]))
     return data["records"]
 
 
@@ -922,10 +931,15 @@ def acceptance_states(records, now):
 
 # ------------------------------------------------------------------------------------ check
 
-def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptance_path=None):
+def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptance_path=None, only=None):
     """The wiki checks as a dict; every item a count (zero included) or a named not-verified state. The compiled
     Schema is read from `settings_dir` (default <root>/.familyai), the rationale file and acceptance record from
-    <root>/_Audit/ unless given; a path given that does not exist is refused."""
+    <root>/_Audit/ unless given; a path given that does not exist is refused.
+
+    `only` (a list of pages) is a drafting agent's check: findings on those pages alone, a link to a page the map
+    plans but nobody has written yet counted as pending rather than dead, and coverage, rationale and acceptance left
+    to the coordinator's whole-wiki check (each a named not-checked state), since sibling sections are still being
+    drafted."""
     for given, what in ((rationale_path, "rationale file"), (acceptance_path, "acceptance record")):
         if given and not os.path.isfile(given):
             raise common.ToolError("the %s given does not exist: %s" % (what, given))
@@ -937,12 +951,20 @@ def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptan
     reserved = common.reserved_names(rb)
     pages = wiki_pages(wiki)
     in_map = set(pages)  # a link to a page the map only plans resolves to nothing: dead until the page is written
+    if only is not None:
+        for p in only:
+            if p not in in_map:
+                raise common.ToolError("--page %r is not a page in %s" % (p, wiki))
+        planned = {p for p, state in page_map(ws, wiki, only).items() if state == "planned"} if ws else set()
+    pending = []
     not_covering = {p for p in pages if p.startswith(LOG_DIR + "/") or p == schema_rel(root, rb, ws)}
     res = collections.OrderedDict(wiki=rb["wiki_dir"], pages=len(pages))
     fm_bad, dead_src, dead_links, outside, em, unchecked, dls, sup = [], [], [], [], [], 0, [], 0
     charts, unpaired, unrenderable, bad_chart_src = 0, [], [], []
     cited, shas = set(), {}
     for rel in pages:
+        if only is not None and rel not in only:
+            continue  # a sibling's page is never opened: it may be mid-write
         path = os.path.join(wiki, *rel.split("/"))
         t = read_text(path)
         shas[rel] = common.sha256_file(path)
@@ -991,7 +1013,7 @@ def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptan
                 continue  # as `move` decides: a scheme (http:, mailto:, obsidian:) or a path rooted at /
             target = link_target(rel, lk)
             if not os.path.exists(os.path.normpath(os.path.join(wiki, target))):
-                dead_links.append([rel, lk])
+                (pending if only is not None and target in planned else dead_links).append([rel, lk])
             elif target not in in_map:
                 outside.append([rel, lk])
         em += [[rel, fm_lines + i] for i, line in enumerate(body.splitlines(), 1) if EM_DASH in strip_code(line)]
@@ -1006,11 +1028,11 @@ def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptan
     in_scope = sorted((e for e in live.values() if not e["current_path"].startswith(rb["migrations_dir"] + "/")),
                       key=lambda e: e["current_path"])
     scope = [e["current_path"] for e in in_scope]
-    uncovered = [e["current_path"] for e in in_scope if not covered(e)]
+    uncovered = [e["current_path"] for e in in_scope if not covered(e)] if only is None else []
     voices, no_voice = None, ws_why
     if ws:
         voices, no_voice = {}, []
-        for p in pages:
+        for p in pages if only is None else sorted(only):
             try:
                 voices[p] = common.page_voice(ws, p)["professional"]
             except common.ToolError as e:
@@ -1025,6 +1047,13 @@ def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptan
                pages_without_single_professional=no_voice)
     problems = (len(fm_bad) + len(dead_src) + len(dead_links) + len(outside) + len(em) + len(uncovered)
                 + len(unpaired) + len(unrenderable) + len(bad_chart_src) + (len(no_voice) if ws else 0))
+    if only is not None:
+        whole = "not checked: scoped to %d page(s); the coordinator's whole-wiki check judges it" % len(only)
+        res.update(frontmatter_conforming="%d/%d" % (len(only) - len(fm_bad), len(only)),
+                   scoped_to=sorted(only), links_to_planned_pages=pending, documents_not_covered=whole,
+                   not_covered_sample=[], rationale=whole, acceptance=whole)
+        res["problems"] = problems
+        return res
     rat = rationale_path or os.path.join(root, "_Audit", "wiki-rationale.md")
     if os.path.exists(rat):
         found = rationale_findings(read_text(rat), pages, voices)
@@ -1057,7 +1086,8 @@ def check(a):
     _mp, man = load_manifest(root, a.manifest)
     res = check_result(root, rb, man, settings_dir=settings_dir,
                        rationale_path=os.path.realpath(a.rationale) if a.rationale else None,
-                       acceptance_path=os.path.realpath(a.acceptance) if a.acceptance else None)
+                       acceptance_path=os.path.realpath(a.acceptance) if a.acceptance else None,
+                       only=sorted(set(a.page)) if a.page else None)
     out = json.dumps(res, ensure_ascii=False, indent=1)
     if a.out:
         common.Writer(root if a.read_only_root else None).text(a.out, out)
@@ -1170,8 +1200,8 @@ def page_sources(text, man, held, cards_dir):
             for kind in FACT_KINDS:
                 values = kf.get(kind) if isinstance(kf.get(kind), list) else []
                 facts.update((current, kind, v.strip()) for v in values if isinstance(v, str) and v.strip())
-        elif path.endswith("/") and by_folder[path[:-1]]:
-            n = by_folder[path[:-1]]
+        elif by_folder[path.rstrip("/")]:
+            n = by_folder[path.rstrip("/")]
             lines.append("- `%s`: a folder, %d file%s directly in it" % (path, n, "" if n == 1 else "s"))
         elif "/" in path:
             lines.append("- `%s`: not a document or folder in the manifest" % path)
@@ -1216,6 +1246,8 @@ def review_prompts(a):
             raise common.ToolError("--page %r is not a page in %s" % (p, wiki))
     out = working_file(root, a.out, "review prompts") if a.out else os.path.join(work, "reviews")
     cards_dir = os.path.realpath(a.cards) if a.cards else os.path.join(root, "_Audit", "cards")
+    if os.path.exists(cards_dir) and not os.path.isdir(cards_dir):
+        raise common.ToolError("--cards %s is a file, not a folder of card records" % cards_dir)
     contracts = {c["number"]: c for c in ws["contracts"]}
     held = held_paths(man)
     writer, written = common.Writer(root), []
@@ -1382,6 +1414,8 @@ def dead_links(wiki):
 
 def check_moves(wiki, moves, pages, schema):
     """Refuse, before anything is written, a map that could not be carried out whole."""
+    if os.path.islink(wiki):
+        raise common.ToolError("the wiki folder %s is a symbolic link, which could lead outside the folder" % wiki)
     if not (isinstance(moves, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in moves.items())):
         raise common.ToolError("--map must be a JSON object of page path to new page path")
     targets = set(moves.values())
@@ -1401,9 +1435,10 @@ def check_moves(wiki, moves, pages, schema):
         for i in range(1, len(parts)):
             above = "/".join(parts[:i])
             path = os.path.join(wiki, *parts[:i])
-            if above in targets or (os.path.lexists(path) and not os.path.isdir(path)):
-                raise common.ToolError("destination %s lies under %s, which is a %s, not a folder"
-                                       % (new, above, "page this map moves there" if above in targets else "file"))
+            if above in targets or os.path.islink(path) or (os.path.lexists(path) and not os.path.isdir(path)):
+                kind = ("page this map moves there" if above in targets
+                        else "symbolic link, which could lead outside the wiki" if os.path.islink(path) else "file")
+                raise common.ToolError("destination %s lies under %s, which is a %s, not a folder" % (new, above, kind))
     twice = sorted(n for n, k in collections.Counter(moves.values()).items() if k > 1)
     if twice:
         raise common.ToolError("two pages moved to one destination: %s" % ", ".join(twice))
@@ -2004,6 +2039,8 @@ def main():
     p = common_args(sub.add_parser("check"))
     p.add_argument("--rationale", help="the rationale file (default <root>/_Audit/wiki-rationale.md)")
     p.add_argument("--acceptance", help="the acceptance record (default <root>/_Audit/wiki-acceptance.json)")
+    p.add_argument("--page", action="append", help="check only this page (repeatable): a drafting agent's check, "
+                   "leaving coverage, rationale and acceptance to the whole-wiki check")
     p.add_argument("--out")
     p = common_args(sub.add_parser("rationale"))
     p.add_argument("--returns", required=True, help="a drafter's return (.json) or a directory of them")

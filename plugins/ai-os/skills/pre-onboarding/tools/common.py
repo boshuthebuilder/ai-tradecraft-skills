@@ -227,6 +227,9 @@ def read_json_object(path):
     return data
 
 
+EMPTY_PROBES = ("", "a", "Z", "0", " ", "/", "\u00e9", "Visa renewal 2021/Letters")  # names a zero-width keyword matches
+
+
 def validate_rulebook(data, path):
     """Fail loud on a rulebook.json with an unknown version or key, or a value of the wrong shape."""
     def bad(key, want):
@@ -254,6 +257,9 @@ def validate_rulebook(data, path):
             re.compile("(%s)" % k)
         except re.error as e:
             raise ToolError("%s: pack_keywords entry %r is not a valid regular expression (%s)" % (path, k, e))
+        if any(m is not None and m.end() == m.start() for m in (re.search(k, s, re.I) for s in EMPTY_PROBES)):
+            raise ToolError("%s: pack_keywords entry %r can match without consuming any text (an empty name, a "
+                            "lookahead), so it would match every folder" % (path, k))
     try:
         re.compile("(" + "|".join(data.get("pack_keywords", [])) + ")")
     except re.error as e:
@@ -308,7 +314,7 @@ def load_rulebook(root, settings_dir, required=False, verify=True):
         raise ToolError("missing folder settings: %s" % path)
     merged = dict(DEFAULTS)
     merged.update(data)
-    merged["wiki_dir"] = merged.get("wiki_dir") or os.path.basename(root) + " Wiki"
+    merged["wiki_dir"] = (merged.get("wiki_dir") or os.path.basename(root) + " Wiki").rstrip("/")
     merged["packs"] = [p.rstrip("/") for p in merged["packs"]]
     merged["_source"] = path if data else None
     return merged
@@ -415,9 +421,25 @@ def pack_matcher(root, rb):
         raise ToolError("%s: packs entry %r is not an existing folder under %s (names compared exactly); update "
                         "rulebook.json packs (and name it in the rulebook, which `settings.py check` verifies)"
                         % (rb.get("_source") or "rulebook.json", p, root))
-    rx = re.compile("(" + "|".join(rb["pack_keywords"]) + ")", re.I)
+    # an empty alternation would match every folder, so no keywords means no keyword matches
+    # each keyword on its own (in one alternation a zero-width alternative would shadow the keywords after it),
+    # and a match that consumes no text fails loud: no finite probe at load can rule out one like `(?=q)`
+    rxs = [(k, re.compile(k, re.I)) for k in rb["pack_keywords"]]
     listed = [nfc(p) + "/" for p in rb["packs"]]
-    return lambda folder: bool(rx.search(folder)) or any((nfc(folder) + "/").startswith(pk) for pk in listed)
+
+    def is_pack(folder):
+        if any((nfc(folder) + "/").startswith(pk) for pk in listed):
+            return True
+        found = False
+        for k, rx in rxs:  # every keyword is checked, so a malformed one is never hidden by an earlier match
+            m = rx.search(nfc(folder))  # a name may be stored decomposed on disk, as for packs
+            if m is not None and m.end() == m.start():
+                raise ToolError("%s: pack_keywords entry %r matched the folder %r without consuming any text; give "
+                                "it a pattern that matches part of the folder's name"
+                                % (rb.get("_source") or "rulebook.json", k, folder))
+            found = found or m is not None
+        return found
+    return is_pack
 
 
 def page_voice(ws, page):

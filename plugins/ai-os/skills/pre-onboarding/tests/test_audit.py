@@ -448,6 +448,40 @@ class PackSettingsTest(AuditCase):
         root = self.loan("slash", ["Letters/Loan 2022/"])
         self.assertEqual(common.load_rulebook(root, os.path.join(root, ".familyai"))["packs"], ["Letters/Loan 2022"])
 
+    def test_no_pack_keywords_match_no_folder(self):
+        root = self.folder(self.pinned(pack_keywords=[]), parent="nokw")
+        rb = common.load_rulebook(root, os.path.join(root, ".familyai"))
+        is_pack = common.pack_matcher(root, rb)
+        self.assertFalse(any(is_pack(f) for f in ("Letters", "Visa renewal 2021", "")))
+
+    def test_a_keyword_matches_a_decomposed_folder_name(self):
+        root = self.folder(self.pinned(pack_keywords=["\u00e9tude"]), parent="nfc")
+        is_pack = common.pack_matcher(root, common.load_rulebook(root, os.path.join(root, ".familyai")))
+        self.assertTrue(is_pack(unicodedata.normalize("NFD", "\u00c9tude 2021")))
+
+    def test_a_trailing_slash_on_the_wiki_folder_is_dropped(self):
+        root = self.folder(self.pinned(wiki_dir="Alex Papers Wiki/"), parent="slashwiki")
+        self.assertEqual(common.load_rulebook(root, os.path.join(root, ".familyai"))["wiki_dir"], "Alex Papers Wiki")
+
+    def test_a_keyword_matching_a_real_folder_without_text_fails_loud(self):
+        root = self.folder(dict(self.pinned(pack_keywords=["visa", "(?=q)"]), **{"quotes/a.pdf": "a"}), parent="zw")
+        rb = common.load_rulebook(root, os.path.join(root, ".familyai"))
+        is_pack = common.pack_matcher(root, rb)
+        self.assertTrue(is_pack("Visa renewal"))
+        self.assertFalse(is_pack("Letters"))
+        with self.assertRaisesRegex(common.ToolError, "without consuming any text"):
+            is_pack("quotes")
+        root = self.folder(dict(self.pinned(pack_keywords=["quo", "(?=q)"]), **{"quotes/a.pdf": "a"}), parent="zw2")
+        with self.assertRaisesRegex(common.ToolError, "without consuming any text"):  # not hidden by "quo"
+            common.pack_matcher(root, common.load_rulebook(root, os.path.join(root, ".familyai")))("quotes")
+
+    def test_a_pack_keyword_that_matches_an_empty_name_is_refused(self):
+        for n, keyword in enumerate(("^", "a*", "(visa)?", "(?=.)", "(?=V)", "\\b")):
+            with self.subTest(keyword=keyword):
+                root = self.folder(self.pinned(pack_keywords=["visa", keyword]), parent="empty%d" % n)
+                with self.assertRaisesRegex(common.ToolError, "without consuming any text"):
+                    common.load_rulebook(root, os.path.join(root, ".familyai"))
+
     def test_an_invalid_pack_keyword_is_refused_by_name(self):
         for n, keyword in enumerate(("(", "[a-", "a)(b", "*visa")):
             with self.subTest(keyword=keyword):
@@ -523,6 +557,31 @@ class MigratingTest(AuditCase):
         self.assertEqual((gas["flags"], gas["migration_target"]), (["migrating"], "Robin Shared"))
         self.assertEqual(e["_Leaving/Loose.pdf"]["flags"], [])
         self.assertNotIn("migration_target", e["_Leaving/Loose.pdf"])
+
+    def test_identical_copies_staged_for_two_projects_name_both(self):
+        root = self.folder(dict(self.pinned(), **{
+            "Bills/Gas.pdf": "gas", "_Migrations/Robin Shared/Bills/Gas.pdf": "gas",
+            "_Migrations/Example Lettings/Gas.pdf": "gas", "Bills/Water.pdf": "water"}))
+        e = by_path(self.audit(root))
+        gas = e["Bills/Gas.pdf"]
+        self.assertEqual(gas["flags"], ["migrating"])
+        self.assertEqual(gas["migration_targets"], ["Example Lettings", "Robin Shared"])
+        self.assertIn(gas["migration_target"], gas["migration_targets"])
+        self.assertNotIn("migration_targets", e["Bills/Water.pdf"])
+        self.assertEqual(self.summary(root)["migrating"], {"Example Lettings": 1, "Robin Shared": 1})
+        report = self.report(root)
+        self.assertIn("- Example Lettings: `_Migrations/Example Lettings/Gas.pdf`", report)
+        self.assertIn("- Robin Shared: `_Migrations/Robin Shared/Bills/Gas.pdf`", report)
+        self.assertNotIn(": `Bills/Gas.pdf`", report)
+
+    def test_a_canonical_copy_staged_too_is_counted_once(self):
+        root = self.folder(dict(self.pinned(), **{
+            "_Migrations/Robin Shared/Gas.pdf": "gas", "_Migrations/Example Lettings/Gas.pdf": "gas"}))
+        self.audit(root)
+        self.assertEqual(self.summary(root)["migrating"], {"Example Lettings": 1, "Robin Shared": 1})
+        report = self.report(root)
+        self.assertEqual(report.count("`_Migrations/Example Lettings/Gas.pdf`"), 1)
+        self.assertEqual(report.count("`_Migrations/Robin Shared/Gas.pdf`"), 1)
 
 
 class HistoryTest(AuditCase):
