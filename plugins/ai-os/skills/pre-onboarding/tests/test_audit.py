@@ -462,6 +462,9 @@ class PackSettingsTest(AuditCase):
         self.assertFalse(is_pack("Letters"))
         with self.assertRaisesRegex(common.ToolError, "without consuming any text"):
             is_pack("quotes")
+        root = self.folder(dict(self.pinned(pack_keywords=["quo", "(?=q)"]), **{"quotes/a.pdf": "a"}), parent="zw2")
+        with self.assertRaisesRegex(common.ToolError, "without consuming any text"):  # not hidden by "quo"
+            common.pack_matcher(root, common.load_rulebook(root, os.path.join(root, ".familyai")))("quotes")
 
     def test_a_pack_keyword_that_matches_an_empty_name_is_refused(self):
         for n, keyword in enumerate(("^", "a*", "(visa)?", "(?=.)", "(?=V)", "\\b")):

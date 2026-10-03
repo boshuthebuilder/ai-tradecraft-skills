@@ -430,15 +430,15 @@ def pack_matcher(root, rb):
     def is_pack(folder):
         if any((nfc(folder) + "/").startswith(pk) for pk in listed):
             return True
-        for k, rx in rxs:
+        found = False
+        for k, rx in rxs:  # every keyword is checked, so a malformed one is never hidden by an earlier match
             m = rx.search(folder)
             if m is not None and m.end() == m.start():
                 raise ToolError("%s: pack_keywords entry %r matched the folder %r without consuming any text; give "
                                 "it a pattern that matches part of the folder's name"
                                 % (rb.get("_source") or "rulebook.json", k, folder))
-            if m is not None:
-                return True
-        return False
+            found = found or m is not None
+        return found
     return is_pack
 
 
