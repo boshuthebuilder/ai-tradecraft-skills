@@ -869,21 +869,36 @@ same way, which is not a finding and not a pass either, and does not change the 
 roll-up reads
 ([canonical frontmatter](../../wiki-maintenance/SKILL.md#canonical-frontmatter--the-keys-the-deterministic-sweeps-read)),
 `01 Deadlines` being the derived list of forward dates. It fixes no headings and asks for no list beyond the dates,
-so readiness checks none. It reads the roll-up's dates as the roll-up writes them: a dated deadline as
-`YYYY-MM-DD`, anywhere on the page, and a recurring date as a day and a month name or `MM-DD`, opening a list item
-or alone in a table cell (one mid-sentence, such as "pages 10-12" or "on 5 April we moved", is prose). A frontmatter
-`recurring` date is read the same way and compared by its month and day, and it is read as family-ai-os's roll-up
-reads it, so both sides accept the same spellings: `MM-DD`, month first, two digits each; or a day and a month name,
-the day first or the month first (`5 April`, `April 5`), the name in full, its first three letters or `sept`, in any
-case, the day with an optional lower-case ordinal (`5th Apr`). Any other numeric form (`6/4`, `4-5`) is refused, as
-is a day the month cannot have (`31 April`); 29 February is a date. The roll-up shows the month in words, so a
-numeric `MM-DD` written the wrong way round shows on the page. The scan finds a date that opens a list item, a
-quoted line (`> - 5 Sept`) or a table cell between pipes, with a note after it if there is one (`5 Sept (fees)`),
-and a date with a full stop after the month (`5 Apr.`), which a `recurring` entry may not use. A hand-kept date it
-cannot read is reported as an `unreadable yearly date`, never dropped: a day beside a word of three letters or more
-that starts like a month name but is not one the contract reads (`31 Sept`, `5 Septmber`), or a day and month with a
-year (`5 Sept 2026`). A table without outer pipes, a list item that leads with text, an unquoted line and a date
-inside a sentence are not read. The sources are the pages that are not `superseded`.
+so readiness checks none. A dated deadline is read as the roll-up writes it, `YYYY-MM-DD`, anywhere on the page. A
+frontmatter `recurring` date is read as family-ai-os's roll-up reads it, so both sides accept the same spellings:
+`MM-DD`, month first, two digits each; or a day and a month name, the day first or the month first (`5 April`,
+`April 5`), the name in full, its first three letters or `sept`, in any case, the day with an optional lower-case
+ordinal (`5th Apr`). Any other numeric form (`6/4`, `4-5`) is refused, as is a day the month cannot have (`31
+April`); 29 February is a date. The roll-up shows the month in words, so a numeric `MM-DD` written the wrong way round
+shows on the page. The sources are the pages that are not `superseded`.
+
+**Hand-kept dates: one rule.** The roll-up holds nothing written by hand, so readiness reads every line of it
+(table cells, list items, quotes, checkboxes, links and HTML alike, with the markup taken off first) for a date by one
+rule, and no list of shapes. A line holds a hand-kept date when it contains
+
+- (a) a number of one or two digits, with or without an ordinal (`5`, `5th`), directly beside a word of three letters
+  or more, in either order, with at most one short joining word between them (`5 April`, `April 5`, `5th of April`,
+  `April the 5th`, and so `5 Septmber` and `12 Decisions`), or
+- (b) two numbers of one to four digits joined by `-`, `/` or `.` (`04-05`, `31-12`, `6/4`, `5.4`).
+
+The run of numbers and words around the match is read whole. A run the contract reads (`5 Sept`, `04-05`) is that
+yearly date, reported when no page's `recurring` list carries it, and also when a page does but the roll-up did not
+render it from the list. Any other run is reported as an `unreadable yearly date`, as written (`31-12`, `13-01`,
+`5th of April`, `5 Septmber`), and so is a day and month with a year (`5 Sept 2026`, `5 Sept 26`, `5 Sept '26`): the
+year makes the run longer than a date, so it is never a yearly one. Over-reporting is the safe side, which is why a
+count of anything beside a word (`12 Decisions`) is reported too.
+
+Only these are left alone. A list item that opens with a date a current page carries, `YYYY-MM-DD` or a day and month
+of a `recurring` entry, is an entry the roll-up renders (`- **5 April**`, then the pages' titles, the note and links to the pages, laid out
+as the roll-up lays them): what the roll-up writes after the date, the pages' notes and titles and links to wiki
+pages, is taken out, and anything left is read by the rule, so something added to an entry is still found. A `YYYY-MM-DD` is the dated
+deadline, which the check on deadlines reads, so the rule does not. The roll-up's own count of pages read (`across 11
+pages`) is no date. Another page the Schema marks derived is not read for dates (see `other_derived_pages`).
 
 - `derived_pages_hold_nothing_hand_written`: every `YYYY-MM-DD` on the roll-up is a page's `deadline` or
   `deadlines` date (`YYYY-MM-DD` or `{date, note}`), except the roll-up's own `last-updated`, a build stamp; the

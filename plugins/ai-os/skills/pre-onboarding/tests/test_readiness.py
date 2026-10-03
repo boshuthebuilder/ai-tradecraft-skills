@@ -207,26 +207,45 @@ class MonthDayTest(unittest.TestCase):
         for text in ("5 Apr.", "Sept. 5", "5 Sept."):
             self.assertIsNone(readiness.month_day(text), text)
 
-    def test_the_roll_up_scan_lists_a_date_by_its_place_on_the_line(self):
-        for line, want in (("- 5th Apr: tax year ends", (["04-05"], [])), ("| Sept 5 |", (["09-05"], [])),
-                           ("| 5 Sept | school fees |", (["09-05"], [])), ("- **9 sept**: fees", (["09-09"], [])),
-                           ("| 5 Apr. | tax year ends |", (["04-05"], [])),  # found however it is spelt
-                           ("> - 5 Sept", (["09-05"], [])), ("> 5 Sept", (["09-05"], [])),
-                           ("| 5 Sept (fees) |", (["09-05"], [])),  # the text after a readable date is a note
-                           ("| 5 April | 6 April |", (["04-05", "04-06"], [])),
-                           ("the move was on 5 April, and we", ([], [])), ("| 5 items | none |", ([], [])),
-                           ("| Date | What |", ([], [])), ("| April 2026 |", ([], [])), ("pages 10-12", ([], []))):
-            self.assertEqual(readiness.yearly_dates(line), want, line)
+    def test_a_run_is_read_whole_and_a_date_beside_a_note_is_still_a_date(self):
+        for line, want in (("- 5th Apr: tax year ends", [("5th Apr", "04-05")]), ("| Sept 5 |", [("Sept 5", "09-05")]),
+                           ("| 5 Sept | school fees |", [("5 Sept", "09-05")]),
+                           ("- **9 sept**: fees", [("9 sept", "09-09")]),
+                           ("| 5 Apr. | tax year ends |", [("5 Apr", "04-05")]),
+                           ("| 5 Sept (fees) |", [("5 Sept", "09-05")]),  # a bracket ends the run
+                           ("| 5 April | 6 April |", [("5 April", "04-05"), ("6 April", "04-06")]),
+                           ("| <b>5 Sept</b> |", [("5 Sept", "09-05")]), ("1) 5 Sept", [("5 Sept", "09-05")]),
+                           ("- [ ] 5 Sept", [("5 Sept", "09-05")]), ("- [5 Sept](x.md)", [("5 Sept", "09-05")]),
+                           ("> - 5 Sept", [("5 Sept", "09-05")]), ("> 5 Sept", [("5 Sept", "09-05")]),
+                           ("- **01-31**: self assessment", [("01-31", "01-31")])):
+            self.assertEqual(readiness.hand_kept(line), want, line)
 
-    def test_the_roll_up_scan_reports_a_date_shaped_entry_it_cannot_read(self):
-        """A day beside a word that starts like a month but is not one the contract reads, or a day and month with
-        a year, is a hand-kept yearly date: reported as written, never dropped."""
-        for line, odd in (("| 31 Sept |", "31 Sept"), ("| 31 April | nonsense |", "31 April"),
-                          ("| 5 Septmber |", "5 Septmber"), ("| 5 Sept 2026 |", "5 Sept 2026"),
-                          ("| September 5, 2026 |", "September 5, 2026"),
-                          ("- 5 April 2026: fees", "5 April 2026: fees"),
-                          ("> - 5 Septmber", "5 Septmber"), ("| 32 Jan |", "32 Jan"), ("| Sept 31 |", "Sept 31")):
-            self.assertEqual(readiness.yearly_dates(line), ([], [odd]), line)
+    def test_a_run_the_contract_does_not_read_whole_is_unreadable_whatever_it_holds(self):
+        """The rule: a number of one or two digits (with or without an ordinal) beside a word of three letters or more,
+        with at most one short joining word between, or two numbers of one to four digits joined by - / or ., is a
+        hand-kept date; one the contract does not read is reported as written. A year makes the run longer than a
+        date, so a day and month with a year is never a yearly one, `5 Sept 26` as much as `5 Sept 2026`."""
+        for line, run in (("| 31-12 | year end |", "31-12"), ("- 31-12: year end", "31-12"), ("| 13-01 |", "13-01"),
+                          ("| 02-30 |", "02-30"), ("| 00-10 |", "00-10"), ("| 12-32 |", "12-32"),
+                          ("| 6/4 |", "6/4"), ("| 31/12 |", "31/12"), ("| 5.4 |", "5.4"),
+                          ("| 5th of April |", "5th of April"), ("| April the 5th |", "April the 5th"),
+                          ("| 5. September |", "5. September"), ("| 5 Setpember |", "5 Setpember"),
+                          ("| 5 Septmber |", "5 Septmber"), ("| 5 Sept 26 |", "5 Sept 26"),
+                          ("| 5 Sept '26 |", "5 Sept '26"), ("| 5 Sept 2026 |", "5 Sept 2026"),
+                          ("| September 5, 2026 |", "September 5, 2026"), ("- 5 April 2026: fees", "5 April 2026"),
+                          ("| 31 Sept |", "31 Sept"), ("| 31 April | nonsense |", "31 April"),
+                          ("| 32 Jan |", "32 Jan"), ("| Sept 31 |", "Sept 31"), ("> - 5 Septmber", "5 Septmber"),
+                          ("| 12 Decisions |", "12 Decisions"), ("| 5 items | none |", "5 items"),
+                          ("- 5 April tax year ends", "5 April tax year ends"), ("| 5Sept |", "5Sept"),
+                          ("| Sept. 5 |", "Sept. 5"), ("pages 10-12", "pages 10-12")):
+            self.assertEqual(readiness.hand_kept(line), [(run, None)], line)
+
+    def test_a_line_that_is_no_date_is_no_candidate(self):
+        for line in ("| Date | What |", "| --- | --- |", "| April 2026 |", "# Deadlines", "## Every year", "Alex rents",
+                     "- **2025-04-30**: lease ends", "_File-derived deadlines, rolled up from page frontmatter._",
+                     "> [!warning] The roll-up found no frontmatter deadlines across 11 pages.",
+                     "> **Roll-up found no frontmatter deadlines across 11 readable pages.**", "- 5 of", ""):
+            self.assertEqual(readiness.hand_kept(line), [], line)
 
 
 class GreenTest(Prepared):
@@ -384,32 +403,90 @@ class ContractTest(Prepared):
                       self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
 
     def roll_up_with(self, text):
-        """The roll-up page with `text` after an "Every year" heading, accepted again."""
+        """The roll-up page with `text` after an "Every year" heading (not accepted again, so only the roll-up's own
+        check is read back)."""
         p = self.page(DEADLINES)
         shutil.copy(os.path.join(self.template, WIKI, *DEADLINES.split("/")), p)
         write(p, read(p) + "\n## Every year\n\n" + text)
-        self.accept_again(DEADLINES)
+        return self.readiness()["handoff_contract"]["recurring_dates_in_frontmatter"]
 
-    def test_a_hand_kept_date_the_contract_cannot_read_is_a_finding_never_dropped(self):
-        """Each of these read as ok: a day that month does not have, a mistyped month, a year, and the same day
-        written as a note beside it or in a quoted list."""
-        table = "| Date | What |\n| --- | --- |\n| %s | school fees |\n"
-        for text, want in ((table % "31 Sept", "1 unreadable yearly date(s) (line 17: 31 Sept)"),
-                           (table % "31 April", "1 unreadable yearly date(s) (line 17: 31 April)"),
-                           (table % "5 Septmber", "1 unreadable yearly date(s) (line 17: 5 Septmber)"),
-                           (table % "5 Sept 2026", "1 unreadable yearly date(s) (line 17: 5 Sept 2026)"),
-                           (table % "5 Sept (fees)", "1 yearly date(s) no page's recurring: list carries "
-                                                     "(line 17: 09-05)"),
+    TABLE = "| Date | What |\n| --- | --- |\n| %s | school fees |\n"
+
+    def test_a_hand_kept_date_in_any_shape_is_a_finding_never_dropped(self):
+        """Each of these read as ok: the one rule is a number beside a word, or two numbers joined by - / or ., on
+        any line of the roll-up, in a cell, a list item, a quote, a checkbox, a link or HTML."""
+        unreadable = ("31-12", "13-01", "02-30", "00-10", "12-32", "6/4", "31/12", "5.4", "5th of April",
+                      "April the 5th", "5. September", "5 Setpember", "5 Septmber", "5 Sept 26", "5 Sept '26",
+                      "5 Sept 2026", "31 Sept", "31 April", "12 Decisions")
+        for cell in unreadable:
+            with self.subTest(cell=cell):
+                self.assertIn("1 unreadable yearly date(s) (line 17: %s)" % cell, self.roll_up_with(self.TABLE % cell))
+        for cell in ("5 Sept (fees)", "<b>5 Sept</b>", "[5 Sept](x.md)", "**5** Sept"):
+            with self.subTest(cell=cell):
+                self.assertIn("1 yearly date(s) no page's recurring: list carries (line 17: 09-05)",
+                              self.roll_up_with(self.TABLE % cell))
+        for line, want in (("- 31-12: year end\n", "1 unreadable yearly date(s) (line 15: 31-12)"),
+                           ("- 5th of April: fees\n", "1 unreadable yearly date(s) (line 15: 5th of April)"),
+                           ("> - 31 Sept\n", "1 unreadable yearly date(s) (line 15: 31 Sept)"),
                            ("> - 5 Sept\n", "1 yearly date(s) no page's recurring: list carries (line 15: 09-05)"),
-                           ("> - 31 Sept\n", "1 unreadable yearly date(s) (line 15: 31 Sept)")):
-            with self.subTest(text=text):
-                self.roll_up_with(text)
-                self.assertIn(want, self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
+                           ("- [ ] 5 Sept\n", "1 yearly date(s) no page's recurring: list carries (line 15: 09-05)"),
+                           ("- [5 Sept](x.md)\n", "1 yearly date(s) no page's recurring: list carries "
+                                                   "(line 15: 09-05)"),
+                           ("1) 5 Sept\n", "1 yearly date(s) no page's recurring: list carries (line 15: 09-05)"),
+                           ("<td>5 Sept</td>\n", "1 yearly date(s) no page's recurring: list carries "
+                                                  "(line 15: 09-05)"),
+                           ("Fees are due on 5 Sept each year.\n", "1 unreadable yearly date(s)")):
+            with self.subTest(line=line):
+                self.assertIn(want, self.roll_up_with(line))
 
-    def test_a_recurring_date_shown_with_a_note_in_its_cell_is_backed(self):
+    def test_a_date_a_page_carries_but_the_roll_up_does_not_render_is_kept_by_hand(self):
+        """The date is backed, but a table row is not an entry the roll-up renders from the list."""
         self.add_recurring("{date: 5 Sept, note: School fees due}")
-        self.roll_up_with("| Date | What |\n| --- | --- |\n| 5 Sept (school fees) | [Tax](../20%20Finance/Tax.md) |\n")
-        self.readiness(code=0)
+        found = self.roll_up_with(self.TABLE % "5 Sept (school fees)")
+        self.assertIn("1 yearly date(s) a page's recurring: list carries, kept by hand beside the roll-up's entries "
+                      "rather than rolled up from the list (line 17: 09-05)", found)
+
+    def rendered_checks(self, body):
+        """`readiness.deadline_items` on the roll-up page holding `body`: (dated, recurring, other derived)."""
+        p = self.page(DEADLINES)
+        write(p, read(os.path.join(self.template, WIKI, *DEADLINES.split("/"))).split("# Deadlines")[0]
+              + "# Deadlines\n\n" + body)
+        wiki = self.path(WIKI)
+        return readiness.deadline_items(wiki, readiness.W.wiki_pages(wiki), None)
+
+    def test_a_page_of_exactly_what_the_roll_up_renders_is_clean(self):
+        """The roll-up renders `- **<day> <Month name>** \u2014 <page titles> \u2014 <note> (<links>)`: titles and
+        links hold digits (`30 Home`), and a note may hold a number; none is a hand-kept date. Read through
+        `deadline_items` itself, since the roll-up's em dash is a problem of `wiki.py check`, not of this scan."""
+        self.add_recurring("{date: 04-05, note: Pay 2 instalments}")
+        self.edit_page("30 Home/30 Home.md", "status: current\n",
+                       "status: current\nrecurring:\n  - {date: 5 April, note: Pay 2 instalments}\n"
+                       "  - {date: 31 January, note: Return due in 2 weeks}\n")
+        def link(rel):
+            return "[%s](../%s.md)" % (rel, rel.replace(" ", "%20"))
+
+        def entry(when, titles, note, *rels):
+            return "- **%s** \u2014 %s \u2014 %s (%s)\n" % (when, titles, note, ", ".join(link(r) for r in rels))
+        body = ("_File-derived deadlines, rolled up deterministically from page frontmatter \u2014 do not hand-edit._"
+                "\n\n## Upcoming\n\n" + entry("2025-04-30", "30 Home", "Lease ends", "30 Home/30 Home")
+                + entry("2031-07-15", "10 Identity", "passport expires", "10 Identity/10 Identity")
+                + "\n## Every year\n\n"
+                + entry("31 January", "30 Home", "Return due in 2 weeks", "30 Home/30 Home")
+                + entry("5 April", "Tax, 30 Home", "Pay 2 instalments", "20 Finance/Tax", "30 Home/30 Home"))
+        dated, yearly, _other = self.rendered_checks(body)
+        self.assertEqual((dated, yearly), ("ok", "ok"))
+        added = entry("5 April", "Tax", "Pay 2 instalments, and 3 weeks later", "20 Finance/Tax")
+        _dated, yearly, _other = self.rendered_checks(body + added)
+        self.assertIn("1 unreadable yearly date(s) (line 19: and 3 weeks later)", yearly)
+
+    def test_the_empty_roll_up_banner_the_roll_up_renders_is_clean(self):
+        """Its own count of pages read is no date."""
+        dash = " \u2014 "
+        _dated, yearly, _other = self.rendered_checks(
+            "> **Roll-up found no frontmatter deadlines across 11 readable pages" + dash + "likely a keying fault, "
+            "not a deadline-free wiki.** Record each forward date as a `deadline:` key, and each date that falls "
+            "every year as a `recurring:` key.\n")
+        self.assertEqual(yearly, "ok")
 
     def test_a_recurring_date_written_sept_matches_the_roll_up(self):
         self.add_recurring("{date: 5 Sept, note: School fees due}")
@@ -533,10 +610,14 @@ class RollUpTest(Prepared):
                               self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written"))
                 self.edit_page(TAX, "deadline: %s\n" % entry, "")
 
-    def test_list_items_that_open_with_no_month_and_day(self):
+    def test_numbers_joined_by_a_dash_that_are_no_month_and_day_are_reported(self):
+        """These read as ok while only a month and day were looked for; the one rule reports two numbers joined by
+        - / or ., since a hand-kept date can be written that way round (`31-12`) and over-reporting is the safe side."""
         self.add_to_roll_up("- 13-45 units of electricity\n- 01-31-2025 is not a month and day\n"
                             "- 01-3122 is a meter reading\n")
-        self.readiness(code=0)
+        detail = self.one_finding("handoff_contract.recurring_dates_in_frontmatter")
+        self.assertIn("3 unreadable yearly date(s) (line 12: 13-45 units of electricity; line 13: 01-31-2025 is not a "
+                      "month and day; line 14: 01-3122 is a meter reading)", detail)
 
     def test_a_single_deadline_with_a_note(self):
         """wiki-maintenance's frontmatter table allows `deadline: {date, note}` as well as a bare date."""
@@ -556,9 +637,12 @@ class RollUpTest(Prepared):
         self.assertIn("(line 14: 2024-07-01)",
                       self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written"))
 
-    def test_month_and_day_in_prose_is_not_a_date(self):
+    def test_a_page_range_in_prose_is_reported_too(self):
+        """"pages 10-12" was prose when only a month and day were looked for; it is two numbers joined by a dash, so
+        the one rule reports it, on any line of the roll-up."""
         self.add_to_roll_up("\nSee pages 10-12 of the lease.\n\n- See pages 10-12 of the lease too.\n")
-        self.readiness(code=0)
+        self.assertIn("2 unreadable yearly date(s) (line 13: See pages 10-12 of the lease; line 15: See pages 10-12 of "
+                      "the lease too)", self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
 
     def test_a_recurring_date_in_a_table_cell(self):
         self.add_to_roll_up("\n| Every year | What |\n| --- | --- |\n| **01-31** | self assessment return due |\n")
@@ -689,8 +773,7 @@ class FindingTest(Prepared):
         write(p, json.dumps(dict(json.loads(read(p)), path="04 Study/Old notes.rtf")))
         detail = self.one_finding("records.extract_paths_stale")
         self.assertIn("'04 Study/Old notes.rtf' is now '04 Study/Notes.rtf'", detail)
-        self.assertIn("repath them: extract.py repath --root %s --work %s --apply"
-                      % (shlex.quote(self.root), shlex.quote(self.work)), detail)
+        self.assertIn("repath them: extract.py repath --root <root> --work <work> --apply", detail)
 
     def test_a_missing_extract_record(self):
         os.remove(self.path("_Audit", "extract", self.ids()["06 Work/Contract.docx"] + ".json"))
@@ -833,20 +916,64 @@ class FindingTest(Prepared):
         self.assertEqual(res["records"]["malformed_extracts"], 1 if os.access(locked, os.R_OK) else 2)
         self.assertNotIn(self.root, json.dumps(res["findings"]))
 
-    def test_the_repath_advice_says_to_deal_with_a_malformed_record_first(self):
-        """`extract.py repath` refuses a record it cannot read, so the advice puts the malformed ones first."""
+    def test_the_repath_advice_says_what_repath_refuses(self):
+        """`extract.py repath` refuses a record that is not valid JSON, not an object or without its id and path; it
+        runs beside one whose pages are the wrong shape. The advice says exactly that, and puts those first."""
         ids = self.ids()
         p = self.path("_Audit", "extract", ids["04 Study/Notes.rtf"] + ".json")
         write(p, json.dumps(dict(json.loads(read(p)), path="04 Study/Old notes.rtf")))
         self.assertIn("; repath them: extract.py repath", dict(self.readiness(code=1)["findings"])[
             "records.extract_paths_stale"])
-        write(self.path("_Audit", "extract", ids["06 Work/Contract.docx"] + ".json"), "{")
+        shape = self.path("_Audit", "extract", ids["03 Home/Lease renewal.pdf"] + ".json")
+        write(shape, json.dumps(dict(json.loads(read(shape)), pages="none")))
+        code, _out, _err = run("extract.py", "repath", "--root", self.root, "--work", self.work)
+        self.assertEqual(code, 0, "a record whose pages are the wrong shape does not stop repath")
+        broken = self.path("_Audit", "extract", ids["06 Work/Contract.docx"] + ".json")
+        write(broken, "{")
         detail = dict(self.readiness(code=1)["findings"])["records.extract_paths_stale"]
-        self.assertIn("deal with the malformed extract records first (repath refuses a record it cannot read), "
-                      "then repath them: extract.py repath", detail)
+        self.assertIn("; repath refuses a record that is not valid JSON, not a JSON object, or without its id and "
+                      "path, so remove or redo any such malformed extract record first, then repath them: "
+                      "extract.py repath", detail)
         code, _out, err = run("extract.py", "repath", "--root", self.root, "--work", self.work, "--apply")
-        self.assertEqual(code, 2, "the advice is right: repath refuses beside a record it cannot read")
+        self.assertEqual(code, 2, "the advice is right: repath refuses beside a record that is not JSON")
         self.assertIn("cannot repath", err)
+
+    def test_a_record_nested_too_deeply_is_counted_not_a_crash(self):
+        """200,000 opening brackets raise RecursionError in the JSON reader; readiness exited 2 having counted
+        nothing, for an extract record and for a card alike."""
+        ids = self.ids()
+        write(self.path("_Audit", "extract", ids["06 Work/Contract.docx"] + ".json"), "[" * 200000)
+        write(self.card("04 Study/Notes.rtf"), "[" * 200000)
+        res = self.readiness(code=1)
+        self.assertEqual((res["records"]["malformed_extracts"], res["records"]["malformed_cards"]), (1, 1))
+        found = dict(res["findings"])
+        self.assertIn("06 Work/Contract.docx: not valid JSON (", found["records.malformed_extracts"])
+        self.assertIn("04 Study/Notes.rtf: ", found["records.malformed_cards"])
+
+    def test_no_finding_carries_a_path_of_this_machine(self):
+        """Every finding and every not-verified state of a run that raises most of them, with an explicit manifest."""
+        terms = os.path.join(self.tmp, "terms.txt")
+        write(terms, TERMS)
+        self.plant_bad_records()
+        self.canary("codex", reply="<term>", hits=1, usage={}, **{"pass": False})
+        shutil.move(self.path("04 Study", "Slides.pptx"), self.path("04 Study", "Gone.pptx"))
+        os.remove(self.path("_Audit", "wiki-rationale.md"))
+        os.makedirs(self.path("_Audit", "scratch"))
+        self.edit_rulebook("`GEMINI.md`, ", "")
+        self.edit_page(TAX, "Nothing is due:", "Nothing is due \u2014")
+        self.edit_page(TAX, "status: current\n", "status: current\nrecurring:\n"
+                       "  - {date: 2025-01-31, note: Self assessment return due}\n")
+        res = self.readiness("--terms", terms, "--manifest", self.path("_Audit", "manifest.json"), code=1)
+        keys = {k for k, _v in res["findings"]}
+        self.assertTrue({"records.extract_paths_stale", "records.malformed_extracts", "records.malformed_cards",
+                         "isolation.canary.codex", "manifest.live_paths_missing", "wiki.problems",
+                         "wiki_handoff.rationale_file", "scratch.left_in_audit",
+                         "handoff_contract.recurring_dates_in_frontmatter",
+                         "handoff_contract.rulebook_reserves_rulebook_filenames"} <= keys, keys)
+        text = json.dumps(res["findings"] + res["not_verified"], ensure_ascii=False)
+        for here in {self.root, self.work, self.tmp, os.path.realpath(self.root), os.path.realpath(self.work)}:
+            self.assertNotIn(here, text)
+        self.assertIn("--manifest <manifest>", dict(res["findings"])["records.extract_paths_stale"])
 
     def test_a_check_that_needed_a_malformed_extract_record_is_not_verified(self):
         """The stale-path check reads each record's path, so a record it could not read is not verified, never a
@@ -924,7 +1051,8 @@ class RepathTest(Prepared):
     def test_dry_run_then_apply(self):
         before = read(self.record, "rb")
         self.move_and_audit(*self.MOVED)
-        command = shlex.split(self.one_finding("records.extract_paths_stale").split("repath them: ", 1)[1])
+        command = [x.replace("<root>", self.root).replace("<work>", self.work) for x in shlex.split(
+            self.one_finding("records.extract_paths_stale").split("repath them: ", 1)[1])]
         res = self.repath()
         self.assertEqual(res, {"records": 18, "applied": False, "paths_changed": 1, "already_current": 17,
                                "moves": [[self.eid, self.MOVED[0], self.MOVED[1]]], "departed_left": [],

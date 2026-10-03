@@ -198,7 +198,7 @@ def read_json(path):
             return json.load(f)
     except OSError as e:
         raise common.ToolError("cannot read %s (%s)" % (path, e.strerror or e))
-    except ValueError as e:
+    except (ValueError, RecursionError) as e:
         raise common.ToolError("%s: not valid JSON (%s)" % (path, e))
 
 
