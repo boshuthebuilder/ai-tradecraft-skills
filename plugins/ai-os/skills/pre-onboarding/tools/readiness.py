@@ -71,7 +71,7 @@ MONTHS = ("January", "February", "March", "April", "May", "June", "July", "Augus
 MONTH_NUMBER = dict([(m.lower(), n) for n, m in enumerate(MONTHS, 1)]
                     + [(m[:3].lower(), n) for n, m in enumerate(MONTHS, 1)] + [("sept", 9)])
 ORDINAL = r"(?:st|nd|rd|th)?"
-EM = "\u2014"  # the roll-up's separator, as data: family-ai-os writes `- **5 April** \u2014 Tax \u2014 note (links)`
+EM = "\u2014"  # the roll-up's separator, as data: `- **5 April** \u2014 Tax \u2014 note (links)`
 UNREAD = "## Could not read"
 TITLE, MARKER = "# Deadlines", "> [!warning]"
 INTRO = ("_File-derived deadlines, rolled up deterministically from page frontmatter " + EM + " do not hand-edit, "
@@ -101,8 +101,8 @@ def read(path):
 
 
 def month_day(s):
-    """The `MM-DD` a yearly date names, or None. Read as family-ai-os reads it, so both sides accept the same
-    spellings: `MM-DD`, month first, two digits each; or a day with an English month name, the day first or the
+    """The `MM-DD` a yearly date names, or None. Read as the reference roll-up reads it, so both sides accept the
+    same spellings: `MM-DD`, month first, two digits each; or a day with an English month name, the day first or the
     month first (`5 April`, `April 5`), the name in full, its first three letters or `sept`, in any case, the day
     with an optional ordinal (`5th Apr`). Any other numeric form is None (`6/4` reads either way round), and so is a
     day the month cannot have (`31 April`); 29 February comes round in a leap year, so it is a date."""
@@ -152,11 +152,11 @@ def says_nothing(line):
 
 def parse_entry(line, pages):
     """(the date as written, the note, the pages linked) for a line laid out as the roll-up lays out an entry, else
-    None: `- **<date>**`, then the titles and the note, each after a spaced em dash (family-ai-os), or `: <note>` (the
-    fixture's roll-up), then ` (<links>)` ending the line. The links are read from the end of the line, each a page
-    of the wiki named by its path from the roll-up and written as its path without `.md` or its title, so a page name
-    holding brackets is read by its own text; the titles are the linked pages' own, so a note is never guessed at.
-    Plain string handling, one pass over the line."""
+    None: `- **<date>**`, then the titles and the note, each after a spaced em dash (the reference roll-up), or
+    `: <note>` (the fixture's roll-up), then ` (<links>)` ending the line. The links are read from the end of the
+    line, each a page of the wiki named by its path from the roll-up and written as its path without `.md` or its
+    title, so a page name holding brackets is read by its own text; the titles are the linked pages' own, so a note
+    is never guessed at. Plain string handling, one pass over the line."""
     if not line.startswith("- **") or not line.endswith(")"):
         return None
     close = line.find("**", 4)
@@ -226,8 +226,28 @@ KEY = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
 INDICATORS = {"&": "an anchor", "*": "an alias", "!": "a tag", "|": "a block scalar", ">": "a folded scalar",
               "%": "a directive", "@": "a reserved indicator", "`": "a reserved indicator"}
 FLOW_STOP = re.compile(r"[,}\[\]{#:]")
+# pages the roll-up never reads as a source, by the names the reference roll-up gives them
 DERIVED_NAMES = frozenset(("index.md", "log.md", "deadlines.md", "coming events.md", "open questions.md", "schema.md",
-                           "conventions.md"))  # pages the roll-up never reads as a source, as family-ai-os names them
+                           "conventions.md"))
+
+
+# How PyYAML resolves a plain scalar, so far as this check needs to know: its implicit resolvers (yaml/resolver.py),
+# copied, bar the order. A plain scalar that matches one is not text.
+YAML_PLAIN = (
+    ("bool", re.compile(r"^(?:yes|Yes|YES|no|No|NO|true|True|TRUE|false|False|FALSE|on|On|ON|off|Off|OFF)$")),
+    ("number", re.compile(r"^(?:[-+]?(?:[0-9][0-9_]*)\.[0-9_]*(?:[eE][-+][0-9]+)?|\.[0-9][0-9_]*(?:[eE][-+][0-9]+)?"
+                          r"|[-+]?[0-9][0-9_]*(?::[0-5]?[0-9])+\.[0-9_]*|[-+]?\.(?:inf|Inf|INF)|\.(?:nan|NaN|NAN))$")),
+    ("number", re.compile(r"^(?:[-+]?0b[0-1_]+|[-+]?0[0-7_]+|[-+]?(?:0|[1-9][0-9_]*)|[-+]?0x[0-9a-fA-F_]+"
+                          r"|[-+]?[1-9][0-9_]*(?::[0-5]?[0-9])+)$")),
+    ("null", re.compile(r"^(?:~|null|Null|NULL)$")),
+    ("date", re.compile(r"^(?:[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]|[0-9][0-9][0-9][0-9]-[0-9][0-9]?-[0-9][0-9]?"
+                        r"(?:[Tt]|[ \t]+)[0-9][0-9]?:[0-9][0-9]:[0-9][0-9](?:\.[0-9]*)?"
+                        r"(?:[ \t]*(?:Z|[-+][0-9][0-9]?(?::[0-9][0-9])?))?)$")),
+    ("merge key", re.compile(r"^<<$")), ("value", re.compile(r"^=$")))
+# YAML 1.1's spellings of a bool, PyYAML's or not (`y`, `oN`), are kept out of scope too
+YAML_11_BOOL = re.compile(r"^(?i:yes|no|true|false|on|off|y|n)$")
+DECIMAL_INT = re.compile(r"[-+]?(?:0|[1-9][0-9]*)")
+DECIMAL_FLOAT = re.compile(r"[-+]?[0-9]+\.[0-9]+")
 
 
 class OutOfScope(Exception):
@@ -511,23 +531,70 @@ def read_frontmatter(text):
         if key == "status" and isinstance(value, Scalar) and value.quoted:
             raise OutOfScope("a quoted status")
         fm[key] = value
+    check_resolution(fm)
     return fm
 
 
+def plain_kind(text):
+    """What PyYAML reads the plain scalar `text` as, `bool`, `number`, `null`, `date`, `merge key` or `value`, or
+    `time` for a number written with colons (`12:30`); None when it reads it as text."""
+    if YAML_11_BOOL.match(text):
+        return "bool"
+    for kind, pattern in YAML_PLAIN:
+        if pattern.match(text):
+            return "time" if kind == "number" and ":" in text else kind
+    return None
+
+
+def check_plain(scalar, own):
+    """Raise OutOfScope for a plain scalar PyYAML reads as anything but text: the roll-up writes the value, and this
+    check has only the text. A date, which a `date` field, a bare list item and `deadline` are, keeps its own
+    parsing for the readings it can give exactly (`yes`, `null`, a decimal number, a calendar day); an impossible day
+    (`2025-02-30`) is a frontmatter PyYAML cannot build, so the roll-up lists the page as malformed."""
+    if not isinstance(scalar, Scalar) or scalar.quoted or not scalar.text:
+        return
+    kind = plain_kind(scalar.text)
+    if kind is None:
+        return
+    if own and (kind == "date" and DAY.fullmatch(scalar.text) or kind == "null" or kind == "bool"
+                and YAML_PLAIN[0][1].match(scalar.text) or kind == "number" and (
+                    DECIMAL_INT.fullmatch(scalar.text) or DECIMAL_FLOAT.fullmatch(scalar.text))):
+        if kind == "date" and not real_day(scalar.text):
+            raise Malformed()
+        return
+    raise OutOfScope("a plain value YAML reads as %s" % kind)
+
+
+def check_resolution(fm):
+    """The frontmatter's plain scalars the roll-up writes, or shows in what it refuses, read as PyYAML reads them:
+    the notes and the dates; the rest of the frontmatter is not written out."""
+    for key in ("recurring", "deadlines", "deadline"):
+        for it in items_of(fm.get(key)):
+            if isinstance(it, Mapping):
+                for name, value in it.items():
+                    check_plain(value, name == "date")
+            else:
+                check_plain(it, True)
+    check_plain(fm.get("deadline_note"), False)
+
+
 def yaml_value(text, was_quoted):
-    """The Python value YAML gives a scalar, so far as a refused item shows it: a plain date, whole number or decimal
-    is one (`datetime.date(2025, 1, 31)`), nothing is None; the rest, `yes`, `12:30`, `null` and the escapes of a
-    quoted scalar apart, is the text. A quoted scalar is always its text, an empty one included."""
+    """The Python value YAML gives a scalar, so far as a refused item shows it: a plain calendar day, whole number or
+    decimal, `yes`, `no`, `on`, `off`, `true`, `false` or `null` is that value (`datetime.date(2025, 1, 31)`,
+    `True`), nothing is None; any other plain scalar `check_plain` lets through is its text. A quoted scalar is always
+    its text, an empty one included."""
     if was_quoted:
         return text
-    if not text:
+    if not text or YAML_PLAIN[3][1].match(text):
         return None
+    if YAML_PLAIN[0][1].match(text):
+        return text.lower() in ("yes", "true", "on")
     try:
         if ISO_DAY.fullmatch(text):
             return datetime.date(int(text[:4]), int(text[5:7]), int(text[8:]))
-        if re.fullmatch(r"[-+]?[0-9]+", text):
+        if DECIMAL_INT.fullmatch(text):
             return int(text)
-        if re.fullmatch(r"[-+]?[0-9]*\.[0-9]+", text):
+        if DECIMAL_FLOAT.fullmatch(text):
             return float(text)
     except ValueError:
         pass
@@ -640,8 +707,8 @@ def deadline_items(wiki, pages, ws):
     frontmatter this check does not read): the first three each "ok", "finding: ..." or "not verified: ...", the last a
     list of "not verified: ..." states. The rule is wiki-maintenance's "Deadlines are derived, not authored"
     (../../wiki-maintenance/SKILL.md#rules-that-keep-it-safe), read through the frontmatter keys its roll-up reads
-    (#canonical-frontmatter--the-keys-the-deterministic-sweeps-read, including which pages the sweeps skip), with
-    01 Deadlines the derived list of forward dates.
+    (#canonical-frontmatter--the-keys-the-deterministic-sweeps-read), with 01 Deadlines the derived list of forward
+    dates.
 
     The page may hold only what the roll-up renders from the pages' frontmatter; every other line is reported.
     What the roll-up could write is worked out from the pages, every `.md` under the wiki folder bar its derived pages
@@ -655,19 +722,22 @@ def deadline_items(wiki, pages, ws):
     `parse_entry`): its frontmatter, which holds only `provenance: derived`, `status: current` and a `last-updated`
     day, once each; its headings, intro, `_None._` and blank lines; the empty-roll-up banner, only directly after the
     intro or title and, when the pages are read, only when they give no entry; the lines under its "Could not read"
-    heading, each one the roll-up writes; and entries, laid out as family-ai-os lays them out or as the fixture's
-    roll-up does. An entry is split by plain string handling into date, note and page links, and is clean only when
-    its date is in the form the roll-up writes (`5 April`, `YYYY-MM-DD`) and its `(date, note, page)` is in that set,
-    the dated ones by their full date and the recurring ones by month and day. An entry whose date no page carries is
-    reported as that date (a YYYY-MM-DD no page's frontmatter carries, or a day and month no page's `recurring` list
-    carries); one whose date is not a date the contract reads is an unreadable yearly date; every other line, a line
-    that appears twice included, is hand-written content, with its line number and its start. Each line is read in
-    one pass, so a long line costs a long line and no more. The roll-up must also show every deadline of a page the
-    sweeps read that is not before its `last-updated` (a `last-updated` after today is a finding, and forward is
-    then judged from today, the tools' clock) and every recurring date; a roll-up with none of those to show says
-    why; and a deadline entry that is not a real YYYY-MM-DD, or a recurring entry the contract does not read, is
-    reported. Another page the Schema marks derived (an open-questions list) is built from the pages in a way no date
-    shows, so it is named as not verified, apart. A Deadlines page that cannot be read as UTF-8 is a finding."""
+    heading, each one the roll-up writes; and entries, laid out as the reference roll-up lays them out or as the
+    fixture's roll-up does. An entry is split by plain string handling into date, note and page links, and is clean
+    only when its date is in the form the roll-up writes (`5 April`, `YYYY-MM-DD`) and its `(date, note, page)` is in
+    that set, the dated ones by their full date and the recurring ones by month and day. An entry whose date no page
+    carries is reported as that date (a YYYY-MM-DD no page's frontmatter carries, or a day and month no page's
+    `recurring` list carries); one whose date is not a date the contract reads is an unreadable yearly date; every
+    other line, a line that appears twice included, is hand-written content, with its line number and its start. Each
+    line is read in one pass, so a long line costs a long line and no more. One predicate says which pages the roll-up
+    reads (the pages above, none skipped for its `provenance`), and it decides what the page may hold and what it must
+    show alike: every deadline of those pages that is not before its `last-updated` (a `last-updated` after today is a
+    finding, and forward is then judged from today, the tools' clock), every recurring date, and every line of its
+    "Could not read" list that the pages give (a page that has since become unreadable, with no line for it, is an
+    incomplete page); a roll-up with none of those to show says why; and a deadline entry that is not a real
+    YYYY-MM-DD, or a recurring entry the contract does not read, is reported. Another page the Schema marks derived
+    (an open-questions list) is built from the pages in a way no date shows, so it is named as not verified, apart.
+    A Deadlines page that cannot be read as UTF-8 is a finding."""
     derived_dirs = tuple("%s %s/" % (s["number"], s["name"]) for s in (ws or {}).get("sections", []) if s["derived"])
     others = [p for p in pages if p != DEADLINES and p.startswith(derived_dirs)] if derived_dirs else []
     other_item = "not verified: %s (derived, built from the pages in a way no date shows)" % sample(others) \
@@ -705,9 +775,8 @@ def deadline_items(wiki, pages, ws):
         for x in y:
             yearly[x].append(p)
         provenance = getattr(fm.get("provenance"), "text", None)
-        if provenance not in ("manual", "calendar"):
-            swept_days |= d
-            swept_yearly |= y
+        swept_days |= d  # the roll-up reads a page whatever its provenance: what it may hold, it must show
+        swept_yearly |= y
         bad_days += ["%s: %s" % (p, e) for e in bd]
         bad += ["%s: %s" % (p, e) for e in b]
         any_derived = any_derived or provenance == "derived"
@@ -785,6 +854,10 @@ def deadline_items(wiki, pages, ws):
             continue
         if verified and not all((key, note, page) in entries for page in linked):  # not what the pages give
             written.append("line %d: %s" % (n, excerpt(line)))
+    absent = sorted(line[2:] for line, count in unread.items() if count > 0) if verified else []
+    if absent:  # a page the roll-up lists became unreadable, and the Deadlines page was not regenerated
+        derived.append("%s lacks %d line(s) of the roll-up's \"Could not read\" list that the pages give (%s)"
+                       % (DEADLINES, len(absent), sample(absent)))
     if hand:
         derived.append("%s holds %d date(s) no current page's frontmatter carries (%s)"
                        % (DEADLINES, len(hand), sample(hand)))
@@ -928,6 +1001,8 @@ def record_checks(root, rb, live, evidence):
             found["extract_paths_stale"].append("%r is now %r" % (x.get("path"), path))
         if card is None:
             found["missing_cards"].append(path)
+            if x is False:  # the terms check needs the card and a readable extract record
+                no_terms.append(path)
             continue
         if card is False:
             no_terms.append(path)

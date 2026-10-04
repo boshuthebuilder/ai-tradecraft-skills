@@ -125,6 +125,16 @@ class Prepared(unittest.TestCase):
         self.assertEqual([f[0] for f in res["findings"]], [check], json.dumps(res["findings"], indent=1))
         return res["findings"][0][1]
 
+    def refused_finding(self):
+        """The recurring finding of a page with a recurring item the roll-up refuses. The roll-up lists that item
+        under "Could not read", so a Deadlines page that lacks the line is an incomplete one, a finding beside it."""
+        found = dict(self.readiness(code=1)["findings"])
+        self.assertEqual(sorted(found), ["handoff_contract.derived_pages_hold_nothing_hand_written",
+                                         "handoff_contract.recurring_dates_in_frontmatter"])
+        self.assertIn("lacks 1 line(s) of the roll-up's \"Could not read\" list that the pages give (20 Finance/Tax.md "
+                      "(unreadable recurring date: ", found["handoff_contract.derived_pages_hold_nothing_hand_written"])
+        return found["handoff_contract.recurring_dates_in_frontmatter"]
+
     def edit(self, rel, old, new, count=1):
         p = self.path(*rel.split("/"))
         text = read(p)
@@ -172,7 +182,7 @@ ENGLISH_MONTHS = ("January", "February", "March", "April", "May", "June", "July"
 
 
 class MonthDayTest(unittest.TestCase):
-    """`month_day` reads a yearly date as family-ai-os's roll-up reader does, so both sides accept the same ones."""
+    """`month_day` reads a yearly date as the reference roll-up's reader does, so both sides accept the same ones."""
 
     def test_every_month_by_its_full_name_and_its_first_three_letters(self):
         for number, name in enumerate(ENGLISH_MONTHS, 1):
@@ -203,7 +213,7 @@ class MonthDayTest(unittest.TestCase):
                      "5 Smarch", "5 Sepember"):
             self.assertIsNone(readiness.month_day(text), text)
 
-    def test_a_full_stop_after_the_month_is_not_a_spelling_family_ai_os_reads(self):
+    def test_a_full_stop_after_the_month_is_not_a_spelling_the_roll_up_reads(self):
         for text in ("5 Apr.", "Sept. 5", "5 Sept."):
             self.assertIsNone(readiness.month_day(text), text)
 
@@ -340,7 +350,7 @@ class ContractTest(Prepared):
     def test_a_recurring_entry_not_month_and_day(self):
         self.add_recurring("{date: 2025-01-31, note: Self assessment return due}")
         self.assertIn("1 recurring: entr(ies) not {date, note} with a date as MM-DD (month first)",
-                      self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
+                      self.refused_finding())
 
     def test_a_recurring_date_in_words_shown_in_words(self):
         self.add_recurring("{date: 31 January, note: Self assessment return due}")
@@ -359,13 +369,11 @@ class ContractTest(Prepared):
 
     def test_a_recurring_date_with_a_full_stop_is_refused(self):
         self.add_recurring("{date: 5 Sept., note: School fees due}")
-        self.assertIn("1 recurring: entr(ies) not {date, note} with a date as MM-DD",
-                      self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
+        self.assertIn("1 recurring: entr(ies) not {date, note} with a date as MM-DD", self.refused_finding())
 
     def test_an_ambiguous_numeric_yearly_date_is_refused(self):
         self.add_recurring("{date: 31/1, note: Self assessment return due}")
-        self.assertIn("not {date, note} with a date as MM-DD",
-                      self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
+        self.assertIn("not {date, note} with a date as MM-DD", self.refused_finding())
 
     def test_gemini_md_reserved(self):
         self.edit_rulebook("`GEMINI.md`, ", "")
@@ -465,11 +473,22 @@ class RollUpTest(Prepared):
         self.edit_page(DEADLINES, "last-updated: %s\n" % value, "last-updated: 2024-06-30\n")
 
     def test_a_deadline_entry_that_cannot_be_read(self):
-        for entry in ("20250131", "2025-02-30", "{date: 2025-02-30, note: No such day}"):
+        for entry in ("20250131", "2025-1-5", "{date: 20250131, note: No such day}"):
             with self.subTest(entry=entry):
                 self.add_frontmatter(TAX, "deadline: %s\n" % entry)
                 self.assertIn("1 deadline entr(ies) not a real YYYY-MM-DD or {date, note} (20 Finance/Tax.md: "
                               "deadline: %s)" % entry,
+                              self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written"))
+                self.edit_page(TAX, "deadline: %s\n" % entry, "")
+
+    def test_a_day_the_calendar_does_not_have_is_a_frontmatter_the_roll_up_cannot_read(self):
+        """PyYAML cannot build `2025-02-30`, so the roll-up lists the page as malformed and reads none of it; the
+        Deadlines page that lacks that line is an incomplete one."""
+        for entry in ("2025-02-30", "{date: 2025-02-30, note: No such day}"):
+            with self.subTest(entry=entry):
+                self.add_frontmatter(TAX, "deadline: %s\n" % entry)
+                self.assertIn("lacks 1 line(s) of the roll-up's \"Could not read\" list that the pages give "
+                              "(20 Finance/Tax.md (malformed frontmatter))",
                               self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written"))
                 self.edit_page(TAX, "deadline: %s\n" % entry, "")
 
@@ -531,8 +550,7 @@ class RollUpTest(Prepared):
 
     def test_a_recurring_entry_needs_a_real_day_and_a_note(self):
         self.add_frontmatter(TAX, "recurring:\n  - {date: 02-30, note: No such day}\n")
-        self.assertIn("(20 Finance/Tax.md: {date: 02-30, note: No such day})",
-                      self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
+        self.assertIn("(20 Finance/Tax.md: {date: 02-30, note: No such day})", self.refused_finding())
         self.edit_page(TAX, "{date: 02-30, note: No such day}", "{date: 02-28}")
         self.assertIn("{date: 02-28}", self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
         self.edit_page(TAX, "{date: 02-28}", "{date: 02-29, note: Leap day review}")
@@ -907,6 +925,17 @@ class FindingTest(Prepared):
         self.assertEqual(res["records"]["contamination"], gap)
         self.assertIn(["records.contamination", gap], res["not_verified"])
 
+    def test_contamination_is_not_verified_for_a_document_with_no_card_and_a_malformed_extract(self):
+        """No card is a finding of its own, and the terms check needed the card and the extract: a clean 0 was wrong."""
+        terms = os.path.join(self.tmp, "terms.txt")
+        write(terms, TERMS)
+        os.remove(self.card("06 Work/Essay.docx"))
+        write(self.path("_Audit", "extract", self.ids()["06 Work/Essay.docx"] + ".json"), "{")
+        res = self.readiness("--terms", terms, code=1)
+        self.assertEqual(res["records"]["contamination"],
+                         "not verified for 1 document(s) whose card or extract record is malformed")
+        self.assertEqual((res["records"]["missing_cards"], res["records"]["malformed_extracts"]), (1, 1))
+
     def test_a_contamination_found_beside_a_document_not_verified(self):
         terms = os.path.join(self.tmp, "terms.txt")
         write(terms, TERMS)
@@ -960,7 +989,10 @@ class FindingTest(Prepared):
             f.write(b"\xff\xfe")
         res = self.readiness(code=1)
         self.assertIn(TAX, res["wiki"]["frontmatter_bad"])
-        self.assertEqual([k for k, _v in res["findings"]], ["wiki.problems", "wiki_handoff.pages_not_accepted"])
+        self.assertEqual([k for k, _v in res["findings"]],
+                         ["wiki.problems", "wiki_handoff.pages_not_accepted",
+                          "handoff_contract.derived_pages_hold_nothing_hand_written"])
+        self.assertIn("(20 Finance/Tax.md (unreadable: UnicodeDecodeError))", res["findings"][-1][1])
 
 
 class RepathTest(Prepared):

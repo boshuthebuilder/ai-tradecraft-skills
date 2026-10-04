@@ -363,7 +363,7 @@ job runs on it until then ([wiki-onboarding step 5](../wiki-onboarding/SKILL.md#
 
 ## Engine isolation
 
-<!-- provisional: agy's message limit (family-ai-os #1089) and agy's stream-event names and environment variables (#91) -->
+<!-- provisional: agy's message limit (the reference deployment measures it) and agy's stream-event names and environment variables (#91) -->
 
 The rule is the framework's: one login per machine, the context isolated per call
 ([the architecture](../../ARCHITECTURE.md#execution-context-constraints-why-the-indirection-exists)). The
@@ -385,7 +385,7 @@ isolation comes from what each call is given and what it is denied:
   in its stream discards the reply (the vision lane alone may open its images). agy also cuts a very long
   message short and asks the model to read the rest from a stored copy (seen at about 300 KB), which a call with
   no tools cannot do: keep every prompt to it well under that, as the card budgets do. The 200,000-byte limit the
-  tools enforce is provisional: where the cut really falls, in bytes or characters, is for family-ai-os #1089 to
+  tools enforce is provisional: where the cut really falls, in bytes or characters, is for the reference deployment to
   measure, and until then it is a cautious figure under the one case seen.
 
 The canary checks the isolation before the first call (step 5), and the contamination guard after, on every card.
@@ -434,7 +434,7 @@ What a deployment relies on when it onboards a prepared folder, and what `readin
 - **Derived pages hold nothing hand-written**
   ([deadlines are derived](../wiki-maintenance/SKILL.md#rules-that-keep-it-safe)). Every date on `01 Deadlines` comes
   from a page's frontmatter, superseded pages left out, its own `last-updated` (a build stamp, never after today)
-  aside; it shows every deadline of the pages the sweeps read that is not before that stamp; a date that recurs is
+  aside; it shows every deadline of the pages the roll-up reads that is not before that stamp; a date that recurs is
   a `recurring:` entry, `{date, note}` with the date as `MM-DD` (month first) or a day and a month name
   (`5 April`), in its page's frontmatter, and the roll-up shows it by its day and month name; the page holds only
   what the roll-up renders from the pages' frontmatter (each entry's date, note and page link), and every other

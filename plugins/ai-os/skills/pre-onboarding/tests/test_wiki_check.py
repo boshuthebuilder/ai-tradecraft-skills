@@ -448,6 +448,30 @@ class CheckTest(Copy):
         self.assertEqual(sorted(res["dead_source_paths"]), sorted([self.HOME, s] for s in spans))
         self.assertEqual((res["problems"], res["backticked_paths_unchecked"]), (3, 1))
 
+    NAMES_WITH_ANGLES = ("02 Finance/Q1 <draft.pdf", "02 Finance/Rate > 5.pdf", "02 Finance/Fees > 5 < 10/Return.pdf")
+
+    def test_a_lone_angle_bracket_in_a_name_is_literal_and_a_missing_one_is_dead(self):
+        """Only a whole `<name>` stands in for a value: `<` or `>` alone is a character in a file's name."""
+        self.cite(*self.NAMES_WITH_ANGLES)
+        res = self.check()
+        self.assertEqual(sorted(res["dead_source_paths"]), sorted([self.HOME, s] for s in self.NAMES_WITH_ANGLES))
+        self.assertEqual((res["problems"], res["backticked_paths_unchecked"]), (3, 1))
+
+    def test_a_file_whose_name_holds_a_lone_angle_bracket_resolves(self):
+        for rel in self.NAMES_WITH_ANGLES:
+            write(os.path.join(self.root, *rel.split("/")), "x")
+        self.cite(*self.NAMES_WITH_ANGLES)
+        res = self.check()
+        self.assertEqual((res["problems"], res["dead_source_paths"], res["backticked_paths_unchecked"]), (0, [], 1))
+
+    def test_a_whole_placeholder_is_a_pattern_whatever_stands_in_for_it(self):
+        write(os.path.join(self.root, "02 Finance", "2024", "x.pdf"), "x")
+        self.cite("02 Finance/<year>/x.pdf", "02 Finance/<year>/gone.pdf", "02 Finance/Gone/<year>/x.pdf",
+                  "02 Finance/Q<n>.pdf")
+        res = self.check()
+        self.assertEqual(res["dead_source_paths"], [[self.HOME, "02 Finance/Gone/<year>/x.pdf"]])
+        self.assertEqual(res["backticked_paths_unchecked"], 4)  # the three that name an existing folder, and `_Inbox/`
+
     def test_a_star_pattern_is_found_when_something_matches_and_dead_when_its_folder_is_gone(self):
         write(os.path.join(self.root, "02 Finance", "Tax [2024]", "Return.pdf"), "x")
         self.cite("02 Finance/*.pdf", "02 Finance/Tax [2024]/*.pdf", "02 Finance/Statement*/",

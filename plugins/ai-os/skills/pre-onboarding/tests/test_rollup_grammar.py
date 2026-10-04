@@ -3,12 +3,14 @@ renders from the pages' frontmatter, and every other line is reported.
 
     python3 -m unittest discover plugins/ai-os/skills/pre-onboarding/tests
 
-`rollups/<scenario>/` is a small wiki whose `01 Deadlines/01 Deadlines.md` is the page family-ai-os's roll-up rendered
-from the other pages (`rollups/capture.py` refreshes it by hand; the suite never imports family-ai-os). Those bytes
+`rollups/<scenario>/` is a small wiki whose `01 Deadlines/01 Deadlines.md` is the page the reference roll-up rendered
+from the other pages (`rollups/capture.py` refreshes it by hand; the suite never imports the deployment). Those bytes
 must read clean, every change to them must be reported, and so must every shape of a hand-kept date that a round of
 review found.
 """
+import itertools
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -157,8 +159,63 @@ class RealOutputTest(Scenario):
         self.assertTrue(recurring.startswith("finding: 8 recurring: entr(ies) not {date, note}"), recurring)
         self.assertNotIn(HAND, recurring)
 
+    def test_a_value_the_roll_up_coerced_is_not_verified_never_a_finding(self):
+        """`yes` is written `True`, `12:30` is written 750: the check does not read what it cannot give back."""
+        page = read(os.path.join(ROLLUPS, "coerced", PAGE))
+        for text in ("Yes %s True (" % EM, "Number %s 5 (" % EM, "Time %s 750 (" % EM, "Date %s 2025-01-31 (" % EM,
+                     "- **6 April** %s Null (" % EM, "- **10 April** %s Tilde (" % EM):
+            self.assertIn(text, page)
+        dated, recurring, other, outside = self.full(self.wiki("coerced"))
+        self.assertEqual((dated, recurring, other), ("ok", "ok", "ok"))
+        kinds = (("Comment", "bool"), ("Date", "date"), ("Null", "null"), ("Number", "number"), ("Tilde", "null"),
+                 ("Time", "time"), ("Yes", "bool"))
+        self.assertEqual(outside, ["not verified: 20 Finance/%s.md uses YAML this check does not read "
+                                   "(a plain value YAML reads as %s)" % item for item in kinds])
+
+    def test_a_page_beside_a_coerced_value_is_still_read(self):
+        wiki = self.wiki("coerced")
+        path = os.path.join(wiki, PAGE)
+        write(path, read(path).replace("A plain note", "Another note"))
+        dated, _recurring, _other, outside = self.full(wiki)
+        self.assertEqual(len(outside), 7)
+        self.assertEqual(dated, "ok")  # whether an entry is backed needs the pages, so it is withheld
+        write(path, read(path) + "| 5 | April |\n")
+        self.assertIn(HAND, self.full(wiki)[0])  # the lines the roll-up does not write are still reported
+
+    def test_a_date_that_is_a_value_yaml_reads_otherwise_is_the_pages_own_fault(self):
+        page = read(os.path.join(ROLLUPS, "typed-dates", PAGE))
+        for text in ("{'date': True, 'note': 'x'}", "{'date': None, 'note': 'why'}", "{'date': 5, 'note': 'z'}",
+                     "{'date': 6.4}", "unreadable recurring date: False;", "unreadable recurring date: None;",
+                     "datetime.date(2025, 1, 31); write", "{'date': datetime.date(2025, 1, 31), 'note': 'w'}"):
+            self.assertIn(text, page)
+        dated, recurring, other, outside = self.full(self.wiki("typed-dates"))
+        self.assertEqual((dated, other, outside), ("ok", "ok", []))
+        self.assertTrue(recurring.startswith("finding: 8 recurring: entr(ies) not {date, note}"), recurring)
+        self.assertNotIn(HAND, recurring)
+
+    def test_a_page_of_any_provenance_is_a_source(self):
+        """The roll-up skips no provenance: a calendar page's and a manual page's dates are on the page."""
+        self.assertEqual(self.full(self.wiki("provenance")), ("ok", "ok", "ok", []))
+        page = read(os.path.join(ROLLUPS, "provenance", PAGE))
+        for text in ("Manual %s Owner asserted (" % EM, "Calendar %s From the calendar (" % EM,
+                     "- **2030-02-02** %s Manual (" % EM):
+            self.assertIn(text, page)
+
+    def test_a_date_only_a_page_of_another_provenance_holds_is_expected(self):
+        for old, want in (("- **6 April** %s Manual %s Owner asserted ([30 Home/Manual](../30%%20Home/Manual.md))\n"
+                           % (EM, EM), "lacks 1 recurring date(s) (04-06 (30 Home/Manual.md))"),
+                          ("- **7 April** %s Calendar %s From the calendar "
+                           "([30 Home/Calendar](../30%%20Home/Calendar.md))\n" % (EM, EM),
+                           "lacks 1 recurring date(s) (04-07 (30 Home/Calendar.md))")):
+            with self.subTest(want=want):
+                _dated, recurring = self.reported(self.replace(old, ""), "provenance")
+                self.assertIn(want, recurring)
+        dated, _recurring = self.reported(self.replace(
+            "- **2030-02-02** %s Manual ([30 Home/Manual](../30%%20Home/Manual.md))\n" % EM, ""), "provenance")
+        self.assertIn("lacks 1 page deadline(s) (2030-02-02 (30 Home/Manual.md))", dated)
+
     def test_the_fixture_renderers_output_is_clean(self):
-        """The fixture's roll-up writes `: <note>` where family-ai-os writes the dash, and the pages' own notes."""
+        """The fixture's roll-up writes `: <note>` where the reference roll-up writes the dash, and the pages' notes."""
         self.assertEqual(readiness.deadline_items(FIXTURE_WIKI, readiness.W.wiki_pages(FIXTURE_WIKI), None),
                          ("ok", "ok", "ok", []))
 
@@ -187,6 +244,14 @@ class ChangedOutputTest(Scenario):
         self.assert_hand(self.replace(self.PAID, "Pay 2 instalments ([renew 12 May](../20%20Finance/Tax.md))"))
         self.assert_hand(self.append("- [5 Sept](../20%20Finance/Tax.md)"))
         self.assert_hand(self.append("[5 Sept](../20%20Finance/Tax.md)"))
+
+    def test_a_link_to_a_wiki_page_added_after_an_entry_is_reported(self):
+        """The link is real and the page exists; the roll-up still did not write it."""
+        for link in ("[7 June](../30%20Home/30%20Home.md)", "[Home](../30%20Home/30%20Home.md)", HOME):
+            for lead in (" ", ", ", "; "):
+                with self.subTest(link=link, lead=lead):
+                    self.assert_hand(self.replace(self.PAID, self.PAID + lead + link))
+        self.assert_hand(self.replace(self.PAID, "Pay 2 instalments (%s [7 June](../30%%20Home/30%%20Home.md))" % TAX))
 
     def test_a_note_or_a_page_the_frontmatter_does_not_give_is_reported(self):
         for old, new in (("Pay 2 instalments", "Pay 3 instalments"), ("Pay 2 instalments", "pay 2 instalments"),
@@ -241,7 +306,8 @@ class HandKeptTest(Scenario):
         "| 5 %s Apr |" % EM, "| 5 | April |", "| April | 5 |", "| 5 | Apr |", "| 5Sept |", "| 5thApr |",
         "<5 April>", "<April 5>", "5​April", "5 April​", "| 5 ​April |", "4月15日",
         "| 4月5日 |", "| 5 Sept (fees) |", "| 5 Sept |", "| <b>5 Sept</b> |", "| [5 Sept](x.md) |",
-        "| **5** Sept |", "- 5 Sept", "> - 5 Sept", "> 5 Sept", "- [ ] 5 Sept", "- [5 Sept](x.md)", "1) 5 Sept",
+        "| **5** Sept |", "- 5 Sept", "> - 5 Sept", "> 5 Sept", "- [ ] 5 Sept", "- [ ] 5 April: pay fee",
+        "- [x] 5 April: pay fee", "- [5 Sept](x.md)", "1) 5 Sept",
         "<td>5 Sept</td>", "- 5th Apr: tax year ends", "- **9 sept**: fees", "| 5 Apr. | tax year ends |",
         "- **01-31**: self assessment", "Fees are due on 5 Sept each year.", "See pages 10-12 of the lease.",
         "- See pages 10-12 of the lease too.", "- 13-45 units of electricity", "- 01-31-2025 is not a month and day",
@@ -454,7 +520,47 @@ class GrammarTest(unittest.TestCase):
         ('a: {b: c', 'a flow mapping that does not close on its line'),
         ('a: {,}', 'an empty key in a flow mapping'),
         ('a: {b: c} d', 'text after a flow mapping'),
-    )
+    ) + tuple(
+        (block, "a plain value YAML reads as %s" % kind) for block, kind in (
+            # a plain note, a block item's note, an extra key, the deadline note: YAML reads these as other than text
+            ('recurring:\n  - {date: 04-05, note: yes}', 'bool'),
+            ('recurring:\n  - {date: 04-05, note: Off}', 'bool'),
+            ('recurring:\n  - {date: 04-05, note: n}', 'bool'),
+            ('recurring:\n  - {date: 04-05, note: TRUE}', 'bool'),
+            ('recurring:\n  - {date: 04-05, note: null}', 'null'),
+            ('recurring:\n  - {date: 04-05, note: ~}', 'null'),
+            ('recurring:\n  - {date: 04-05, note: 12}', 'number'),
+            ('recurring:\n  - {date: 04-05, note: -3}', 'number'),
+            ('recurring:\n  - {date: 04-05, note: 0x1F}', 'number'),
+            ('recurring:\n  - {date: 04-05, note: 0b11}', 'number'),
+            ('recurring:\n  - {date: 04-05, note: 0405}', 'number'),
+            ('recurring:\n  - {date: 04-05, note: 1_000}', 'number'),
+            ('recurring:\n  - {date: 04-05, note: 1.5}', 'number'),
+            ('recurring:\n  - {date: 04-05, note: .5}', 'number'),
+            ('recurring:\n  - {date: 04-05, note: .inf}', 'number'),
+            ('recurring:\n  - {date: 04-05, note: 12:30}', 'time'),
+            ('recurring:\n  - {date: 04-05, note: 1:20:30}', 'time'),
+            ('recurring:\n  - {date: 04-05, note: 1:30.5}', 'time'),
+            ('recurring:\n  - {date: 04-05, note: 2025-01-31}', 'date'),
+            ('recurring:\n  - {date: 04-05, note: 2025-01-31 10:00:00}', 'date'),
+            ('recurring:\n  - {date: 04-05, note: 2025-02-30}', 'date'),
+            ('recurring:\n  - {date: 04-05, note: <<}', 'merge key'),
+            ('recurring:\n  - {date: 04-05, note: =}', 'value'),
+            ('recurring:\n  - date: 04-05\n    note: yes', 'bool'),
+            ('recurring:\n  - {date: 04-05, note: x, extra: on}', 'bool'),
+            ('deadline_note: 12:30', 'time'),
+            ('deadline_note: no', 'bool'),
+            ('deadlines:\n  - {date: 2030-01-01, note: 5}', 'number'),
+            # a date field is read for the values it can be exactly; the rest is out of scope too
+            ('recurring:\n  - {date: 0405}', 'number'),
+            ('recurring:\n  - 12:30', 'time'),
+            ('recurring:\n  - {date: .inf}', 'number'),
+            ('recurring:\n  - {date: 2025-01-31 10:00:00}', 'date'),
+            ('recurring:\n  - {date: y}', 'bool'),
+            ('recurring:\n  - 0x1F', 'number'),
+            ('deadline: 2030-01-01T10:00:00', 'date'),
+            ('deadlines:\n  - 1_000', 'number'),
+        ))
 
     def test_anything_outside_the_subset_is_named(self):
         for block, construct in self.OUT_OF_SCOPE:
@@ -487,6 +593,169 @@ class GrammarTest(unittest.TestCase):
                     readiness.read_frontmatter(text)
                 except readiness.OutOfScope:
                     pass
+
+
+class PlainScalarTest(unittest.TestCase):
+    """A plain scalar PyYAML reads as anything but text is outside what the check reads: the roll-up writes the value
+    it gives (`yes` is `True`), and the check has only the text."""
+
+    # PyYAML's implicit resolvers, copied from `yaml/resolver.py` with their first characters, in its order; the
+    # check's own patterns are not used, so this is a second reading of the same rule.
+    PYYAML = (
+        ("bool", "yYnNtTfFoO", r'''^(?:yes|Yes|YES|no|No|NO
+                    |true|True|TRUE|false|False|FALSE
+                    |on|On|ON|off|Off|OFF)$'''),
+        ("float", "-+0123456789.", r'''^(?:[-+]?(?:[0-9][0-9_]*)\.[0-9_]*(?:[eE][-+][0-9]+)?
+                    |\.[0-9][0-9_]*(?:[eE][-+][0-9]+)?
+                    |[-+]?[0-9][0-9_]*(?::[0-5]?[0-9])+\.[0-9_]*
+                    |[-+]?\.(?:inf|Inf|INF)
+                    |\.(?:nan|NaN|NAN))$'''),
+        ("int", "-+0123456789", r'''^(?:[-+]?0b[0-1_]+
+                    |[-+]?0[0-7_]+
+                    |[-+]?(?:0|[1-9][0-9_]*)
+                    |[-+]?0x[0-9a-fA-F_]+
+                    |[-+]?[1-9][0-9_]*(?::[0-5]?[0-9])+)$'''),
+        ("merge key", "<", r"^(?:<<)$"),
+        ("null", "~nN", r'''^(?: ~
+                    |null|Null|NULL
+                    | )$'''),
+        ("timestamp", "0123456789", r'''^(?:[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]
+                    |[0-9][0-9][0-9][0-9] -[0-9][0-9]? -[0-9][0-9]?
+                     (?:[Tt]|[ \t]+)[0-9][0-9]?
+                     :[0-9][0-9] :[0-9][0-9] (?:\.[0-9]*)?
+                     (?:[ \t]*(?:Z|[-+][0-9][0-9]?(?::[0-9][0-9])?))?)$'''),
+        ("value", "=", r"^(?:=)$"),
+    )
+    NAMED = {"float": "number", "int": "number", "timestamp": "date"}
+
+    @classmethod
+    def pyyaml_kind(cls, text):
+        """What PyYAML reads `text` as, in the check's words, None for text."""
+        for tag, first, pattern in cls.PYYAML:
+            if (text[:1] or "") in first + ("" if text else "~nN") and re.match(pattern, text, re.X):
+                kind = cls.NAMED.get(tag, tag)
+                return "time" if kind == "number" and ":" in text else kind
+
+    @staticmethod
+    def frontmatter(block):
+        return readiness.read_frontmatter("---\n%s\n---\n# Page\n" % block)
+
+    def scalar(self, text, own=False):
+        """Raises what `check_plain` raises for the plain scalar `text`."""
+        return readiness.check_plain(readiness.Scalar(text, False, text), own)
+
+    def test_each_kind_is_the_one_pyyaml_resolves(self):
+        for kind, texts in (("bool", ("yes", "No", "TRUE", "false", "On", "OFF", "y", "N", "Y", "n")),
+                            ("null", ("null", "Null", "NULL", "~")),
+                            ("number", ("12", "-3", "+4", "0", "007", "0405", "0x1F", "0b1", "1_000", "1.5", ".5",
+                                        "5.", "-.inf", ".NaN", "1.0e+3")),
+                            ("time", ("12:30", "1:20:30", "1:30.5", "-1:05")),
+                            ("date", ("2025-01-31", "2025-1-5 1:02:03", "2025-01-31T10:00:00Z",
+                                      "2025-01-31 10:00:00 +5")),
+                            ("merge key", ("<<",)), ("value", ("=",))):
+            for text in texts:
+                with self.subTest(kind=kind, text=text):
+                    self.assertEqual(readiness.plain_kind(text), kind)
+                    self.assertEqual(self.pyyaml_kind(text) if text not in ("y", "N", "Y", "n") else "bool", kind)
+
+    def test_text_pyyaml_keeps_as_text_is_not_a_kind(self):
+        for text in ("04-05", "5 April", "1e3", "0o17", "Pay tax", "yes please", "12:30 sharp", "Null and void",
+                     "2025-01-31 or later", "1:60", "08", "0x", "1.5.2", "-", "+", "..", "a=b", "<<x", "nope",
+                     "Yesterday",
+                     "ye", "tru", "5 %", "1,000", "June 1", "2025-01", "12:345"):
+            with self.subTest(text=text):
+                self.assertIsNone(readiness.plain_kind(text))
+                self.assertIsNone(self.pyyaml_kind(text))
+
+    def test_the_kind_is_pyyamls_over_every_short_string_of_the_characters_that_matter(self):
+        pieces = ("0", "1", "7", "9", "-", "+", ".", ":", "_", "e", "E", "x", "b", "o", "T", "Z", " ", "n", "u", "l",
+                  "y", "s", "f", "<", "=", "~", "2025", "-01", "-1", ":30", "yes", "No", "null", "ON")
+        seen = set()
+        for count in (1, 2, 3):
+            for combo in itertools.product(pieces, repeat=count):
+                text = "".join(combo)
+                if text != text.strip():
+                    continue
+                want = self.pyyaml_kind(text)
+                got = readiness.plain_kind(text)
+                if got == "bool" and want is None and re.fullmatch(r"(?i:yes|no|true|false|on|off|y|n)", text):
+                    got = None  # YAML 1.1's other spellings (`oN`, `y`): out of scope though PyYAML keeps text
+                self.assertEqual(got, want, text)
+                seen.add(want)
+        self.assertEqual(seen, {None, "bool", "null", "number", "time", "date", "merge key", "value"})
+
+    def test_the_other_spellings_of_yaml_one_one_are_out_of_scope_too(self):
+        for text in ("y", "Y", "n", "N", "oN", "yES", "nO", "oFF", "TrUe"):
+            with self.subTest(text=text):
+                with self.assertRaises(readiness.OutOfScope):
+                    self.frontmatter("recurring:\n  - {date: 04-05, note: %s}" % text)
+
+    def test_a_note_that_is_not_text_is_out_of_scope_in_every_place_the_roll_up_writes_one(self):
+        for block, kind in (("recurring:\n  - {date: 04-05, note: yes}", "bool"),
+                            ("recurring:\n  - date: 04-05\n    note: ~", "null"),
+                            ("recurring:\n  - {note: 5, date: 04-05}", "number"),
+                            ("deadlines:\n  - {date: 2030-01-01, note: 12:30}", "time"),
+                            ("deadline: 2030-01-01\ndeadline_note: 2025-01-31", "date"),
+                            ("deadline: 2030-01-01\ndeadline_note: off", "bool"),
+                            ("recurring:\n  - {date: 04-05, note: Annual, extra: yes}", "bool")):
+            with self.subTest(block=block):
+                with self.assertRaises(readiness.OutOfScope) as got:
+                    self.frontmatter(block)
+                self.assertEqual(str(got.exception), "a plain value YAML reads as %s" % kind)
+
+    def test_a_quoted_scalar_is_text_whatever_it_holds(self):
+        for text in ('"yes"', "'12:30'", '"null"', "'2025-01-31'", '"5"', '"~"', '""', "'<<'", "'y'"):
+            with self.subTest(text=text):
+                fm = self.frontmatter("recurring:\n  - {date: 04-05, note: %s}" % text)
+                note = readiness.date_entry(fm["recurring"][0])[1]
+                self.assertEqual(note, text[1:-1] or None)
+
+    def test_a_plain_note_that_only_begins_like_one_is_text(self):
+        for text in ("yes please", "12:30 sharp", "Null and void", "No, thanks", "5 instalments", "~tilde", "on time"):
+            with self.subTest(text=text):
+                fm = self.frontmatter("recurring:\n  - {date: 04-05, note: %s}" % text.replace(",", "\\,"))
+                self.assertIsNotNone(readiness.date_entry(fm["recurring"][0])[1])
+
+    def test_a_frontmatter_the_roll_up_does_not_write_is_not_judged(self):
+        for line in ("title: yes", "owner: null", "count: 5", "when: 12:30", "status: current", "on: off"):
+            with self.subTest(line=line):
+                self.assertIn(line.split(":")[0], self.frontmatter("%s\nrecurring:\n  - {date: 04-05, note: A}" % line))
+
+    def test_a_date_keeps_its_own_reading_for_what_it_can_give_exactly(self):
+        """The roll-up refuses these as a recurring date, and says the value it read: so does the check."""
+        hint = readiness.DATE_HINT
+        for item, shown in (("{date: yes, note: x}", "{'date': True, 'note': 'x'}"),
+                            ("{date: no}", "{'date': False}"),
+                            ("{date: null, note: why}", "{'date': None, 'note': 'why'}"),
+                            ("{date: 5, note: z}", "{'date': 5, 'note': 'z'}"), ("{date: 6.4}", "{'date': 6.4}"),
+                            ("~", "None"), ("no", "False"), ("2025-01-31", "datetime.date(2025, 1, 31)"),
+                            ("{date: 2025-01-31, note: w}", "{'date': datetime.date(2025, 1, 31), 'note': 'w'}")):
+            with self.subTest(item=item):
+                fm = self.frontmatter("recurring:\n  - %s" % item)
+                self.assertEqual(readiness.refused_item(fm["recurring"][0]), shown + hint)
+        fm = self.frontmatter("deadline: 2030-05-01\ndeadlines:\n  - 2030-06-01\n  - ~")
+        self.assertEqual((fm["deadline"].text, [x.text for x in fm["deadlines"]]), ("2030-05-01", ["2030-06-01", "~"]))
+
+    def test_a_date_pyyaml_cannot_build_is_malformed_wherever_a_date_is_read(self):
+        for block in ("recurring:\n  - {date: 2025-02-30, note: x}", "recurring:\n  - 2025-02-30",
+                      "deadline: 2025-02-30", "deadlines:\n  - 2025-13-01", "recurring:\n  - {date: 2025-00-10}"):
+            with self.subTest(block=block):
+                with self.assertRaises(readiness.Malformed):
+                    self.frontmatter(block)
+
+    def test_a_date_in_a_form_the_check_cannot_give_exactly_is_still_out_of_scope(self):
+        for block, kind in (("recurring:\n  - {date: 0x1F}", "number"), ("recurring:\n  - {date: 12:30}", "time"),
+                            ("recurring:\n  - {date: 2025-01-31 10:00:00}", "date"), ("deadline: 1_000", "number"),
+                            ("recurring:\n  - .inf", "number"), ("deadlines:\n  - <<", "merge key")):
+            with self.subTest(block=block):
+                with self.assertRaises(readiness.OutOfScope) as got:
+                    self.frontmatter(block)
+                self.assertEqual(str(got.exception), "a plain value YAML reads as %s" % kind)
+
+    def test_an_empty_plain_value_is_no_value(self):
+        fm = self.frontmatter("recurring:\n  - {date: 04-05, note: }\ndeadline_note:\ndeadline:")
+        self.assertEqual(readiness.date_entry(fm["recurring"][0]), ("04-05", None))
+        self.assertIsNone(fm["deadline"])
 
 
 class FrontmatterTest(Scenario):
@@ -550,6 +819,44 @@ class CouldNotReadTest(Scenario):
         dated, _recurring = self.reported(self.replace(item + "\n", item + "\n" + item + "\n"), "refused")
         self.assertIn(HAND, dated)
         self.assertIn("1 line(s)", dated)
+
+    BROKEN = "- 10 Identity/Broken.md (malformed frontmatter)"
+    FIXED = "---\nprovenance: derived\nlast-updated: 2024-06-30\nstatus: current\n---\n# Broken\n"
+
+    def test_a_line_for_a_page_since_repaired_is_reported(self):
+        """The page now reads, so the roll-up would not list it: the old line is hand-kept, not the roll-up's."""
+        wiki = self.wiki("could-not-read")
+        write(os.path.join(wiki, "10 Identity", "Broken.md"), self.FIXED)
+        self.assertIn(self.BROKEN, read(os.path.join(wiki, PAGE)))
+        self.assertIn(HAND, self.check(wiki)[0])
+        wiki = self.wiki("could-not-read")
+        write(os.path.join(wiki, "30 Home", "Bad.md"), "---\nrecurring:\n  - {date: 04-06, note: Fixed}\n---\n# Page\n")
+        dated, recurring, _other = self.check(wiki)
+        self.assertIn(HAND, dated)
+        self.assertIn("lacks 1 recurring date(s) (04-06 (30 Home/Bad.md))", recurring)
+
+    def test_a_listed_page_the_roll_up_page_does_not_list_is_an_incomplete_page(self):
+        """The page cannot be read, the roll-up would say so, and the page was never regenerated."""
+        wiki = self.wiki("could-not-read")
+        path = os.path.join(wiki, PAGE)
+        write(path, read(path).replace(self.BROKEN + "\n", ""))
+        dated, recurring, _other = self.check(wiki)
+        self.assertIn("%s lacks 1 line(s) of the roll-up's \"Could not read\" list that the pages give "
+                      "(10 Identity/Broken.md (malformed frontmatter))" % readiness.DEADLINES, dated)
+        self.assertNotIn(HAND, dated)
+        self.assertTrue(recurring.startswith("finding: 3 recurring"), recurring)
+
+    def test_a_page_under_a_dot_folder_the_roll_up_cannot_read_is_expected_in_the_list(self):
+        wiki = self.wiki("plain")
+        os.makedirs(os.path.join(wiki, ".trash"))
+        with open(os.path.join(wiki, ".trash", "Broken.md"), "wb") as f:
+            f.write(b"\xff\xfe")
+        line = ".trash/Broken.md (unreadable: UnicodeDecodeError)"
+        self.assertIn("lacks 1 line(s) of the roll-up's \"Could not read\" list that the pages give (%s)" % line,
+                      self.check(wiki)[0])
+        path = os.path.join(wiki, PAGE)
+        write(path, read(path) + "\n## Could not read\n\n%s\n\n- %s\n" % (readiness.UNREAD_INTRO, line))
+        self.assertEqual(self.check(wiki), ("ok", "ok", "ok"))
 
     def test_the_heading_above_the_roll_up_makes_nothing_clean(self):
         """`## Could not read` placed first, with date-shaped text under it: none of it is the roll-up's."""
@@ -735,7 +1042,9 @@ class UnreadablePageTest(Scenario):
         with open(os.path.join(wiki, "20 Finance", "Binary.md"), "wb") as f:
             f.write(b"\xff\xfe")
         dated, recurring, other = self.check(wiki)
-        self.assertEqual((dated, recurring, other), ("ok", "ok", "ok"))
+        self.assertIn("lacks 1 line(s) of the roll-up's \"Could not read\" list that the pages give "
+                      "(20 Finance/Binary.md (unreadable: UnicodeDecodeError))", dated)
+        self.assertEqual((recurring, other), ("ok", "ok"))  # the other checks ran
 
 
 class SpeedTest(Scenario):

@@ -21,8 +21,9 @@ login files: it is scanned before and after every call, and a credential-like re
 run. How each engine reaches the shared login is decided by the isolation spike and recorded in the skill.
 
 The flags below are the ones in use today, pinned by tests/test_engines.py. The isolation mode is the skill's
-Engine isolation section; what is still provisional is marked below: agy's message limit (family-ai-os #1089 measures
-it) and the lists of environment variables and stream events (issue #91 records what each engine really reads).
+Engine isolation section; what is still provisional is marked below: agy's message limit (the reference deployment
+measures it) and the lists of environment variables and stream events (issue #91 records what each engine really
+reads).
 """
 import json
 import os
@@ -64,9 +65,9 @@ NOT_CRED_EXTS = {".md", ".markdown", ".rst", ".html", ".pub"}
 # (`tool_calls: []`). Fail-closed and provisional: the isolation spike (issue #91) records agy's real event names.
 AGY_TOOL_WORDS = {"tool", "tools", "action", "actions", "function", "functions", "call", "calls"}
 KILL_GRACE = 5  # seconds to wait for the pipes after killing a timed-out engine's process group
-# agy cuts a long message short (seen at about 300 KB) and leaves the model a stored copy to read with a tool these calls
-# deny; refusing well below that keeps every call whole. Provisional: where the cut really falls, in bytes or in
-# characters, is for family-ai-os #1089 to measure; until then this is a cautious figure under the one case seen.
+# agy cuts a long message short (seen at about 300 KB) and leaves the model a stored copy to read with a tool these
+# calls deny; refusing well below that keeps every call whole. Provisional: where the cut really falls, in bytes or in
+# characters, is for the reference deployment to measure; until then this is a cautious figure under the one case seen.
 AGY_MAX_MESSAGE_BYTES = 200_000
 AGY_MODEL_REQUIRED = "--model is required for agy (it has no default here; its effort is encoded in the model id)"
 CODEX_OFF = ["shell_tool", "unified_exec", "shell_snapshot", "memories", "apps", "browser_use",

@@ -318,7 +318,7 @@ two looks a minute apart, writing `<work>/state/vision<k>.done`.
 
 ## `engines.py`
 
-<!-- provisional: agy's message limit (family-ai-os #1089) and agy's stream-event names and environment variables (#91) -->
+<!-- provisional: agy's message limit (the reference deployment measures it) and agy's stream-event names and environment variables (#91) -->
 
 A library: the adapters every model call goes through, `Agy` (Gemini through the `agy` command-line tool) and
 `Codex` (ChatGPT through `codex exec`). The rule it holds is the skill's
@@ -341,7 +341,7 @@ are in the file, pinned by its tests, and what is still provisional is marked th
   model used a tool (a `codex` tool item, or an `agy` stream event naming a tool, action, function or call) or `agy`
   was refused one (a denied action), the reply discarded (the vision lane alone lets `agy` open its images);
   `PromptTooLong` before an `agy` call whose message is over 200,000 UTF-8 bytes (`AGY_MAX_MESSAGE_BYTES`, a
-  provisional figure until family-ai-os #1089 measures the cut): agy cuts a message of about 300 KB short and
+  provisional figure until the reference deployment measures the cut): agy cuts a message of about 300 KB short and
   leaves the model a stored copy to read with a tool these calls deny;
   `EngineError` for anything else. Two stop the run rather than the call: `SetupError` (no binary, `agy` without a
   model, a `codex` schema that is not strict) and `CredentialError` (below).
@@ -578,7 +578,8 @@ default that does not exist reads as `not recorded`. Line numbers count from the
   top-level folder, one holding a live manifest entry or copy, and which does not exist. A span that exists as
   written is found, whatever it holds. `[`, `]` and `?` are the characters they are, never a pattern, since file and
   folder names carry them: `Invoice [3].pdf` is not `Invoice 3.pdf`, so a stale one is dead. Only a `*` or a
-  `<...>` in a segment makes a span a routing pattern (as a Schema's routing writes them), judged up to its first
+  complete `<...>` in a segment (an opening `<`, a name and a closing `>`; a lone `<` or `>` is a character of the
+  name) makes a span a routing pattern (as a Schema's routing writes them), judged up to its first
   patterned segment: dead when the folders before it do not exist; when they do, a `*` pattern is found if something
   matches it, and otherwise (nothing matches, or it holds a `<...>` placeholder) counted in
   `backticked_paths_unchecked`, since what the pattern stands in for cannot be told. A span under any other first
@@ -920,11 +921,16 @@ rendered output. The page is read against the roll-up's output grammar instead:
    - the entries `(date, note, page)`: each `recurring` item gives its month and day, each `deadline` its date (its
      first ten characters) with its `deadline_note`, each `deadlines` item its date, the note being what YAML reads,
      with its whitespace collapsed;
-   - the lines of its "Could not read" list, in its exact wording, **each as many times as the roll-up writes it**:
+   - the lines of its "Could not read" list, in its exact wording, **each as many times as the roll-up writes it**
+     (one the page lacks is reported too, as an incomplete page):
      `- <page> (unreadable: <exception class>)` for a page that cannot be read (a file that is not UTF-8),
      `- <page> (malformed frontmatter)` for one the roll-up cannot read as a mapping whatever YAML says (below), and
      `- <page> (unreadable recurring date: <the first 60 characters of the item as Python writes it>; <the way to write
      it>)` for each `recurring` item it refuses, a quoted bare item staying a string and a quoted empty value `''`.
+
+   One predicate says which pages the roll-up reads, and it is the roll-up's own: every page that reads, bar those
+   named above, **whatever its `provenance`** (the roll-up skips none), so a page with `provenance: manual` or
+   `calendar` is a source for what the page may hold and for what it must show alike.
 
 **The frontmatter subset.** Readiness reads a defined subset of the frontmatter, or says it did not. The subset is a
 fence at column 0 (`---`, the page's first line, closed by a line starting `---`), and between the fences:
@@ -944,17 +950,30 @@ constructs named are: indented frontmatter and a multi-line scalar, a `? ` key, 
 tags, `|` and `>` scalars, a flow mapping over several lines or with a comment inside, a flow sequence, a nested flow or
 block collection, a quoted `status`, a quoted key or a key that is not a plain word, a colon and space inside a plain
 scalar, an unclosed quote or text after a quoted scalar, a double-quoted escape other than `\"` and `\\`, a tab for
-indentation, a directive, list items at different indents, a line over 20,000 characters, a block over 200,000, and
-text after the opening fence. While any page is out of scope the judgements that depend on reading it are withheld:
-whether an entry is backed by the pages, and the "Could not read" list. The rest is still judged, because it does not
-depend on the YAML: every line of the Deadlines page outside the roll-up's grammar, an entry's date form, an
+indentation, a directive, list items at different indents, a line over 20,000 characters, a block over 200,000,
+text after the opening fence, and a plain value YAML reads as a bool, null, number, time or date (below). While any
+page is out of scope the judgements that depend on reading it are withheld: whether an entry is backed by the pages,
+and the "Could not read" list. The rest is still judged, because it does not depend on the YAML: every line of the Deadlines page outside the roll-up's grammar, an entry's date form, an
 unreadable date, a duplicated line, the Deadlines page's own frontmatter.
 
 A frontmatter is `malformed` only for what needs no YAML reader to see: a fence that never closes, a list where the
-keys should be (the first line is a `-` item), or bare words with no colon anywhere. What PyYAML would read but the
-subset does not is out of scope, never malformed. Within the subset nothing is guessed: YAML's other coercions are an
-accepted residual (a plain `yes`, `12:30`, `null` or `0405` is read as its text, so a note or a refused item that
-YAML would turn into another type is reported as not what the roll-up wrote, never missed).
+keys should be (the first line is a `-` item), bare words with no colon anywhere, or a day the calendar does not have
+where a date is read (`2025-02-30`, which PyYAML cannot build, so the roll-up lists the page as malformed). What
+PyYAML would read but the subset does not is out of scope, never malformed.
+
+**A plain scalar PyYAML reads as anything but text is out of scope.** The roll-up writes the value YAML gives, not
+the text the page holds (`note: yes` is written `True`, `12:30` is `750`, `2025-01-31` a date), and the check has only
+the text. So an unquoted scalar that PyYAML's resolver turns into a bool (`yes`, `no`, `on`, `off`, `true`, `false`,
+and `y` and `n`, which YAML 1.1 reads so, in any case), a null (`null`, `~`), a number (a decimal, `0x1F`, `0b1`,
+`0405`, `1_000`, `1.5`, `.inf`), a time (`12:30`, a sexagesimal number), a date, `<<` or `=` is named as `a plain value
+YAML reads as <bool|null|number|time|date|merge key|value>`, wherever the roll-up shows a value: a `note`, a
+`deadline_note`, any other value in a mapping that holds one. A quoted scalar is always text, and `yes please`,
+`12:30 sharp` and `04-05` are text. A key the roll-up never writes (`title: yes`) is not judged. An empty plain value
+is no value. A `date`, a bare list item and `deadline` keep their own reading for the values it can give exactly: a
+calendar day, a bool, a null, a decimal whole number or float (so `{date: yes}` is a recurring item the roll-up refuses,
+shown as `{'date': True}`); any other kind is out of scope as above. The suite checks the rule against a copy of
+PyYAML's own resolver patterns over every short string of the characters that matter, so nothing within the subset is
+read otherwise than PyYAML reads it.
 
 2. The page is read line by line. The grammar is its frontmatter, which holds `provenance: derived`, `status:
    current` and a `last-updated` day, once each, and nothing else; the headings `# Deadlines`, `## Upcoming`,
@@ -963,7 +982,7 @@ YAML would turn into another type is reported as not what the roll-up wrote, nev
    and with any count of pages (a callout is its marker line, then its text line); the lines under `## Could not
    read`, each one in the set from step 1; and entries. A line that appears twice is reported.
 3. An entry is `- **<date>**`, then the page titles and, when there is one, the note, each after a spaced em dash
-   (family-ai-os), or `: <note>` (the fixture's roll-up), then ` (<links>)` ending the line. The links are read from
+   (the reference deployment's roll-up), or `: <note>` (the fixture's roll-up), then ` (<links>)` ending the line. The links are read from
    the end of the line, each `[<page path without .md, or its title>](<its path from the roll-up, percent-encoded>)`
    to a different page of the wiki, so a page name holding brackets, `](` or a long encoded name is read by its own
    text and no target length is capped. The titles are the linked pages' own, so a note is never guessed at.
@@ -982,13 +1001,13 @@ YAML would turn into another type is reported as not what the roll-up wrote, nev
 Completeness is by date, not by entry: a page dropped from a folded line, or an entry deleted while its date shows
 elsewhere, is not reported. The roll-up regenerates the page, so readiness checks only that nothing hand-written is on
 it. Every search is bounded and each line is read in one pass, so a line of 100,000 characters costs a pass over it. A
-frontmatter `recurring` date is read as family-ai-os's roll-up reads it, so both sides accept the same spellings:
+frontmatter `recurring` date is read as the reference deployment's roll-up reads it, so both sides accept the same spellings:
 `MM-DD`, month first, two digits each; or a day and a month name, the day first or the month first (`5 April`,
 `April 5`), the name in full, its first three letters or `sept`, in any case, the day with an optional lower-case
 ordinal (`5th Apr`). Any other numeric form (`6/4`, `4-5`) is refused, as is a day the month cannot have (`31
 April`); 29 February is a date. The roll-up shows the month in words, so a numeric `MM-DD` written the wrong way round
 shows on the page. The sources are the pages that are not `superseded`. The grammar's text is checked against the
-real roll-up: `tests/rollups/` holds the pages family-ai-os rendered for a plain wiki, an empty one with its banner, a
+real roll-up: `tests/rollups/` holds the pages the reference deployment's roll-up rendered for a plain wiki, an empty one with its banner, a
 recurring-only one, one with a "Could not read" list, one of page names holding brackets and long encoded targets, one
 of the YAML rules (a comma, a comment, a comment after `}`, block items), one of refused items (a quoted empty value, a
 quoted bare item, the same item twice) and one of pages under a dot folder and of `.superseded.md` and `.proposed.md`
@@ -996,7 +1015,7 @@ siblings; each must read clean (`rollups/capture.py` refreshes them).
 
 - `derived_pages_hold_nothing_hand_written`: the page holds only what the roll-up renders (above); every `YYYY-MM-DD`
   on it is a page's `deadline` or `deadlines` date (`YYYY-MM-DD` or `{date, note}`); the roll-up shows every such
-  date of a page the sweeps read that is not before its `last-updated` (one before it is past, not forward), and a
+  date of a page the roll-up reads that is not before its `last-updated` (one before it is past, not forward), and a
   `last-updated` after today, by the tools' clock, is a finding, forward then being judged from today; a deadline
   entry that is not a real `YYYY-MM-DD`, bare or in `{date, note}`, is a finding; and a roll-up with nothing to show
   (no forward deadline and no recurring date) in a wiki of derived pages says why (a page of headings or a bare

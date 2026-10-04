@@ -54,8 +54,8 @@ under *Migrating a deployment* below.
   reported as its own state (accepted, not recorded or refused), never folded into a passing check,
   and a page is accepted again after a change to its anatomy, contract or professional. Before, an
   independent reader review applied only to contract-driven pages.
-- **Recurring dates live in page frontmatter.** A new canonical key, `recurring:`, a list of
-  `{date, note}`, holds a date that comes round every year, and the Deadlines roll-up reads
+- **Recurring dates live in page frontmatter.** A new canonical key, `recurring: [{date, note}]`,
+  holds a date that comes round every year, and the Deadlines roll-up reads
   it; such a date is never kept by hand in a table on the Deadlines page. The date is `MM-DD`, month
   first, or a day and a month name (`5 April`, `April 5th`, `5 Sept`); any other numeric form is
   refused, and the roll-up shows the month in words, so a date written the wrong way round is

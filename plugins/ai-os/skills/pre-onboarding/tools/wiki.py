@@ -782,13 +782,17 @@ def rationale_block_problem(lines):
     return None
 
 
+PLACEHOLDER = re.compile(r"<[^<>/]+>")  # `<year>`: a complete one, an opening `<` and a closing `>` round a name
+
+
 def literal_prefix(span):
     """For a backticked path: "" when it holds no routing pattern, else the folders before its first segment holding
-    `*` or `<...>`, as a path ending in `/`, or None when that first segment is itself the pattern. `[`, `]` and `?`
-    are not patterns: file and folder names carry them, so they are read as the characters they are."""
+    `*` or a complete `<...>` placeholder, as a path ending in `/`, or None when that first segment is itself the
+    pattern. `[`, `]` and `?` are not patterns, and neither is a lone `<` or `>`: file and folder names carry them, so
+    they are read as the characters they are."""
     parts = span.split("/")
     for i, part in enumerate(parts):
-        if any(ch in part for ch in "*<>"):
+        if "*" in part or PLACEHOLDER.search(part):
             return "/".join(parts[:i]) + "/" if i else None
     return ""
 
@@ -804,8 +808,8 @@ def span_state(root, span):
     """`found`, `dead` or `unchecked` for a backticked path under a live top-level folder. A path that exists as
     written is found. One with no pattern, or whose folders before a `*` or `<...>` pattern are missing, is dead
     (a name is never read as a pattern it is not: `Invoice [3].pdf` is not `Invoice 3.pdf`). A `*` pattern with its
-    folders present is found when something matches it, and unchecked when nothing does or when it holds a `<...>`
-    placeholder, since what a pattern stands in for cannot be told; one patterned from its first segment is
+    folders present is found when something matches it, and unchecked when nothing does or when it holds a complete
+    `<...>` placeholder, since what a pattern stands in for cannot be told; one patterned from its first segment is
     unchecked."""
     if os.path.exists(os.path.join(root, span)):
         return "found"
@@ -814,7 +818,7 @@ def span_state(root, span):
         return "unchecked"
     if not literal or not os.path.exists(os.path.join(root, literal)):
         return "dead"
-    return "found" if not re.search("[<>]", span) and star_matches(root, span) else "unchecked"
+    return "found" if not PLACEHOLDER.search(span) and star_matches(root, span) else "unchecked"
 
 
 def parse_rationale(text):

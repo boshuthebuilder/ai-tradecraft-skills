@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Capture each scenario's Deadlines page as the family-ai-os roll-up renders it, so the tests read the real bytes.
+"""Capture each scenario's Deadlines page as the reference deployment's roll-up renders it, so the tests read
+the real bytes.
 
 The scenario folders beside this script hold the wiki pages and, once captured, `01 Deadlines/01 Deadlines.md`. The
-suite never imports family-ai-os: run this by hand, with a checkout's `src` on the path, only to refresh the capture.
+suite never imports the deployment: run this by hand, with a checkout's `src` on the path, only to refresh the capture.
 
-    python3 capture.py --src <family-ai-os>/src [--now 2024-06-30]
+    python3 capture.py --src <deployment checkout>/src [--now 2024-06-30]
 
 The page is rendered by `roll_up_deadlines(root, wiki_dir, None, now)` into a copy and copied back; the roll-up's
 own frontmatter (`last-updated`) is the `--now` day, which the tests' frozen clock matches.
