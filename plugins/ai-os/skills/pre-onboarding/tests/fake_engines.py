@@ -45,7 +45,8 @@ def items_in(prompt):
     i = prompt.find("Input items (JSON")
     if i < 0:
         return None
-    return json.loads(prompt[prompt.index("\n", i) + 1:])
+    # the items are the first JSON value after the heading: agy's prompt carries its schema's text after them
+    return json.JSONDecoder().raw_decode(prompt[prompt.index("\n", i) + 1:])[0]
 
 
 def card(it, r):

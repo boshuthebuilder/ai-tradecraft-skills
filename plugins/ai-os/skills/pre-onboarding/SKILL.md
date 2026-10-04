@@ -380,7 +380,9 @@ isolation comes from what each call is given and what it is denied:
   must hold nothing from any project.
 - **agy** keeps its login in a token file in its own state folder (not the macOS keychain), so it too runs with
   the machine's home. Each call goes in on standard input as one stream-json message, in plan mode with the
-  sandbox on, from an empty working folder. Probed on the operator's machine, the model is given no saved
+  sandbox on, from an empty working folder, and its output shape is asked for in the prompt, never with
+  `--json-schema` (in plan mode that flag makes the model write a plan and ask to be approved, which the rule below
+  discards). Probed on the operator's machine, the model is given no saved
   memories, no summaries of earlier conversations and no instruction file, but it is offered tools: any tool step
   in its stream discards the reply, allowed or not. agy 1.2.16 streams one as a `step_update` event with
   `step_type: "tool"`, a `tool_name` and a `tool_info`, as real captures show, and the rule does not rest on that:
@@ -388,8 +390,8 @@ isolation comes from what each call is given and what it is denied:
   The vision lane alone accepts the steps that open its images, `view_file`, `list_dir` or `find_by_name`, and only
   when every path they name is inside the call's own folder; any other tool, or a read elsewhere, fails there too.
   agy also cuts a long message short, silently (exit 0, a successful result, no event), and asks the model to read the rest from a
-  stored copy, which a call with no tools cannot do. Measured (family-ai-os #1089, agy 1.2.16, model
-  `gemini-3.1-pro-high`): the cut falls at about 192,000 UTF-8 bytes of prompt text, plus or minus 150, for ASCII
+  stored copy, which a call with no tools cannot do. Measured on agy 1.2.16 with
+  `gemini-3.1-pro-high`: the cut falls at about 192,000 UTF-8 bytes of prompt text, plus or minus 150, for ASCII
   and CJK alike. The limit is on the bytes of the text, not characters, tokens or the size of the serialised
   message. The tools refuse a prompt over 180,000 bytes of text (6% under the cut) before the call, and the card
   budgets keep every call under it. That refusal is the guard: a call whose task can be answered from the start of

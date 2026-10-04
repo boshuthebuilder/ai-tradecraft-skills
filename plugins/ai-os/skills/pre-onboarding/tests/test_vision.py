@@ -102,7 +102,10 @@ class VisionTest(unittest.TestCase):
         self.assertIn("these image files: p1.png, p2.png.", call["prompt"])
         argv = call["argv"]
         self.assertEqual(argv[argv.index("--model") + 1], "vision-model")
-        self.assertEqual(os.path.basename(argv[argv.index("--json-schema") + 1]), "ocr.json")
+        self.assertNotIn("--json-schema", argv, "agy is asked for the shape in the prompt, never by flag")
+        with open(os.path.join(TOOLS, "schemas", "ocr.json"), encoding="utf-8") as f:
+            self.assertTrue(call["prompt"].endswith(
+                "\n\nReply with JSON only, matching this JSON Schema exactly:\n" + f.read().strip()))
         self.assertEqual(sorted(set(SECRETS) & set(call["env"])), [])
         self.assertEqual(os.listdir(self.env["TMPDIR"]), [], "the call's folder was left behind")
         self.assertTrue(os.path.exists(os.path.join(self.work, "state", "vision0.done")))

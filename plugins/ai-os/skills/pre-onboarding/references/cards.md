@@ -71,7 +71,14 @@ photo, unread or unrendered pages), the one tier when there is only one (a zip l
 `mixed` otherwise, and `sectioned` for a long document read in sections (below).
 
 The engine is also given the card's output schema: every field required, and for `codex` a strict schema that
-allows no other field (`schemas/card.json` and `schemas/card_codex.json`).
+allows no other field (`schemas/card.json` and `schemas/card_codex.json`). `codex` takes it as `--output-schema`.
+`agy` is never given `--json-schema`: in plan mode that flag sends the model through plan mode's own workflow (real
+runs of agy 1.2.16 with `gemini-3.1-pro-high` wrote a `plan.md` into agy's own state folder, ended with `finish`
+steps and replied by asking to be approved before the JSON, or answered with the finish tool's task summary in place
+of a card), and the engine discards any reply that used a tool. So `agy` is asked for the shape in its prompt: the
+schema's text follows the items, after "Reply with JSON only, matching this JSON Schema exactly:", and the same runs
+gave clean card JSON with only the user and agent steps. The engine checks nothing against it; the card checks
+below do.
 
 ## How the bulk engine writes it
 
@@ -91,10 +98,11 @@ finishes. Documents are bucketed by their text: under 20 characters (bucket 1), 
 | `sections` | text over `--single-max` | one document, read in sections first |
 
 With `agy`, `--small-chars`, `--batch-chars`, `--section-chars` and `--single-max` all default to 50,000, so `single`
-is never used. `agy` cuts a prompt at about 192,000 UTF-8 bytes of its text, silently (family-ai-os #1089, measured on agy 1.2.16), and the tools
-refuse a prompt over 180,000 bytes before the call. The limit counts bytes, and a CJK character is three of them: 50,000
-characters of it is 150,000 bytes, which leaves 30,000 for the instructions and the items' own fields (the largest
-measured is about 27,000), where 60,000 characters would have left none.
+is never used. `agy` cuts a prompt at about 192,000 UTF-8 bytes of its text, silently (measured on agy 1.2.16 with
+`gemini-3.1-pro-high`), and the tools refuse a prompt over 180,000 bytes before the call, counting the schema's text
+that follows the items. The limit counts bytes, and a CJK character is three of them: 50,000 characters of it is
+150,000 bytes, which leaves 30,000 for the instructions, the schema and the items' own fields (the largest measured
+is about 28,000), where 60,000 characters would have left none.
 
 ### Calls
 

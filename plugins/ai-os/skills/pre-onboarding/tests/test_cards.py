@@ -24,6 +24,9 @@ import engines  # noqa: E402
 from fake_engines import Fakes, tool_env  # noqa: E402
 
 CATEGORIES = common.DEFAULTS["card_categories"]
+CARD_SCHEMA_PATH = os.path.join(TOOLS, "schemas", "card.json")
+with open(CARD_SCHEMA_PATH, encoding="utf-8") as _f:
+    CARD_SCHEMA_TEXT = _f.read().strip()
 CUT_STREAM = os.path.join(HERE, "fixtures", "agy", "agy-1.2.16-cut-stream.redacted.jsonl")
 CUT_STDERR = os.path.join(HERE, "fixtures", "agy", "agy-1.2.16-cut-stderr.redacted.txt")
 CUT = {"kind": "replay", "stdout": CUT_STREAM, "stderr": CUT_STDERR}
@@ -55,7 +58,8 @@ def card_for(item_id, path="x.pdf", **changes):
 
 
 def sent_items(prompt):
-    return json.loads(prompt[prompt.index("\n", prompt.index("Input items (JSON")) + 1:])
+    """The items a call was sent: the first JSON value after the heading (agy's prompt carries its schema after it)."""
+    return json.JSONDecoder().raw_decode(prompt[prompt.index("\n", prompt.index("Input items (JSON")) + 1:])[0]
 
 
 def item_count(call):
@@ -517,15 +521,16 @@ class BuildTest(CardsCliCase):
 
     def test_the_agy_budget_leaves_room_for_the_largest_card_prompt(self):
         """The comment on AGY_BUDGET_CHARS as arithmetic: the budget in three-byte characters, beside the largest
-        call's own text (a generous household's instructions and a full batch's per-item frames), stays under agy's
-        limit. Raising the budget or growing the template fails this before it fails a run."""
+        call's own text (a generous household's instructions, a full batch's per-item frames and the card schema's
+        text, which agy is given in its prompt), stays under agy's limit. Raising the budget, growing the template or
+        the schema fails this before it fails a run."""
         people = [{"name": "Person Number %d Example" % i, "also": ["Alias %d-%d" % (i, k) for k in range(4)],
                    "who": "a relative of the owner, appearing on shared household papers"} for i in range(12)]
         instr = cards.instructions(dict(common.DEFAULTS, people=people, folder_description="\u4e2d" * 2000))
         frames = [{"id": "d%d" % k, "path": "p" * 400, "class": "document", "page_count": 100, "read": "text_layer",
                    "text": ""} for k in range(1, 31)]
-        batch = (engines.NO_TOOLS + instr + "\n\nInput items (JSON, 30 items):\n" +
-                 json.dumps(frames, ensure_ascii=False))
+        batch = engines.with_schema(engines.NO_TOOLS + instr + "\n\nInput items (JSON, 30 items):\n" +
+                                    json.dumps(frames, ensure_ascii=False), CARD_SCHEMA_PATH)
         section = engines.NO_TOOLS + cards.SECTION_PROMPT.format(path="p" * 400, k=99, n=99, text="",
                                                                  identifier_rule=cards.identifier_rule(common.DEFAULTS))
         for name, prompt in (("a full batch", batch), ("a section", section)):
@@ -596,8 +601,15 @@ class WorkTest(CardsCliCase):
                     self.assertTrue(c["prompt"].startswith(engines.NO_TOOLS))
                     self.assertNotIn(a, c["prompt"])
                     self.assertNotIn(b, c["prompt"])
-                schema = c["argv"][c["argv"].index("--output-schema" if engine == "codex" else "--json-schema") + 1]
-                self.assertEqual(os.path.basename(schema), "card_codex.json" if engine == "codex" else "card.json")
+                for c in calls:
+                    if engine == "codex":
+                        schema = c["argv"][c["argv"].index("--output-schema") + 1]
+                        self.assertEqual(os.path.basename(schema), "card_codex.json")
+                    else:
+                        # agy is asked for the shape in the prompt, after the items, never by flag
+                        self.assertNotIn("--json-schema", c["argv"])
+                        self.assertTrue(c["prompt"].endswith(
+                            "\n\nReply with JSON only, matching this JSON Schema exactly:\n" + CARD_SCHEMA_TEXT))
 
     def test_a_crossing_engine_is_rejected_and_halved_and_never_written(self):
         """Ids and order intact, contents crossed: only the sibling-identifier check can see it, and it halves at
@@ -846,7 +858,7 @@ class SectionsTest(CardsCliCase):
 
     def section_texts(self, engine="agy"):
         """The text each section call was sent, in order, and every call's prompt in UTF-8 bytes: the figure agy's
-        cut follows (family-ai-os #1089)."""
+        cut follows (measured on agy 1.2.16)."""
         calls = self.fakes.calls(engine)
         texts = [c["prompt"].split("SECTION TEXT:\n", 1)[1] for c in calls if "SECTION TEXT:" in c["prompt"]]
         return texts, [len(c["prompt"].encode("utf-8")) for c in calls]

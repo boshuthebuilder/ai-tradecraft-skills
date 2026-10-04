@@ -86,8 +86,8 @@ ToolEvent = collections.namedtuple("ToolEvent", "label names params")
 KILL_GRACE = 5  # seconds to wait for the pipes after killing a timed-out engine's process group
 # agy cuts a user message at about 192,000 UTF-8 bytes of PROMPT TEXT (plus or minus 150), with no event, no field and
 # exit 0, and leaves the model a stored copy to read with a tool these calls deny, so a run that needs the end of its
-# prompt fails and one that does not reads as ok on part of its input. Measured by family-ai-os #1089: agy 1.2.16,
-# model gemini-3.1-pro-high, 2026-10-03, 20 calls of synthetic text. The same bracket, 191,900 bytes whole to 192,188
+# prompt fails and one that does not reads as ok on part of its input. Measured on agy 1.2.16 with
+# gemini-3.1-pro-high, 2026-10-03, 20 calls of synthetic text. The same bracket, 191,900 bytes whole to 192,188
 # cut, held for ASCII and for CJK, so the limit is on the text's UTF-8 bytes: not characters, not the serialised
 # message, not tokens. 180,000 is 6% under the cut: the measure is good to about 150 bytes, and the margin is for what
 # was not measured (one agy build, one model, one prompt shape; a vendor re-tune would not announce itself).
@@ -96,6 +96,14 @@ AGY_MAX_PROMPT_BYTES = 180_000
 # The file agy keeps the full message in, which the model is pointed at once it has cut one. A step that names it,
 # beside a refused `command`, is the stream's own evidence of a cut (see Agy.__call__); its absence proves nothing.
 AGY_STORED_COPY = "transcript_full.jsonl"
+# agy is never given `--json-schema`. In plan mode that flag sends the model through plan mode's own workflow: it writes
+# a plan.md into agy's state folder (write_to_file, outside the call's folder), ends with `finish` steps and replies
+# asking to be approved before the JSON, or, when the schema is passed as a string, with the finish tool's task
+# summary in place of a card (real captures of agy 1.2.16, tests/fixtures/agy: the plan-mode stream, which the
+# isolation rule discards). With the schema in the prompt instead, the model answers with the JSON alone and only
+# user_input and agent_response steps. The engine checks nothing against the schema; the caller does (cards.py
+# `schema_problems`). The text is part of the prompt, so the size limit counts it.
+AGY_SCHEMA_INTRO = "\n\nReply with JSON only, matching this JSON Schema exactly:\n"
 AGY_MODEL_REQUIRED = "--model is required for agy (it has no default here; its effort is encoded in the model id)"
 CODEX_OFF = ["shell_tool", "unified_exec", "shell_snapshot", "memories", "apps", "browser_use",
              "browser_use_external", "computer_use", "in_app_browser", "image_generation", "multi_agent", "plugins",
@@ -272,6 +280,18 @@ def refuse_a_cut(lines, denied):
                         "and was refused a command; split the input" % (AGY_MAX_PROMPT_BYTES, AGY_STORED_COPY))
 
 
+def with_schema(prompt, schema):
+    """`prompt` with the text of the JSON Schema file `schema` appended after AGY_SCHEMA_INTRO: how agy is asked for a
+    shape (see AGY_SCHEMA_INTRO). A file that cannot be read stops the run, as a codex schema that is not strict
+    does."""
+    try:
+        with open(schema, encoding="utf-8") as f:
+            text = f.read().strip()
+    except (OSError, ValueError) as ex:
+        raise SetupError("agy output schema %s cannot be read: %s" % (schema, ex))
+    return prompt + AGY_SCHEMA_INTRO + text
+
+
 def not_strict(schema, where="$"):
     """Where a JSON schema falls short of the strict form codex's --output-schema needs: every object closed
     (`additionalProperties: false`) with every property required. An empty list means strict."""
@@ -376,6 +396,8 @@ class Agy:
             raise SetupError(AGY_MODEL_REQUIRED)
 
     def __call__(self, prompt, cwd, schema=None, model=None):
+        if schema:
+            prompt = with_schema(prompt, schema)
         size = len(prompt.encode("utf-8"))
         if size > AGY_MAX_PROMPT_BYTES:
             raise PromptTooLong("a %d-byte prompt is over the %d-byte limit for agy here (it cuts a message at about "
@@ -384,8 +406,6 @@ class Agy:
         msg = json.dumps({"event": "user", "message": {"role": "user", "content": prompt}}, ensure_ascii=False)
         cmd = [self.bin, "--input-format", "stream-json", "--output-format", "stream-json", "--model",
                model or self.model, "--sandbox", "--mode", "plan", "-p="]
-        if schema:
-            cmd[1:1] = ["--json-schema", schema]
         _guard(self.home)
         rc, out, err = _run(cmd, msg + "\n", _env({"HOME": self.home} if self.home else {}), cwd, self.timeout)
         _guard(self.home)

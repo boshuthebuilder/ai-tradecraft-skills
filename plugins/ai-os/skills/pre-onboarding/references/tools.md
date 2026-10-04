@@ -333,8 +333,14 @@ are in the file, pinned by its tests, and what is still provisional is marked th
   `_TOKEN`, `_CREDENTIALS`, `_SECRET`, `_BASE_URL`, `_API_BASE` or `_ENDPOINT`, and
   `GOOGLE_APPLICATION_CREDENTIALS`); proxy settings stay. `codex` runs read-only and ephemeral, ignoring user
   configuration and rules, with every tool feature it can disable disabled, and an environment of only `LANG`,
-  `TMPDIR`, `USER`, `LOGNAME`, `HOME` and `PATH`. An output schema, when given, is passed to the engine; `codex`
-  needs it strict (every object closed, every property required).
+  `TMPDIR`, `USER`, `LOGNAME`, `HOME` and `PATH`. An output schema, when given, goes to `codex` as `--output-schema`,
+  and it needs it strict (every object closed, every property required). `agy` is never given `--json-schema`: in plan
+  mode that flag sends the model through plan mode's workflow (a `write_to_file` of a `plan.md` into agy's own state
+  folder, `finish` steps, and a reply that asks to be approved before the JSON, or the finish tool's task summary in
+  place of the answer, as real runs of agy 1.2.16 showed), which the tool-step rule below discards. So the schema's
+  text is appended to the prompt, after "Reply with JSON only, matching this JSON Schema exactly:", counted by the
+  size limit below, and the engine checks nothing against it: the caller does (`cards.py` checks every card). A
+  schema file that cannot be read is a `SetupError`.
 - **Outcomes.** `QuotaError` for quota text (quota, 429, exhausted, rate limit, usage limit, too many requests),
   whatever the exit code and before an empty answer is judged, with `reset_seconds` read from "Resets in 2h13m5s" or
   "try again at 5:12 PM" where the message says; `DegenerateError` for an empty answer; `ToolUseError` when the
@@ -348,7 +354,7 @@ are in the file, pinned by its tests, and what is still provisional is marked th
   no tool, or a read elsewhere fails there too;
   `PromptTooLong` before an `agy` call whose prompt is over 180,000 UTF-8 bytes (`AGY_MAX_PROMPT_BYTES`): agy
   cuts a message at about 192,000 bytes of prompt text, silently, and leaves the model a stored copy to read with a
-  tool these calls deny. The figure is measured on agy 1.2.16 (family-ai-os #1089), is the same for ASCII and CJK,
+  tool these calls deny. The figure is measured on agy 1.2.16 with `gemini-3.1-pro-high`, is the same for ASCII and CJK,
   counts the text's bytes (not characters, tokens or the serialised message) and sits 6% under the cut; an agy
   upgrade calls for a re-probe, about six calls. `PromptCut`, a `PromptTooLong`, when a prompt that passed that
   check was cut all the same: a stream event names `transcript_full.jsonl` (agy's stored copy) and the final

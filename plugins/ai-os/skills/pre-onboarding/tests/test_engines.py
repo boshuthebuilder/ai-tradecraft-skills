@@ -21,6 +21,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TOOLS = os.path.join(HERE, "..", "tools")
 sys.path.insert(0, TOOLS)
 sys.path.insert(0, HERE)
+import cards  # noqa: E402
 import common  # noqa: E402
 import engines  # noqa: E402
 from fake_engines import SECRETS, Fakes, tool_env  # noqa: E402
@@ -34,6 +35,9 @@ CODEX_OFF = ["shell_tool", "unified_exec", "shell_snapshot", "memories", "apps",
 PROMPT = "Summarise this. Café, 中文, naïve.\nSecond line."
 CUT_STREAM = os.path.join(HERE, "fixtures", "agy", "agy-1.2.16-cut-stream.redacted.jsonl")
 CUT_STDERR = os.path.join(HERE, "fixtures", "agy", "agy-1.2.16-cut-stderr.redacted.txt")
+PLAN_STREAM = os.path.join(HERE, "fixtures", "agy", "agy-1.2.16-json-schema-plan.redacted.jsonl")
+SCHEMA_STREAM = os.path.join(HERE, "fixtures", "agy", "agy-1.2.16-schema-in-prompt.redacted.jsonl")
+SCHEMA_INTRO = "\n\nReply with JSON only, matching this JSON Schema exactly:\n"
 
 
 def strict_problems(schema, where="$"):
@@ -50,6 +54,11 @@ def strict_problems(schema, where="$"):
         if "items" in schema:
             out += strict_problems(schema["items"], where + "[]")
     return out
+
+
+def card_schema_text():
+    with open(CARD_SCHEMA, encoding="utf-8") as f:
+        return f.read().strip()
 
 
 class FakeEngineCase(unittest.TestCase):
@@ -100,12 +109,12 @@ class AgyTest(FakeEngineCase):
         self.assertEqual(reply, '{"ok": true}')
         self.assertEqual(usage, {"input_tokens": 100, "output_tokens": 20})
         call = self.only_call("agy")
-        self.assertEqual(call["argv"][1:], ["--json-schema", CARD_SCHEMA, "--input-format", "stream-json",
-                                            "--output-format", "stream-json", "--model", "fake-model", "--sandbox",
-                                            "--mode", "plan", "-p="])
-        self.assertEqual(call["stdin"], json.dumps({"event": "user", "message": {"role": "user", "content": PROMPT}},
+        self.assertEqual(call["argv"][1:], ["--input-format", "stream-json", "--output-format", "stream-json",
+                                            "--model", "fake-model", "--sandbox", "--mode", "plan", "-p="])
+        sent = PROMPT + SCHEMA_INTRO + card_schema_text()
+        self.assertEqual(call["stdin"], json.dumps({"event": "user", "message": {"role": "user", "content": sent}},
                                                    ensure_ascii=False) + "\n")
-        self.assertEqual(call["prompt"], PROMPT)
+        self.assertEqual(call["prompt"], sent)
         self.assertEqual(os.path.realpath(call["cwd"]), cwd)
         self.assertEqual(call["cwd_listing"], [])
         self.assert_own_group(call)
@@ -113,6 +122,85 @@ class AgyTest(FakeEngineCase):
         self.assertEqual(call["env"]["HOME"], self.state)
         self.assertEqual(call["env"]["UNRELATED_SETTING"], "kept")
         self.assertTrue(call["env"]["PATH"].startswith(self.env["PATH"] + ":"))
+
+    def test_agy_is_never_given_json_schema_the_schema_goes_in_the_prompt(self):
+        """With `--json-schema`, in plan mode, agy's model enters plan mode's workflow (see the two captures under
+        tests/fixtures/agy), so a schema is asked for in the prompt and nothing is passed on the command line, whichever
+        engine's schema it is."""
+        self.fakes.script("agy", default={"kind": "text", "text": "fine"})
+        for schema in (CARD_SCHEMA, CODEX_SCHEMA):
+            self.agy()("hello", self.cwd(), schema=schema)
+        self.agy()("hello", self.cwd())
+        with_card, with_codex, without = self.fakes.calls("agy")
+        for call in (with_card, with_codex, without):
+            self.assertNotIn("--json-schema", call["argv"])
+            self.assertNotIn("--output-schema", call["argv"])
+            self.assertFalse([a for a in call["argv"] if a.endswith(".json")], call["argv"])
+        self.assertEqual(without["prompt"], "hello")
+        self.assertTrue(with_card["prompt"].startswith("hello" + SCHEMA_INTRO))
+        self.assertTrue(with_card["prompt"].endswith(card_schema_text()))
+        with open(CODEX_SCHEMA, encoding="utf-8") as f:
+            self.assertTrue(with_codex["prompt"].endswith(f.read().strip()))
+
+    def test_the_prompt_limit_counts_the_schema_text(self):
+        extra = len((SCHEMA_INTRO + card_schema_text()).encode("utf-8"))
+        room = engines.AGY_MAX_PROMPT_BYTES - extra
+        self.fakes.script("agy", default={"kind": "text", "text": "fine"})
+        self.assertEqual(self.agy()("a" * room, self.cwd(), schema=CARD_SCHEMA)[0], "fine")
+        with self.assertRaises(engines.PromptTooLong) as cm:
+            self.agy()("a" * (room + 1), self.cwd(), schema=CARD_SCHEMA)
+        self.assertIn("%d-byte prompt" % (engines.AGY_MAX_PROMPT_BYTES + 1), str(cm.exception))
+        self.assertEqual(self.agy()("a" * (room + 1), self.cwd())[0], "fine", "without the schema it fits")
+        self.assertEqual(len(self.fakes.calls("agy")), 2)
+
+    def test_a_schema_that_cannot_be_read_stops_the_run_before_the_call(self):
+        with self.assertRaises(engines.SetupError):
+            self.agy()("hello", self.cwd(), schema=os.path.join(self.tmp, "no-such-schema.json"))
+        self.assertEqual(self.fakes.calls("agy"), [])
+
+    def empty_stderr(self):
+        path = os.path.join(self.tmp, "stderr.txt")
+        with open(path, "w", encoding="utf-8"):
+            pass
+        return path
+
+    def test_the_real_plan_mode_reply_of_a_json_schema_run_is_discarded(self):
+        """agy 1.2.16 given `--json-schema` in plan mode wrote plan.md into its own state folder (a write_to_file tool
+        step), ended with finish steps and replied by asking to be approved before the JSON. The reply is full of
+        tool steps and is never a card, in either lane."""
+        self.fakes.script("agy", default={"kind": "replay", "stdout": PLAN_STREAM, "stderr": self.empty_stderr()})
+        for reads in (False, True):
+            with self.subTest(allow_reads=reads):
+                with self.assertRaises(engines.ToolUseError) as cm:
+                    self.agy(allow_reads=reads)("hello", self.cwd(), schema=CARD_SCHEMA)
+                self.assertIn("write_to_file", str(cm.exception))
+
+    def test_the_real_reply_with_the_schema_in_the_prompt_parses_into_a_card(self):
+        """The same kind of document with the schema's text in the prompt and no flag: the stream is a user_input and
+        agent_response steps only, and the reply is the JSON alone, which the card checks accept."""
+        self.fakes.script("agy", default={"kind": "replay", "stdout": SCHEMA_STREAM, "stderr": self.empty_stderr()})
+        reply, usage = self.agy()(PROMPT, self.cwd(), schema=CARD_SCHEMA)
+        self.assertIn("input_tokens", usage)
+        items = common.parse_json(reply)["items"]
+        self.assertEqual(len(items), 1)
+        card = cards.validate(items[0], common.DEFAULTS["card_categories"])
+        self.assertIsNotNone(card, cards.schema_problems(items[0], cards.CARD_SCHEMA))
+        self.assertEqual((card["id"], card["category"], card["category_raw"]), ("doc-1", "Other", "administrative"))
+        self.assertNotIn("--json-schema", self.only_call("agy")["argv"])
+
+    def test_the_two_captures_show_what_the_flag_did(self):
+        def events(path):
+            with open(path, encoding="utf-8") as f:
+                return [json.loads(line) for line in f]
+        plan, clean = events(PLAN_STREAM), events(SCHEMA_STREAM)
+        self.assertIn("json_schema", plan[0]["init"], "the plan-mode capture was run with --json-schema")
+        self.assertNotIn("json_schema", clean[0]["init"], "the clean capture was run without it")
+
+        def steps(evs):
+            return [ev["step_update"] for ev in evs if ev["event"] == "step_update"]
+        self.assertEqual({st["step_type"] for st in steps(clean)}, {"user_input", "agent_response"})
+        self.assertTrue({"tool", "finish", "system_message"} <= {st["step_type"] for st in steps(plan)})
+        self.assertIn("write_to_file", {st.get("tool_name") for st in steps(plan)})
 
     def test_without_schema_state_home_or_with_another_model(self):
         self.fakes.script("agy", default={"kind": "text", "text": "fine"})
@@ -129,8 +217,8 @@ class AgyTest(FakeEngineCase):
         self.assertEqual(self.fakes.calls("agy"), [])
 
     def test_a_prompt_agy_would_cut_short_is_refused_before_the_call(self):
-        """agy cuts a user message at about 192,000 UTF-8 bytes of prompt text, ASCII and CJK alike (family-ai-os
-        #1089), so 185,000 bytes of either is refused whole, however it is written."""
+        """agy cuts a user message at about 192,000 UTF-8 bytes of prompt text, ASCII and CJK alike (measured on
+        agy 1.2.16), so 185,000 bytes of either is refused whole, however it is written."""
         prompts = {"ASCII": "a" * 185_000, "CJK": "\u4e2d" * 61_666 + "ab"}
         self.fakes.script("agy", default={"kind": "text", "text": "fine"})
         for name, prompt in prompts.items():
@@ -215,16 +303,19 @@ class AgyTest(FakeEngineCase):
         self.assertEqual([e.params[0]["CommandLine"].endswith("transcript_full.jsonl | tail -c 1000") for e in seen],
                          [True, True])
 
-    def test_the_captured_stream_holds_only_redacted_paths_and_ids(self):
-        """The capture is in a public repository: nothing in it may name a person, a machine or a conversation."""
-        text = ""
-        for path in (CUT_STREAM, CUT_STDERR):
-            with open(path, encoding="utf-8") as f:
-                text += f.read()
-        self.assertEqual(set(re.findall(r"/(?:Users|home)/[^/\\\"]+", text)), {"/Users/example"})
-        ids = set(re.findall(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", text))
-        self.assertEqual(ids, {"00000000-0000-0000-0000-000000000000"})
-        self.assertEqual(set(re.findall(r"\S+@\S+", text)), set())
+    def test_the_captured_streams_hold_only_redacted_paths_and_ids(self):
+        """The captures are in a public repository: nothing in them may name a person, a machine or a conversation."""
+        folder = os.path.dirname(CUT_STREAM)
+        names = sorted(os.listdir(folder))
+        self.assertGreaterEqual(len(names), 4, names)
+        for name in names:
+            with self.subTest(name):
+                with open(os.path.join(folder, name), encoding="utf-8") as f:
+                    text = f.read()
+                self.assertLessEqual(set(re.findall(r"/(?:Users|home)/[^/\\\"]+", text)), {"/Users/example"})
+                ids = set(re.findall(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", text))
+                self.assertLessEqual(ids, {"00000000-0000-0000-0000-000000000000"})
+                self.assertEqual(set(re.findall(r"\S+@\S+", text)), set())
 
     def test_a_stream_that_shows_the_stored_copy_being_read_means_the_prompt_was_cut(self):
         cases = {

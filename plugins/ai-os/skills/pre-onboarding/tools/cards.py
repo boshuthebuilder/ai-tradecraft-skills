@@ -57,13 +57,15 @@ FINAL = {"ok", "partial", "blank", "photo", "listed", "no_reader", "failed"}
 MIN_SECTION = 1_000  # the smallest section budget (characters or estimated tokens) a run accepts
 # The document-sized budgets with agy, in characters. agy cuts a prompt at about 192,000 UTF-8 bytes of text and
 # engines.AGY_MAX_PROMPT_BYTES refuses over 180,000. A CJK character is three bytes, so the budget in CJK is 3 x 50,000
-# = 150,000 bytes, and the rest of the prompt has the other 30,000. Measured, the most that rest takes is 26,983
+# = 150,000 bytes, and the rest of the prompt has the other 30,000. Measured, the most that rest takes is 28,253
 # bytes: a full batch of 30 items with 400-byte paths, under the instructions of a generous household (12 people with
-# 4 aliases each and a 2,000-character CJK description: 11.7 KB; the test fixture's own are 4.3 KB, a single-item call
-# on the generous ones 12.5 KB, a section prompt 1.1 KB). 150,000 + 26,983 = 176,983, under 180,000 (51,000 characters
-# is the ceiling for that case); tests/test_cards.py pins it. 60,000 characters did not fit: it is 180,000 bytes before
-# a word of instruction. The escapes the item JSON adds (a newline is two bytes) are not in that figure, and four-byte
-# characters can still fill a section; both fail closed (refused before the call, then halved or left uncarded).
+# 4 aliases each and a 2,000-character CJK description: 11.7 KB), and the card schema's text with its one-line
+# request (1,270 bytes), which agy is given in its prompt, not by flag. (The test fixture's own instructions are 4.3 KB,
+# a single-item call on the generous ones 13.7 KB, a section prompt 1.1 KB and carries no schema.) 150,000 + 28,253 =
+# 178,253, under 180,000 (50,500 characters is the ceiling for that case); tests/test_cards.py pins it. 60,000
+# characters did not fit: it is 180,000 bytes before a word of instruction. The escapes the item JSON adds (a newline
+# is two bytes) are not in that figure, and four-byte characters can still fill a section; both fail closed
+# (refused before the call, then halved or left uncarded).
 AGY_BUDGET_CHARS = 50_000
 TYPES = {"object": dict, "array": list, "string": str, "boolean": bool}
 RUN = re.compile(r"\d+(?:[ ,./\-]\d+)*")  # digits, and the single separators that may sit inside one number
