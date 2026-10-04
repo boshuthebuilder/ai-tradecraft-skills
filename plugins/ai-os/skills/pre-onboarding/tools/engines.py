@@ -36,6 +36,7 @@ import signal
 import subprocess
 import tempfile
 import time
+import urllib.parse
 
 import common
 
@@ -74,14 +75,17 @@ NOT_CRED_EXTS = {".md", ".markdown", ".rst", ".html", ".pub"}
 # and is not a tool at work, so only a step is looked into.
 AGY_PLAIN_STEPS = frozenset({"user_input", "agent_response", "system_message"})
 AGY_TOOL_WORDS = {"tool", "tools", "action", "actions", "function", "functions", "call", "calls"}
-# The tools the vision lane's model may use, each one a read, and only when every path it names (a parameter whose name
-# says path, directory or file, or a value that looks like one) resolves inside the call's own working folder, which
-# holds only its images (no --add-dir is passed, so there is no other folder). The tool names come from the init banner
-# of the same capture. Any other tool, or a read of any other path, discards the reply; so does any tool in the cards
-# lane, allowed or not.
+# The tools the vision lane's model may use, each one a read, and only when every string in its parameters, under any
+# key and at any depth, that is or may be a path resolves inside the call's own working folder, which holds only its
+# images (no --add-dir is passed, so there is no other folder). Such a string is a value under a key that says path,
+# directory or file, one that looks like a path, a `file:` URL (parsed) or one that names something that exists in the
+# folder (a link there is judged by where it leads). A string that names nothing is not a path; one that cannot be
+# judged, such as a URL of another scheme, is refused. The tool names come from the init banner of the same capture.
+# Any other tool, or a read of any other path, discards the reply; so does any tool in the cards lane, allowed or not.
 AGY_READ_TOOLS = frozenset({"view_file", "list_dir", "find_by_name"})
 AGY_PATH_WORDS = {"path", "paths", "dir", "directory", "file", "files", "folder", "root", "target"}
-PATH_LIKE = re.compile(r"^(?:/|~|file:|[A-Za-z]:[\\/])|(?:^|[\\/])\.\.(?:[\\/]|$)")
+PATH_LIKE = re.compile(r"^(?:/|~|[A-Za-z]:[\\/])|(?:^|[\\/])\.\.(?:[\\/]|$)")
+URL_SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]+:(?!\s)")  # two or more characters: a single letter is a drive
 ToolEvent = collections.namedtuple("ToolEvent", "label names params")
 KILL_GRACE = 5  # seconds to wait for the pipes after killing a timed-out engine's process group
 # agy cuts a user message at about 192,000 UTF-8 bytes of PROMPT TEXT (plus or minus 150), with no event, no field and
@@ -227,26 +231,53 @@ def _tool_params(*mappings):
 
 
 def inside(folder, value):
-    """Whether the path `value` (relative ones are taken from `folder`; symbolic links and `..` are resolved) is
+    """Whether the path `value` (a relative one is taken from `folder`; symbolic links and `..` are resolved) is
     `folder` or something in it."""
-    value = value[len("file://"):] if value.startswith("file://") else value
-    if re.match(r"[A-Za-z]:[\\/]", value):
+    if "\0" in value or re.match(r"[A-Za-z]:[\\/]", value):  # a NUL ends a path for a C reader: it cannot be judged
         return False
     base = os.path.realpath(folder)
     target = os.path.realpath(os.path.join(base, os.path.expanduser(value)))
     return target == base or target.startswith(base + os.sep)
 
 
+def file_url_paths(value):
+    """The absolute paths a `file:` URL can mean, as written and with its percent-escapes decoded once and fully, or
+    None when its host is neither empty nor `localhost`, which cannot be judged."""
+    parts = urllib.parse.urlsplit(value)
+    if parts.netloc.lower() not in ("", "localhost"):
+        return None
+    paths, path = [parts.path], parts.path
+    for _ in range(4):
+        path = urllib.parse.unquote(path)
+        paths.append(path)
+    return ["/" + p.lstrip("/") for p in dict.fromkeys(paths)]
+
+
+def names_inside(value, folder, key):
+    """False when the string `value`, a parameter under `key`, is a path outside `folder` or cannot be judged; True
+    when it is inside, or is no path (it names nothing, and neither its key nor its look says it is one)."""
+    try:
+        if "\0" in value:
+            return False
+        if value[:5].lower() == "file:":
+            paths = file_url_paths(value)
+            return paths is not None and all(inside(folder, p) for p in paths)
+        if URL_SCHEME.match(value):
+            return False
+        named = os.path.lexists(os.path.join(os.path.realpath(folder), value))
+        return inside(folder, value) if words(key) & AGY_PATH_WORDS or PATH_LIKE.search(value) or named else True
+    except (OSError, ValueError):
+        return False
+
+
 def outside_paths(value, folder, key=""):
-    """The strings in a tool's parameters that name a path outside `folder`: the value of a parameter whose name says
-    path, directory or file, and any value that looks like a path (absolute, `~`, `file:`, a drive, or with `..`)."""
+    """The strings in a tool's parameters that are a path outside `folder`, or that cannot be judged: see
+    AGY_READ_TOOLS."""
     if isinstance(value, dict):
         return [p for k, v in value.items() for p in outside_paths(v, folder, k)]
     if isinstance(value, list):
         return [p for v in value for p in outside_paths(v, folder, key)]
-    if isinstance(value, str) and (words(key) & AGY_PATH_WORDS or PATH_LIKE.search(value)):
-        return [] if inside(folder, value) else [value]
-    return []
+    return [value] if isinstance(value, str) and not names_inside(value, folder, key) else []
 
 
 def refused_tools(events, folder, allow_reads):
@@ -257,7 +288,8 @@ def refused_tools(events, folder, allow_reads):
         if allow_reads and ev.names and ev.names <= AGY_READ_TOOLS and ev.params:
             outside = sorted({p for params in ev.params for p in outside_paths(params, folder)})
             if outside:
-                refused.append("%s outside the call's folder: %s" % (ev.label, ", ".join(outside[:2])[:120]))
+                refused.append("%s names a path outside the call's folder or one it cannot judge: %s"
+                               % (ev.label, ", ".join(outside[:2])[:120]))
             continue
         refused.append(ev.label)
     return refused

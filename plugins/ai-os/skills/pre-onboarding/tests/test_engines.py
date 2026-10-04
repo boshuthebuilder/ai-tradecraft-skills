@@ -607,6 +607,69 @@ class AgyTest(FakeEngineCase):
                 with self.assertRaises(engines.ToolUseError):
                     self.agy()("hello", cwd)
 
+    def test_a_read_cannot_name_something_outside_the_folder_by_any_key_or_spelling(self):
+        """The path guard does not rest on a parameter's name or on a value looking like a path: a file URL is parsed
+        (`file:/x`, a `localhost` host, escapes decoded, `..` resolved), and any string, under any key and at any depth,
+        that names something that exists in the folder is judged by where it really leads, links resolved. A string
+        that names nothing is not a path, and one that cannot be judged is refused."""
+        cwd = self.cwd()
+        enc = lambda p: p.replace("/", "%2F")  # noqa: E731
+        outside_file = os.path.join(self.tmp, "outside.png")
+        outside_dir = os.path.join(self.tmp, "outside_dir")
+        os.makedirs(outside_dir)
+        for target in (outside_file, os.path.join(outside_dir, "hosts")):
+            with open(target, "w") as f:
+                f.write("x")
+        os.symlink(outside_dir, os.path.join(cwd, "portal"))
+        os.symlink(outside_file, os.path.join(cwd, "shortcut"))
+        os.makedirs(os.path.join(cwd, "pages"))
+        with open(os.path.join(cwd, "p1.png"), "w") as f:
+            f.write("x")
+        refused = {
+            "file: with one slash": {"AbsolutePath": "file:/private/etc/hosts"},
+            "file: with localhost": {"Mystery": "file://localhost/private/etc/hosts"},
+            "file: with LOCALHOST and a capital scheme": {"Mystery": "FILE://LocalHost/private/etc/hosts"},
+            "file: with another host": {"Mystery": "file://example.invalid/private/etc/hosts"},
+            "file: with an escaped host": {"Mystery": "file://%6Cocalhost/private/etc/hosts"},
+            "file: with an unquoted ..": {"Mystery": "file://" + cwd + "/../outside.png"},
+            "file: with a relative ..": {"Mystery": "file:../outside.png"},
+            "file: with an encoded slash": {"Mystery": "file:" + enc(cwd) + "%2F..%2Foutside.png"},
+            "file: with an encoded slash and dots": {"Mystery": "file://" + enc(cwd + "/../outside.png")},
+            "file: with an encoded slash even where it leads inside": {"Mystery": "file:" + enc(cwd) + "%2Fp1.png"},
+            "file: with a doubly encoded ..": {"Mystery": "file://" + cwd + "/%252e%252e/outside.png"},
+            "file: with a NUL": {"Mystery": "file://" + cwd + "/p1.png%00"},
+            "a bare word that is a link to a folder": {"Mystery": "portal"},
+            "a bare word that is a link to a file": {"Mystery": "shortcut"},
+            "a link's folder with a name under it": {"Mystery": "portal/hosts"},
+            "a link's folder, deep in a list": {"Options": [{"Name": "x"}, {"More": ["portal"]}]},
+            "a link under a key that names no path": {"Query": "shortcut"},
+            "a URL of another scheme": {"Mystery": "https://example.invalid/hosts"},
+            "an ftp URL": {"Mystery": "ftp://example.invalid/hosts"},
+            "a data URL": {"Mystery": "data:text/plain,hello"},
+            "a one-letter drive": {"Mystery": "C:\\Windows\\win.ini"},
+        }
+        accepted = {
+            "a file that exists in the folder, by a bare word": {"Mystery": "p1.png"},
+            "a folder in it, by a bare word": {"Mystery": "pages"},
+            "a file URL inside it": {"Mystery": "file://" + cwd + "/p1.png"},
+            "a file URL inside it, with one slash": {"AbsolutePath": "file:" + cwd + "/p1.png"},
+            "a file URL inside it, with an escaped space": {"Mystery": "file://" + cwd + "/a%20b.png"},
+            "a file URL inside it, with localhost": {"Mystery": "file://localhost" + cwd + "/p1.png"},
+            "a word that names nothing": {"Mystery": "transcribe"},
+            "a sentence with a colon": {"Note": "images only: no text"},
+            "a number and a boolean": {"MaxDepth": 2, "Recursive": False},
+        }
+        for name, params in refused.items():
+            with self.subTest(name):
+                self.fakes.script("agy", default=self.real_stream("view_file", **params))
+                with self.assertRaises(engines.ToolUseError) as cm:
+                    self.agy(allow_reads=True)("hello", cwd)
+                self.assertIn("outside the call's folder", str(cm.exception))
+        for name, params in accepted.items():
+            with self.subTest(name):
+                self.fakes.script("agy", default=self.real_stream("view_file", **params))
+                self.assertEqual(self.agy(allow_reads=True)("hello", cwd)[0], '{"pages": []}')
+
     def test_a_read_that_names_no_parameters_cannot_be_checked_and_is_refused(self):
         events = self.capture_events()[:3]
         step = {"event": "step_update", "step_update": {"conversation_id": "c", "step_index": 2, "state": "DONE",

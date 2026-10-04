@@ -161,7 +161,8 @@ under *Migrating a deployment* below.
   earlier check, which had guessed their shape, so a tool step now discards the reply in every lane (any step
   other than a user input, an agent response or agy's own system message counts, whatever its keys), and the
   vision lane accepts only the steps that open its images (`view_file`, `list_dir`, `find_by_name`) and only for
-  paths inside the call's own folder. agy is also no longer given `--json-schema`, which in plan mode sent
+  paths inside the call's own folder, whatever key or spelling names them (a `file:` URL is parsed, and any
+  value that names something in the folder, a link included, is judged by where it leads). agy is also no longer given `--json-schema`, which in plan mode sent
   the model through plan mode's workflow (a written plan, `finish` steps, a reply asking for approval before
   the JSON): the schema's text goes in the prompt, counted by the size limit, and `cards.py` still checks every
   card. Only the environment-variable lists remain provisional (#91).

@@ -388,7 +388,8 @@ isolation comes from what each call is given and what it is denied:
   `step_type: "tool"`, a `tool_name` and a `tool_info`, as real captures show, and the rule does not rest on that:
   any step other than a `user_input`, an `agent_response` or agy's own `system_message` counts, whatever its keys.
   The vision lane alone accepts the steps that open its images, `view_file`, `list_dir` or `find_by_name`, and only
-  when every path they name is inside the call's own folder; any other tool, or a read elsewhere, fails there too.
+  when every path they name, however it is spelled (a file URL included), is inside the call's own folder; any other
+  tool, or a read elsewhere or one that cannot be judged, fails there too.
   agy also cuts a long message short, silently (exit 0, a successful result, no event), and asks the model to read the rest from a
   stored copy, which a call with no tools cannot do. Measured on agy 1.2.16 with
   `gemini-3.1-pro-high`: the cut falls at about 192,000 UTF-8 bytes of prompt text, plus or minus 150, for ASCII

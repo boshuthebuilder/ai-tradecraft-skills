@@ -349,9 +349,13 @@ are in the file, pinned by its tests, and what is still provisional is marked th
   `agent_response` and agy's own `system_message` counts, whatever its keys, as does any other event naming a tool,
   action, function or call) or `agy` was refused one (a denied action), the reply discarded, allowed or not. The
   vision lane alone lets `agy` open its images: a step whose tools are all `view_file`, `list_dir` or
-  `find_by_name`, and only when every path it names (a parameter named for a path, a directory or a file, or any value
-  that looks like one) resolves inside the call's own folder, links and `..` resolved; any other tool, a step naming
-  no tool, or a read elsewhere fails there too;
+  `find_by_name`, and only when every string in its parameters, under any key and at any depth, that is or may be a
+  path resolves inside the call's own folder, links and `..` resolved. That is a value under a key named for a path,
+  a directory or a file, a value that looks like a path, a `file:` URL (parsed: the host must be empty or
+  `localhost`, escapes are decoded and `..` resolved) and any value that names something that exists in the folder,
+  such as a link, which is judged by where it leads; a string that names nothing is not a path, and one that cannot
+  be judged, such as a URL of another scheme, is refused. Any other tool, a step naming no tool, or a read elsewhere
+  fails there too;
   `PromptTooLong` before an `agy` call whose prompt is over 180,000 UTF-8 bytes (`AGY_MAX_PROMPT_BYTES`): agy
   cuts a message at about 192,000 bytes of prompt text, silently, and leaves the model a stored copy to read with a
   tool these calls deny. The figure is measured on agy 1.2.16 with `gemini-3.1-pro-high`, is the same for ASCII and CJK,
