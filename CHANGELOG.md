@@ -4,7 +4,7 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
-## Unreleased
+## v11.0.0 (2026-10-04)
 
 A **MAJOR**: page contracts, until now an opt-in profile, become mandatory for every page type, and
 several documented rules and archetype outputs change with them. Preparing a lived-in folder for
@@ -168,7 +168,15 @@ under *Migrating a deployment* below.
   value that names something in the folder, a link included, is judged by where it leads). agy is also no longer given `--json-schema`, which in plan mode sent
   the model through plan mode's workflow (a written plan, `finish` steps, a reply asking for approval before
   the JSON): the schema's text goes in the prompt, counted by the size limit, and `cards.py` still checks every
-  card. Only the environment-variable lists remain provisional (#91).
+  card. Only the environment-variable lists remain provisional (#125).
+- **Engine isolation, settled on the operator's machine** (#91): both engines run with the machine's own home
+  and its one login. Each keeps its login as a file there, and a per-project state folder would need that file
+  copied, so none is used; isolation comes from what each call is given and denied. codex runs ephemeral, with
+  the user's config and rules ignored, memories and tools off and an empty folder, but its global
+  `~/.codex/AGENTS.md` still reaches the model, so the isolation scan reads it for the operator's terms. agy
+  gives the model no memories, conversation summaries or instruction files. The canary is a positive control:
+  each run plants a fresh invented name in the engine's context and passes only a reply that repeats it and
+  does not read as a refusal. The old "list your context" canary passed on a refusal while proving nothing.
 - **The settings twins** (#89). A folder's rulebook and its wiki's Schema page each get a
   machine-readable twin in `.familyai/`: `rulebook.json`, written with the rulebook, and
   `wiki-schema.json`, compiled by `settings.py compile` from the Schema's fixed-header tables
@@ -289,13 +297,10 @@ No placeholder was added, removed or made required: each of the eight prompt tem
 
 ### Still open
 
-Three spikes still have to run on a Mac. #91 settles the engine isolation flags, which `engines.py`
-(#92) uses provisionally until then; #96 finds which Mermaid chart kinds render in the owner's
-editors, the matrix #102 writes into `portable-markdown`; and #104 proves the tools read-only on a
-real prepared folder. #102 and #104 block the release itself (#105). The provisional parts are
-marked in the skill: its engine isolation section and the tool reference's `engines.py` section
-carry a provisional marker for #91, and until #102 lands `wiki-maintenance` says to check each
-chart kind in the owner's editor before relying on it.
+The engines' environment-variable lists stay provisional until #125 records which variables each engine reads;
+the skill marks them where they are used. Everything else the milestone left open is settled: the isolation
+spike (#91) in the skill's engine isolation section and `engines.py`, the chart rendering matrix (#102) in
+`portable-markdown`, and the proof on a real prepared folder (#104), which found the tool fixes listed above.
 
 ## v10.0.0 — 2026-09-28
 

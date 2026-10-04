@@ -318,7 +318,7 @@ two looks a minute apart, writing `<work>/state/vision<k>.done`.
 
 ## `engines.py`
 
-<!-- provisional: the engines' environment-variable lists (#91) -->
+<!-- provisional: the engines' environment-variable lists (#125) -->
 
 A library: the adapters every model call goes through, `Agy` (Gemini through the `agy` command-line tool) and
 `Codex` (ChatGPT through `codex exec`). The rule it holds is the skill's

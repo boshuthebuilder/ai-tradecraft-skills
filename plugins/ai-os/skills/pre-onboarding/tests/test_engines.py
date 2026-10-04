@@ -1,8 +1,8 @@
 """The engine adapters against fake `agy` and `codex`: the argv, the environment, stdin, the working folder, the process
 group, tool and denial rejection, quota, degenerate replies and the credential guard.
 
-The flags pinned here are the ones in use today; the isolation spike (issue #91) may change them, and then these
-tests change with them, deliberately.
+The flags pinned here are the ones the isolation spike (issue #91) settled; the environment-variable lists are still
+provisional (issue #125), and when that issue changes them these tests change with them, deliberately.
 
     python3 -m unittest discover plugins/ai-os/skills/pre-onboarding/tests
 """

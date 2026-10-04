@@ -23,7 +23,7 @@ login files: it is scanned before and after every call, and a credential-like re
 run. How each engine reaches the shared login is decided by the isolation spike and recorded in the skill.
 
 The flags below are the ones in use today, pinned by tests/test_engines.py. The isolation mode is the skill's
-Engine isolation section; what is still provisional is marked below: the lists of environment variables (issue #91
+Engine isolation section; what is still provisional is marked below: the lists of environment variables (issue #125
 records what each engine really reads). agy's prompt limit (AGY_MAX_PROMPT_BYTES) and its tool steps (AGY_TOOL_WORDS)
 are settled from measurements and a real capture.
 """
@@ -41,7 +41,7 @@ import urllib.parse
 import common
 
 KEY_VARS = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY")
-# Variables an engine must not inherit (provisional until the isolation spike, issue #91, records what each engine
+# Variables an engine must not inherit (provisional until issue #125 records what each engine
 # reads): keys, tokens, credentials and secrets, which would sign in or bill some other way than the machine's one
 # login, and base URLs and endpoints, which would send the prompt to another service than the one that login belongs
 # to. The name's ending decides. Proxy settings (HTTPS_PROXY, NO_PROXY, SSL_CERT_FILE) stay: they only route the
