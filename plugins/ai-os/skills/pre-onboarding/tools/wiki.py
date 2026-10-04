@@ -147,6 +147,7 @@ import csv
 import datetime
 import decimal
 import functools
+import glob
 import hashlib
 import json
 import os
@@ -197,7 +198,7 @@ def read_json(path):
             return json.load(f)
     except OSError as e:
         raise common.ToolError("cannot read %s (%s)" % (path, e.strerror or e))
-    except ValueError as e:
+    except (ValueError, RecursionError) as e:
         raise common.ToolError("%s: not valid JSON (%s)" % (path, e))
 
 
@@ -272,12 +273,15 @@ def load_extract(extract_dir, h, card_path):
     if not os.path.exists(path):
         raise common.ToolError("card %s has no extract record %s; extract the document again" % (card_path, path))
     xr = read_object(path)
+    if xr.get("id") != h:  # the rule `extract.py repath` holds a record to: it is this document's, named by its hash
+        raise common.ToolError("malformed extract record %s: its id is %r, not %s; extract the document again"
+                               % (path, xr.get("id"), h))
     pages = xr.get("pages", [])
     if not isinstance(pages, list):
         raise common.ToolError("malformed extract record %s: pages must be a list; extract the document again" % path)
     for i, p in enumerate(pages, 1):
-        n, text = (p.get("n"), p.get("text")) if isinstance(p, dict) else (None, None)
-        if not (isinstance(p, dict) and (n is None or type(n) is int) and (text is None or isinstance(text, str))):
+        if not (isinstance(p, dict) and ("n" not in p or type(p["n"]) is int)
+                and (p.get("text") is None or isinstance(p["text"], str))):  # a null n would crash full_text
             raise common.ToolError("malformed extract record %s: page %d must be an object whose n is a whole number "
                                    "and whose text is text or null; extract the document again" % (path, i))
     return xr
@@ -781,6 +785,45 @@ def rationale_block_problem(lines):
     return None
 
 
+PLACEHOLDER = re.compile(r"<[^<>/]+>")  # `<year>`: a complete one, an opening `<` and a closing `>` round a name
+
+
+def literal_prefix(span):
+    """For a backticked path: "" when it holds no routing pattern, else the folders before its first segment holding
+    `*` or a complete `<...>` placeholder, as a path ending in `/`, or None when that first segment is itself the
+    pattern. `[`, `]` and `?` are not patterns, and neither is a lone `<` or `>`: file and folder names carry them, so
+    they are read as the characters they are."""
+    parts = span.split("/")
+    for i, part in enumerate(parts):
+        if "*" in part or PLACEHOLDER.search(part):
+            return "/".join(parts[:i]) + "/" if i else None
+    return ""
+
+
+def star_matches(root, span):
+    """True when something under `root` matches `span`, read with `*` as the only wildcard (`[`, `]` and `?` are the
+    characters they are)."""
+    pattern = "/".join(glob.escape(part).replace("[*]", "*") for part in span.split("/"))
+    return bool(glob.glob(os.path.join(glob.escape(root), pattern)))
+
+
+def span_state(root, span):
+    """`found`, `dead` or `unchecked` for a backticked path under a live top-level folder. A path that exists as
+    written is found. One with no pattern, or whose folders before a `*` or `<...>` pattern are missing, is dead
+    (a name is never read as a pattern it is not: `Invoice [3].pdf` is not `Invoice 3.pdf`). A `*` pattern with its
+    folders present is found when something matches it, and unchecked when nothing does or when it holds a complete
+    `<...>` placeholder, since what a pattern stands in for cannot be told; one patterned from its first segment is
+    unchecked."""
+    if os.path.exists(os.path.join(root, span)):
+        return "found"
+    literal = literal_prefix(span)
+    if literal is None:
+        return "unchecked"
+    if not literal or not os.path.exists(os.path.join(root, literal)):
+        return "dead"
+    return "found" if not PLACEHOLDER.search(span) and star_matches(root, span) else "unchecked"
+
+
 def parse_rationale(text):
     """The rationale file as ([(heading, lines under it)], [[place, what is wrong]] for the file itself): blocks in
     file order, each heading's text after `### ` stripped, its lines up to the next heading with trailing blank
@@ -966,8 +1009,13 @@ def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptan
         if only is not None and rel not in only:
             continue  # a sibling's page is never opened: it may be mid-write
         path = os.path.join(wiki, *rel.split("/"))
-        t = read_text(path)
-        shas[rel] = common.sha256_file(path)
+        try:
+            shas[rel] = common.sha256_file(path)
+            t = read_text(path)
+        except (OSError, UnicodeDecodeError):  # a page that cannot be read is not one that conforms
+            shas.setdefault(rel, "")
+            fm_bad.append(rel)
+            continue
         m = re.match(r"---\n(.*?)\n---\n", t, re.S)
         fm = parse_fm(m.group(1)) if m else {}
         fm_lines = t[:m.end()].count("\n") if m else 0
@@ -1003,10 +1051,10 @@ def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptan
             for line, span in spans:
                 if line <= fm_lines or "/" not in span or (line, span) in in_tables:
                     continue  # a `sources:` entry (checked above), no path, or a chart's source (checked with it)
-                if span.split("/", 1)[0] in tops:
-                    if not os.path.exists(os.path.join(root, span)):
-                        dead_src.append([rel, span])
-                else:
+                state = span_state(root, span) if span.split("/", 1)[0] in tops else "unchecked"
+                if state == "dead":
+                    dead_src.append([rel, span])
+                elif state == "unchecked":
                     unchecked += 1
         for lk, _anchor, _title in LINK.findall(body):
             if not local_link(lk):

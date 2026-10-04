@@ -597,9 +597,17 @@ default that does not exist reads as `not recorded`. Line numbers count from the
   `superseded_pages` counts pages whose `status` is `superseded` (no problem).
 - `dead_source_paths`, `[page, path]`: a `sources:` entry that does not exist, or a backticked span in a page body
   holding `/` (a file or a folder; a span wrapped onto the next line reads as one) whose first segment is a live
-  top-level folder, one holding a live manifest entry or copy, and which does not exist. Such a span under any
-  other first segment is counted in `backticked_paths_unchecked` (in the fixture, the Schema's `_Inbox/`). The
-  Log's pages are history and are not read for paths.
+  top-level folder, one holding a live manifest entry or copy, and which does not exist. A span that exists as
+  written is found, whatever it holds. `[`, `]` and `?` are the characters they are, never a pattern, since file and
+  folder names carry them: `Invoice [3].pdf` is not `Invoice 3.pdf`, so a stale one is dead. Only a `*` or a
+  complete `<...>` in a segment (an opening `<`, a name and a closing `>`; a lone `<` or `>` is a character of the
+  name) makes a span a routing pattern (as a Schema's routing writes them), judged up to its first
+  patterned segment: dead when the folders before it do not exist; when they do, a `*` pattern is found if something
+  matches it, and otherwise (nothing matches, or it holds a `<...>` placeholder) counted in
+  `backticked_paths_unchecked`, since what the pattern stands in for cannot be told. A span under any other first
+  segment, or patterned from its first segment, is counted there too (in the fixture, the Schema's `_Inbox/`). The
+  Log's pages are history and are not read for paths. `readiness.py` names the unchecked count in its `wiki.problems`
+  finding, beside the problems.
 - `dead_page_links`, `[page, link]`: a link to a `.md` that resolves to nothing. A link is local when it has no
   scheme (`http:`, `mailto:`, `obsidian:`) and is not rooted at `/`, as `move` reads it (`local_link`), and a link
   with a title (`[Tax](Tax.md "t")`) is read as its target. A link to a page the page map only plans (as `brief`
@@ -865,7 +873,8 @@ The [hand-off contract](../SKILL.md#the-hand-off-contract), checked. Read-only o
 twins without trusting them, so a stale or unpinned twin is a finding rather than a refusal. It prints one JSON
 report (also to `--out`, refused inside the folder with `--read-only-root`) and exits 0 when nothing is found, 1 on
 any finding, and 2 on a tool error: a missing or malformed manifest (a live entry without `hashed` true or false
-included), card, extract record or canary result, or a crash, so 1 always means findings. The fixture's report is
+included) or canary result, or a crash, so 1 always means findings (a malformed card or extract record is a finding,
+counted with the rest). The fixture's report is
 [`../tests/expected/readiness.json`](../tests/expected/readiness.json).
 
 Each check is a count, a state, `ok`, `finding: ...` or `not verified: ...`. `findings` lists every finding as
@@ -876,10 +885,19 @@ same way, which is not a finding and not a pass either, and does not change the 
   the items on disk, reported, not findings; `live_paths_missing` counts live entries whose current path is gone, a
   finding (the manifest is not current: re-audit).
 - `records`, over the live documents `extract.py` reads (hashed ones): `missing_extracts`, `missing_cards`,
+  `malformed_cards` (a card not in the card format, such as a `sensitive` that is not true or false: counted and
+  named, never the end of the check, so a folder carded by an older tool shows every card to redo),
+  `malformed_extracts` (an extract record that is not JSON, not UTF-8, not an object, unreadable, or whose pages are
+  not a list of page objects with a whole-number `n` when they have one: counted and named the same way, by the
+  document's path and the reason, with no absolute path; remove it and run `extract.py` again),
   `bad_category` (outside the rulebook's `card_categories`), `extract_paths_stale` (a record whose path is not the
-  manifest's; the finding names the [`extract.py repath`](#repath) command that repairs it) and `contamination` (a
+  manifest's; the finding names the [`extract.py repath`](#repath) command that repairs it, after the malformed
+  extract records, which `repath` cannot read, are dealt with) and `contamination` (a
   card naming an isolation term its own source lacks, by `cards.py`'s rule; `not verified` without `--terms`). A
-  count above zero is one finding.
+  count above zero is one finding. A check that needed a card or extract record that could not be read says so for
+  that document rather than reading it clean: `bad_category`, `extract_paths_stale` and `contamination` become `not
+  verified for N document(s) whose ... is malformed` (after the count, `1; not verified ...`, when some documents were checked and
+  one held a finding), and are listed in `not_verified`.
 - `isolation.canary`: per engine (`agy` and `codex`), the result `isolation.py canary --out` wrote to
   `<work>/state/canary-<engine>.json`: `passed (model M, effort E)`, `failed: ...` (a finding), `not run: ...` (not
   verified) or `not verified: ...` (a pass recorded without `answered` and the invented `marker`, so from a canary a
@@ -912,22 +930,150 @@ same way, which is not a finding and not a pass either, and does not change the 
 ([rules that keep it safe](../../wiki-maintenance/SKILL.md#rules-that-keep-it-safe)), read through the keys its
 roll-up reads
 ([canonical frontmatter](../../wiki-maintenance/SKILL.md#canonical-frontmatter--the-keys-the-deterministic-sweeps-read)),
-`01 Deadlines` being the derived list of forward dates. It fixes no headings and asks for no list beyond the dates,
-so readiness checks none. It reads the roll-up's dates as the roll-up writes them: a dated deadline as
-`YYYY-MM-DD`, anywhere on the page, and a recurring date as `MM-DD`, a month and a day that month has, opening a
-list item or alone in a table cell (an `MM-DD` mid-sentence, such as "pages 10-12", is prose). The sources are the
-pages that are not `superseded`.
+`01 Deadlines` being the derived list of forward dates.
 
-- `derived_pages_hold_nothing_hand_written`: every `YYYY-MM-DD` on the roll-up is a page's `deadline` or
-  `deadlines` date (`YYYY-MM-DD` or `{date, note}`), except the roll-up's own `last-updated`, a build stamp; the
-  roll-up shows every such date of a page the sweeps read that is not before its `last-updated` (one before it is
-  past, not forward), and a `last-updated` after today, by the tools' clock, is a finding, forward then being
-  judged from today; a deadline entry that is not a real `YYYY-MM-DD`, bare or in `{date, note}`, is a finding;
-  and a roll-up with nothing to show (no forward deadline and no recurring date) in a wiki of derived pages says
-  why (a page of headings or a bare "None" does not).
-- `recurring_dates_in_frontmatter`: every `MM-DD` on the roll-up is a page's `recurring` date; every `recurring`
-  entry reads `{date: MM-DD, note}`, with a day the month has and a note; and the roll-up shows each by its own
-  `MM-DD` (a `YYYY-MM-DD` on the same day does not show it).
+**The Deadlines page may hold only what the roll-up renders from the pages' frontmatter; every other line is
+reported.** No date is looked for in the page's text, so no shape of hand-kept date can be missed or mistaken for
+rendered output. The page is read against the roll-up's output grammar instead:
+
+1. Each page the roll-up reads (every entry named `*.md` under the wiki folder, dot folders and dot files included, but
+   not its derived pages by name, `Index`, `Log`, `Deadlines`, `Coming Events`, `Open Questions`, `Schema` and
+   `Conventions`, nor a `.proposed.md` or `.superseded.md` sibling) is read by the frontmatter subset below, and what
+   the roll-up could write is worked out from it (superseded pages left out). The roll-up lists by name alone: a
+   folder or a link to one named `*.md` is a page it cannot read (`unreadable: IsADirectoryError`), and a malformed
+   page inside a section the Schema marks derived is listed like any other, since the roll-up knows no Schema:
+   - the entries `(date, note, page)`: each `recurring` item gives its month and day, each `deadline` its date (its
+     first ten characters) with its `deadline_note`, each `deadlines` item its date, the note being what YAML reads,
+     with its whitespace collapsed;
+   - the lines of its "Could not read" list, in its exact wording, **each as many times as the roll-up writes it**
+     (one the page lacks is reported too, as an incomplete page):
+     `- <page> (unreadable: <exception class>)` for a page that cannot be read (a file that is not UTF-8),
+     `- <page> (malformed frontmatter)` for one the roll-up cannot read as a mapping whatever YAML says (below), and
+     `- <page> (unreadable recurring date: <the first 60 characters of the item as Python writes it>; <the way to write
+     it>)` for each `recurring` item it refuses, a quoted bare item staying a string and a quoted empty value `''`.
+
+   One predicate says which pages the roll-up reads, and it is the roll-up's own: every page that reads, bar those
+   named above, **whatever its `provenance`** (the roll-up skips none), so a page with `provenance: manual` or
+   `calendar` is a source for what the page may hold and for what it must show alike.
+
+**The frontmatter subset.** Readiness reads a defined subset of the frontmatter, or says it did not. The subset is a
+fence at column 0 (`---`, the page's first line, closed by a line starting `---`), and between the fences:
+
+- plain `key: value` pairs at column 0, the key a word (`[A-Za-z_][A-Za-z0-9_-]*`);
+- a value that is a plain, single-quoted or double-quoted scalar (an empty quoted one is the empty string, not no
+  value; a double-quoted scalar's only escapes are `\"` and `\\`), a flow mapping `{date: ..., note: ...}` on one line,
+  or `[]`, or no value, which a block list under it may follow;
+- a block list, its items at one indent (column 0 included) each a flow mapping, a block mapping of plain `key: value`
+  pairs over its lines, or a bare scalar (a quoted bare item stays a string, never a date);
+- a trailing ` # comment` after a scalar or after a flow mapping's closing `}`, and whole-line comments;
+- in a flow mapping, an unquoted comma ends a value and what follows is a key of its own.
+
+Spaces are the only whitespace a plain scalar loses (a no-break space stays), as in YAML.
+
+Anything else makes the deadline check say `not verified: <page> uses YAML this check does not read (<construct>)`,
+which is neither a finding nor a pass and is listed in `not_verified` (`handoff_contract.frontmatter_read`). The
+constructs named are: indented frontmatter and a multi-line scalar, a `? ` key, a `...` marker, anchors, aliases and
+tags, `|` and `>` scalars, a flow mapping over several lines or with a comment inside, a flow sequence, a nested flow or
+block collection, a quoted `status`, a quoted key or a key that is not a plain word, a colon and space inside a plain
+scalar, an unclosed quote or text after a quoted scalar, a double-quoted escape other than `\"` and `\\`, a tab for
+indentation, a directive, list items at different indents, a line over 20,000 characters, a block over 200,000,
+text after the opening fence, a plain value YAML reads as a bool, null, number, time or date (below), and what PyYAML
+refuses, so that the roll-up lists the page as malformed, which a read of the plain text would take for fine: a tab
+anywhere but a quoted value's own, a control character or any character YAML's reader refuses, a line break that is not
+a newline (U+0085, U+2028, U+2029), a plain value that opens with `]`, `}` or `,`, `<<` or `=` as a value or a key
+(neither has a constructor), and in a flow mapping a `?` inside a plain scalar or a plain scalar that opens with `?`,
+`:`, `#` or a dash and a space. While any
+page is out of scope only the judgements that depend on reading it are withheld: whether an entry is backed by the
+pages, and how often and why the roll-up lists that page under "Could not read" (a line there naming it is accepted
+when it is in the roll-up's error-line grammar, `malformed frontmatter` or a refused recurring date, since it was read as
+text and is not unreadable). The rest is still judged, because it does not depend on the YAML: every line of the
+Deadlines page outside the roll-up's grammar, a "Could not read" line outside the error-line grammar or naming a page
+the roll-up does not read, the lines the other pages give, an entry's date form, an unreadable date, a duplicated
+line, the Deadlines page's own frontmatter.
+
+A frontmatter is `malformed` only for what needs no YAML reader to see: a fence that never closes, a list where the
+keys should be (the first line is a `-` item), bare words with no colon anywhere, or a plain scalar PyYAML matches as a
+date or a number and cannot build, whichever key holds it (`2025-02-30`, `2025-01-31 25:00:00`, `0b_`), so that the
+roll-up lists the page as malformed. What
+PyYAML would read but the subset does not is out of scope, never malformed.
+
+**A plain scalar PyYAML reads as anything but text is out of scope.** The roll-up writes the value YAML gives, not
+the text the page holds (`note: yes` is written `True`, `12:30` is `750`, `2025-01-31` a date), and the check has only
+the text. So an unquoted scalar that PyYAML's resolver turns into a bool (`yes`, `no`, `on`, `off`, `true`, `false`,
+and `y` and `n`, which YAML 1.1 reads so, in any case), a null (`null`, `~`), a number (a decimal, `0x1F`, `0b1`,
+`0405`, `1_000`, `1.5`, `.inf`), a time (`12:30`, a sexagesimal number), a date, `<<` or `=` is named as `a plain value
+YAML reads as <bool|null|number|time|date|merge key|value>`, wherever the roll-up shows a value: a `note`, a
+`deadline_note`, any other value in a mapping that holds one. A quoted scalar is always text, and `yes please`,
+`12:30 sharp` and `04-05` are text. A key the roll-up never writes (`title: yes`) is not judged. An empty plain value
+is no value. A `date`, a bare list item and `deadline` keep their own reading for the values it can give exactly: a
+calendar day, a bool, a null, a decimal whole number or float (so `{date: yes}` is a recurring item the roll-up refuses,
+shown as `{'date': True}`); any other kind is out of scope as above. The suite checks the rule against a copy of
+PyYAML's own resolver patterns over every short string of the characters that matter, so nothing within the subset is
+read otherwise than PyYAML reads it.
+
+2. The page is read line by line, against the order and the conditions the roll-up writes it in. Its frontmatter holds
+   `provenance: derived`, `status: current` and a `last-updated` day, once each, and nothing else, and all three are
+   required. The body is, in this order: the title `# Deadlines`, the italic intro, the empty-roll-up banner when there
+   is one, `## Upcoming` over its entries or over `_None._`, `## Every year` over its entries, `## Past` over its
+   entries, and `## Could not read` over its own intro and then its lines. A scaffold line stands only where the
+   roll-up puts it: the title first, the intro directly after it, the banner directly after the intro, a heading
+   after the one before it in this order, `_None._` only directly under `## Upcoming` and only while no page gives
+   a deadline to come, the list's intro once and directly under its heading. A heading with nothing under it is
+   reported (the roll-up writes one only over something). An entry stands under the heading its date belongs under:
+   a dated one under `## Upcoming` when it is not before the day written and under `## Past` when it is, a yearly one
+   under `## Every year`. The banner is required when every page is read and they give no entry (over the pages it
+   read), and is accepted only then. Every line under `## Could not read` other than the list's own intro goes through
+   the error-line grammar (`- <page> (<reason>)`, the page one the roll-up reads and the reason one of the three forms in
+   step 1) and, for a page that reads, is one in the set from step 1; a roll-up line moved under the heading is
+   hand-written content there. Blank lines are free; a line that appears twice is reported. The lines the roll-up
+   always writes are required, and so are those its entries or list make it write: the title, the intro, `## Upcoming`;
+   `## Every year` beside a yearly entry, `## Past` beside a past one, the intro line of a list that is there, and
+   `_None._` when no page gives a forward deadline (judged only while every page is read). A missing one is reported as
+   an incomplete derived page naming it. The fixture's roll-up writes no em dash, so its intro puts a colon where the
+   reference roll-up puts the dash, as its entries do.
+3. An entry is `- **<date>**`, then the page titles and, when there is one, the note, each after a spaced em dash
+   (the reference deployment's roll-up), or `: <note>` (the fixture's roll-up), then ` (<links>)` ending the line. The links are read from
+   the end of the line, each `[<page path without .md, or its title>](<its path from the roll-up, percent-encoded>)`
+   to a different page of the wiki, so a page name holding brackets, `](` or a long encoded name is read by its own
+   text and no target length is capped. The titles are the linked pages' own, so a note is never guessed at.
+4. An entry is clean only when its date is in the form the roll-up writes (`<day> <Month name>`, no ordinal and no
+   leading zero, or `YYYY-MM-DD`) and its `(date, note, page)` is in the set from step 1, the dated ones by their full
+   date and the recurring ones by month and day, the note exactly. `04-05` or `April 5th` in an entry line is
+   hand-edited. One whose date no page carries is reported as that date, a `YYYY-MM-DD` no page's frontmatter carries
+   or a day and month no page's `recurring` list carries; one whose date is not a date the contract reads (`5-Apr`,
+   `5 Sept 26`) is an `unreadable yearly date`. Every other line is `hand-written content in a derived page`, with
+   its line number and its first forty characters (an invisible character shown by its code): a table, a heading or
+   a sentence of the page's own, a link or text added to an entry, a note or page the frontmatter does not give, a
+   date in link text, in separate cells, in another script or with a zero-width character in it, a line in the page's
+   frontmatter that the roll-up does not write, a line of "Could not read" it did not write. A `YYYY-MM-DD` on a line
+   that is no entry is also judged by the check on dated deadlines.
+
+Completeness is by date, not by entry: a page dropped from a folded line, or an entry deleted while its date shows
+elsewhere, is not reported. The roll-up regenerates the page, so readiness checks only that nothing hand-written is on
+it. Every search is bounded and each line is read in one pass, so a line of 100,000 characters costs a pass over it. A
+frontmatter `recurring` date is read as the reference deployment's roll-up reads it, so both sides accept the same spellings:
+`MM-DD`, month first, two digits each; or a day and a month name, the day first or the month first (`5 April`,
+`April 5`), the name in full, its first three letters or `sept`, in any case, the day with an optional lower-case
+ordinal (`5th Apr`). Any other numeric form (`6/4`, `4-5`) is refused, as is a day the month cannot have (`31
+April`); 29 February is a date. The roll-up shows the month in words, so a numeric `MM-DD` written the wrong way round
+shows on the page. The sources are the pages that are not `superseded`. The grammar's text is checked against the
+real roll-up: `tests/rollups/` holds the pages the reference deployment's roll-up rendered for a plain wiki, an empty one with its banner, a
+recurring-only one, one with a "Could not read" list, one of page names holding brackets and long encoded targets, one
+of the YAML rules (a comma, a comment, a comment after `}`, block items), one of refused items (a quoted empty value, a
+quoted bare item, the same item twice) and one of pages under a dot folder and of `.superseded.md` and `.proposed.md`
+siblings; each must read clean (`rollups/capture.py` refreshes them).
+
+- `derived_pages_hold_nothing_hand_written`: the page holds only what the roll-up renders (above); every `YYYY-MM-DD`
+  on it is a page's `deadline` or `deadlines` date (`YYYY-MM-DD` or `{date, note}`); the roll-up shows every such
+  date of a page the roll-up reads that is not before its `last-updated` (one before it is past, not forward), and a
+  `last-updated` after today, by the tools' clock, is a finding, forward then being judged from today; a deadline
+  entry that is not a real `YYYY-MM-DD`, bare or in `{date, note}`, is a finding; and a roll-up with nothing to show
+  (no forward deadline and no recurring date) in a wiki of derived pages says why (a page of headings or a bare
+  "None" does not).
+- `recurring_dates_in_frontmatter`: every yearly date on the roll-up is a page's `recurring` date and none is
+  unreadable; every `recurring` entry reads `{date, note}`, the date as `MM-DD` (month first) or a day and a month
+  name, a day the month has, with a note; and the roll-up lists each (a `YYYY-MM-DD` on the same day does not show
+  it).
 - `other_derived_pages`: another page the Schema marks derived (an open-questions list) shows no date its sources
   would settle, so it is named `not verified`, apart from the roll-up's result.
 

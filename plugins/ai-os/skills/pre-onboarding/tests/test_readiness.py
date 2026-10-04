@@ -27,9 +27,13 @@ TOOLS = os.path.realpath(os.path.join(HERE, "..", "tools"))
 sys.path.insert(0, TOOLS)
 import common  # noqa: E402
 import extract  # noqa: E402
+import readiness  # noqa: E402
 FIXTURE = os.path.join(HERE, "fixture", "Alex Personal")
 WIKI = "Alex Personal Wiki"
 DEADLINES = "01 Deadlines/01 Deadlines.md"
+GAP_CARD = "1; not verified for 3 document(s) whose card is malformed"
+FIXTURE_INTRO = ("_File-derived deadlines, rolled up deterministically from page frontmatter: do not hand-edit, "
+                 "regenerated each run. (Calendar events live in `Coming Events`.)_")
 TAX = "20 Finance/Tax.md"
 NOW = "1719748800"  # 2024-06-30T12:00:00Z, as regen_expected.py freezes it
 TERMS = "# fictional terms for the tests\nZarnwick Farm|Zarnwick\n"
@@ -124,6 +128,16 @@ class Prepared(unittest.TestCase):
         self.assertEqual([f[0] for f in res["findings"]], [check], json.dumps(res["findings"], indent=1))
         return res["findings"][0][1]
 
+    def refused_finding(self):
+        """The recurring finding of a page with a recurring item the roll-up refuses. The roll-up lists that item
+        under "Could not read", so a Deadlines page that lacks the line is an incomplete one, a finding beside it."""
+        found = dict(self.readiness(code=1)["findings"])
+        self.assertEqual(sorted(found), ["handoff_contract.derived_pages_hold_nothing_hand_written",
+                                         "handoff_contract.recurring_dates_in_frontmatter"])
+        self.assertIn("lacks 1 line(s) of the roll-up's \"Could not read\" list that the pages give (20 Finance/Tax.md "
+                      "(unreadable recurring date: ", found["handoff_contract.derived_pages_hold_nothing_hand_written"])
+        return found["handoff_contract.recurring_dates_in_frontmatter"]
+
     def edit(self, rel, old, new, count=1):
         p = self.path(*rel.split("/"))
         text = read(p)
@@ -166,12 +180,53 @@ class Prepared(unittest.TestCase):
               json.dumps(dict({"engine": engine, "checked_at": "2024-06-30T12:00:00+0000", "terms": 1}, **res)))
 
 
+ENGLISH_MONTHS = ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+                  "November", "December")
+
+
+class MonthDayTest(unittest.TestCase):
+    """`month_day` reads a yearly date as the reference roll-up's reader does, so both sides accept the same ones."""
+
+    def test_every_month_by_its_full_name_and_its_first_three_letters(self):
+        for number, name in enumerate(ENGLISH_MONTHS, 1):
+            for spelling in (name, name[:3], name.upper(), name.lower()):
+                self.assertEqual(readiness.month_day("5 " + spelling), "%02d-05" % number, spelling)
+                self.assertEqual(readiness.month_day(spelling + " 5"), "%02d-05" % number, spelling)
+
+    def test_the_spellings_a_person_writes(self):
+        for text, want in (("5 April", "04-05"), ("5th April", "04-05"), ("April 5", "04-05"), ("april 5th", "04-05"),
+                           ("5 Apr", "04-05"), ("1st Jan", "01-01"), ("2nd Feb", "02-02"), ("3rd March", "03-03"),
+                           ("4th May", "05-04"), ("Sept 9", "09-09"), ("9 Sept", "09-09"), ("9 sept", "09-09"),
+                           ("9 SEPT", "09-09"), ("9 Sep", "09-09"), ("  31 December ", "12-31"),
+                           ("29 February", "02-29"), ("Feb 29th", "02-29"), ("5   April", "04-05")):
+            self.assertEqual(readiness.month_day(text), want, text)
+
+    def test_mm_dd_is_month_first_with_two_digits_each(self):
+        for text in ("04-05", "06-04", "02-29", "12-31", " 01-31 "):
+            self.assertEqual(readiness.month_day(text), text.strip())
+        self.assertEqual(readiness.month_day("06-04"), "06-04", "month first: 4 June, not 6 April")
+
+    def test_any_other_numeric_form_is_refused(self):
+        for text in ("4-5", "6-4", "04-5", "4-05", "6/4", "06/04", "6.4", "06.04", "0405", "--04-05", "2026-04-05",
+                     "5 April 2026", "5", "April", "", "5 4"):
+            self.assertIsNone(readiness.month_day(text), text)
+
+    def test_a_day_the_month_cannot_have_is_refused(self):
+        for text in ("13-01", "00-10", "02-30", "04-31", "31 April", "30 February", "0 April", "April 32",
+                     "5 Smarch", "5 Sepember"):
+            self.assertIsNone(readiness.month_day(text), text)
+
+    def test_a_full_stop_after_the_month_is_not_a_spelling_the_roll_up_reads(self):
+        for text in ("5 Apr.", "Sept. 5", "5 Sept."):
+            self.assertIsNone(readiness.month_day(text), text)
+
 class GreenTest(Prepared):
     def test_the_fixture_is_green(self):
         res = self.readiness(code=0)
         self.assertEqual(res["findings"], [])
         self.assertEqual([k for k, _v in res["not_verified"]], GREEN_UNVERIFIED)
-        self.assertEqual(res["records"], {"missing_extracts": 0, "missing_cards": 0, "bad_category": 0,
+        self.assertEqual(res["records"], {"missing_extracts": 0, "missing_cards": 0, "malformed_cards": 0,
+                                          "malformed_extracts": 0, "bad_category": 0,
                                           "extract_paths_stale": 0, "contamination": "not verified: no --terms"})
         self.assertEqual(res["wiki_handoff"], {"rationale_file": "ok", "pages_accepted": "12/12",
                                                "pages_not_accepted": 0, "pages_not_verified": 0,
@@ -243,14 +298,16 @@ class ContractTest(Prepared):
         self.assertEqual(self.one_finding("handoff_contract.fixed_pages"), "finding: missing 91 Log/91 Log.md")
 
     def test_a_date_written_by_hand_on_the_deadlines_page(self):
-        self.edit_page(DEADLINES, "passport expires ([10 Identity](../10%20Identity/10%20Identity.md))\n",
-                       "passport expires ([10 Identity](../10%20Identity/10%20Identity.md))\n"
+        self.edit_page(DEADLINES, "Passport P1234567 expires ([10 Identity](../10%20Identity/10%20Identity.md))\n",
+                       "Passport P1234567 expires ([10 Identity](../10%20Identity/10%20Identity.md))\n"
                        "- **2026-01-31**: renew the parking permit\n")
         detail = self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written")
-        self.assertIn("1 date(s) no current page's frontmatter carries (line 12: 2026-01-31)", detail)
+        self.assertIn("1 date(s) no current page's frontmatter carries (line 14: 2026-01-31)", detail)
+        self.assertIn("hand-written content in a derived page, 1 line(s) (line 14: - **2026-01-31**: renew the",
+                      detail)
 
     def test_a_page_deadline_missing_from_the_roll_up(self):
-        self.edit_page(DEADLINES, "- **2031-07-15**: passport expires "
+        self.edit_page(DEADLINES, "- **2031-07-15**: Passport P1234567 expires "
                        "([10 Identity](../10%20Identity/10%20Identity.md))\n", "")
         self.assertIn("lacks 1 page deadline(s) (2031-07-15 (10 Identity/10 Identity.md))",
                       self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written"))
@@ -265,15 +322,16 @@ class ContractTest(Prepared):
         self.accept_again(DEADLINES)
         self.assertIn("an empty roll-up that does not say why",
                       self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written"))
-        self.edit_page(DEADLINES, "None\n",
-                       "> [!warning]\n> The roll-up found no frontmatter deadlines across 11 pages.\n")
+        banner = "> [!warning]\n> The roll-up found no frontmatter deadlines across 11 pages.\n"
+        self.edit_page(DEADLINES, "None\n", "%s\n\n%s\n## Upcoming\n\n_None._\n" % (FIXTURE_INTRO, banner))
         self.readiness(code=0)
 
     def test_a_recurring_date_kept_by_hand(self):
         p = self.page(DEADLINES)
-        write(p, read(p) + "\n## Every year\n\n- **01-31**: self assessment return due\n")
+        write(p, read(p) + "\n## Every year\n\n"
+                           "- **31 January**: Self assessment return due ([Tax](../20%20Finance/Tax.md))\n")
         self.accept_again(DEADLINES)
-        self.assertIn("1 yearly date(s) no page's recurring: list carries (line 15: 01-31)",
+        self.assertIn("1 yearly date(s) no page's recurring: list carries (line 17: 01-31)",
                       self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
 
     def add_recurring(self, entry):
@@ -283,7 +341,7 @@ class ContractTest(Prepared):
         self.add_recurring("{date: 01-31, note: Self assessment return due}")
         p = self.page(DEADLINES)
         write(p, read(p) + "\n## Every year\n\n"
-                           "- **01-31**: self assessment return due ([Tax](../20%20Finance/Tax.md))\n")
+                           "- **31 January**: Self assessment return due ([Tax](../20%20Finance/Tax.md))\n")
         self.accept_again(DEADLINES)
         self.readiness(code=0)
 
@@ -294,8 +352,31 @@ class ContractTest(Prepared):
 
     def test_a_recurring_entry_not_month_and_day(self):
         self.add_recurring("{date: 2025-01-31, note: Self assessment return due}")
-        self.assertIn("1 recurring: entr(ies) not {date: MM-DD, note}",
-                      self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
+        self.assertIn("1 recurring: entr(ies) not {date, note} with a date as MM-DD (month first)",
+                      self.refused_finding())
+
+    def test_a_recurring_date_in_words_shown_in_words(self):
+        self.add_recurring("{date: 31 January, note: Self assessment return due}")
+        p = self.page(DEADLINES)
+        write(p, read(p) + "\n## Every year\n\n"
+                           "- **31 January**: Self assessment return due ([Tax](../20%20Finance/Tax.md))\n")
+        self.accept_again(DEADLINES)
+        self.readiness(code=0)
+
+    def test_a_recurring_date_written_sept_matches_the_roll_up(self):
+        self.add_recurring("{date: 5 Sept, note: School fees due}")
+        p = self.page(DEADLINES)
+        write(p, read(p) + "\n## Every year\n\n- **5 September**: School fees due ([Tax](../20%20Finance/Tax.md))\n")
+        self.accept_again(DEADLINES)
+        self.readiness(code=0)
+
+    def test_a_recurring_date_with_a_full_stop_is_refused(self):
+        self.add_recurring("{date: 5 Sept., note: School fees due}")
+        self.assertIn("1 recurring: entr(ies) not {date, note} with a date as MM-DD", self.refused_finding())
+
+    def test_an_ambiguous_numeric_yearly_date_is_refused(self):
+        self.add_recurring("{date: 31/1, note: Self assessment return due}")
+        self.assertIn("not {date, note} with a date as MM-DD", self.refused_finding())
 
     def test_gemini_md_reserved(self):
         self.edit_rulebook("`GEMINI.md`, ", "")
@@ -372,7 +453,9 @@ class RollUpTest(Prepared):
         self.accept_again(DEADLINES)
         self.assertIn("an empty roll-up that does not say why",
                       self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written"))
-        self.edit_page(DEADLINES, "None\n", "Nothing forward: the one page deadline, 2024-01-31, is past.\n")
+        self.edit_page(DEADLINES, "None\n", "%s\n\n## Upcoming\n\n_None._\n\n## Past\n\n"
+                       "- **2024-01-31**: Self assessment paid ([Tax](../20%%20Finance/Tax.md))\n"
+                       % FIXTURE_INTRO)
         self.readiness(code=0)
 
     def test_a_deadline_on_the_stamp_day_must_show(self):
@@ -394,7 +477,7 @@ class RollUpTest(Prepared):
         self.edit_page(DEADLINES, "last-updated: %s\n" % value, "last-updated: 2024-06-30\n")
 
     def test_a_deadline_entry_that_cannot_be_read(self):
-        for entry in ("20250131", "[2025-01-31]", "2025-02-30", "{date: 2025-02-30, note: No such day}"):
+        for entry in ("20250131", "2025-1-5", "{date: 20250131, note: No such day}"):
             with self.subTest(entry=entry):
                 self.add_frontmatter(TAX, "deadline: %s\n" % entry)
                 self.assertIn("1 deadline entr(ies) not a real YYYY-MM-DD or {date, note} (20 Finance/Tax.md: "
@@ -402,59 +485,95 @@ class RollUpTest(Prepared):
                               self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written"))
                 self.edit_page(TAX, "deadline: %s\n" % entry, "")
 
-    def test_list_items_that_open_with_no_month_and_day(self):
+    def test_a_day_the_calendar_does_not_have_is_a_frontmatter_the_roll_up_cannot_read(self):
+        """PyYAML cannot build `2025-02-30`, so the roll-up lists the page as malformed and reads none of it; the
+        Deadlines page that lacks that line is an incomplete one."""
+        for entry in ("2025-02-30", "{date: 2025-02-30, note: No such day}"):
+            with self.subTest(entry=entry):
+                self.add_frontmatter(TAX, "deadline: %s\n" % entry)
+                self.assertIn("lacks 1 line(s) of the roll-up's \"Could not read\" list that the pages give "
+                              "(20 Finance/Tax.md (malformed frontmatter))",
+                              self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written"))
+                self.edit_page(TAX, "deadline: %s\n" % entry, "")
+
+    def test_a_deadline_written_as_a_flow_sequence_is_not_read(self):
+        """The reader reads a defined subset of YAML; `[2025-01-31]` is outside it, so it is named, not judged."""
+        self.add_frontmatter(TAX, "deadline: [2025-01-31]\n")
+        res = self.readiness(code=0)
+        self.assertIn(["handoff_contract.frontmatter_read", "not verified: 20 Finance/Tax.md uses YAML this check does "
+                       "not read (a flow sequence)"], res["not_verified"])
+        self.assertEqual(res["findings"], [])
+
+    def test_a_page_with_yaml_outside_the_subset_is_not_verified_never_failed_or_passed(self):
+        """The Tax page uses an anchor: named in `not_verified`, no finding, the exit code the findings alone give."""
+        self.add_frontmatter(TAX, "recurring:\n  - &first {date: 5 April, note: Tax year ends}\n")
+        res = self.readiness(code=0)
+        self.assertIn(["handoff_contract.frontmatter_read", "not verified: 20 Finance/Tax.md uses YAML this check does "
+                       "not read (an anchor)"], res["not_verified"])
+        self.assertEqual(res["findings"], [])
+        self.assertEqual(res["summary"], {"findings": 0, "not_verified": len(res["not_verified"])})
+        self.assertNotIn("frontmatter_read", res["handoff_contract"])  # no key of its own: the report keeps its shape
+
+    def test_numbers_joined_by_a_dash_are_hand_written_content(self):
+        """Only what the roll-up renders is on the page, so a line of numbers is reported whatever it is."""
         self.add_to_roll_up("- 13-45 units of electricity\n- 01-31-2025 is not a month and day\n"
                             "- 01-3122 is a meter reading\n")
-        self.readiness(code=0)
+        detail = self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written")
+        self.assertIn("hand-written content in a derived page, 3 line(s) (line 14: - 13-45 units of electricity; "
+                      "line 15: - 01-31-2025 is not a month and day; line 16: - 01-3122 is a meter reading)", detail)
 
     def test_a_single_deadline_with_a_note(self):
         """wiki-maintenance's frontmatter table allows `deadline: {date, note}` as well as a bare date."""
         self.add_frontmatter(TAX, "deadline: {date: 2026-01-31, note: Self assessment payment}\n")
         self.assertIn("lacks 1 page deadline(s) (2026-01-31 (20 Finance/Tax.md))",
                       self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written"))
-        self.add_to_roll_up("- **2026-01-31**: self assessment payment ([Tax](../20%20Finance/Tax.md))\n")
+        self.add_to_roll_up("- **2026-01-31**: Self assessment payment ([Tax](../20%20Finance/Tax.md))\n")
         self.readiness(code=0)
 
-    def test_a_past_deadline_and_a_build_stamp(self):
-        """The roll-up lists forward dates: a deadline before its last-updated need not be shown, and its
-        last-updated written on it is a build stamp, not a hand-written date."""
+    def test_a_past_deadline_need_not_be_shown_but_a_date_added_to_the_page_is_reported(self):
+        """The roll-up lists forward dates: a deadline before its last-updated need not be shown."""
         self.add_frontmatter(TAX, "deadlines:\n  - {date: 2024-01-31, note: Self assessment paid}\n")
-        self.add_to_roll_up("\nBuilt from the pages' frontmatter on 2024-06-30.\n")
         self.readiness(code=0)
         self.add_to_roll_up("Checked again on 2024-07-01.\n")
-        self.assertIn("(line 14: 2024-07-01)",
+        detail = self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written")
+        self.assertIn("1 date(s) no current page's frontmatter carries (line 14: 2024-07-01)", detail)
+        self.assertIn("hand-written content in a derived page, 1 line(s) (line 14: Checked again on 2024-07-01.)",
+                      detail)
+
+    def test_a_page_range_in_prose_is_hand_written_content(self):
+        self.add_to_roll_up("\nSee pages 10-12 of the lease.\n\n- See pages 10-12 of the lease too.\n")
+        self.assertIn("hand-written content in a derived page, 2 line(s) (line 15: See pages 10-12 of the lease.; "
+                      "line 17: - See pages 10-12 of the lease too.)",
                       self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written"))
 
-    def test_month_and_day_in_prose_is_not_a_date(self):
-        self.add_to_roll_up("\nSee pages 10-12 of the lease.\n\n- See pages 10-12 of the lease too.\n")
-        self.readiness(code=0)
-
-    def test_a_recurring_date_in_a_table_cell(self):
+    def test_a_recurring_date_in_a_table_is_hand_written_content(self):
         self.add_to_roll_up("\n| Every year | What |\n| --- | --- |\n| **01-31** | self assessment return due |\n")
-        self.assertIn("(line 15: 01-31)", self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
+        self.assertIn("hand-written content in a derived page, 3 line(s) (line 15: | Every year | What |; "
+                      "line 16: | --- | --- |; line 17: | **01-31** | self assessment return due...)",
+                      self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written"))
 
     def test_a_recurring_entry_needs_a_real_day_and_a_note(self):
         self.add_frontmatter(TAX, "recurring:\n  - {date: 02-30, note: No such day}\n")
-        self.assertIn('{"date": "02-30", "note": "No such day"}',
-                      self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
+        self.assertIn("(20 Finance/Tax.md: {date: 02-30, note: No such day})", self.refused_finding())
         self.edit_page(TAX, "{date: 02-30, note: No such day}", "{date: 02-28}")
         self.assertIn("{date: 02-28}", self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
         self.edit_page(TAX, "{date: 02-28}", "{date: 02-29, note: Leap day review}")
-        self.add_to_roll_up("\n## Every year\n\n- **02-29**: leap day review ([Tax](../20%20Finance/Tax.md))\n")
+        self.add_to_roll_up("\n## Every year\n\n- **29 February**: Leap day review ([Tax](../20%20Finance/Tax.md))\n")
         self.readiness(code=0)
 
     def test_a_recurring_date_is_shown_only_by_its_own_month_and_day(self):
-        self.add_frontmatter(TAX, "deadline: 2026-01-31\nrecurring:\n  - {date: 01-31, note: Return due}\n")
-        self.add_to_roll_up("- **2026-01-31**: self assessment return due ([Tax](../20%20Finance/Tax.md))\n")
+        self.add_frontmatter(TAX, "deadline: 2026-01-31\ndeadline_note: Self assessment return due\n"
+                                  "recurring:\n  - {date: 01-31, note: Return due}\n")
+        self.add_to_roll_up("- **2026-01-31**: Self assessment return due ([Tax](../20%20Finance/Tax.md))\n")
         self.assertIn("lacks 1 recurring date(s) (01-31 (20 Finance/Tax.md))",
                       self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
 
     def test_a_superseded_page_has_no_deadline_on_the_roll_up(self):
         home = "30 Home/30 Home.md"
         self.edit_page(home, "status: current", "status: superseded")
-        self.assertIn("no current page's frontmatter carries (line 10: 2025-04-30)",
+        self.assertIn("no current page's frontmatter carries (line 12: 2025-04-30)",
                       self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written"))
-        self.edit_page(DEADLINES, "- **2025-04-30**: lease ends ([30 Home](../30%20Home/30%20Home.md))\n", "")
+        self.edit_page(DEADLINES, "- **2025-04-30**: Lease ends ([30 Home](../30%20Home/30%20Home.md))\n", "")
         self.readiness(code=0)
 
     def test_another_derived_page_is_reported_apart(self):
@@ -558,8 +677,7 @@ class FindingTest(Prepared):
         write(p, json.dumps(dict(json.loads(read(p)), path="04 Study/Old notes.rtf")))
         detail = self.one_finding("records.extract_paths_stale")
         self.assertIn("'04 Study/Old notes.rtf' is now '04 Study/Notes.rtf'", detail)
-        self.assertIn("repath them: extract.py repath --root %s --work %s --apply"
-                      % (shlex.quote(self.root), shlex.quote(self.work)), detail)
+        self.assertIn("repath them: extract.py repath --root <root> --work <work> --apply", detail)
 
     def test_a_missing_extract_record(self):
         os.remove(self.path("_Audit", "extract", self.ids()["06 Work/Contract.docx"] + ".json"))
@@ -624,25 +742,292 @@ class FindingTest(Prepared):
 
     def test_a_wiki_check_problem(self):
         self.edit_page(TAX, "Nothing is due:", "Nothing is due \u2014")
-        self.assertEqual(self.one_finding("wiki.problems"), "wiki.py check reports 1 problem(s)")
+        self.assertEqual(self.one_finding("wiki.problems"), "wiki.py check reports 1 problem(s); 1 backticked "
+                         "path(s) were not checked against the folder (a pattern, or outside the live folders)")
+
+    def test_a_dead_path_with_brackets_is_a_problem_beside_the_unchecked_count(self):
+        """A missing path is a problem even when its name holds `[` or `?`; the paths a run could not check are
+        counted next to the problems, in the finding and in the wiki block, not only as a not-verified string."""
+        self.edit_page(TAX, "Nothing is due:", "Nothing is due (see `02 Finance/Statement [final].pdf` and "
+                       "`02 Finance/Statement*/`):")
+        res = self.readiness(code=1)
+        self.assertEqual(res["findings"], [["wiki.problems", "wiki.py check reports 1 problem(s); 2 backticked "
+                                            "path(s) were not checked against the folder (a pattern, or outside the "
+                                            "live folders)"]])
+        self.assertEqual((res["wiki"]["problems"], res["wiki"]["backticked_paths_unchecked"]), (1, 2))
+
+    def plant_bad_records(self):
+        """Four extract records of four kinds (not JSON, not UTF-8, pages not a list, not an object) and three
+        cards of three kinds, with a bad category and a stale path planted among the readable ones."""
+        ids = self.ids()
+        for doc, raw in (("06 Work/Essay.docx", b"{"), ("06 Work/Contract.docx", b"\xff\xfe\x00"),
+                         ("03 Home/Lease renewal.pdf", None), ("04 Study/Slides.pptx", b"[]")):
+            p = self.path("_Audit", "extract", ids[doc] + ".json")
+            if raw is None:
+                raw = json.dumps(dict(json.loads(read(p)), pages="none")).encode()
+            with open(p, "wb") as f:
+                f.write(raw)
+        for doc, change in (("04 Study/Notes.rtf", "["), ("02 Finance/Bank statement 2024-03.pdf", "[]"),
+                            ("03 Home/Lease notes .txt", "sensitive")):
+            p = self.card(doc)
+            write(p, json.dumps(dict(json.loads(read(p)), sensitive="yes")) if change == "sensitive" else change)
+        p = self.card("04 Study/Cours de fran\u00e7ais.pdf")
+        write(p, json.dumps(dict(json.loads(read(p)), category="Hobbies"), indent=1))
+        p = self.path("_Audit", "extract", ids["01 Identity/Passport scan.pdf"] + ".json")
+        write(p, json.dumps(dict(json.loads(read(p)), path="01 Identity/Old scan.pdf")))
+
+    def test_every_malformed_card_is_counted_and_the_other_checks_still_run(self):
+        """Every malformed card is counted and named, and the other checks still run: stopping at the first one
+        hid how many a folder held (a real prepared folder had 67)."""
+        self.plant_bad_records()
+        os.remove(self.path("_Audit", "extract", self.ids()["03 Home/Lease notes .txt"] + ".json"))  # card and extract
+        res = self.readiness(code=1)
+        self.assertEqual({k: res["records"][k] for k in ("malformed_cards", "bad_category", "missing_extracts")},
+                         {"malformed_cards": 3, "bad_category": GAP_CARD, "missing_extracts": 1})
+        detail = dict(res["findings"])["records.malformed_cards"]
+        self.assertTrue(detail.startswith("3 card(s) not in the card format"), detail)
+        for doc in ("04 Study/Notes.rtf", "02 Finance/Bank statement 2024-03.pdf", "03 Home/Lease notes .txt"):
+            self.assertIn(doc, detail)
+        self.assertIn("04 Study/Cours de fran\u00e7ais.pdf: 'Hobbies'", dict(res["findings"])["records.bad_category"])
+        self.assertIn("03 Home/Lease notes .txt", dict(res["findings"])["records.missing_extracts"])
+
+    def test_a_card_malformed_in_an_unrelated_field_leaves_its_category_not_verified(self):
+        """`sensitive` as a string fails the whole card, so its category was never looked at: a clean 0 was wrong."""
+        p = self.card("04 Study/Notes.rtf")
+        write(p, json.dumps(dict(json.loads(read(p)), sensitive="yes")))
+        res = self.readiness(code=1)
+        gap = "not verified for 1 document(s) whose card is malformed"
+        self.assertEqual((res["records"]["malformed_cards"], res["records"]["bad_category"]), (1, gap))
+        self.assertIn(["records.bad_category", gap], res["not_verified"])
+        self.assertEqual([k for k, _v in res["findings"]], ["records.malformed_cards"])
+        p = self.card("04 Study/Cours de fran\u00e7ais.pdf")  # a readable card whose category is wrong is still found
+        write(p, json.dumps(dict(json.loads(read(p)), category="Hobbies"), indent=1))
+        res = self.readiness(code=1)
+        self.assertEqual(res["records"]["bad_category"], "1; " + gap)
+        self.assertIn("records.bad_category", [k for k, _v in res["findings"]])
+
+    def test_an_extract_record_whose_id_is_not_its_documents_is_malformed(self):
+        """`extract.py repath` refuses such a record, so the readiness count must not read it clean."""
+        for change, shown in ((lambda r: dict(r, id="0" * 64), "'%s'" % ("0" * 64)),
+                              (lambda r: {k: v for k, v in r.items() if k != "id"}, "None"),
+                              (lambda r: dict(r, id=5), "5")):
+            with self.subTest(shown=shown):
+                p = self.path("_Audit", "extract", self.ids()["06 Work/Contract.docx"] + ".json")
+                original = read(p)
+                write(p, json.dumps(change(json.loads(original))))
+                res = self.readiness(code=1)
+                self.assertEqual(res["records"]["malformed_extracts"], 1)
+                detail = dict(res["findings"])["records.malformed_extracts"]
+                self.assertIn("06 Work/Contract.docx: ", detail)
+                self.assertIn("its id is %s" % shown, detail)
+                write(p, original)
+
+    def test_every_malformed_extract_record_is_counted_and_the_other_checks_still_run(self):
+        """An extract record that is not JSON, not UTF-8, not an object or holds pages that are not a list ends no
+        check: each is counted and named, and the checks after it still run."""
+        self.plant_bad_records()
+        res = self.readiness(code=1)
+        self.assertEqual(res["records"]["malformed_extracts"], 4)
+        detail = dict(res["findings"])["records.malformed_extracts"]
+        self.assertTrue(detail.startswith("4 extract record(s) not in the extract format; remove each and run "
+                                          "extract.py again ("), detail)
+        self.assertNotIn(self.root, detail, "a document is named by its path in the folder, never an absolute path")
+        for doc, why in (("06 Work/Essay.docx", "not valid JSON"), ("06 Work/Contract.docx", "not valid JSON"),
+                         ("03 Home/Lease renewal.pdf", "pages must be a list"),
+                         ("04 Study/Slides.pptx", "expected a JSON object")):
+            self.assertIn("%s: %s" % (doc, why), detail)
+        self.assertEqual(res["records"]["bad_category"], GAP_CARD)  # the check after the bad records still ran
+        self.assertEqual(res["records"]["malformed_cards"], 3)
+        self.assertEqual(res["records"]["missing_extracts"], 0, "a record that is there is not missing")
+        self.assertEqual(sorted(k for k, _v in res["findings"]),
+                         ["records.bad_category", "records.extract_paths_stale", "records.malformed_cards",
+                          "records.malformed_extracts"])
+
+    def test_an_extract_page_with_a_null_number_is_counted_not_a_crash(self):
+        """`full_text` formats the page number, so a null one ended a `--terms` run (exit 2) before anything was
+        counted; the loader refuses it, and it is counted like any malformed record."""
+        terms = os.path.join(self.tmp, "terms.txt")
+        write(terms, TERMS)
+        p = self.path("_Audit", "extract", self.ids()["06 Work/Contract.docx"] + ".json")
+        write(p, json.dumps(dict(json.loads(read(p)), pages=[{"n": None, "text": "x"}])))
+        res = self.readiness("--terms", terms, code=1)
+        self.assertEqual(res["records"]["malformed_extracts"], 1)
+        self.assertIn("06 Work/Contract.docx: page 1 must be an object whose n is a whole number",
+                      dict(res["findings"])["records.malformed_extracts"])
+
+    def test_an_unreadable_record_is_named_by_its_path_in_the_folder(self):
+        """A record that is a folder, or has no read permission, names the file as the folder holds it: no finding
+        carries the absolute path of the machine it was run on."""
+        ids = self.ids()
+        extract = self.path("_Audit", "extract", ids["06 Work/Contract.docx"] + ".json")
+        card = self.card("04 Study/Notes.rtf")
+        for p in (extract, card):
+            os.remove(p)
+            os.mkdir(p)
+        locked = self.path("_Audit", "extract", ids["04 Study/Slides.pptx"] + ".json")
+        os.chmod(locked, 0)
+        self.addCleanup(os.chmod, locked, 0o644)
+        res = self.readiness(code=1)
+        found = dict(res["findings"])
+        self.assertIn("06 Work/Contract.docx: cannot read _Audit/extract/", found["records.malformed_extracts"])
+        self.assertIn("04 Study/Notes.rtf: cannot read _Audit/cards/", found["records.malformed_cards"])
+        self.assertEqual(res["records"]["malformed_extracts"], 1 if os.access(locked, os.R_OK) else 2)
+        self.assertNotIn(self.root, json.dumps(res["findings"]))
+
+    def test_the_repath_advice_says_what_repath_refuses(self):
+        """`extract.py repath` refuses a record that is not valid JSON, not an object or without its id and path; it
+        runs beside one whose pages are the wrong shape. The advice says exactly that, and puts those first."""
+        ids = self.ids()
+        p = self.path("_Audit", "extract", ids["04 Study/Notes.rtf"] + ".json")
+        write(p, json.dumps(dict(json.loads(read(p)), path="04 Study/Old notes.rtf")))
+        self.assertIn("; repath them: extract.py repath", dict(self.readiness(code=1)["findings"])[
+            "records.extract_paths_stale"])
+        shape = self.path("_Audit", "extract", ids["03 Home/Lease renewal.pdf"] + ".json")
+        write(shape, json.dumps(dict(json.loads(read(shape)), pages="none")))
+        code, _out, _err = run("extract.py", "repath", "--root", self.root, "--work", self.work)
+        self.assertEqual(code, 0, "a record whose pages are the wrong shape does not stop repath")
+        broken = self.path("_Audit", "extract", ids["06 Work/Contract.docx"] + ".json")
+        write(broken, "{")
+        detail = dict(self.readiness(code=1)["findings"])["records.extract_paths_stale"]
+        self.assertIn("; repath refuses a record that is not valid JSON, not a JSON object, or without its id and "
+                      "path, so remove or redo any such malformed extract record first, then repath them: "
+                      "extract.py repath", detail)
+        code, _out, err = run("extract.py", "repath", "--root", self.root, "--work", self.work, "--apply")
+        self.assertEqual(code, 2, "the advice is right: repath refuses beside a record that is not JSON")
+        self.assertIn("cannot repath", err)
+
+    def test_a_record_nested_too_deeply_is_counted_not_a_crash(self):
+        """200,000 opening brackets raise RecursionError in the JSON reader; readiness exited 2 having counted
+        nothing, for an extract record and for a card alike."""
+        ids = self.ids()
+        write(self.path("_Audit", "extract", ids["06 Work/Contract.docx"] + ".json"), "[" * 200000)
+        write(self.card("04 Study/Notes.rtf"), "[" * 200000)
+        res = self.readiness(code=1)
+        self.assertEqual((res["records"]["malformed_extracts"], res["records"]["malformed_cards"]), (1, 1))
+        found = dict(res["findings"])
+        self.assertIn("06 Work/Contract.docx: not valid JSON (", found["records.malformed_extracts"])
+        self.assertIn("04 Study/Notes.rtf: ", found["records.malformed_cards"])
+
+    def test_no_finding_carries_a_path_of_this_machine(self):
+        """Every finding and every not-verified state of a run that raises most of them, with an explicit manifest."""
+        terms = os.path.join(self.tmp, "terms.txt")
+        write(terms, TERMS)
+        self.plant_bad_records()
+        self.canary("codex", reply="<term>", hits=1, usage={}, **{"pass": False})
+        shutil.move(self.path("04 Study", "Slides.pptx"), self.path("04 Study", "Gone.pptx"))
+        os.remove(self.path("_Audit", "wiki-rationale.md"))
+        os.makedirs(self.path("_Audit", "scratch"))
+        self.edit_rulebook("`GEMINI.md`, ", "")
+        self.edit_page(TAX, "Nothing is due:", "Nothing is due \u2014")
+        self.edit_page(TAX, "status: current\n", "status: current\nrecurring:\n"
+                       "  - {date: 2025-01-31, note: Self assessment return due}\n")
+        res = self.readiness("--terms", terms, "--manifest", self.path("_Audit", "manifest.json"), code=1)
+        keys = {k for k, _v in res["findings"]}
+        self.assertTrue({"records.extract_paths_stale", "records.malformed_extracts", "records.malformed_cards",
+                         "isolation.canary.codex", "manifest.live_paths_missing", "wiki.problems",
+                         "wiki_handoff.rationale_file", "scratch.left_in_audit",
+                         "handoff_contract.recurring_dates_in_frontmatter",
+                         "handoff_contract.rulebook_reserves_rulebook_filenames"} <= keys, keys)
+        text = json.dumps(res["findings"] + res["not_verified"], ensure_ascii=False)
+        for here in {self.root, self.work, self.tmp, os.path.realpath(self.root), os.path.realpath(self.work)}:
+            self.assertNotIn(here, text)
+        self.assertIn("--manifest <manifest>", dict(res["findings"])["records.extract_paths_stale"])
+
+    def test_a_check_that_needed_a_malformed_extract_record_is_not_verified(self):
+        """The stale-path check reads each record's path, so a record it could not read is not verified, never a
+        clean count; the paths it could read still count."""
+        self.plant_bad_records()
+        res = self.readiness(code=1)
+        gap = "not verified for 4 document(s) whose extract record is malformed"
+        self.assertEqual(res["records"]["extract_paths_stale"], "1; " + gap)
+        self.assertIn(["records.extract_paths_stale", "1; " + gap], res["not_verified"])
+        self.assertIn("1 extract record(s) whose path the manifest no longer holds",
+                      dict(res["findings"])["records.extract_paths_stale"])
+        p = self.path("_Audit", "extract", self.ids()["01 Identity/Passport scan.pdf"] + ".json")
+        write(p, json.dumps(dict(json.loads(read(p)), path="01 Identity/Passport scan.pdf")))  # none stale now
+        res = self.readiness(code=1)
+        self.assertEqual(res["records"]["extract_paths_stale"], gap)
+        self.assertIn(["records.extract_paths_stale", gap], res["not_verified"])
+
+    def test_contamination_is_not_verified_for_a_document_with_a_malformed_card_or_extract(self):
+        """A malformed card, or one whose extract record is malformed, cannot be checked for a term its source
+        lacks: its count reads not verified, not a clean 0."""
+        terms = os.path.join(self.tmp, "terms.txt")
+        write(terms, TERMS)
+        self.plant_bad_records()  # 3 malformed cards and 4 malformed extract records, on 7 different documents
+        res = self.readiness("--terms", terms, code=1)
+        gap = "not verified for 7 document(s) whose card or extract record is malformed"
+        self.assertEqual(res["records"]["contamination"], gap)
+        self.assertIn(["records.contamination", gap], res["not_verified"])
+
+    def test_contamination_is_not_verified_for_a_document_with_no_card_and_a_malformed_extract(self):
+        """No card is a finding of its own, and the terms check needed the card and the extract: a clean 0 was wrong."""
+        terms = os.path.join(self.tmp, "terms.txt")
+        write(terms, TERMS)
+        os.remove(self.card("06 Work/Essay.docx"))
+        write(self.path("_Audit", "extract", self.ids()["06 Work/Essay.docx"] + ".json"), "{")
+        res = self.readiness("--terms", terms, code=1)
+        self.assertEqual(res["records"]["contamination"],
+                         "not verified for 1 document(s) whose card or extract record is malformed")
+        self.assertEqual((res["records"]["missing_cards"], res["records"]["malformed_extracts"]), (1, 1))
+
+    def test_a_contamination_found_beside_a_document_not_verified(self):
+        terms = os.path.join(self.tmp, "terms.txt")
+        write(terms, TERMS)
+        p = self.card("02 Finance/Tax/Tax return 2023.pdf")
+        card = json.loads(read(p))
+        write(p, json.dumps(dict(card, summary=card["summary"] + " Reviewed at Zarnwick Farm."), indent=1))
+        write(self.card("06 Work/Contract.docx"), "[]")
+        res = self.readiness("--terms", terms, code=1)
+        self.assertEqual(res["records"]["contamination"],
+                         "1; not verified for 1 document(s) whose card or extract record is malformed")
+        self.assertIn("02 Finance/Tax/Tax return 2023.pdf", dict(res["findings"])["records.contamination"])
 
     def test_tool_errors_exit_2(self):
-        p = self.card("06 Work/Contract.docx")
-        write(p, "[]")
-        self.assertIn("malformed card", self.refused())
-        os.remove(p)
         self.canary("agy", reply="NONE")  # no pass recorded
         self.assertIn("is not a canary result for agy", self.refused())
         os.remove(self.path("_Audit", "manifest.json"))
         self.assertIn("manifest missing", self.refused())
 
     def test_a_crash_exits_2_never_1(self):
-        """Exit 1 means findings, so an unforeseen failure (here a page that is not UTF-8) is a tool error."""
-        with open(self.page(TAX), "ab") as f:
+        """Exit 1 means findings, so an unforeseen failure (here a terms file that is not UTF-8) is a tool error."""
+        terms = os.path.join(self.tmp, "terms.txt")
+        with open(terms, "wb") as f:
             f.write(b"\xff\xfe")
-        got, _out, err = run("readiness.py", "--root", self.root, "--work", self.work)
+        got, _out, err = run("readiness.py", "--root", self.root, "--work", self.work, "--terms", terms)
         self.assertEqual(got, 2, err)
         self.assertIn("UnicodeDecodeError", err)
+
+    def test_a_deadlines_page_that_is_not_utf8_is_a_finding_not_a_crash(self):
+        """A hand-kept table saved by another editor, as UTF-16 or as Latin-1: through the real CLI every other check
+        still runs and the report names the page."""
+        page = self.page(DEADLINES)
+        text = read(page)
+        for encoding in ("utf-16", "latin-1"):
+            with self.subTest(encoding=encoding):
+                with open(page, "wb") as f:
+                    f.write((text + "\n| Fees | caf\u00e9 |\n").encode(encoding))
+                res = self.readiness(code=1)
+                found = dict(res["findings"])
+                self.assertIn("01 Deadlines/01 Deadlines.md cannot be read as UTF-8 text (UnicodeDecodeError)",
+                              found["handoff_contract.derived_pages_hold_nothing_hand_written"])
+                self.assertIn(DEADLINES, res["wiki"]["frontmatter_bad"])  # `wiki.py check` counted it too
+                self.assertEqual(res["records"]["missing_cards"], 0)  # the other checks ran
+                self.assertEqual(res["wiki"]["pages"], 12)
+                self.assertIn(["handoff_contract.recurring_dates_in_frontmatter",
+                               "not verified: 01 Deadlines/01 Deadlines.md cannot be read"], res["not_verified"])
+
+    def test_a_wiki_page_that_is_not_utf8_is_a_malformed_page_not_a_crash(self):
+        """The roll-up lists such a page as unreadable and `wiki.py check` counts it as one that does not conform:
+        readiness reports it and goes on, with every other check run."""
+        with open(self.page(TAX), "ab") as f:
+            f.write(b"\xff\xfe")
+        res = self.readiness(code=1)
+        self.assertIn(TAX, res["wiki"]["frontmatter_bad"])
+        self.assertEqual([k for k, _v in res["findings"]],
+                         ["wiki.problems", "wiki_handoff.pages_not_accepted",
+                          "handoff_contract.derived_pages_hold_nothing_hand_written"])
+        self.assertIn("(20 Finance/Tax.md (unreadable: UnicodeDecodeError))", res["findings"][-1][1])
 
 
 class RepathTest(Prepared):
@@ -667,7 +1052,8 @@ class RepathTest(Prepared):
     def test_dry_run_then_apply(self):
         before = read(self.record, "rb")
         self.move_and_audit(*self.MOVED)
-        command = shlex.split(self.one_finding("records.extract_paths_stale").split("repath them: ", 1)[1])
+        command = [x.replace("<root>", self.root).replace("<work>", self.work) for x in shlex.split(
+            self.one_finding("records.extract_paths_stale").split("repath them: ", 1)[1])]
         res = self.repath()
         self.assertEqual(res, {"records": 18, "applied": False, "paths_changed": 1, "already_current": 17,
                                "moves": [[self.eid, self.MOVED[0], self.MOVED[1]]], "departed_left": [],

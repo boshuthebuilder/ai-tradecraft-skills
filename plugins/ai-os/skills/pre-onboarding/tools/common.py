@@ -220,7 +220,7 @@ def read_json_object(path):
     try:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
-    except ValueError as e:
+    except (ValueError, RecursionError) as e:  # a record nested too deeply is malformed, never a crash
         raise ToolError("%s: not valid JSON (%s)" % (path, e))
     if not isinstance(data, dict):
         raise ToolError("%s: expected a JSON object" % path)
