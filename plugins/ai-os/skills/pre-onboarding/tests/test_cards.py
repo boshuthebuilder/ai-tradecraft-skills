@@ -24,6 +24,12 @@ import engines  # noqa: E402
 from fake_engines import Fakes, tool_env  # noqa: E402
 
 CATEGORIES = common.DEFAULTS["card_categories"]
+CARD_SCHEMA_PATH = os.path.join(TOOLS, "schemas", "card.json")
+with open(CARD_SCHEMA_PATH, encoding="utf-8") as _f:
+    CARD_SCHEMA_TEXT = _f.read().strip()
+CUT_STREAM = os.path.join(HERE, "fixtures", "agy", "agy-1.2.16-cut-stream.redacted.jsonl")
+CUT_STDERR = os.path.join(HERE, "fixtures", "agy", "agy-1.2.16-cut-stderr.redacted.txt")
+CUT = {"kind": "replay", "stdout": CUT_STREAM, "stderr": CUT_STDERR}
 TERMS = "# isolation terms for the tests (fictional)\nZarnwick Farm|Zarnwick\nOther Project\n"
 
 
@@ -52,7 +58,8 @@ def card_for(item_id, path="x.pdf", **changes):
 
 
 def sent_items(prompt):
-    return json.loads(prompt[prompt.index("\n", prompt.index("Input items (JSON")) + 1:])
+    """The items a call was sent: the first JSON value after the heading (agy's prompt carries its schema after it)."""
+    return json.JSONDecoder().raw_decode(prompt[prompt.index("\n", prompt.index("Input items (JSON")) + 1:])[0]
 
 
 def item_count(call):
@@ -373,6 +380,21 @@ class RunItemsTest(unittest.TestCase):
                     self.assertTrue(os.path.exists(os.path.join(self.tmp, "card_err_%s.txt" % it["id"])), it["id"])
                     os.remove(os.path.join(self.tmp, "card_err_%s.txt" % it["id"]))
 
+    def test_a_refused_or_cut_prompt_is_halved_at_once_without_same_size_retries(self):
+        """The same chunk is refused (or cut) the same way, so retrying it at its size spends calls that cannot
+        succeed; the halves can."""
+        for error in (engines.PromptTooLong("over the limit"), engines.PromptCut("agy cut it")):
+            with self.subTest(type(error).__name__):
+                engine, sink, items = StubEngine(error=error), {}, self.items(2)
+                cards.run_items(self.run_, engine, "I", items, None, self.log.append, sink)
+                self.assertEqual([c["n"] for c in engine.calls], [2, 1, 1])
+                self.assertEqual(sink, {})
+                self.assertTrue(any("halving at once" in line for line in self.log))
+                for it in items:
+                    path = os.path.join(self.tmp, "card_err_%s.txt" % it["id"])
+                    self.assertTrue(os.path.exists(path), it["id"])
+                    os.remove(path)
+
     def test_quota_and_run_stopping_errors_pass_straight_through(self):
         for error in (engines.QuotaError("quota", 60), engines.CredentialError("auth.json in state"),
                       engines.SetupError("codex not found")):
@@ -480,6 +502,43 @@ class BuildTest(CardsCliCase):
                          [("single", [doc])])
 
 
+    def test_agys_budgets_are_50000_characters_because_it_cuts_a_prompt_at_192000_bytes(self):
+        """A character of CJK text is three bytes of prompt, so 60,000 characters left the instructions no room under
+        the 180,000-byte limit: every document-sized budget defaults to 50,000 for agy, and a document over it is
+        read in sections. codex keeps its own."""
+        a = self.record("04 Study/A.pdf", ["\u5b66" * 30_000])
+        b = self.record("04 Study/B.pdf", ["\u4e60" * 30_000])
+        c = self.record("04 Study/C.pdf", ["\u5b66" * 55_000])
+        modes = lambda: sorted((bt["mode"], sorted(it["id"] for it in bt["items"])) for bt in self.batches().values())
+        code, _out, err = self.cards_py("build")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(modes(), sorted([("group", [a]), ("group", [b]), ("sections", [c])]),
+                         "two 30,000-character documents shared a 60,000-character batch, or the long one went whole")
+        shutil.rmtree(self.work)
+        code, _out, err = self.cards_py("build", "--engine", "codex")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(modes(), [("group", sorted([a, b, c]))])
+
+    def test_the_agy_budget_leaves_room_for_the_largest_card_prompt(self):
+        """The comment on AGY_BUDGET_CHARS as arithmetic: the budget in three-byte characters, beside the largest
+        call's own text (a generous household's instructions, a full batch's per-item frames and the card schema's
+        text, which agy is given in its prompt), stays under agy's limit. Raising the budget, growing the template or
+        the schema fails this before it fails a run."""
+        people = [{"name": "Person Number %d Example" % i, "also": ["Alias %d-%d" % (i, k) for k in range(4)],
+                   "who": "a relative of the owner, appearing on shared household papers"} for i in range(12)]
+        instr = cards.instructions(dict(common.DEFAULTS, people=people, folder_description="\u4e2d" * 2000))
+        frames = [{"id": "d%d" % k, "path": "p" * 400, "class": "document", "page_count": 100, "read": "text_layer",
+                   "text": ""} for k in range(1, 31)]
+        batch = engines.with_schema(engines.NO_TOOLS + instr + "\n\nInput items (JSON, 30 items):\n" +
+                                    json.dumps(frames, ensure_ascii=False), CARD_SCHEMA_PATH)
+        section = engines.NO_TOOLS + cards.SECTION_PROMPT.format(path="p" * 400, k=99, n=99, text="",
+                                                                 identifier_rule=cards.identifier_rule(common.DEFAULTS))
+        for name, prompt in (("a full batch", batch), ("a section", section)):
+            with self.subTest(name):
+                total = 3 * cards.AGY_BUDGET_CHARS + len(prompt.encode("utf-8"))
+                self.assertLessEqual(total, engines.AGY_MAX_PROMPT_BYTES, "%d bytes" % total)
+
+
 class WorkTest(CardsCliCase):
     def two_docs(self, text_a="Rent for the flat.", text_b="Council tax bill."):
         a = self.record("03 Home/Rent.pdf", [text_a])
@@ -487,6 +546,33 @@ class WorkTest(CardsCliCase):
         code, _out, err = self.cards_py("build")
         self.assertEqual(code, 0, err)
         return a, b
+
+    def test_a_tool_step_in_the_cards_lane_discards_the_reply_and_writes_no_card(self):
+        """The cards lane lets the model use no tool: agy's tool step, here an allowed read of the call's own folder
+        with a valid answer beside it, discards the reply, through the engine `work` itself builds. Reads are for the
+        vision lane alone."""
+        a, b = self.two_docs()
+        step = {"event": "step_update", "step_update": {"conversation_id": "c-1", "step_index": 2, "state": "DONE",
+                                                        "step_type": "tool", "tool_name": "view_file",
+                                                        "tool_info": {"name": "view_file",
+                                                                      "parameters": {"AbsolutePath": "p1.png"}}}}
+        self.fakes.script("agy", default={"kind": "text", "events": [step]})
+        code, _out, err = self.work_run("agy", "--terms", self.terms)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.written(), {}, "a card was written from a call whose model used a tool")
+        self.assertEqual(self.card_errors(), sorted("card_err_%s.txt" % i for i in (a, b)))
+        self.assertIn("tool use ['view_file']", read(os.path.join(self.work, "state", "card_err_%s.txt" % a)))
+
+    def test_a_cut_prompt_halves_the_work_at_once(self):
+        """The real stream of a cut prompt, as the first call's reply: the chunk is split in two and each half is
+        carded, with no retry of the same chunk, which would be cut again."""
+        a, b = self.two_docs()
+        self.fakes.script("agy", replies=[CUT], default={"kind": "text"})
+        code, _out, err = self.work_run("agy", "--terms", self.terms)
+        self.assertEqual(code, 0, err)
+        self.assertEqual([item_count(c) for c in self.fakes.calls("agy")], [2, 1, 1])
+        self.assertEqual(sorted(self.written()), sorted([a, b]))
+        self.assertEqual(self.card_errors(), [])
 
     def test_a_swapping_engine_is_rejected_and_halved_and_never_written(self):
         for engine in ("codex", "agy"):
@@ -515,8 +601,15 @@ class WorkTest(CardsCliCase):
                     self.assertTrue(c["prompt"].startswith(engines.NO_TOOLS))
                     self.assertNotIn(a, c["prompt"])
                     self.assertNotIn(b, c["prompt"])
-                schema = c["argv"][c["argv"].index("--output-schema" if engine == "codex" else "--json-schema") + 1]
-                self.assertEqual(os.path.basename(schema), "card_codex.json" if engine == "codex" else "card.json")
+                for c in calls:
+                    if engine == "codex":
+                        schema = c["argv"][c["argv"].index("--output-schema") + 1]
+                        self.assertEqual(os.path.basename(schema), "card_codex.json")
+                    else:
+                        # agy is asked for the shape in the prompt, after the items, never by flag
+                        self.assertNotIn("--json-schema", c["argv"])
+                        self.assertTrue(c["prompt"].endswith(
+                            "\n\nReply with JSON only, matching this JSON Schema exactly:\n" + CARD_SCHEMA_TEXT))
 
     def test_a_crossing_engine_is_rejected_and_halved_and_never_written(self):
         """Ids and order intact, contents crossed: only the sibling-identifier check can see it, and it halves at
@@ -764,10 +857,11 @@ class SectionsTest(CardsCliCase):
 
 
     def section_texts(self, engine="agy"):
-        """The text each section call was sent, in order, and every call's size on the wire in bytes."""
+        """The text each section call was sent, in order, and every call's prompt in UTF-8 bytes: the figure agy's
+        cut follows (measured on agy 1.2.16)."""
         calls = self.fakes.calls(engine)
         texts = [c["prompt"].split("SECTION TEXT:\n", 1)[1] for c in calls if "SECTION TEXT:" in c["prompt"]]
-        return texts, [len(c["stdin"].encode("utf-8")) for c in calls]
+        return texts, [len(c["prompt"].encode("utf-8")) for c in calls]
 
     def agy_work(self, doc_text):
         """A one-page document under agy's own defaults, built and carded; returns the document's id."""
@@ -788,8 +882,8 @@ class SectionsTest(CardsCliCase):
         doc = self.agy_work(text)
         texts, sizes = self.section_texts()
         self.assertGreaterEqual(len(texts), 5)
-        self.assertTrue(all(n <= engines.AGY_MAX_MESSAGE_BYTES for n in sizes), sizes)
-        self.assertTrue(all(len(t) <= 60_000 for t in texts), [len(t) for t in texts])
+        self.assertTrue(all(n <= engines.AGY_MAX_PROMPT_BYTES for n in sizes), sizes)
+        self.assertTrue(all(len(t) <= 50_000 for t in texts), [len(t) for t in texts])
         self.assertEqual("".join(texts), "[page 1]\n" + text, "every character must be sent exactly once")
         for t in texts:
             self.assertRegex(t, r"^(\[page 1\]\nParagraph \d+\. |\n\nParagraph \d+\. )", "a paragraph was cut")
@@ -802,14 +896,49 @@ class SectionsTest(CardsCliCase):
             self.assertIn("[section %d of %d] notes on" % (k, len(texts)), item["text"])
         self.assertNotIn("(unread)", item["text"])
 
+    def test_a_cjk_document_at_the_budget_is_carded_whole_and_one_over_it_in_sections(self):
+        """At the budget a document is one call of about 155,000 bytes; a document that a 60,000-character budget
+        would have sent whole is over agy's limit in bytes, and is read in sections instead of being refused."""
+        whole = self.record("04 Study/Notes.txt", ["\u5b66" * 49_991])  # 50,000 characters with its page marker
+        sectioned = self.record("04 Study/Reader.txt", ["\u4e60" * 59_991])  # 60,000
+        code, _out, err = self.cards_py("build")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(sorted((bt["mode"], bt["items"][0]["id"]) for bt in self.batches().values()),
+                         sorted([("group", whole), ("sections", sectioned)]))
+        self.fakes.script("agy", default={"kind": "text"})
+        code, _out, err = self.cards_py("work", "--engine", "agy", "--model", "fake-model", "--terms", self.terms)
+        self.assertEqual(code, 0, err)
+        sizes = [len(c["prompt"].encode("utf-8")) for c in self.fakes.calls("agy")]
+        self.assertTrue(sizes and all(n <= engines.AGY_MAX_PROMPT_BYTES for n in sizes), sizes)
+        self.assertEqual(sorted(self.written()), sorted([whole, sectioned]))
+        self.assertEqual(self.card_errors(), [])
+
     def test_a_page_with_no_paragraph_or_line_break_is_cut_by_characters(self):
         text = "学习" * 75_000  # 150,000 CJK characters on one line: 450 KB
         self.agy_work(text)
         texts, sizes = self.section_texts()
         self.assertEqual("".join(texts), "[page 1]\n" + text)
-        self.assertEqual([len(t) for t in texts], [60_000, 60_000, 30_009], "the first slice fills the page header's section")
-        self.assertTrue(all(n <= engines.AGY_MAX_MESSAGE_BYTES for n in sizes), sizes)
+        self.assertEqual([len(t) for t in texts], [50_000, 50_000, 50_000, 9],
+                         "the first slice fills the page header's section")
+        self.assertTrue(all(n <= engines.AGY_MAX_PROMPT_BYTES for n in sizes), sizes)
         self.assertEqual(self.card_errors(), [])
+
+    def test_a_section_agy_cut_is_not_read_again_at_the_same_size(self):
+        """A refusal before the call costs nothing to repeat, but a cut is a whole call: the same section would be cut
+        again, so each section is tried once, and the document gets no card, with the cause named."""
+        doc = self.record("04 Study/Annual report.txt", ["w" * 60_000])  # 60,009 characters: two sections
+        code, _out, err = self.cards_py("build")
+        self.assertEqual(code, 0, err)
+        self.assertEqual([bt["mode"] for bt in self.batches().values()], ["sections"])
+        self.fakes.script("agy", default=CUT)
+        code, _out, err = self.cards_py("work", "--engine", "agy", "--model", "fake-model", "--terms", self.terms)
+        self.assertEqual(code, 0, err)
+        self.assertEqual([("SECTION TEXT:" in c["prompt"]) for c in self.fakes.calls("agy")], [True, True])
+        self.assertEqual(self.written(), {})
+        self.assertEqual(self.card_errors(), ["card_err_%s.txt" % doc])
+        why = read(os.path.join(self.work, "state", "card_err_%s.txt" % doc))
+        self.assertIn("2 of 2 sections not read", why)
+        self.assertIn("transcript_full.jsonl", why)
 
     def test_a_section_that_cannot_be_read_leaves_no_card_and_says_so(self):
         """A card made from notes with a hole in them would claim a coverage it lacks: the document gets no card, a
@@ -852,12 +981,12 @@ class SectionsTest(CardsCliCase):
         self.assertEqual(code, 0, err)
         calls = self.fakes.calls("agy")
         self.assertEqual(len(calls), 1, "only the last, short section fits; the others are refused once each")
-        self.assertTrue(all(len(c["stdin"].encode("utf-8")) <= engines.AGY_MAX_MESSAGE_BYTES for c in calls))
+        self.assertTrue(all(len(c["prompt"].encode("utf-8")) <= engines.AGY_MAX_PROMPT_BYTES for c in calls))
         self.assertFalse(any("Input items" in c["prompt"] for c in calls), "the card call ran with sections missing")
         self.assertEqual(self.written(), {})
         self.assertEqual(self.card_errors(), ["card_err_%s.txt" % doc])
         why = read(os.path.join(self.work, "state", "card_err_%s.txt" % doc))
-        self.assertIn("2 of 3 sections not read", why)
+        self.assertIn("3 of 4 sections not read", why)
         self.assertIn("byte limit", why)
 
 
@@ -894,7 +1023,7 @@ class SectionsTest(CardsCliCase):
         self.assertEqual(code, 0, err)
         calls = self.fakes.calls("agy")
         self.assertEqual([("SECTION TEXT:" in c["prompt"]) for c in calls], [True, False], "only the failed section")
-        self.assertTrue(all(len(c["stdin"].encode("utf-8")) <= engines.AGY_MAX_MESSAGE_BYTES for c in calls))
+        self.assertTrue(all(len(c["prompt"].encode("utf-8")) <= engines.AGY_MAX_PROMPT_BYTES for c in calls))
         card = self.written()[doc]
         self.assertEqual(card["card_meta"]["batch"], "redo_0")
         self.assertEqual(self.card_errors(), [])

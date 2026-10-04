@@ -9,8 +9,10 @@ than KILL_GRACE after that). Output is read as UTF-8, with undecodable bytes rep
   and wins over an empty answer.
 - `DegenerateError`: an empty final answer (agy returns one after a denied tool attempt, about 3% of calls).
 - `ToolUseError`: the model used a tool (a codex tool item, or an agy stream event naming a tool, action, function
-  or call, unless `allow_reads` is set for the vision lane) or was refused one (an agy denied action); the reply is
-  discarded.
+  or call, such as its `step_update` tool step, unless `allow_reads` is set for the vision lane and the tool only
+  reads) or was refused one (an agy denied action); the reply is discarded.
+- `PromptTooLong`: an agy prompt over AGY_MAX_PROMPT_BYTES, refused before the call because agy would cut it short
+  without a word; `PromptCut` (a `PromptTooLong`) when the stream shows a cut that the check did not foresee.
 - `CredentialError`: a credential-like file in the per-project state folder. It stops the run, not just the call.
 - `SetupError`: the engine cannot run as configured (no binary, no model, a codex schema that is not strict). It
   stops the run.
@@ -21,9 +23,11 @@ login files: it is scanned before and after every call, and a credential-like re
 run. How each engine reaches the shared login is decided by the isolation spike and recorded in the skill.
 
 The flags below are the ones in use today, pinned by tests/test_engines.py. The isolation mode is the skill's
-Engine isolation section; what is still provisional is marked below: agy's message limit (family-ai-os #1089 measures
-it) and the lists of environment variables and stream events (issue #91 records what each engine really reads).
+Engine isolation section; what is still provisional is marked below: the lists of environment variables (issue #91
+records what each engine really reads). agy's prompt limit (AGY_MAX_PROMPT_BYTES) and its tool steps (AGY_TOOL_WORDS)
+are settled from measurements and a real capture.
 """
+import collections
 import json
 import os
 import re
@@ -32,6 +36,7 @@ import signal
 import subprocess
 import tempfile
 import time
+import urllib.parse
 
 import common
 
@@ -59,15 +64,50 @@ CRED_PAIRS = {("api", "key"), ("api", "keys"), ("private", "key"), ("id", "rsa")
               ("id", "ecdsa"), ("id", "dsa")}
 CRED_EXTS = {".env", ".netrc", ".keychain", ".keychain-db", ".p12", ".pfx", ".key", ".pem", ".kdbx"}
 NOT_CRED_EXTS = {".md", ".markdown", ".rst", ".html", ".pub"}
-# agy stream events that show a tool at work: an event whose type, or one of whose top-level keys, has tool, action,
-# function or call as a whole word (tool_call, functionCall, action), unless that key's value is empty
-# (`tool_calls: []`). Fail-closed and provisional: the isolation spike (issue #91) records agy's real event names.
+# agy stream events that show a tool at work. agy 1.2.16 streams a step as a `step_update` event whose nested step has
+# a `step_type`: `user_input`, `agent_response` and `system_message` (agy's own note, which carries nothing but a
+# duration) are plain, and anything else is a tool at work, whatever keys it has. The tool steps seen are
+# `step_type: "tool"` with a `tool_name` and a `tool_info` (ACTIVE, then DONE or ERROR); that is settled from real
+# captures (the fixture under tests/fixtures/agy), but the rule does not rest on it, so a step type nobody has seen
+# fails the call rather than passing it. Other events are judged by words, and fail closed: an event whose type, or one
+# of whose top-level keys, or a plain step's keys, has tool, action, function or call as a whole word (tool_call,
+# functionCall, action), unless that key's value is empty (`tool_calls: []`). The init banner lists every tool agy has
+# and is not a tool at work, so only a step is looked into.
+AGY_PLAIN_STEPS = frozenset({"user_input", "agent_response", "system_message"})
 AGY_TOOL_WORDS = {"tool", "tools", "action", "actions", "function", "functions", "call", "calls"}
+# The tools the vision lane's model may use, each one a read, and only when every string in its parameters, under any
+# key and at any depth, that is or may be a path resolves inside the call's own working folder, which holds only its
+# images (no --add-dir is passed, so there is no other folder). Such a string is a value under a key that says path,
+# directory or file, one that looks like a path, a `file:` URL (parsed) or one that names something that exists in the
+# folder (a link there is judged by where it leads). A string that names nothing is not a path; one that cannot be
+# judged, such as a URL of another scheme, is refused. The tool names come from the init banner of the same capture.
+# Any other tool, or a read of any other path, discards the reply; so does any tool in the cards lane, allowed or not.
+AGY_READ_TOOLS = frozenset({"view_file", "list_dir", "find_by_name"})
+AGY_PATH_WORDS = {"path", "paths", "dir", "directory", "file", "files", "folder", "root", "target"}
+PATH_LIKE = re.compile(r"^(?:/|~|[A-Za-z]:[\\/])|(?:^|[\\/])\.\.(?:[\\/]|$)")
+URL_SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]+:(?!\s)")  # two or more characters: a single letter is a drive
+ToolEvent = collections.namedtuple("ToolEvent", "label names params")
 KILL_GRACE = 5  # seconds to wait for the pipes after killing a timed-out engine's process group
-# agy cuts a long message short (seen at about 300 KB) and leaves the model a stored copy to read with a tool these calls
-# deny; refusing well below that keeps every call whole. Provisional: where the cut really falls, in bytes or in
-# characters, is for family-ai-os #1089 to measure; until then this is a cautious figure under the one case seen.
-AGY_MAX_MESSAGE_BYTES = 200_000
+# agy cuts a user message at about 192,000 UTF-8 bytes of PROMPT TEXT (plus or minus 150), with no event, no field and
+# exit 0, and leaves the model a stored copy to read with a tool these calls deny, so a run that needs the end of its
+# prompt fails and one that does not reads as ok on part of its input. Measured on agy 1.2.16 with
+# gemini-3.1-pro-high, 2026-10-03, 20 calls of synthetic text. The same bracket, 191,900 bytes whole to 192,188
+# cut, held for ASCII and for CJK, so the limit is on the text's UTF-8 bytes: not characters, not the serialised
+# message, not tokens. 180,000 is 6% under the cut: the measure is good to about 150 bytes, and the margin is for what
+# was not measured (one agy build, one model, one prompt shape; a vendor re-tune would not announce itself).
+# Re-probe on an agy upgrade, about 6 calls: one whole and one cut either side of the bracket, per corpus.
+AGY_MAX_PROMPT_BYTES = 180_000
+# The file agy keeps the full message in, which the model is pointed at once it has cut one. A step that names it,
+# beside a refused `command`, is the stream's own evidence of a cut (see Agy.__call__); its absence proves nothing.
+AGY_STORED_COPY = "transcript_full.jsonl"
+# agy is never given `--json-schema`. In plan mode that flag sends the model through plan mode's own workflow: it writes
+# a plan.md into agy's state folder (write_to_file, outside the call's folder), ends with `finish` steps and replies
+# asking to be approved before the JSON, or, when the schema is passed as a string, with the finish tool's task
+# summary in place of a card (real captures of agy 1.2.16, tests/fixtures/agy: the plan-mode stream, which the
+# isolation rule discards). With the schema in the prompt instead, the model answers with the JSON alone and only
+# user_input and agent_response steps. The engine checks nothing against the schema; the caller does (cards.py
+# `schema_problems`). The text is part of the prompt, so the size limit counts it.
+AGY_SCHEMA_INTRO = "\n\nReply with JSON only, matching this JSON Schema exactly:\n"
 AGY_MODEL_REQUIRED = "--model is required for agy (it has no default here; its effort is encoded in the model id)"
 CODEX_OFF = ["shell_tool", "unified_exec", "shell_snapshot", "memories", "apps", "browser_use",
              "browser_use_external", "computer_use", "in_app_browser", "image_generation", "multi_agent", "plugins",
@@ -89,8 +129,13 @@ class QuotaError(EngineError):
 
 
 class PromptTooLong(EngineError):
-    """A message agy would cut short: it keeps the start and asks the model to read the rest from a stored copy with a
+    """A prompt agy would cut short: it keeps the start and asks the model to read the rest from a stored copy with a
     tool, which these calls deny, so the model would answer from part of its input."""
+
+
+class PromptCut(PromptTooLong):
+    """agy cut a prompt that passed the size check: the stream shows the model reading the stored copy and being
+    refused a command. The same prompt would be cut again, so a caller does not retry it at that size."""
 
 
 class DegenerateError(EngineError):
@@ -134,7 +179,10 @@ def words(name):
 
 
 def tool_events(lines):
-    """The agy stream events (other than the result) that show a tool at work: see AGY_TOOL_WORDS."""
+    """The agy stream events (other than the result) that show a tool at work, as ToolEvent(label, names, params): see
+    AGY_PLAIN_STEPS and AGY_TOOL_WORDS. `names` are the tools the event names (`tool_name`, `tool_info.name`, a
+    top-level `name`, the `name` inside a tool-keyed value), empty when it names none, which is never a read tool.
+    `params` are the parameter dicts it carries (`tool_info.parameters`, `parameters`, `args`), empty when none."""
     found = []
     for line in lines:
         try:
@@ -143,12 +191,137 @@ def tool_events(lines):
             continue
         if not isinstance(ev, dict):
             continue
+        is_step = ev.get("event") == "step_update"
+        step = ev.get("step_update") if is_step else None
+        step = step if isinstance(step, dict) else {}
         kind = "%s %s" % (ev.get("event", ""), ev.get("type", ""))
-        named = words(kind) & AGY_TOOL_WORDS
-        keyed = [k for k, v in ev.items() if words(k) & AGY_TOOL_WORDS and v not in (None, "", [], {})]
-        if named or keyed:
-            found.append(kind.strip() or ",".join(keyed))
+        keyed = _tool_keys(ev) + _tool_keys(step)
+        stepped = is_step and str(step.get("step_type", "")) not in AGY_PLAIN_STEPS
+        if words(kind) & AGY_TOOL_WORDS or stepped or keyed:
+            names = frozenset(_tool_names(ev) | _tool_names(step))
+            fallback = "step_update %s" % step.get("step_type", "") if is_step else kind.strip() or ",".join(keyed)
+            found.append(ToolEvent(",".join(sorted(names)) or fallback.strip(), names, _tool_params(ev, step)))
     return found
+
+
+def _tool_keys(mapping):
+    return [k for k, v in mapping.items() if words(k) & AGY_TOOL_WORDS and v not in (None, "", [], {})]
+
+
+def _tool_names(mapping):
+    names = set()
+    for key, value in mapping.items():
+        if key in ("name", "tool_name") and isinstance(value, str) and value:
+            names.add(value)
+        elif words(key) & AGY_TOOL_WORDS:
+            for item in value if isinstance(value, list) else [value]:
+                if isinstance(item, dict) and isinstance(item.get("name"), str) and item["name"]:
+                    names.add(item["name"])
+    return names
+
+
+def _tool_params(*mappings):
+    found = []
+    for m in mappings:
+        info = m.get("tool_info")
+        if isinstance(info, dict) and isinstance(info.get("parameters"), dict):
+            found.append(info["parameters"])
+        found += [m[k] for k in ("parameters", "params", "args", "arguments", "input") if isinstance(m.get(k), dict)]
+    return found
+
+
+def inside(folder, value):
+    """Whether the path `value` (a relative one is taken from `folder`; symbolic links and `..` are resolved) is
+    `folder` or something in it."""
+    if "\0" in value or re.match(r"[A-Za-z]:[\\/]", value):  # a NUL ends a path for a C reader: it cannot be judged
+        return False
+    base = os.path.realpath(folder)
+    target = os.path.realpath(os.path.join(base, os.path.expanduser(value)))
+    return target == base or target.startswith(base + os.sep)
+
+
+def file_url_paths(value):
+    """The absolute paths a `file:` URL can mean, as written and with its percent-escapes decoded once and fully, or
+    None when its host is neither empty nor `localhost`, which cannot be judged."""
+    parts = urllib.parse.urlsplit(value)
+    if parts.netloc.lower() not in ("", "localhost"):
+        return None
+    paths, path = [parts.path], parts.path
+    for _ in range(4):
+        path = urllib.parse.unquote(path)
+        paths.append(path)
+    return ["/" + p.lstrip("/") for p in dict.fromkeys(paths)]
+
+
+def names_inside(value, folder, key):
+    """False when the string `value`, a parameter under `key`, is a path outside `folder` or cannot be judged; True
+    when it is inside, or is no path (it names nothing, and neither its key nor its look says it is one)."""
+    try:
+        if "\0" in value:
+            return False
+        if value[:5].lower() == "file:":
+            paths = file_url_paths(value)
+            return paths is not None and all(inside(folder, p) for p in paths)
+        if URL_SCHEME.match(value):
+            return False
+        named = os.path.lexists(os.path.join(os.path.realpath(folder), value))
+        return inside(folder, value) if words(key) & AGY_PATH_WORDS or PATH_LIKE.search(value) or named else True
+    except (OSError, ValueError):
+        return False
+
+
+def outside_paths(value, folder, key=""):
+    """The strings in a tool's parameters that are a path outside `folder`, or that cannot be judged: see
+    AGY_READ_TOOLS."""
+    if isinstance(value, dict):
+        return [p for k, v in value.items() for p in outside_paths(v, folder, k)]
+    if isinstance(value, list):
+        return [p for v in value for p in outside_paths(v, folder, key)]
+    return [value] if isinstance(value, str) and not names_inside(value, folder, key) else []
+
+
+def refused_tools(events, folder, allow_reads):
+    """The labels of the tool events that discard the reply: all of them, unless `allow_reads`, which accepts a read
+    tool (AGY_READ_TOOLS) whose every path parameter is inside `folder`."""
+    refused = []
+    for ev in events:
+        if allow_reads and ev.names and ev.names <= AGY_READ_TOOLS and ev.params:
+            outside = sorted({p for params in ev.params for p in outside_paths(params, folder)})
+            if outside:
+                refused.append("%s names a path outside the call's folder or one it cannot judge: %s"
+                               % (ev.label, ", ".join(outside[:2])[:120]))
+            continue
+        refused.append(ev.label)
+    return refused
+
+
+def refuse_a_cut(lines, denied):
+    """Raise PromptCut on positive evidence of a cut that the size check did not foresee: an agy stream event (the
+    lines other than the result) naming the stored copy of the message, with a `command` refused in the result. That
+    is the model's own attempt to read the rest. Absence proves nothing, since a task answerable from the head leaves
+    no trace, so this only turns a failure into a clearer one; it never certifies a pass. The two halves are on
+    different lines (a real agy 1.2.16 capture, tests/fixtures/agy: `step_update` tool steps whose `tool_info`
+    names the file, ACTIVE then DONE, and only the final result carrying `denied_actions`), so they are put
+    together across the stream. The file name is looked for anywhere in a line, so a rename of the step's fields
+    does not blind it."""
+    if not isinstance(denied, list):
+        return
+    refused = any("command" in words(d.get("action") if isinstance(d, dict) else d) for d in denied)
+    if refused and any(AGY_STORED_COPY in line for line in lines):
+        raise PromptCut("agy cut the prompt although it was under %d bytes: the model went to read the rest from %s "
+                        "and was refused a command; split the input" % (AGY_MAX_PROMPT_BYTES, AGY_STORED_COPY))
+
+
+def with_schema(prompt, schema):
+    """`prompt` with the text of the JSON Schema file `schema` appended after AGY_SCHEMA_INTRO: how agy is asked for a
+    shape (see AGY_SCHEMA_INTRO). A file that cannot be read stops the run, as a codex schema that is not strict
+    does."""
+    try:
+        with open(schema, encoding="utf-8") as f:
+            text = f.read().strip()
+    except (OSError, ValueError) as ex:
+        raise SetupError("agy output schema %s cannot be read: %s" % (schema, ex))
+    return prompt + AGY_SCHEMA_INTRO + text
 
 
 def not_strict(schema, where="$"):
@@ -241,9 +414,10 @@ def _env(extra):
 
 
 class Agy:
-    """`allow_reads` is for the vision lane only, where the model must open the images in its working folder: tool
-    events are then accepted (plan mode refuses writes and commands, and a denied action still fails the call).
-    Everywhere else any tool-like event in the stream fails the call."""
+    """`allow_reads` is for the vision lane only, where the model must open the images in its working folder: a tool
+    event is then accepted when every tool it names is in AGY_READ_TOOLS and every path it names is inside that folder
+    (plan mode refuses writes and commands, and a denied action still fails the call). Everywhere else any tool step
+    in the stream fails the call, allowed or not."""
 
     def __init__(self, model, binary=None, state_home=None, timeout=900, allow_reads=False):
         self.model, self.bin, self.home, self.timeout = model, find("agy", binary), state_home, timeout
@@ -254,15 +428,16 @@ class Agy:
             raise SetupError(AGY_MODEL_REQUIRED)
 
     def __call__(self, prompt, cwd, schema=None, model=None):
+        if schema:
+            prompt = with_schema(prompt, schema)
+        size = len(prompt.encode("utf-8"))
+        if size > AGY_MAX_PROMPT_BYTES:
+            raise PromptTooLong("a %d-byte prompt is over the %d-byte limit for agy here (it cuts a message at about "
+                                "192,000 bytes of text and silently drops the rest); split the input"
+                                % (size, AGY_MAX_PROMPT_BYTES))
         msg = json.dumps({"event": "user", "message": {"role": "user", "content": prompt}}, ensure_ascii=False)
-        size = len(msg.encode("utf-8"))
-        if size > AGY_MAX_MESSAGE_BYTES:
-            raise PromptTooLong("a %d-byte message is over agy's %d-byte limit here (it cuts one of about 300 KB "
-                                "short); split the input" % (size, AGY_MAX_MESSAGE_BYTES))
         cmd = [self.bin, "--input-format", "stream-json", "--output-format", "stream-json", "--model",
                model or self.model, "--sandbox", "--mode", "plan", "-p="]
-        if schema:
-            cmd[1:1] = ["--json-schema", schema]
         _guard(self.home)
         rc, out, err = _run(cmd, msg + "\n", _env({"HOME": self.home} if self.home else {}), cwd, self.timeout)
         _guard(self.home)
@@ -287,10 +462,12 @@ class Agy:
                 raise QuotaError(text.strip()[-300:], reset_seconds(text))
             if not ok:
                 raise EngineError("agy rc=%s: %s" % (rc, text.strip()[-300:]))
+            refuse_a_cut(other, denied)
             raise DegenerateError("agy returned an empty answer (denied: %s)" % denied)
+        refuse_a_cut(other, denied)
         if denied:
             raise ToolUseError("agy was refused %s; reply discarded" % denied)
-        used = [] if self.allow_reads else tool_events(other)
+        used = refused_tools(tool_events(other), cwd, self.allow_reads)
         if used:
             raise ToolUseError("agy stream shows tool use %s; reply discarded" % sorted(set(used))[:5])
         return response, result.get("usage")

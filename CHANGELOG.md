@@ -149,6 +149,23 @@ under *Migrating a deployment* below.
   `--settings-dir`, `--work` (working state, kept outside the folder), `--out` and
   `--read-only-root`, which refuses any write under the root. They are tested against a fictional
   fixture folder with frozen expected outputs (`tests/regen_expected.py --check`).
+- **agy's prompt limit, measured**: on agy 1.2.16 with `gemini-3.1-pro-high`, agy cuts a user message at about
+  192,000 UTF-8 bytes of prompt text, silently (exit 0, a successful result), for ASCII and CJK alike, so a
+  card could be written from part of a document. `engines.py` now refuses a prompt over 180,000 bytes of its
+  text before the call (`AGY_MAX_PROMPT_BYTES`; the earlier check counted the serialised message against
+  200,000, which let ASCII through above the cut), and raises `PromptCut` when the stream shows the model
+  reading agy's stored copy and being refused a command. `cards.py`'s agy defaults for `--small-chars`,
+  `--batch-chars`, `--section-chars` and `--single-max` fall from 60,000 to 50,000 characters, which is 150,000
+  bytes of CJK text beside the largest card prompt's overhead. A real agy 1.2.16 capture also settles the
+  stream events: its tool steps (`step_update` with `step_type: "tool"`) were not seen as tool events by the
+  earlier check, which had guessed their shape, so a tool step now discards the reply in every lane (any step
+  other than a user input, an agent response or agy's own system message counts, whatever its keys), and the
+  vision lane accepts only the steps that open its images (`view_file`, `list_dir`, `find_by_name`) and only for
+  paths inside the call's own folder, whatever key or spelling names them (a `file:` URL is parsed, and any
+  value that names something in the folder, a link included, is judged by where it leads). agy is also no longer given `--json-schema`, which in plan mode sent
+  the model through plan mode's workflow (a written plan, `finish` steps, a reply asking for approval before
+  the JSON): the schema's text goes in the prompt, counted by the size limit, and `cards.py` still checks every
+  card. Only the environment-variable lists remain provisional (#91).
 - **The settings twins** (#89). A folder's rulebook and its wiki's Schema page each get a
   machine-readable twin in `.familyai/`: `rulebook.json`, written with the rulebook, and
   `wiki-schema.json`, compiled by `settings.py compile` from the Schema's fixed-header tables

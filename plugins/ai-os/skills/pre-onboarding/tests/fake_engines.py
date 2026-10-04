@@ -5,7 +5,8 @@ and found first on PATH (or passed to an adapter as its binary). Its state folde
 because the codex adapter passes the engine only a short allowlist of environment variables. In that folder:
 
 - `scenario.json` scripts the replies: `{"replies": [reply, ...], "default": reply}`; call k takes `replies[k]`, then
-  `default`. A reply is a dict with a `kind` (text, empty, quota, fail, tool, sleep, hold, write) and options.
+  `default`. A reply is a dict with a `kind` (text, empty, quota, fail, tool, sleep, hold, write, replay) and options.
+  `replay` writes a captured stdout and stderr (`stdout`, `stderr`: paths) back as they were; it exits 0 (or `rc`).
 - `calls.jsonl` gets one line per call: argv, environment, stdin, working directory and its listing, process group,
   session, and the prompt as the engine saw it.
 
@@ -44,7 +45,8 @@ def items_in(prompt):
     i = prompt.find("Input items (JSON")
     if i < 0:
         return None
-    return json.loads(prompt[prompt.index("\n", i) + 1:])
+    # the items are the first JSON value after the heading: agy's prompt carries its schema's text after them
+    return json.JSONDecoder().raw_decode(prompt[prompt.index("\n", i) + 1:])[0]
 
 
 def card(it, r):
@@ -146,6 +148,12 @@ def main():
             time.sleep(0.02)
         time.sleep(r.get("seconds", 8))
         return 0
+    if kind == "replay":
+        with open(r["stdout"], encoding="utf-8", newline="") as f:
+            sys.stdout.write(f.read())
+        with open(r["stderr"], encoding="utf-8", newline="") as f:
+            sys.stderr.write(f.read())
+        return r.get("rc", 0)
     if kind == "write":
         home = os.environ.get("HOME" if ENGINE == "agy" else "CODEX_HOME", "")
         target = os.path.join(home, r["name"])
