@@ -273,6 +273,9 @@ def load_extract(extract_dir, h, card_path):
     if not os.path.exists(path):
         raise common.ToolError("card %s has no extract record %s; extract the document again" % (card_path, path))
     xr = read_object(path)
+    if xr.get("id") != h:  # the rule `extract.py repath` holds a record to: it is this document's, named by its hash
+        raise common.ToolError("malformed extract record %s: its id is %r, not %s; extract the document again"
+                               % (path, xr.get("id"), h))
     pages = xr.get("pages", [])
     if not isinstance(pages, list):
         raise common.ToolError("malformed extract record %s: pages must be a list; extract the document again" % path)

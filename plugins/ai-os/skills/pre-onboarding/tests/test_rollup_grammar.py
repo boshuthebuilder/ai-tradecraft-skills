@@ -156,7 +156,7 @@ class RealOutputTest(Scenario):
     def test_the_refused_items_read_clean_and_only_the_pages_own_fault_is_reported(self):
         dated, recurring, _other, outside = self.full(self.wiki("refused"))
         self.assertEqual((dated, outside), ("ok", []))
-        self.assertTrue(recurring.startswith("finding: 8 recurring: entr(ies) not {date, note}"), recurring)
+        self.assertTrue(recurring.startswith("finding: 10 recurring: entr(ies) not {date, note}"), recurring)
         self.assertNotIn(HAND, recurring)
 
     def test_a_value_the_roll_up_coerced_is_not_verified_never_a_finding(self):
@@ -213,6 +213,32 @@ class RealOutputTest(Scenario):
         dated, _recurring = self.reported(self.replace(
             "- **2030-02-02** %s Manual ([30 Home/Manual](../30%%20Home/Manual.md))\n" % EM, ""), "provenance")
         self.assertIn("lacks 1 page deadline(s) (2030-02-02 (30 Home/Manual.md))", dated)
+
+    def test_the_new_scenarios_read_clean(self):
+        """The shapes the last review named: nothing to list beside an unreadable page, only a deadline to come, a
+        folder named like a page, a malformed page inside a section the Schema marks derived."""
+        for scenario in ("only-errors", "upcoming-only", "directory"):
+            with self.subTest(scenario=scenario):
+                self.assertEqual(self.full(self.wiki(scenario)), ("ok", "ok", "ok", []))
+        wiki = self.wiki("derived-section")
+        schema = {"sections": [{"number": "40", "name": "Stuff", "derived": True}]}
+        dated, recurring, _other, outside = readiness.deadline_items(wiki, readiness.W.wiki_pages(wiki), schema)
+        self.assertEqual((dated, recurring, outside), ("ok", "ok", []))  # the roll-up reads it as any other page
+        page = read(os.path.join(ROLLUPS, "directory", PAGE))
+        self.assertIn("- Archive.md (unreadable: IsADirectoryError)", page)
+        self.assertIn("Inner", page)  # a folder named like a page is walked into
+
+    def test_yaml_the_roll_up_cannot_read_but_the_subset_could_is_not_verified_never_a_finding(self):
+        """A tab, a value opening with `]`, a control character, a line break that is not a newline, `=` and a day
+        the calendar lacks: each makes the roll-up list the page as malformed, and each reads here as outside the
+        subset (or as malformed, for the day), so the roll-up's list is neither reported nor taken as given."""
+        page = read(os.path.join(ROLLUPS, "yaml-malformed", PAGE))
+        for name in ("Tab", "Bracket", "Control", "Break", "Equals", "Day"):
+            self.assertIn("- 30 Home/%s.md (malformed frontmatter)" % name, page)
+        dated, recurring, other, outside = self.full(self.wiki("yaml-malformed"))
+        self.assertEqual((dated, recurring, other), ("ok", "ok", "ok"))
+        self.assertEqual(sorted(x.split(" uses")[0] for x in outside), ["not verified: 30 Home/%s.md" % n for n in (
+            "Bracket", "Break", "Control", "Equals", "Tab")])  # the day is malformed: its line is expected
 
     def test_the_fixture_renderers_output_is_clean(self):
         """The fixture's roll-up writes `: <note>` where the reference roll-up writes the dash, and the pages' notes."""
@@ -543,7 +569,6 @@ class GrammarTest(unittest.TestCase):
             ('recurring:\n  - {date: 04-05, note: 1:30.5}', 'time'),
             ('recurring:\n  - {date: 04-05, note: 2025-01-31}', 'date'),
             ('recurring:\n  - {date: 04-05, note: 2025-01-31 10:00:00}', 'date'),
-            ('recurring:\n  - {date: 04-05, note: 2025-02-30}', 'date'),
             ('recurring:\n  - {date: 04-05, note: <<}', 'merge key'),
             ('recurring:\n  - {date: 04-05, note: =}', 'value'),
             ('recurring:\n  - date: 04-05\n    note: yes', 'bool'),
@@ -560,7 +585,30 @@ class GrammarTest(unittest.TestCase):
             ('recurring:\n  - 0x1F', 'number'),
             ('deadline: 2030-01-01T10:00:00', 'date'),
             ('deadlines:\n  - 1_000', 'number'),
-        ))
+        )) + (
+        ('recurring:\n  - {date: 04-05, note: x, 2025-02-30: y}', 'a key YAML reads as date'),
+        ('title: =', 'a plain value YAML reads as value'), ('title: <<', 'a plain value YAML reads as merge key'),
+        ('recurring:\n  - {<<: x, date: 04-05}', 'a key YAML reads as merge key'),
+        # what PyYAML refuses that a split on newlines and a read of the plain text would take for fine
+        ('title: Lease\t', 'a tab inside a line'), ('title:\tLease', 'a tab inside a line'),
+        ('recurring:\n  - {date: 04-05, note: a\tb}', 'a tab inside a line'),
+        ('title: ]Lease', 'a plain value that opens with a flow indicator'),
+        ('title: }Lease', 'a plain value that opens with a flow indicator'),
+        ('recurring:\n  - ,x', 'a plain value that opens with a flow indicator'),
+        ('title: Lease\x07', 'a character YAML does not allow'),
+        ('title: Lease\x01', 'a character YAML does not allow'),
+        ('title: Lease\x7f', 'a character YAML does not allow'),
+        ('title: Lease\x84', 'a character YAML does not allow'),
+        ('title: Lease\ufffe', 'a character YAML does not allow'),
+        ('title: Lease\u2028Home', 'a line break other than a newline'),
+        ('title: Lease\u2029Home', 'a line break other than a newline'),
+        ('title: Lease\x85Home', 'a line break other than a newline'),
+        ('recurring:\n  - {date: 04-05, note: a?b}', 'a question mark in a plain scalar of a flow mapping'),
+        ('recurring:\n  - {date: 04-05, note: ?b}', 'an indicator that opens a plain scalar of a flow mapping'),
+        ('recurring:\n  - {date: 04-05, note: :b}', 'an indicator that opens a plain scalar of a flow mapping'),
+        ('recurring:\n  - {date: 04-05, note: , #}', 'an indicator that opens a plain scalar of a flow mapping'),
+        ('recurring:\n  - {date: 04-05, note: - }', 'an indicator that opens a plain scalar of a flow mapping'),
+    )
 
     def test_anything_outside_the_subset_is_named(self):
         for block, construct in self.OUT_OF_SCOPE:
@@ -568,6 +616,17 @@ class GrammarTest(unittest.TestCase):
                 with self.assertRaises(readiness.OutOfScope) as got:
                     self.frontmatter(block)
                 self.assertEqual(str(got.exception), construct)
+
+    def test_what_pyyaml_reads_is_still_read(self):
+        """The cases above are refused for what PyYAML refuses; their neighbours are fine and stay in scope."""
+        for block in ("title: Lease Home", "title: a-b", "title: x]", "title: a, b", "title: -x", "title: ?x",
+                      "title: :x", "title: x:y", "title: caf\u00e9\u00a0x", "title: \u2603", "title: a\u200bb",
+                      "recurring:\n  - {date: 04-05, note: well}", "recurring:\n  - {date: 04-05, note: -x}",
+                      "recurring:\n  - {date: 04-05, note: x-y}", "recurring:\n  - {date: 04-05, note: a:b}"):
+            with self.subTest(block=block):
+                self.frontmatter(block)
+        crlf = "---\r\ntitle: x\r\nrecurring:\r\n  - {date: 04-05, note: fine}\r\n---\r\n# P\r\n"
+        self.assertEqual(readiness.read_frontmatter(crlf)["title"].text, "x")  # a CRLF page is read
 
     def test_text_after_the_opening_fence_is_outside_the_subset(self):
         with self.assertRaises(readiness.OutOfScope) as got:
@@ -738,6 +797,8 @@ class PlainScalarTest(unittest.TestCase):
 
     def test_a_date_pyyaml_cannot_build_is_malformed_wherever_a_date_is_read(self):
         for block in ("recurring:\n  - {date: 2025-02-30, note: x}", "recurring:\n  - 2025-02-30",
+                      "recurring:\n  - {date: 04-05, note: 2025-02-30}", "title: 2025-02-30", "n: 2025-01-31 25:00:00",
+                      "n: 0b_", "n: 0x_",
                       "deadline: 2025-02-30", "deadlines:\n  - 2025-13-01", "recurring:\n  - {date: 2025-00-10}"):
             with self.subTest(block=block):
                 with self.assertRaises(readiness.Malformed):
@@ -778,9 +839,18 @@ class FrontmatterTest(Scenario):
         dated, _recurring = self.reported(self.replace("last-updated: 2024-06-30", "last-updated: soon"))
         self.assertIn("line 3: last-updated: soon", dated)
 
-    def test_a_page_with_no_frontmatter_has_no_frontmatter_line_to_report(self):
-        """`wiki.py check` reports the keys a page lacks; this reads the lines it has."""
-        self.assertEqual(self.page("plain", lambda t: t.split("---\n", 2)[2]), ("ok", "ok", "ok"))
+    def test_a_key_the_roll_up_writes_is_required(self):
+        """Deleted, or the whole frontmatter gone, the page lacks it: what the roll-up writes is reported, not only
+        what it does not write."""
+        for key, shown in (("provenance: derived", "provenance: derived"), ("status: current", "status: current"),
+                           ("last-updated: 2024-06-30", "last-updated: <the day it was written>")):
+            with self.subTest(key=key):
+                dated = self.page("plain", self.replace(key + "\n", ""))[0]
+                self.assertIn("%s lacks 1 line(s) the roll-up writes (%s)" % (readiness.DEADLINES, shown), dated)
+        dated = self.page("plain", lambda t: t.split("---\n", 2)[2])[0]
+        self.assertIn("lacks 3 line(s) the roll-up writes (provenance: derived; status: current; last-updated: "
+                      "<the day it was written>)", dated)
+        self.assertEqual(self.page("plain"), ("ok", "ok", "ok"))
 
 
 class CouldNotReadTest(Scenario):
@@ -1054,7 +1124,7 @@ class OutOfScopeTest(Scenario):
     def test_a_banner_is_judged_by_its_place_alone_while_a_page_is_unread(self):
         text = read(os.path.join(ROLLUPS, "banner", PAGE))
         banner_line = next(x for x in text.split("\n") if x.startswith("> **Roll-up"))
-        change = self.replace("_File-derived deadlines", banner_line + "\n\n_File-derived deadlines")
+        change = self.replace("## Upcoming", banner_line + "\n\n## Upcoming")  # directly after the intro
         self.assertEqual(self.outside("a: &x b", "plain", change)[0], "ok")  # the entries it needs are not known
         self.assertIn(HAND, self.outside("a: b", "plain", change)[0])  # every page read: entries exist
         below = self.replace("## Upcoming\n\n", "## Upcoming\n\n" + banner_line + "\n\n")
@@ -1149,7 +1219,8 @@ class ScaffoldTest(Scenario):
                 dated = self.deleted("plain", line, block="a: &x b")[0]
                 self.assertIn("lacks 1 line(s) the roll-up writes (%s)" % line, dated)
         dated = self.deleted("recurring-only", "_None._", block="a: &x b")[0]
-        self.assertEqual(dated, "ok")
+        self.assertIn("holds 1 heading(s) with nothing under them (## Upcoming)", dated)  # it never writes one bare
+        self.assertNotIn("lacks", dated)  # and whether `_None._` is owed depends on pages that are not read
 
     def test_several_lines_gone_are_named_together(self):
         wiki = self.wiki("plain")
@@ -1163,6 +1234,171 @@ class ScaffoldTest(Scenario):
         self.assertNotIn(EM, readiness.INTRO_FIXTURE)
         page = self.replace(readiness.INTRO, readiness.INTRO_FIXTURE)
         self.assertEqual(self.page("plain", page), ("ok", "ok", "ok"))
+
+
+class PlaceTest(Scenario):
+    """Each line the roll-up writes stands where it writes it, over what the pages give: a scaffold line moved under
+    the Could not read heading, a heading with nothing under it, headings out of order and an entry under the wrong
+    one are not its page."""
+
+    def moved(self, scenario, line, to_end=True):
+        """The result for the scenario's page with `line` moved to its end (or first, under the frontmatter)."""
+        def change(text):
+            assert line in text.split("\n"), line
+            rest = "\n".join(x for x in text.split("\n") if x != line).rstrip("\n")
+            return rest + "\n\n" + line + "\n"
+        return self.page(scenario, change)[0]
+
+    def test_none_moved_under_the_could_not_read_heading_is_reported(self):
+        """The review's reproduction: the line the roll-up writes under Upcoming, put under the list."""
+        self.assertEqual(self.page("only-errors"), ("ok", "ok", "ok"))
+        dated = self.moved("only-errors", "_None._")
+        self.assertIn(HAND, dated)
+        self.assertIn("_None._", dated)
+        self.assertIn("holds 1 heading(s) with nothing under them (## Upcoming)", dated)  # and Upcoming is bare now
+
+    def test_the_page_intro_moved_under_the_could_not_read_heading_is_reported(self):
+        dated = self.moved("only-errors", readiness.INTRO)
+        self.assertIn(HAND, dated)
+        self.assertIn("lacks 1 line(s) the roll-up writes (%s)" % readiness.INTRO, dated)
+
+    def test_the_lists_intro_is_accepted_once_and_only_directly_under_its_heading(self):
+        self.assertEqual(self.page("only-errors"), ("ok", "ok", "ok"))
+        for change in (self.append(readiness.UNREAD_INTRO),
+                       self.replace("- 10 Identity", readiness.UNREAD_INTRO + "\n- 10 Identity"),
+                       self.replace(readiness.UNREAD + "\n\n" + readiness.UNREAD_INTRO,
+                                    readiness.UNREAD + "\n\n- 10 Identity/Broken.md (malformed frontmatter)\n\n"
+                                    + readiness.UNREAD_INTRO)):
+            self.assertIn(HAND, self.page("only-errors", change)[0])
+        dated = self.page("only-errors", self.replace(readiness.UNREAD, "## Upcoming\n\n" + readiness.UNREAD_INTRO
+                                                      + "\n\n" + readiness.UNREAD))[0]
+        self.assertIn(HAND, dated)  # not under its own heading
+
+    def test_a_scaffold_line_under_the_heading_is_reported_whatever_the_pages_hold(self):
+        for scenario in ("only-errors", "could-not-read", "plain"):
+            for line in ("_None._", readiness.INTRO, "# Deadlines", "## Upcoming", "## Past", "## Every year"):
+                with self.subTest(scenario=scenario, line=line[:20]):
+                    change = self.append("## Could not read\n\n%s\n\n%s" % (readiness.UNREAD_INTRO, line)) \
+                        if scenario == "plain" else self.append(line)
+                    self.assertIn(HAND, self.page(scenario, change)[0])
+        for line in ("_None._", readiness.INTRO, "## Past"):  # a page outside the subset withholds nothing of this
+            with self.subTest(outside=line[:20]):
+                text = "## Could not read\n\n%s\n\n%s" % (readiness.UNREAD_INTRO, line)
+                self.assertIn(HAND, self.outside_page("a: &x b", self.append(text))[0])
+
+    def outside_page(self, block, change, scenario="plain"):
+        wiki = self.wiki(scenario)
+        os.makedirs(os.path.join(wiki, "30 Home"), exist_ok=True)
+        write(os.path.join(wiki, "30 Home", "Insurance.md"), "---\n%s\n---\n# Insurance\n" % block)
+        path = os.path.join(wiki, PAGE)
+        write(path, change(read(path)))
+        return self.full(wiki)
+
+    def test_none_is_written_only_over_an_empty_upcoming_section(self):
+        for change in (self.append("_None._"), self.replace("## Upcoming\n\n", "## Upcoming\n\n_None._\n\n")):
+            for scenario in ("upcoming-only", "plain"):
+                with self.subTest(scenario=scenario):
+                    dated = self.page(scenario, change)[0]
+                    self.assertIn(HAND, dated)
+                    self.assertIn("_None._", dated)
+
+    def test_a_heading_the_roll_up_writes_only_over_something_is_reported_bare(self):
+        for heading, name in (("## Past", "Past"), ("## Every year", "Every year"),
+                              ("## Could not read\n\n" + readiness.UNREAD_INTRO, "Could not read")):
+            with self.subTest(heading=name):
+                dated = self.page("upcoming-only", self.append(heading))[0]
+                self.assertIn("holds 1 heading(s) with nothing under them (## %s)" % name, dated)
+                dated = self.outside_page("a: &x b", self.append(heading), "upcoming-only")[0]  # whatever it holds
+                self.assertIn("with nothing under them", dated)
+        self.assertEqual(self.page("upcoming-only"), ("ok", "ok", "ok"))
+
+    def test_a_heading_with_its_entries_gone_is_reported_as_the_entries_missing(self):
+        dated, recurring = self.reported(lambda text: text.replace(
+            "- **2030-05-01** %s Tax %s Pay the second instalment ([20 Finance/Tax](../20%%20Finance/Tax.md))\n"
+            % (EM, EM), ""), "upcoming-only")
+        self.assertIn("lacks 1 page deadline(s) (2030-05-01 (20 Finance/Tax.md))", dated)
+        self.assertIn("holds 1 heading(s) with nothing under them (## Upcoming)", dated)
+
+    def test_the_headings_are_in_the_order_the_roll_up_writes_them(self):
+        up, past = "## Upcoming", "## Past"
+        swapped = lambda t: t.replace(up, "@@").replace(past, up).replace("@@", past)
+        dated, _recurring = self.reported(swapped)
+        self.assertIn(HAND, dated)  # a forward date listed as past, and a past one as forward
+        self.assertIn(HAND, self.reported(lambda t: t.replace("## Every year", "## Past\n\n## Every year"))[0])
+
+    def test_an_entry_stands_under_the_heading_its_date_belongs_under(self):
+        text = read(os.path.join(ROLLUPS, "plain", PAGE))
+        past, forward, yearly = (next(x for x in text.split("\n") if needle in x)
+                                 for needle in ("**2024-01-31**", "**2030-05-01**", "**31 January**"))
+        moves = (("a past date under Upcoming", "## Upcoming\n\n", past),
+                 ("a forward date under Past", "## Past\n\n", forward),
+                 ("a yearly date under Upcoming", "## Upcoming\n\n", yearly),
+                 ("a yearly date under Past", "## Past\n\n", yearly),
+                 ("a dated one under Every year", "## Every year\n\n", forward))
+        for name, heading, entry in moves:
+            with self.subTest(name):
+                self.assertIn(HAND, self.page("plain", lambda t: t.replace(heading, heading + entry + "\n"))[0])
+
+    def test_the_banner_is_required_whenever_the_pages_give_it(self):
+        text = read(os.path.join(ROLLUPS, "only-errors", PAGE))
+        banner = next(x for x in text.split("\n") if x.startswith("> **Roll-up"))
+        for scenario in ("only-errors", "banner"):
+            page = read(os.path.join(ROLLUPS, scenario, PAGE))
+            line = next(x for x in page.split("\n") if x.startswith("> **Roll-up"))
+            dated = self.page(scenario, lambda t: t.replace(line + "\n", ""))[0]
+            self.assertIn("lacks 1 line(s) the roll-up writes (the empty-roll-up banner)", dated)
+        self.assertEqual(self.page("only-errors"), ("ok", "ok", "ok"))  # beside the list it writes, the banner stays
+        self.assertIn(banner, text)
+        dated = self.outside_page("a: &x b", lambda t: t)[0]  # pages that read could hold an entry: not required
+        self.assertEqual(dated, "ok")
+
+    def test_a_folder_or_a_link_named_like_a_page_is_one_the_roll_up_lists(self):
+        for kind in ("link", "dangling"):
+            wiki = self.wiki("plain")
+            target = os.path.join(wiki, "20 Finance") if kind == "link" else os.path.join(self.tmp, "none")
+            try:
+                os.symlink(target, os.path.join(wiki, "Link.md"))
+            except (OSError, NotImplementedError, AttributeError):
+                self.skipTest("no symbolic links here")
+            error = "IsADirectoryError" if kind == "link" else "FileNotFoundError"
+            path = os.path.join(wiki, PAGE)
+            self.assertIn("lacks 1 line(s) of the roll-up's \"Could not read\" list that the pages give "
+                          "(Link.md (unreadable: %s))" % error, self.full(wiki)[0])
+            write(path, read(path) + "\n## Could not read\n\n%s\n\n- Link.md (unreadable: %s)\n"
+                  % (readiness.UNREAD_INTRO, error))
+            self.assertEqual(self.full(wiki), ("ok", "ok", "ok", []))
+
+    def test_a_folder_named_like_a_page_is_one_the_roll_up_lists(self):
+        self.assertEqual(self.full(self.wiki("directory")), ("ok", "ok", "ok", []))
+        wiki = self.wiki("directory")
+        path = os.path.join(wiki, PAGE)
+        write(path, read(path).replace("- Archive.md (unreadable: IsADirectoryError)\n", ""))
+        self.assertIn("lacks 1 line(s) of the roll-up's \"Could not read\" list", self.full(wiki)[0])
+
+    def test_a_malformed_page_in_a_section_the_schema_marks_derived_is_the_roll_ups_to_list(self):
+        wiki = self.wiki("derived-section")
+        schema = {"sections": [{"number": "40", "name": "Stuff", "derived": True}]}
+        path = os.path.join(wiki, PAGE)
+        write(path, read(path).replace("- 40 Stuff/Broken.md (malformed frontmatter)\n", ""))
+        dated = readiness.deadline_items(wiki, readiness.W.wiki_pages(wiki), schema)[0]
+        self.assertIn("lacks 1 line(s) of the roll-up's \"Could not read\" list that the pages give "
+                      "(40 Stuff/Broken.md (malformed frontmatter))", dated)
+
+    def test_an_item_the_roll_up_cuts_at_sixty_characters_is_a_line_it_writes(self):
+        """The cut is `repr(item)[:60]`: an item that reaches it, and one that is exactly sixty, are read; a line
+        with sixty-one is not the roll-up's."""
+        page = read(os.path.join(ROLLUPS, "refused", PAGE))
+        long_line = next(x for x in page.split("\n") if "a note that runs well past" in x)
+        exact = next(x for x in page.split("\n") if "abcdefghijklmnopqrstuvwxyz12" in x)
+        for line in (long_line, exact):
+            body = line[len("- 30 Home/Bad.md (unreadable recurring date: "):-len(readiness.DATE_HINT) - 1]
+            self.assertEqual(len(body), 60)
+        self.assertEqual(self.page("refused")[0], "ok")
+        pages = {"30 Home/Bad.md"}
+        item = "- 30 Home/Bad.md (unreadable recurring date: %s%s)"
+        self.assertIsNotNone(readiness.could_not_read(item % ("x" * 60, readiness.DATE_HINT), pages, 20))
+        self.assertIsNone(readiness.could_not_read(item % ("x" * 61, readiness.DATE_HINT), pages, 20))
+        self.assertIsNone(readiness.could_not_read(item % ("", readiness.DATE_HINT), pages, 20))
 
 
 class SpeedTest(Scenario):

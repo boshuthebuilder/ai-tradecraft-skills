@@ -887,17 +887,30 @@ class MalformedInputTest(Copy):
     def test_an_extract_page_of_the_wrong_shape(self):
         """Re-review 1: a page whose n is not a whole number (null included: `full_text` would crash on it) or
         whose text is not text or null."""
-        path = os.path.join(self.root, "_Audit", "extract", self.ids["06 Work/Contract.docx"] + ".json")
+        doc = self.ids["06 Work/Contract.docx"]
+        path = os.path.join(self.root, "_Audit", "extract", doc + ".json")
         for page in ({"n": 1, "text": 123}, {"n": "1", "text": "hi"}, {"n": True, "text": "hi"},
                      {"n": None, "text": "hi"}, "page one"):
             with self.subTest(page=page):
-                write(path, json.dumps({"id": "x", "pages": [{"n": 1, "text": "fine"}, page]}))
+                write(path, json.dumps({"id": doc, "pages": [{"n": 1, "text": "fine"}, page]}))
                 err = self.refused("bundles")
                 self.assertIn("malformed extract record %s: page 2 must be an object whose n is a whole number" % path,
                               err)
                 self.assertIn("extract the document again", err)
-        write(path, json.dumps({"id": "x", "pages": [{"text": None}, {"n": 2, "text": "Contract"}]}))
+        write(path, json.dumps({"id": doc, "pages": [{"text": None}, {"n": 2, "text": "Contract"}]}))
         self.ok("bundles", code=1)
+
+    def test_an_extract_record_that_is_not_its_documents_is_refused(self):
+        """A record is named by its document's hash and carries it as `id`: the rule `extract.py repath` holds it to."""
+        doc = self.ids["06 Work/Contract.docx"]
+        path = os.path.join(self.root, "_Audit", "extract", doc + ".json")
+        for record, shown in (({"id": "x", "pages": []}, "'x'"), ({"pages": []}, "None"),
+                              ({"id": 5, "pages": []}, "5")):
+            with self.subTest(shown=shown):
+                write(path, json.dumps(record))
+                err = self.refused("bundles")
+                self.assertIn("malformed extract record %s: its id is %s, not %s" % (path, shown, doc), err)
+                self.assertIn("extract the document again", err)
 
     def test_cards_or_extract_naming_a_file(self):
         """Re-review 7."""

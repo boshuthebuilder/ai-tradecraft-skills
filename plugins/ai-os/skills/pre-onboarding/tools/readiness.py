@@ -229,7 +229,11 @@ MAX_LINE, MAX_BLOCK = 20000, 200000  # a longer line or block is not read: the t
 KEY = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
 INDICATORS = {"&": "an anchor", "*": "an alias", "!": "a tag", "|": "a block scalar", ">": "a folded scalar",
               "%": "a directive", "@": "a reserved indicator", "`": "a reserved indicator"}
-FLOW_STOP = re.compile(r"[,}\[\]{#:]")
+FLOW_STOP = re.compile(r"[,}\[\]{#:?]")
+# What PyYAML's reader refuses in a stream (its `NON_PRINTABLE`), and the line breaks it reads that a split on newlines
+# does not: a page holding either is malformed to the roll-up or read differently from here.
+NON_PRINTABLE = re.compile("[^\x09\x0A\x0D\x20-\x7E\x85\xA0-\uD7FF\uE000-\uFFFD\U00010000-\U0010ffff]")
+OTHER_BREAK = re.compile("\r(?!\n)|[\x85\u2028\u2029]")
 # pages the roll-up never reads as a source, by the names the reference roll-up gives them
 DERIVED_NAMES = frozenset(("index.md", "log.md", "deadlines.md", "coming events.md", "open questions.md", "schema.md",
                            "conventions.md"))
@@ -309,7 +313,7 @@ def after(s, k):
 
 def comment_only(tail):
     """True when `tail` is empty or only a comment (a space, then `#`)."""
-    return not tail.strip() or tail[:1] in " \t" and tail.lstrip().startswith("#")
+    return not tail.strip(" \t") or tail[:1] in " \t" and tail.lstrip(" \t").startswith("#")
 
 
 def flow_scalar(s, j, is_key):
@@ -331,6 +335,8 @@ def flow_scalar(s, j, is_key):
         raise OutOfScope(INDICATORS[c])
     if c in "[{":
         raise OutOfScope("a nested flow collection")
+    if c in "?:#" or c == "-" and s[j + 1:j + 2] in ("", " "):
+        raise OutOfScope("an indicator that opens a plain scalar of a flow mapping")
     k = j
     while True:
         m = FLOW_STOP.search(s, k)
@@ -347,10 +353,12 @@ def flow_scalar(s, j, is_key):
         elif ch == "#":
             if s[p - 1:p] in " \t":
                 raise OutOfScope("a comment inside a flow mapping")
+        elif ch == "?":
+            raise OutOfScope("a question mark in a plain scalar of a flow mapping")
         else:
             raise OutOfScope("brackets in a plain scalar of a flow mapping")
         k = p + 1
-    text = s[j:p].strip()
+    text = s[j:p].strip(" ")
     return Scalar(text or None, False, text), p
 
 
@@ -405,8 +413,10 @@ def block_value(rest):
         return mapping
     if c in "-?:" and rest[1:2] in ("", " "):
         raise OutOfScope("a block indicator inside a value")
+    if c in "]},":
+        raise OutOfScope("a plain value that opens with a flow indicator")
     cut = rest.find(" #")
-    text = (rest[:cut] if cut >= 0 else rest).strip()
+    text = (rest[:cut] if cut >= 0 else rest).strip(" ")
     if ": " in text or text.endswith(":"):
         raise OutOfScope("a colon and space inside a plain scalar")
     return Scalar(text, False, text)
@@ -498,7 +508,15 @@ def read_frontmatter(text):
         raise Malformed()
     if end > MAX_BLOCK:
         raise OutOfScope("frontmatter over %d characters" % MAX_BLOCK)
-    lines = [x.rstrip("\r") for x in text[3:end].split("\n")]
+    block = text[3:end]
+    block = block[:-1] if block.endswith("\r") else block  # the carriage return of a CRLF line before the fence
+    if NON_PRINTABLE.search(block):
+        raise OutOfScope("a character YAML does not allow")
+    if OTHER_BREAK.search(block):
+        raise OutOfScope("a line break other than a newline")
+    if "\t" in block and not any(x.startswith("\t") for x in block.split("\n")):
+        raise OutOfScope("a tab inside a line")
+    lines = [x.rstrip("\r") for x in block.split("\n")]
     if lines[0].strip():
         raise OutOfScope("text after the opening fence")
     lines = lines[1:]
@@ -569,9 +587,75 @@ def check_plain(scalar, own):
     raise OutOfScope("a plain value YAML reads as %s" % kind)
 
 
+TIMESTAMP = re.compile(r"(?P<y>[0-9]{4})-(?P<m>[0-9]{1,2})-(?P<d>[0-9]{1,2})(?:(?:[Tt]|[ \t]+)(?P<H>[0-9]{1,2}):"
+                       r"(?P<M>[0-9]{2}):(?P<S>[0-9]{2})(?:\.[0-9]*)?(?:[ \t]*(?:Z|(?P<sign>[-+])(?P<th>[0-9]{1,2})"
+                       r"(?::(?P<tm>[0-9]{2}))?))?)?")
+
+
+def buildable(text, kind):
+    """False for a plain scalar that PyYAML's resolver matches and its constructor cannot build (`2025-02-30`,
+    `2025-01-31 25:00:00`, `0b_`): the whole frontmatter is then not YAML to the roll-up, whichever key holds it."""
+    try:
+        if kind == "date":
+            m = TIMESTAMP.fullmatch(text)
+            year, month, day = int(m["y"]), int(m["m"]), int(m["d"])
+            if m["H"] is None:
+                datetime.date(year, month, day)
+            else:
+                zone = None
+                if m["sign"]:
+                    delta = datetime.timedelta(hours=int(m["th"]), minutes=int(m["tm"] or 0))
+                    zone = datetime.timezone(-delta if m["sign"] == "-" else delta)
+                datetime.datetime(year, month, day, int(m["H"]), int(m["M"]), int(m["S"]), tzinfo=zone)
+        elif YAML_PLAIN[1][1].match(text):
+            value = text.replace("_", "").lower().lstrip("+-")
+            if value not in (".inf", ".nan"):
+                [float(part) for part in value.split(":")] if ":" in value else float(value)
+        else:
+            value = text.replace("_", "").lstrip("+-")
+            if value.startswith("0b"):
+                int(value[2:], 2)
+            elif value.startswith("0x"):
+                int(value[2:], 16)
+            elif value[:1] == "0" and value != "0":
+                int(value, 8)
+            elif ":" in value:
+                [int(part) for part in value.split(":")]
+            else:
+                int(value)
+    except ValueError:
+        return False
+    return True
+
+
+def scalars_of(value):
+    """Every Scalar in a frontmatter value, whatever its depth."""
+    if isinstance(value, Scalar):
+        yield value
+    elif isinstance(value, Mapping):
+        yield from value.values()
+    elif isinstance(value, list):
+        for item in value:
+            yield from scalars_of(item)
+
+
 def check_resolution(fm):
-    """The frontmatter's plain scalars the roll-up writes, or shows in what it refuses, read as PyYAML reads them:
-    the notes and the dates; the rest of the frontmatter is not written out."""
+    """The frontmatter's plain scalars, read as PyYAML reads them. Wherever a key holds one, one PyYAML resolves but
+    cannot build (an impossible day, `<<`, `=`) is not YAML to the roll-up: `<<` and `=` have no constructor, so the
+    page is out of scope here, and an impossible day or number is malformed. The notes and the dates, which the roll-up
+    writes out or shows in what it refuses, are read further: the rest of the frontmatter is not written out."""
+    for value in fm.values():
+        for item in (value if isinstance(value, list) else [value]):
+            for name in item if isinstance(item, Mapping) else ():  # a flow mapping's key is any plain scalar
+                kind = plain_kind(name)
+                if kind in ("merge key", "value") or kind in ("date", "number", "time") and not buildable(name, kind):
+                    raise OutOfScope("a key YAML reads as %s" % kind)
+        for scalar in scalars_of(value):
+            kind = None if scalar.quoted or not scalar.text else plain_kind(scalar.text)
+            if kind in ("merge key", "value"):
+                raise OutOfScope("a plain value YAML reads as %s" % kind)
+            if kind in ("date", "number", "time") and not buildable(scalar.text, kind):
+                raise Malformed()
     for key in ("recurring", "deadlines", "deadline"):
         for it in items_of(fm.get(key)):
             if isinstance(it, Mapping):
@@ -689,12 +773,14 @@ def frontmatter_dates(fm):
 
 
 def roll_up_pages(wiki):
-    """Every `.md` page under the wiki folder as the roll-up lists them, relative with `/` separators, sorted: pages
-    under a dot folder and dot files too, which `wiki.py check` leaves out."""
+    """Every entry named `*.md` under the wiki folder as the roll-up lists them (`rglob("*.md")`), relative with `/`
+    separators, sorted: pages under a dot folder and dot files too, which `wiki.py check` leaves out, and a folder or a
+    link to one that is named so, which it lists as unreadable. A folder is walked into, a link to one is not."""
     out = []
     for d, ds, fs in os.walk(wiki):
         ds.sort()
-        out += [os.path.relpath(os.path.join(d, f), wiki).replace(os.sep, "/") for f in sorted(fs) if f.endswith(".md")]
+        out += [os.path.relpath(os.path.join(d, f), wiki).replace(os.sep, "/") for f in sorted(fs + ds)
+                if f.endswith(".md")]
     return sorted(out)
 
 
@@ -735,37 +821,44 @@ def deadline_items(wiki, pages, ws):
     dates.
 
     The page may hold only what the roll-up renders from the pages' frontmatter; every other line is reported. What
-    the roll-up could write is worked out from the pages, every `.md` under the wiki folder bar its derived pages and
-    the `.proposed.md` and `.superseded.md` siblings, each read by `read_frontmatter` (a defined subset of YAML,
-    plain, quoted and flow scalars with a comma ending a flow value and ` #` a comment): its entries, `(date, note,
-    page)`; the pages it could not read, whose frontmatter is malformed, or whose `recurring` dates it refuses, as the
-    lines of its "Could not read" list, each as many times as the roll-up writes it. A page whose frontmatter uses
-    YAML outside that subset is named as not verified, and only the judgements that need it are withheld: whether an
-    entry is backed by the pages, and how often and why the roll-up lists that page under "Could not read"; every line
-    outside the roll-up's grammar is still reported, and so is a line there that is not `- <page> (<reason>)` for a
-    page the roll-up reads (see `could_not_read`). The page is then read line by line against that grammar (see
-    ROLL_UP_LINES, BANNERS and `parse_entry`): its frontmatter, which holds only `provenance: derived`, `status:
-    current` and a `last-updated` day, once each; its headings, intro, `_None._` and blank lines (the title, the intro
-    and `## Upcoming` are always written, `## Every year` when a page carries a recurring date, `## Could not read`
-    and its intro when the pages give a line for it, `_None._` when no page gives a forward deadline, and a missing
-    one is an incomplete page); the empty-roll-up banner, only directly after the intro or title and, when the pages
-    are read, only when they give no entry; the lines under its "Could not read" heading, each in the roll-up's
-    error-line grammar and, for a page that reads, one the pages give; and entries, laid out as the reference roll-up
-    lays them out or as the fixture's roll-up does. An entry is split by plain string handling into date, note and
-    page links, and is clean only when its date is in the form the roll-up writes (`5 April`, `YYYY-MM-DD`) and its
-    `(date, note, page)` is in that set, the dated ones by their full date and the recurring ones by month and day. An
-    entry whose date no page carries is reported as that date (a YYYY-MM-DD no page's frontmatter carries, or a day
-    and month no page's `recurring` list carries); one whose date is not a date the contract reads is an unreadable
-    yearly date; every other line, a line that appears twice included, is hand-written content, with its line number
-    and its start. Each line is read in one pass, so a long line costs a long line and no more. One predicate says
-    which pages the roll-up reads (the pages above, none skipped for its `provenance`), and it decides what the page
-    may hold and what it must show alike: every deadline of those pages that is not before its `last-updated` (a
-    `last-updated` after today is a finding, and forward is then judged from today, the tools' clock), every recurring
-    date, and every line of its "Could not read" list that the pages give (a page that has since become unreadable,
-    with no line for it, is an incomplete page); a roll-up with none of those to show says why; and a deadline entry
-    that is not a real YYYY-MM-DD, or a recurring entry the contract does not read, is reported. Another page the
-    Schema marks derived (an open-questions list) is built from the pages in a way no date shows, so it is named as
-    not verified, apart. A Deadlines page that cannot be read as UTF-8 is a finding."""
+    the roll-up could write is worked out from the pages, every entry named `*.md` under the wiki folder (a folder or
+    a link to one among them, which it cannot read) bar its derived pages by name and the `.proposed.md` and
+    `.superseded.md` siblings, each read by `read_frontmatter` (a defined subset of YAML, plain, quoted and flow
+    scalars with a comma ending a flow value and ` #` a comment): its entries, `(date, note, page)`; the pages it could
+    not read, whose frontmatter is malformed, or whose `recurring` dates it refuses, as the lines of its "Could not
+    read" list, each as many times as the roll-up writes it. A page whose frontmatter uses YAML outside that subset is
+    named as not verified, and only the judgements that need it are withheld: whether an entry is backed by the pages,
+    and how often and why the roll-up lists that page under "Could not read".
+
+    The page is read line by line against the order and the conditions the roll-up writes it in (see ROLL_UP_LINES,
+    BANNERS and `parse_entry`): its frontmatter, which holds `provenance: derived`, `status: current` and a
+    `last-updated` day, once each, all three required; then the title, the intro, the empty-roll-up banner (required
+    when every page is read and gives no entry, accepted only then, directly after the intro), `## Upcoming` over its
+    entries or `_None._` (only while no page gives a deadline to come), `## Every year`, `## Past`, and `## Could not
+    read` over its own intro, once and directly under it, and its lines. A scaffold line out of place, or out of order,
+    is hand-written content; a heading with nothing under it is reported, since the roll-up writes one only over
+    something; and an entry must stand under the heading its date belongs under (a dated one under `## Upcoming` when
+    it is not before the `last-updated` day and under `## Past` when it is, a yearly one under `## Every year`). Every
+    line under `## Could not read` bar the list's own intro goes through `could_not_read`, the roll-up's error-line
+    grammar, and, for a page that reads, is one the pages give. The lines it always writes are required, and so are
+    those its entries or list make it write (the title, the intro, `## Upcoming`; `## Every year` beside a yearly
+    entry, `## Past` beside a past one, the intro of a list that is there, `_None._` when no page gives a deadline to
+    come, the banner), and a missing one is an incomplete derived page naming it. An entry is split by plain string
+    handling into date, note and page links, and is clean only when its date is in the form the roll-up writes (`5
+    April`, `YYYY-MM-DD`) and its `(date, note, page)` is in that set, the dated ones by their full date and the
+    recurring ones by month and day. An entry whose date no page carries is reported as that date (a YYYY-MM-DD no
+    page's frontmatter carries, or a day and month no page's `recurring` list carries); one whose date is not a date the
+    contract reads is an unreadable yearly date; every other line, a line that appears twice included, is hand-written
+    content, with its line number and its start. Each line is read in one pass, so a long line costs a long line and no
+    more. One predicate says which pages the roll-up reads (the pages above, none skipped for its `provenance`), and it
+    decides what the page may hold and what it must show alike: every deadline of those pages that is not before its
+    `last-updated` (a `last-updated` after today is a finding, and forward is then judged from today, the tools'
+    clock), every recurring date, and every line of its "Could not read" list that the pages give (a page that has
+    since become unreadable, with no line for it, is an incomplete page); a roll-up with none of those to show says
+    why; and a deadline entry that is not a real YYYY-MM-DD, or a recurring entry the contract does not read, is
+    reported. Another page the Schema marks derived (an open-questions list) is built from the pages in a way no date
+    shows, so it is named as not verified, apart; the roll-up knows no Schema, so such a page is still read as a
+    source. A Deadlines page that cannot be read as UTF-8 is a finding."""
     derived_dirs = tuple("%s %s/" % (s["number"], s["name"]) for s in (ws or {}).get("sections", []) if s["derived"])
     others = [p for p in pages if p != DEADLINES and p.startswith(derived_dirs)] if derived_dirs else []
     other_item = "not verified: %s (derived, built from the pages in a way no date shows)" % sample(others) \
@@ -776,8 +869,9 @@ def deadline_items(wiki, pages, ws):
     days, yearly = collections.defaultdict(list), collections.defaultdict(list)  # date: the current pages holding it
     swept_days, swept_yearly, bad_days, bad, any_derived = set(), set(), [], [], False
     entries, unread, outside = set(), collections.Counter(), []  # what the roll-up renders and could not read
+    scanned = 0  # the pages it read and did not skip: the count in its empty-roll-up banner
     every = roll_up_pages(wiki)
-    readable = {p for p in every if p != DEADLINES and p not in others and read_by_roll_up(p)}  # the roll-up's own
+    readable = {p for p in every if p != DEADLINES and read_by_roll_up(p)}  # the roll-up's own: it knows no Schema
     outside_pages = set()
     for p in every:
         if p not in readable:
@@ -798,6 +892,7 @@ def deadline_items(wiki, pages, ws):
             continue
         if fm.get("status") is not None and getattr(fm["status"], "text", None) == "superseded":
             continue  # no longer the wiki's: the roll-up shows none of its dates
+        scanned += 1
         d, y, bd, b, rendered, refused = frontmatter_dates(fm)
         entries |= {(key, note, p) for key, note in rendered}
         unread.update("- %s (unreadable recurring date: %s)" % (p, why) for why in refused)
@@ -828,80 +923,115 @@ def deadline_items(wiki, pages, ws):
     hand, hand_yearly, written, unreadable, shown_days, shown_yearly = [], [], [], [], set(), set()
     page_set, dates, section, seen, prev = set(every), {key for key, _note, _page in entries}, None, set(), None
     longest = max((len(p) for p in readable), default=0)
+    forward = {d for d in swept_days if stamp is None or d >= stamp}  # one before the roll-up's build is past
     frontmatter = FRONTMATTER.match(text)
-    keys = set()
+    keys, given = set(), set()
     for n, line in enumerate(frontmatter.group(1).split("\n") if frontmatter else [], 2):
         key = line.partition(":")[0]
-        if line.strip() and (key in keys or not (line in ("provenance: derived", "status: current")
-                                                 or line.startswith("last-updated: ") and real_day(line[14:]))):
+        good = (line in ("provenance: derived", "status: current")
+                or line.startswith("last-updated: ") and real_day(line[14:]))
+        if line.strip() and (key in keys or not good):
             written.append("line %d: %s" % (n, excerpt(line)))  # the roll-up writes three keys, once each
+        if good:
+            given.add(key)
         keys.add(key)
+    order = {TITLE: 0, INTRO: 1, INTRO_FIXTURE: 1, UPCOMING: 3, EVERY_YEAR: 4, PAST: 5, UNREAD: 6}  # as it writes them
+    last, entered, none_under, banner_seen = -1, collections.Counter(), False, False
     for n, line in enumerate(body.splitlines(), offset + 1):
         if not line.strip():
             continue
         before, prev = prev, line
-        if section == UNREAD and line not in ROLL_UP_LINES:  # a line of its list, once for each the roll-up writes
+        where = "line %d: %s" % (n, excerpt(line))
+        if section == UNREAD and not (line == UNREAD_INTRO and before == UNREAD and UNREAD_INTRO not in seen):
+            entered[UNREAD] += 1  # a line of its list, once for each the roll-up writes
             listed = could_not_read(line, readable, longest)
             if listed is None:  # not `- <page> (<reason>)` for a page the roll-up reads, with a reason it writes
-                written.append("line %d: %s" % (n, excerpt(line)))
+                written.append(where)
             elif listed[0] in outside_pages:  # not read here, so what the roll-up lists for it is not known: but the
                 if listed[1].startswith("unreadable: "):  # file was read as text, so it is not that
-                    written.append("line %d: %s" % (n, excerpt(line)))
+                    written.append(where)
             else:
                 if unread[line] <= 0:
-                    written.append("line %d: %s" % (n, excerpt(line)))
+                    written.append(where)
                 unread[line] -= 1
             continue
         if line in seen:  # a line the roll-up writes once
-            written.append("line %d: %s" % (n, excerpt(line)))
+            written.append(where)
             continue
         seen.add(line)
-        if line in ROLL_UP_LINES and line != MARKER:
-            section = line if line.startswith("#") else section
+        if line in (UPCOMING, EVERY_YEAR, PAST, UNREAD, TITLE, INTRO, INTRO_FIXTURE):
+            ok = order[line] > last and (before is None if line == TITLE else
+                                         before == TITLE if line in (INTRO, INTRO_FIXTURE) else True)
+            if ok:
+                last = order[line]
+            else:
+                written.append(where)
+            section = line if line.startswith("#") and line != TITLE else section
+            continue
+        if line == UNREAD_INTRO:  # only the list's own, once, directly under its heading
+            if not (section == UNREAD and before == UNREAD):
+                written.append(where)
+            continue
+        if line == NOTHING:  # only where it writes it, and only while no page gives a deadline to come
+            if not (section == UPCOMING and not entered[UPCOMING] and not forward):
+                written.append(where)
+            entered[UPCOMING] += 1
+            none_under = True
             continue
         kind = banner(line)
         if line == MARKER or kind is not None:  # the banner of an empty roll-up, in the place the roll-up puts it
-            after = (INTRO, INTRO_FIXTURE, TITLE)  # a one-line banner goes after the intro, or the title
-            if (not entries or not verified) and (before == MARKER if kind == 0 else before in after):
-                continue
-            written.append("line %d: %s" % (n, excerpt(line)))
+            after = (INTRO, INTRO_FIXTURE)  # a one-line banner goes directly after the intro
+            banner_seen = True
+            if not ((not entries or not verified) and (before == MARKER if kind == 0 else before in after)):
+                written.append(where)
             continue
         entry = parse_entry(line, page_set)
         if entry is None:  # nothing the roll-up writes: a date in it is still the dated check's to judge
-            written.append("line %d: %s" % (n, excerpt(line)))
+            written.append(where)
             if verified:
                 hand += ["line %d: %s" % (n, m.group(0)) for m in DAY.finditer(line)
                          if m.group(0) not in days and m.group(0) != stamp]
             continue
         when, note, linked = entry
-        if DAY.fullmatch(when):
+        entered[section] += 1
+        if DAY.fullmatch(when):  # under Upcoming when it is not before the build, under Past when it is
             shown_days.add(when)
             key = when
-            if verified and when not in days and when != stamp:
-                hand.append("line %d: %s" % (n, when))
-                continue
+            placed = (section == UPCOMING and not none_under and (stamp is None or when >= stamp)
+                      or section == PAST and (stamp is None or when < stamp))
         elif month_day(when):
             key = month_day(when)
             if when != rendered_month_day(key):  # a spelling the roll-up does not write: hand-edited
-                written.append("line %d: %s" % (n, excerpt(line)))
+                written.append(where)
                 continue
             shown_yearly.add(key)
-            if verified and key not in dates:
-                hand_yearly.append("line %d: %s" % (n, key))
-                continue
+            placed = section == EVERY_YEAR
         else:
             unreadable.append("line %d: %s" % (n, excerpt(when)))
             continue
-        if verified and not all((key, note, page) in entries for page in linked):  # not what the pages give
-            written.append("line %d: %s" % (n, excerpt(line)))
-    forward = {d for d in swept_days if stamp is None or d >= stamp}  # one before the roll-up's build is past
+        if not placed:  # an entry the roll-up writes under another heading, or none
+            written.append(where)
+        elif DAY.fullmatch(when) and verified and when not in days and when != stamp:
+            hand.append("line %d: %s" % (n, when))
+        elif not DAY.fullmatch(when) and verified and key not in dates:
+            hand_yearly.append("line %d: %s" % (n, key))
+        elif verified and not all((key, note, page) in entries for page in linked):  # not what the pages give
+            written.append(where)
     # what the roll-up writes whatever the pages hold, and what it writes with the entries or the list shown
     required = [TITLE, INTRO_FIXTURE if INTRO_FIXTURE in seen else INTRO, UPCOMING] \
         + ([EVERY_YEAR] if shown_yearly else []) + ([PAST] if stamp and any(d < stamp for d in shown_days) else []) \
         + ([UNREAD_INTRO] if UNREAD in seen else []) + ([NOTHING] if verified and not forward else [])
     lacking = [x for x in required if x not in seen]
+    if verified and not entries and scanned and not banner_seen:  # it says why there is nothing, over the pages it read
+        lacking.append("the empty-roll-up banner")
+    lacking += [{"provenance": "provenance: derived", "status": "status: current",
+                 "last-updated": "last-updated: <the day it was written>"}[k]
+                for k in ("provenance", "status", "last-updated") if k not in given]
     if lacking:  # a line the roll-up always writes was deleted: the page is not what it renders
         derived.append("%s lacks %d line(s) the roll-up writes (%s)" % (DEADLINES, len(lacking), sample(lacking)))
+    bare = [heading for heading in (UPCOMING, EVERY_YEAR, PAST, UNREAD) if heading in seen and not entered[heading]]
+    if bare:  # it writes a heading only over something
+        derived.append("%s holds %d heading(s) with nothing under them (%s)" % (DEADLINES, len(bare), sample(bare)))
     absent = sorted(line[2:] for line, count in unread.items() if count > 0)
     if absent:  # a page the roll-up lists became unreadable, and the Deadlines page was not regenerated
         derived.append("%s lacks %d line(s) of the roll-up's \"Could not read\" list that the pages give (%s)"
@@ -1021,7 +1151,7 @@ def record_checks(root, rb, live, evidence):
     found = collections.OrderedDict((k, []) for k in ("missing_extracts", "missing_cards", "malformed_cards",
                                                       "malformed_extracts", "bad_category", "extract_paths_stale",
                                                       "contamination"))
-    no_extract, no_terms = [], []  # documents whose extract record could not be read; whose terms check could not run
+    no_extract, no_terms, no_category = [], [], []  # extract record unread; terms check not run; card unread
     for h, e in sorted(live.items(), key=lambda kv: kv[1]["current_path"]):
         if not isinstance(e.get("hashed"), bool):
             raise common.ToolError("manifest entry %s (%s) records no hashed true or false; it is not a manifest "
@@ -1053,6 +1183,7 @@ def record_checks(root, rb, live, evidence):
             continue
         if card is False:
             no_terms.append(path)
+            no_category.append(path)  # a card with one bad field is unread whole: its category was not looked at
             continue
         if card.get("category") not in rb["card_categories"]:
             found["bad_category"].append("%s: %r" % (path, card.get("category")))
@@ -1064,6 +1195,7 @@ def record_checks(root, rb, live, evidence):
                 found["contamination"].append(path)  # the terms themselves are never written out
     counts = collections.OrderedDict((k, len(v)) for k, v in found.items())
     counts["extract_paths_stale"] = unread(counts["extract_paths_stale"], no_extract, "extract record is malformed")
+    counts["bad_category"] = unread(counts["bad_category"], no_category, "card is malformed")
     if not evidence:
         counts["contamination"] = "not verified: no --terms"
     else:
@@ -1187,7 +1319,7 @@ def main():
                        "path, so remove or redo any such malformed extract record first, then repath them: %s"
                        ) % repath_command(a)
             findings.append(["records." + key, "%d %s (%s)%s" % (len(hits), what[key], sample(hits), fix)])
-    for key in ("extract_paths_stale", "contamination"):
+    for key in ("bad_category", "extract_paths_stale", "contamination"):
         if isinstance(out["records"][key], str):
             unverified.append(["records." + key, out["records"][key]])
     for engine, state in out["isolation"]["canary"].items():

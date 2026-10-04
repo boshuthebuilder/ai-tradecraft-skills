@@ -895,8 +895,8 @@ same way, which is not a finding and not a pass either, and does not change the 
   extract records, which `repath` cannot read, are dealt with) and `contamination` (a
   card naming an isolation term its own source lacks, by `cards.py`'s rule; `not verified` without `--terms`). A
   count above zero is one finding. A check that needed a card or extract record that could not be read says so for
-  that document rather than reading it clean: `extract_paths_stale` and `contamination` become `not verified for N
-  document(s) whose ... is malformed` (after the count, `1; not verified ...`, when some documents were checked and
+  that document rather than reading it clean: `bad_category`, `extract_paths_stale` and `contamination` become `not
+  verified for N document(s) whose ... is malformed` (after the count, `1; not verified ...`, when some documents were checked and
   one held a finding), and are listed in `not_verified`.
 - `isolation.canary`: per engine (`agy` and `codex`), the result `isolation.py canary --out` wrote to
   `<work>/state/canary-<engine>.json`: `passed (model M, effort E)`, `failed: ...` (a finding), `not run: ...` (not
@@ -936,10 +936,12 @@ roll-up reads
 reported.** No date is looked for in the page's text, so no shape of hand-kept date can be missed or mistaken for
 rendered output. The page is read against the roll-up's output grammar instead:
 
-1. Each page the roll-up reads (every `.md` under the wiki folder, dot folders and dot files included, but not its
-   derived pages, `Index`, `Log`, `Deadlines`, `Coming Events`, `Open Questions`, `Schema` and `Conventions`, nor a
-   `.proposed.md` or `.superseded.md` sibling) is read by the frontmatter subset below, and what the roll-up could
-   write is worked out from it (superseded pages left out):
+1. Each page the roll-up reads (every entry named `*.md` under the wiki folder, dot folders and dot files included, but
+   not its derived pages by name, `Index`, `Log`, `Deadlines`, `Coming Events`, `Open Questions`, `Schema` and
+   `Conventions`, nor a `.proposed.md` or `.superseded.md` sibling) is read by the frontmatter subset below, and what
+   the roll-up could write is worked out from it (superseded pages left out). The roll-up lists by name alone: a
+   folder or a link to one named `*.md` is a page it cannot read (`unreadable: IsADirectoryError`), and a malformed
+   page inside a section the Schema marks derived is listed like any other, since the roll-up knows no Schema:
    - the entries `(date, note, page)`: each `recurring` item gives its month and day, each `deadline` its date (its
      first ten characters) with its `deadline_note`, each `deadlines` item its date, the note being what YAML reads,
      with its whitespace collapsed;
@@ -966,6 +968,8 @@ fence at column 0 (`---`, the page's first line, closed by a line starting `---`
 - a trailing ` # comment` after a scalar or after a flow mapping's closing `}`, and whole-line comments;
 - in a flow mapping, an unquoted comma ends a value and what follows is a key of its own.
 
+Spaces are the only whitespace a plain scalar loses (a no-break space stays), as in YAML.
+
 Anything else makes the deadline check say `not verified: <page> uses YAML this check does not read (<construct>)`,
 which is neither a finding nor a pass and is listed in `not_verified` (`handoff_contract.frontmatter_read`). The
 constructs named are: indented frontmatter and a multi-line scalar, a `? ` key, a `...` marker, anchors, aliases and
@@ -973,7 +977,12 @@ tags, `|` and `>` scalars, a flow mapping over several lines or with a comment i
 block collection, a quoted `status`, a quoted key or a key that is not a plain word, a colon and space inside a plain
 scalar, an unclosed quote or text after a quoted scalar, a double-quoted escape other than `\"` and `\\`, a tab for
 indentation, a directive, list items at different indents, a line over 20,000 characters, a block over 200,000,
-text after the opening fence, and a plain value YAML reads as a bool, null, number, time or date (below). While any
+text after the opening fence, a plain value YAML reads as a bool, null, number, time or date (below), and what PyYAML
+refuses, so that the roll-up lists the page as malformed, which a read of the plain text would take for fine: a tab
+anywhere but a quoted value's own, a control character or any character YAML's reader refuses, a line break that is not
+a newline (U+0085, U+2028, U+2029), a plain value that opens with `]`, `}` or `,`, `<<` or `=` as a value or a key
+(neither has a constructor), and in a flow mapping a `?` inside a plain scalar or a plain scalar that opens with `?`,
+`:`, `#` or a dash and a space. While any
 page is out of scope only the judgements that depend on reading it are withheld: whether an entry is backed by the
 pages, and how often and why the roll-up lists that page under "Could not read" (a line there naming it is accepted
 when it is in the roll-up's error-line grammar, `malformed frontmatter` or a refused recurring date, since it was read as
@@ -983,8 +992,9 @@ the roll-up does not read, the lines the other pages give, an entry's date form,
 line, the Deadlines page's own frontmatter.
 
 A frontmatter is `malformed` only for what needs no YAML reader to see: a fence that never closes, a list where the
-keys should be (the first line is a `-` item), bare words with no colon anywhere, or a day the calendar does not have
-where a date is read (`2025-02-30`, which PyYAML cannot build, so the roll-up lists the page as malformed). What
+keys should be (the first line is a `-` item), bare words with no colon anywhere, or a plain scalar PyYAML matches as a
+date or a number and cannot build, whichever key holds it (`2025-02-30`, `2025-01-31 25:00:00`, `0b_`), so that the
+roll-up lists the page as malformed. What
 PyYAML would read but the subset does not is out of scope, never malformed.
 
 **A plain scalar PyYAML reads as anything but text is out of scope.** The roll-up writes the value YAML gives, not
@@ -1001,19 +1011,26 @@ shown as `{'date': True}`); any other kind is out of scope as above. The suite c
 PyYAML's own resolver patterns over every short string of the characters that matter, so nothing within the subset is
 read otherwise than PyYAML reads it.
 
-2. The page is read line by line. The grammar is its frontmatter, which holds `provenance: derived`, `status:
-   current` and a `last-updated` day, once each, and nothing else; the headings `# Deadlines`, `## Upcoming`,
-   `## Every year`, `## Past` and `## Could not read`; the italic intro; `_None._`; blank lines; the empty-roll-up
-   banner, which is accepted only directly after the intro or the title, only when the pages give no entry at all,
-   and with any count of pages (a callout is its marker line, then its text line); the lines under `## Could not
-   read`, each in the roll-up's error-line grammar (`- <page> (<reason>)`, the page one the roll-up reads and the
-   reason one of the three forms in step 1) and, for a page that reads, one in the set from step 1; and entries. A
-   line that appears twice is reported. The lines the roll-up always writes are required: the title, the intro and
-   `## Upcoming`; and, with what the page shows or the pages give, `## Every year` beside a recurring entry,
-   `## Past` beside a past one, the intro line of a "Could not read" list that is there, and `_None._` when no page
-   gives a forward deadline (judged only while every page is read). A missing one is reported as an incomplete
-   derived page naming it. The fixture's roll-up writes no em dash, so its intro puts a colon where the reference
-   roll-up puts the dash, as its entries do.
+2. The page is read line by line, against the order and the conditions the roll-up writes it in. Its frontmatter holds
+   `provenance: derived`, `status: current` and a `last-updated` day, once each, and nothing else, and all three are
+   required. The body is, in this order: the title `# Deadlines`, the italic intro, the empty-roll-up banner when there
+   is one, `## Upcoming` over its entries or over `_None._`, `## Every year` over its entries, `## Past` over its
+   entries, and `## Could not read` over its own intro and then its lines. A scaffold line stands only where the
+   roll-up puts it: the title first, the intro directly after it, the banner directly after the intro, a heading
+   after the one before it in this order, `_None._` only directly under `## Upcoming` and only while no page gives
+   a deadline to come, the list's intro once and directly under its heading. A heading with nothing under it is
+   reported (the roll-up writes one only over something). An entry stands under the heading its date belongs under:
+   a dated one under `## Upcoming` when it is not before the day written and under `## Past` when it is, a yearly one
+   under `## Every year`. The banner is required when every page is read and they give no entry (over the pages it
+   read), and is accepted only then. Every line under `## Could not read` other than the list's own intro goes through
+   the error-line grammar (`- <page> (<reason>)`, the page one the roll-up reads and the reason one of the three forms in
+   step 1) and, for a page that reads, is one in the set from step 1; a roll-up line moved under the heading is
+   hand-written content there. Blank lines are free; a line that appears twice is reported. The lines the roll-up
+   always writes are required, and so are those its entries or list make it write: the title, the intro, `## Upcoming`;
+   `## Every year` beside a yearly entry, `## Past` beside a past one, the intro line of a list that is there, and
+   `_None._` when no page gives a forward deadline (judged only while every page is read). A missing one is reported as
+   an incomplete derived page naming it. The fixture's roll-up writes no em dash, so its intro puts a colon where the
+   reference roll-up puts the dash, as its entries do.
 3. An entry is `- **<date>**`, then the page titles and, when there is one, the note, each after a spaced em dash
    (the reference deployment's roll-up), or `: <note>` (the fixture's roll-up), then ` (<links>)` ending the line. The links are read from
    the end of the line, each `[<page path without .md, or its title>](<its path from the roll-up, percent-encoded>)`

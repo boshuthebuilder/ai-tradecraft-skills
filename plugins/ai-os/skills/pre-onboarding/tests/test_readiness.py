@@ -31,6 +31,7 @@ import readiness  # noqa: E402
 FIXTURE = os.path.join(HERE, "fixture", "Alex Personal")
 WIKI = "Alex Personal Wiki"
 DEADLINES = "01 Deadlines/01 Deadlines.md"
+GAP_CARD = "1; not verified for 3 document(s) whose card is malformed"
 FIXTURE_INTRO = ("_File-derived deadlines, rolled up deterministically from page frontmatter: do not hand-edit, "
                  "regenerated each run. (Calendar events live in `Coming Events`.)_")
 TAX = "20 Finance/Tax.md"
@@ -782,13 +783,44 @@ class FindingTest(Prepared):
         os.remove(self.path("_Audit", "extract", self.ids()["03 Home/Lease notes .txt"] + ".json"))  # card and extract
         res = self.readiness(code=1)
         self.assertEqual({k: res["records"][k] for k in ("malformed_cards", "bad_category", "missing_extracts")},
-                         {"malformed_cards": 3, "bad_category": 1, "missing_extracts": 1})
+                         {"malformed_cards": 3, "bad_category": GAP_CARD, "missing_extracts": 1})
         detail = dict(res["findings"])["records.malformed_cards"]
         self.assertTrue(detail.startswith("3 card(s) not in the card format"), detail)
         for doc in ("04 Study/Notes.rtf", "02 Finance/Bank statement 2024-03.pdf", "03 Home/Lease notes .txt"):
             self.assertIn(doc, detail)
         self.assertIn("04 Study/Cours de fran\u00e7ais.pdf: 'Hobbies'", dict(res["findings"])["records.bad_category"])
         self.assertIn("03 Home/Lease notes .txt", dict(res["findings"])["records.missing_extracts"])
+
+    def test_a_card_malformed_in_an_unrelated_field_leaves_its_category_not_verified(self):
+        """`sensitive` as a string fails the whole card, so its category was never looked at: a clean 0 was wrong."""
+        p = self.card("04 Study/Notes.rtf")
+        write(p, json.dumps(dict(json.loads(read(p)), sensitive="yes")))
+        res = self.readiness(code=1)
+        gap = "not verified for 1 document(s) whose card is malformed"
+        self.assertEqual((res["records"]["malformed_cards"], res["records"]["bad_category"]), (1, gap))
+        self.assertIn(["records.bad_category", gap], res["not_verified"])
+        self.assertEqual([k for k, _v in res["findings"]], ["records.malformed_cards"])
+        p = self.card("04 Study/Cours de fran\u00e7ais.pdf")  # a readable card whose category is wrong is still found
+        write(p, json.dumps(dict(json.loads(read(p)), category="Hobbies"), indent=1))
+        res = self.readiness(code=1)
+        self.assertEqual(res["records"]["bad_category"], "1; " + gap)
+        self.assertIn("records.bad_category", [k for k, _v in res["findings"]])
+
+    def test_an_extract_record_whose_id_is_not_its_documents_is_malformed(self):
+        """`extract.py repath` refuses such a record, so the readiness count must not read it clean."""
+        for change, shown in ((lambda r: dict(r, id="0" * 64), "'%s'" % ("0" * 64)),
+                              (lambda r: {k: v for k, v in r.items() if k != "id"}, "None"),
+                              (lambda r: dict(r, id=5), "5")):
+            with self.subTest(shown=shown):
+                p = self.path("_Audit", "extract", self.ids()["06 Work/Contract.docx"] + ".json")
+                original = read(p)
+                write(p, json.dumps(change(json.loads(original))))
+                res = self.readiness(code=1)
+                self.assertEqual(res["records"]["malformed_extracts"], 1)
+                detail = dict(res["findings"])["records.malformed_extracts"]
+                self.assertIn("06 Work/Contract.docx: ", detail)
+                self.assertIn("its id is %s" % shown, detail)
+                write(p, original)
 
     def test_every_malformed_extract_record_is_counted_and_the_other_checks_still_run(self):
         """An extract record that is not JSON, not UTF-8, not an object or holds pages that are not a list ends no
@@ -804,7 +836,7 @@ class FindingTest(Prepared):
                          ("03 Home/Lease renewal.pdf", "pages must be a list"),
                          ("04 Study/Slides.pptx", "expected a JSON object")):
             self.assertIn("%s: %s" % (doc, why), detail)
-        self.assertEqual(res["records"]["bad_category"], 1)  # the checks after the bad records still ran
+        self.assertEqual(res["records"]["bad_category"], GAP_CARD)  # the check after the bad records still ran
         self.assertEqual(res["records"]["malformed_cards"], 3)
         self.assertEqual(res["records"]["missing_extracts"], 0, "a record that is there is not missing")
         self.assertEqual(sorted(k for k, _v in res["findings"]),

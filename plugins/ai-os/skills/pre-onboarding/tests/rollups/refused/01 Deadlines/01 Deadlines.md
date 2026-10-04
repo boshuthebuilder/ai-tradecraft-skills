@@ -28,3 +28,5 @@ _These pages, or entries on them, were skipped. Fix their frontmatter so any dea
 - 30 Home/Bad.md (unreadable recurring date: {'date': '31 April', 'note': 'nonsense'}; write the date as MM-DD, month first, or as a day and a month name)
 - 30 Home/Bad.md (unreadable recurring date: datetime.date(2025, 1, 31); write the date as MM-DD, month first, or as a day and a month name)
 - 30 Home/Bad.md (unreadable recurring date: {'date': '6/4', 'note': ''}; write the date as MM-DD, month first, or as a day and a month name)
+- 30 Home/Bad.md (unreadable recurring date: {'date': '31 April', 'note': 'a note that runs well past the; write the date as MM-DD, month first, or as a day and a month name)
+- 30 Home/Bad.md (unreadable recurring date: {'date': '31 April', 'note': 'abcdefghijklmnopqrstuvwxyz12'}; write the date as MM-DD, month first, or as a day and a month name)

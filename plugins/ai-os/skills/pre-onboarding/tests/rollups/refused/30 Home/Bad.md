@@ -11,5 +11,7 @@ recurring:
   - {date: 31 April, note: nonsense}
   - 2025-01-31
   - {date: 6/4, note: ''}
+  - {date: 31 April, note: a note that runs well past the sixty characters the roll-up keeps}
+  - {date: 31 April, note: abcdefghijklmnopqrstuvwxyz12}
 ---
 # Page
