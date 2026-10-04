@@ -952,9 +952,13 @@ block collection, a quoted `status`, a quoted key or a key that is not a plain w
 scalar, an unclosed quote or text after a quoted scalar, a double-quoted escape other than `\"` and `\\`, a tab for
 indentation, a directive, list items at different indents, a line over 20,000 characters, a block over 200,000,
 text after the opening fence, and a plain value YAML reads as a bool, null, number, time or date (below). While any
-page is out of scope the judgements that depend on reading it are withheld: whether an entry is backed by the pages,
-and the "Could not read" list. The rest is still judged, because it does not depend on the YAML: every line of the Deadlines page outside the roll-up's grammar, an entry's date form, an
-unreadable date, a duplicated line, the Deadlines page's own frontmatter.
+page is out of scope only the judgements that depend on reading it are withheld: whether an entry is backed by the
+pages, and how often and why the roll-up lists that page under "Could not read" (a line there naming it is accepted
+when it is in the roll-up's error-line grammar, `malformed frontmatter` or a refused recurring date, since it was read as
+text and is not unreadable). The rest is still judged, because it does not depend on the YAML: every line of the
+Deadlines page outside the roll-up's grammar, a "Could not read" line outside the error-line grammar or naming a page
+the roll-up does not read, the lines the other pages give, an entry's date form, an unreadable date, a duplicated
+line, the Deadlines page's own frontmatter.
 
 A frontmatter is `malformed` only for what needs no YAML reader to see: a fence that never closes, a list where the
 keys should be (the first line is a `-` item), bare words with no colon anywhere, or a day the calendar does not have
@@ -980,7 +984,14 @@ read otherwise than PyYAML reads it.
    `## Every year`, `## Past` and `## Could not read`; the italic intro; `_None._`; blank lines; the empty-roll-up
    banner, which is accepted only directly after the intro or the title, only when the pages give no entry at all,
    and with any count of pages (a callout is its marker line, then its text line); the lines under `## Could not
-   read`, each one in the set from step 1; and entries. A line that appears twice is reported.
+   read`, each in the roll-up's error-line grammar (`- <page> (<reason>)`, the page one the roll-up reads and the
+   reason one of the three forms in step 1) and, for a page that reads, one in the set from step 1; and entries. A
+   line that appears twice is reported. The lines the roll-up always writes are required: the title, the intro and
+   `## Upcoming`; and, with what the page shows or the pages give, `## Every year` beside a recurring entry,
+   `## Past` beside a past one, the intro line of a "Could not read" list that is there, and `_None._` when no page
+   gives a forward deadline (judged only while every page is read). A missing one is reported as an incomplete
+   derived page naming it. The fixture's roll-up writes no em dash, so its intro puts a colon where the reference
+   roll-up puts the dash, as its entries do.
 3. An entry is `- **<date>**`, then the page titles and, when there is one, the note, each after a spaced em dash
    (the reference deployment's roll-up), or `: <note>` (the fixture's roll-up), then ` (<links>)` ending the line. The links are read from
    the end of the line, each `[<page path without .md, or its title>](<its path from the roll-up, percent-encoded>)`

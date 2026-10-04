@@ -985,13 +985,67 @@ class OutOfScopeTest(Scenario):
         _d, recurring, _o, _out = self.outside("a: &x b", change=self.replace("**12 May**", "**5-May**"))
         self.assertIn("unreadable yearly date", recurring)
 
-    def test_the_could_not_read_list_is_not_judged_while_a_page_is_unread(self):
-        change = self.replace("## Past\n", "## Past\n\n## Could not read\n\n"
-                              "- 20 Finance/Tax.md (unreadable: Whatever)\n")
-        dated, _recurring, _other, outside = self.outside("a: &x b", change=change)
-        self.assertEqual((dated, len(outside)), ("ok", 1))
-        dated = self.outside("a: b", change=change)[0]  # every page read: the line is not the roll-up's
-        self.assertIn(HAND, dated)
+    OUT = PAGE_NAME  # the page the tests below put outside the subset
+    FORMS = ("- %s (malformed frontmatter)",
+             "- %s (unreadable recurring date: {'date': '6/4'}" + readiness.DATE_HINT + ")",
+             "- %s (unreadable recurring date: {'note': 'x'}" + readiness.KEY_HINT + ")")
+
+    def listed(self, *lines, block="a: &x b", scenario="plain"):
+        """The dated result with the Could not read section, holding `lines`, appended to the roll-up page."""
+        text = "## Could not read\n\n%s\n\n%s" % (readiness.UNREAD_INTRO, "\n".join(lines))
+        return self.outside(block, scenario, self.append(text))
+
+    def test_a_line_under_could_not_read_is_always_in_the_roll_ups_grammar(self):
+        """While a page is outside the subset only what that page decides is withheld, never the grammar."""
+        dated, _recurring, _other, outside = self.listed("- definitely hand-written")
+        self.assertEqual(outside, self.named("an anchor"))
+        self.assertIn("%s holds %s, 1 line(s) (line" % (readiness.DEADLINES, HAND), dated)
+        self.assertIn("- definitely hand-written", dated)
+        for line in ("- %s" % self.OUT, "- %s (because)" % self.OUT, "- %s (unreadable: not a class)" % self.OUT,
+                     "%s (malformed frontmatter)" % self.OUT, "- %s (malformed frontmatter) and more" % self.OUT,
+                     "- %s (unreadable recurring date: x)" % self.OUT,
+                     "- %s (unreadable recurring date: %s%s)" % (self.OUT, "x" * 61, readiness.DATE_HINT),
+                     "- %s (unreadable recurring date: %s)" % (self.OUT, readiness.DATE_HINT),
+                     "- %s (Malformed frontmatter)" % self.OUT, "-%s (malformed frontmatter)" % self.OUT,
+                     "5 April: pay fee", "| 5 | April |"):
+            with self.subTest(line=line):
+                self.assertIn(HAND, self.listed(line)[0])
+
+    def test_a_line_for_a_page_that_does_not_exist_is_reported(self):
+        for name in ("30 Home/Nowhere.md", "30 Home/Insurance", "insurance.md", "30 Home/Insurance.superseded.md",
+                     "01 Deadlines/01 Deadlines.md"):
+            with self.subTest(name=name):
+                self.assertIn(HAND, self.listed("- %s (malformed frontmatter)" % name)[0])
+        self.assertIn(HAND, self.listed("- 30 Home/Nowhere.md (malformed frontmatter)", block="a: b")[0])
+
+    def test_a_line_in_the_grammar_for_the_page_outside_the_subset_is_accepted(self):
+        """What the roll-up lists for that page depends on reading it, so how often and why is not judged."""
+        for form in self.FORMS:
+            with self.subTest(form=form):
+                dated, recurring, _other, outside = self.listed(form % self.OUT)
+                self.assertEqual((dated, recurring, outside), ("ok", "ok", self.named("an anchor")))
+        dated = self.listed(*(form % self.OUT for form in self.FORMS), self.FORMS[1] % self.OUT)[0]
+        self.assertEqual(dated, "ok")  # the same item twice is two lines
+        self.assertIn(HAND, self.listed(self.FORMS[0] % self.OUT, block="a: b")[0])  # read: not the roll-up's
+
+    def test_a_page_outside_the_subset_was_read_as_text_so_it_is_not_unreadable(self):
+        self.assertIn(HAND, self.listed("- %s (unreadable: UnicodeDecodeError)" % self.OUT)[0])
+
+    def test_a_line_for_a_page_that_reads_is_judged_while_another_page_is_outside_the_subset(self):
+        """The pages that read are known whatever the other page holds: a line for one is the roll-up's only when
+        they give it."""
+        self.assertIn(HAND, self.listed("- 20 Finance/Tax.md (malformed frontmatter)")[0])
+        self.assertIn(HAND, self.listed("- 20 Finance/Tax.md (unreadable: Whatever)")[0])
+        wiki = self.wiki("could-not-read")
+        write(os.path.join(wiki, *self.OUT.split("/")), "---\na: &x b\n---\n")
+        dated, _recurring, _other, outside = self.full(wiki)
+        self.assertEqual((dated, outside), ("ok", self.named("an anchor")))  # the real roll-up's list is clean
+        path = os.path.join(wiki, PAGE)
+        write(path, read(path).replace("- 10 Identity/Broken.md (malformed frontmatter)\n", ""))
+        self.assertIn("lacks 1 line(s) of the roll-up's \"Could not read\" list that the pages give "
+                      "(10 Identity/Broken.md (malformed frontmatter))", self.full(wiki)[0])
+        write(path, read(path) + "- 10 Identity/Broken.md (malformed frontmatter)\n" * 2)
+        self.assertIn(HAND, self.full(wiki)[0])  # one more than the pages give
 
     def test_a_page_named_once_for_the_first_construct_it_uses(self):
         _d, _r, _o, outside = self.outside("a: &x b\nc: *x\nd: !!str e")
@@ -1047,6 +1101,70 @@ class UnreadablePageTest(Scenario):
         self.assertEqual((recurring, other), ("ok", "ok"))  # the other checks ran
 
 
+class ScaffoldTest(Scenario):
+    """A line the roll-up always writes, or writes for what the pages hold, is required: deleted, the page is not what
+    the roll-up renders."""
+
+    def deleted(self, scenario, line, block=None):
+        """The dated result with every line equal to `line` removed from the scenario's roll-up page."""
+        text = read(os.path.join(ROLLUPS, scenario, PAGE))
+        self.assertIn(line, text.split("\n"))
+        wiki = self.wiki(scenario)
+        if block:
+            write(os.path.join(wiki, "30 Home", "Insurance.md"), "---\n%s\n---\n# Insurance\n" % block)
+        path = os.path.join(wiki, PAGE)
+        write(path, "\n".join(x for x in read(path).split("\n") if x != line))
+        return self.full(wiki)
+
+    def lacks(self, scenario, line, **kw):
+        dated = self.deleted(scenario, line, **kw)[0]
+        self.assertIn("%s lacks 1 line(s) the roll-up writes (%s)" % (readiness.DEADLINES, line), dated)
+        return dated
+
+    def test_the_title_the_intro_and_the_upcoming_heading_are_always_written(self):
+        for scenario in ("plain", "recurring-only", "banner", "could-not-read", "paths"):
+            for line in ("# Deadlines", readiness.INTRO, "## Upcoming"):
+                with self.subTest(scenario=scenario, line=line[:20]):
+                    self.lacks(scenario, line)
+
+    def test_a_heading_written_for_what_the_pages_give_is_required_beside_their_entries(self):
+        self.lacks("plain", "## Every year")
+        self.lacks("plain", "## Past")
+        self.lacks("could-not-read", readiness.UNREAD_INTRO)
+
+    def test_the_line_for_an_empty_upcoming_section_is_required(self):
+        for scenario in ("recurring-only", "banner", "could-not-read"):
+            with self.subTest(scenario=scenario):
+                self.lacks(scenario, "_None._")
+
+    def test_the_whole_section_gone_is_the_entries_that_are_missing_not_a_heading_alone(self):
+        dated, recurring = self.reported(lambda page: page.split("## Every year")[0], "recurring-only")
+        self.assertIn("lacks 1 recurring date(s)", recurring)
+        self.assertNotIn("## Every year", dated)  # no entry shows, so no heading is owed
+
+    def test_a_page_outside_the_subset_withholds_only_what_needs_it(self):
+        """The always-written lines are known whatever a page holds; `_None._` is not: that page may give a date."""
+        for line in ("# Deadlines", readiness.INTRO, "## Upcoming", "## Every year", "## Past"):
+            with self.subTest(line=line[:20]):
+                dated = self.deleted("plain", line, block="a: &x b")[0]
+                self.assertIn("lacks 1 line(s) the roll-up writes (%s)" % line, dated)
+        dated = self.deleted("recurring-only", "_None._", block="a: &x b")[0]
+        self.assertEqual(dated, "ok")
+
+    def test_several_lines_gone_are_named_together(self):
+        wiki = self.wiki("plain")
+        path = os.path.join(wiki, PAGE)
+        write(path, "\n".join(x for x in read(path).split("\n") if x not in ("# Deadlines", "## Upcoming")))
+        self.assertIn("lacks 2 line(s) the roll-up writes (# Deadlines; ## Upcoming)", self.check(wiki)[0])
+
+    def test_the_fixtures_intro_stands_for_the_reference_one(self):
+        """The fixture's roll-up writes no em dash: its intro puts a colon where the reference roll-up puts the dash."""
+        self.assertEqual(readiness.INTRO_FIXTURE, readiness.INTRO.replace(" %s " % EM, ": "))
+        self.assertNotIn(EM, readiness.INTRO_FIXTURE)
+        page = self.replace(readiness.INTRO, readiness.INTRO_FIXTURE)
+        self.assertEqual(self.page("plain", page), ("ok", "ok", "ok"))
+
+
 class SpeedTest(Scenario):
     """A line of 100,000 characters costs a pass over it and no more: each shape below is read in under a second."""
 
@@ -1057,7 +1175,9 @@ class SpeedTest(Scenario):
                            ("candidates", "- **5 April** %s Tax %s%s)" % (EM, EM, " ([x](y)" * 20000)),
                            ("mixed", ("- **5 April** %s [a](b) <b ([ " % EM) * 3000), ("letters", "a" * 100000),
                            ("digits", "5" * 100000), ("dots", "5." * 50000), ("quoted", "> " * 50000),
-                           ("unread", "- x (" * 20000), ("stars", "*" * 100000 + "x"), ("dashes", "- " * 50000 + "x"),
+                           ("unread", "- x (" * 20000), ("listed", "- 20 Finance/Tax.md" + " (x" * 33000 + ")"),
+                           ("listed date", "- 20 Finance/Tax.md (unreadable recurring date: " + "x" * 100000
+                            + readiness.DATE_HINT + ")"), ("stars", "*" * 100000 + "x"), ("dashes", "- " * 50000 + "x"),
                            ("spaces", " " * 100000 + "x"), ("stars and spaces", "** " * 33333 + "x"),
                            ("quotes and bars", ">|" * 50000 + "x"), ("underscores", "_" * 100000 + "x"),
                            ("dots and stars", ".*" * 50000 + "x")):

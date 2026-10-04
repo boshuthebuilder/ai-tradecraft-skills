@@ -5,6 +5,8 @@ status: current
 ---
 # Deadlines
 
+_File-derived deadlines, rolled up deterministically from page frontmatter: do not hand-edit, regenerated each run. (Calendar events live in `Coming Events`.)_
+
 ## Upcoming
 
 - **2025-04-30**: Lease ends ([30 Home](../30%20Home/30%20Home.md))
