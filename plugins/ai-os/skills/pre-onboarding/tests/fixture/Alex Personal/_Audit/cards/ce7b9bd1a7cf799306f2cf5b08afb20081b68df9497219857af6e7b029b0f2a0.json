@@ -1,0 +1,26 @@
+{
+ "id": "ce7b9bd1a7cf799306f2cf5b08afb20081b68df9497219857af6e7b029b0f2a0",
+ "doc_type": "Photo",
+ "party": "Unknown",
+ "parties": [],
+ "doc_date": "",
+ "title": "Beach photo",
+ "summary": "A photo of a beach; the only text in it is the word Beach.",
+ "key_facts": {
+  "dates": [],
+  "amounts": [],
+  "reference_numbers": []
+ },
+ "category": "Photos",
+ "language": "none",
+ "sensitive": false,
+ "confidence": "low",
+ "look": "A stray at the top of the folder: decide where it belongs.",
+ "proposed_name": "Unknown - Photo Beach.jpg",
+ "card_meta": {
+  "model": "fixture",
+  "via": "fixture",
+  "batch": "fixture",
+  "created_at": "2024-06-30T12:00:00+0000"
+ }
+}

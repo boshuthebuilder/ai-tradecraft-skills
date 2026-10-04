@@ -6,6 +6,8 @@ description: >-
   touches, surface what needs a human, log it), answer queries from the wiki, and run periodic
   reconcile (lint) passes. The method is the point; the wiki's own Schema page is the authority for its exact pages and
   layout. If a wiki doesn't exist yet, use wiki-onboarding first to create the Schema/Index/Log skeleton.
+  Home of the core wiki rule: sections by responsibility, one professional per page, a page contract for every page
+  type, a rationale and an acceptance for every page, and rich pages drawn from cited data.
 ---
 
 # wiki-maintenance
@@ -33,6 +35,9 @@ whatever your setup declares:
 - optionally a **config / rulebook** for the folder, and an **outbox** for drafts awaiting review.
 - optionally an **audit pair** (`_Audit/manifest.json` + `AUDIT.md`) maintained by the
   folder-curation archetype's `audit` job.
+- the wiki's **rationale** (`_Audit/wiki-rationale.md`) and its **acceptance record**
+  (`_Audit/wiki-acceptance.json`, or as the deployment names it), beside the audit pair (see
+  [the core wiki rule](#the-core-wiki-rule)).
 
 Everything else at the root is the owner's source material. The ingest boundary is an exclusion: read
 everything except the system-owned names.
@@ -43,9 +48,11 @@ that finds one files it into the wiki and logs the move.
 
 ## The recommended layout (an example — the Schema is the law)
 
-When a wiki is created from scratch, a **human-readable, numbered-domain** layout works well: one folder
-per domain, mirroring the owner's *own* top-level folders, so the wiki reads the way a person thinks
-about their affairs rather than as an abstract index. A typical shape:
+When a wiki is created from scratch, a **human-readable, numbered-section** layout works well: one
+folder per section, each section an area of responsibility as the office running these affairs would
+divide them ([sections by responsibility](#sections-by-responsibility)), following the owner's *own*
+top-level folders wherever they already divide things that way, so the wiki reads the way a person
+thinks about their affairs rather than as an abstract index. A typical shape:
 
 ```
 <wiki>/
@@ -55,15 +62,15 @@ about their affairs rather than as an abstract index. A typical shape:
 ├── 03 Property     overview note + one page per property
 ├── 04 Finance      Recurring Bills, Investments, …
 │   …
-├── 90 Schema       the wiki's constitution — per-page purpose, fields, and update triggers
+├── 90 Schema       the wiki's constitution: layout, routing, page contracts and professionals
 └── 91 Log          append-only history
 ```
 
 Conventions that make it readable: number prefixes drive sidebar ordering (in Obsidian, put each page
-in a folder of the same name so the root sorts numerically); each domain folder has an **overview note**
-of the same name plus **one detail page per item**; a domain exists only because the owner has files for
+in a folder of the same name so the root sorts numerically); each section folder has an **overview note**
+of the same name plus **one detail page per item**; a section exists only because the owner has files for
 it — never invent a taxonomy the material doesn't have. The meta pages sit at high numbers (9x) so
-content owns the 00–89 range: a wiki that works will grow domains, and Schema and Log should never need
+content owns the 00–89 range: a wiki that works will grow sections, and Schema and Log should never need
 renaming to stay last.
 
 **This is a recommended default, not a law.** The authority for *this* wiki's exact names and layout is
@@ -73,40 +80,180 @@ create one.)
 
 ## Each page declares its own fields and triggers — the Schema page
 
-A wiki's **Schema page** is its constitution: for every page it records the **purpose**, the **fields to
-maintain**, and the **source documents that trigger an update**. That last list is the routing intent —
-which page a given kind of source touches. It's the authority when you design or audit the wiki, and you
-extend it whenever you add a page or a field.
+A wiki's **Schema page** is its constitution: for every section it records the **purpose**, the
+**page contract** (its reader, the questions it answers in priority order, and the fields it carries)
+and the **source documents that trigger an update**, and for every page its **professional**. The
+trigger list is the routing: which page a given kind of source touches. It's the authority when you design or audit the
+wiki, and you extend it whenever you add a page or a field.
 
-A page's "fields to maintain" is a small, explicit contract — e.g. for a person page: identity documents
-(with dates and **full, source-supported** numbers), status, key dates, a pointer to the source folder. Write enough
-on the page that the obvious question ("when does this expire?", "what's the latest figure?") is answered
-from the wiki without opening the source. When you route an incoming source, match it to the right
-existing section/page using the Schema's trigger table; if you can't see the Schema body, route from the
-section/page names you do have plus the source itself.
+A page's contract is small and explicit. For a person page, its fields might be identity documents
+(with dates and **full, source-supported** numbers), status, key dates and a pointer to the source
+folder. Write enough on the page that the obvious question ("when does this expire?", "what's the
+latest figure?") is answered from the wiki without opening the source. When you route an incoming
+source, match it to the right existing section/page using the Schema's trigger table; if you can't see
+the Schema body, route from the section/page names you do have plus the source itself.
 
-## Contract-driven pages (optional profile)
+The Schema's layout, routing, page contracts and page professionals are tables with fixed headers,
+compiled into a machine-readable twin; the format, the twin and its staleness rule are
+[`pre-onboarding`'s settings reference](../pre-onboarding/references/settings.md). The Schema is the
+authority; the twin is what code reads.
 
-For a wiki that adopts deterministic rendering, extend its Schema with **one contract per page type**:
-who reads it, the questions they need answered in priority order, the professional perspective that
-frames the answer, required lookup fields and their evidence sources, derived sections, history rules,
-and permitted action kinds. Assign each rendered page a declared type. Keep a machine-readable twin
-in the project's audit/config tier, with its Schema revision recorded; jobs consume that twin and
-report drift. The Schema remains the authority. Unknown types or missing contracts fail for opted-in
-pages, never fall back to generic prose. Legacy pages retain the existing body contract.
+## The core wiki rule
 
-The reasoning step returns structured `page_facts` when the deployment advertises this capability;
-the deployment validates, stores and renders them. The optional field does not replace `body` for a
-consumer that has not adopted it: templates request ordinary `body` in that case. A deployment must
-implement the alternate path before enabling it. Durable extraction and cache rules live in
-[the architecture](../../ARCHITECTURE.md#durable-extracts-for-rendered-wikis-opt-in).
+How a wiki is divided, written and accepted is one rule, the same whether the wiki is being prepared,
+onboarded or maintained. This section is its home: `wiki-onboarding` and `pre-onboarding` apply it, and
+every maintenance pass keeps it.
 
-### Page anatomy and evidence
+### Sections by responsibility
 
-A useful briefing begins with identity, status and next action in its first five body lines. Then
-render required key facts, dated events, records on file, actions, record gaps and coming dates, with
-an optional reader-specific assessment. The Schema chooses applicable sections and labels; it need
-not impose one generic checklist on every subject. Show missing required rows as **not on file**.
+Divide the wiki the way the office running these affairs would divide the work: one section per area
+of responsibility (identity and residence, money, tax, the home, health, study), each the natural desk
+of one or more professionals and each justified by files the owner actually has. A librarian, the
+professional whose trade is arranging a collection, proposes the sections and the routing; the owner
+agrees them before any page is written.
+
+- **Mirror the owner's folders only where that does not break the division.** Where a top-level folder
+  already is one responsibility, its section follows it. Where one folder mixes several
+  responsibilities, or several folders serve one, the sections follow the responsibility and the
+  Schema's routing maps each folder onto its section. The folders stay where they are: the wiki adapts
+  to them, never the reverse.
+- **A matter in two places has one home.** When the same matter is filed under two folders (a payslip
+  kept with the tax papers and again with the job papers, a passport scan inside a travel pack), one
+  page owns it, and the routing sends the other folder's copy to that page. A fact lives on one page;
+  every other page that needs it links there.
+
+### One professional per page
+
+Every page is given **the one professional best suited to it**, chosen from
+[the professional catalogue](references/professionals.md), or named for the matter where no row fits.
+The librarian proposes each page's professional and the owner agrees. That professional:
+
+- **sets the page's voice**: the page reads as the deliverable they would hand the owner (a tax
+  adviser's position letter, a private banker's accounts schedule), in their tone;
+- **sets its first questions**: the page answers first what they would answer first, and those
+  questions become its contract's questions.
+
+The voice is **tone only**. Facts, sources, identifiers, provenance, frontmatter and the format rules
+are the same whoever the page speaks as, and a professional adds no fact the sources do not hold except
+as labelled outside knowledge (below). A section may have several professionals, but a page has exactly
+one: where a section names several, each of its pages names its own in the Schema, and no page gets a
+blend of voices.
+
+### A page contract for every page type
+
+Every section (a page type: the pages of a section share its contract) has a **page contract** in the
+Schema before its first page is written, drafted by its professional with the owner: **who reads it**, the **questions
+they need answered, most important first**, and the **fields every page of the type carries**. The
+page answers its questions in that order, the first in its opening lines
+([page anatomy](#page-anatomy-and-evidence)), and a required field with no evidence shows as **not on
+file**. Sections the Schema's layout marks `fixed` (the meta pages,
+and a People section kept as the alias table) take the shapes this skill and `wiki-onboarding` give
+them, so their contract is the method's; every other section has its own in the Schema.
+
+Contracts are the rule for every wiki; **deterministic rendering stays an optional profile**. A contract
+says what a page must answer, not how the page is produced: a page the reasoning step writes as ordinary
+body text and a page rendered from structured facts both meet their contract. The rendering profile
+adds its own declarations on top ([below](#deterministic-rendering-optional-profile)).
+
+### Outside knowledge and dated rules
+
+A professional knows more than the folder holds: the usual filing date, what an allowance is, when a
+document must be renewed. That is **outside knowledge**, and the page labels it as such (for example a
+line opening *General rule, not from the folder's documents:*), keeps it apart from what the documents
+say, and never lets it fill a row that cites a document or stand in for a missing record.
+
+A **dated rule** (a rate, threshold, allowance, fee or deadline that changes by year or by law) is
+checked against the official source, the issuing authority's own publication, before it is written.
+The page names that source and the date of the check; a rule that could not be checked is flagged as
+unchecked, never stated as fact. Recheck a dated rule once the period it was checked for has passed.
+
+### Rich pages
+
+A page shows its data in the form its professional would use:
+
+- **tables for records**: one row per document, account, policy, person or event, with its source;
+- **charts for series and shares**: a line or bar chart for a value across dates or periods, a pie for
+  how a whole divides;
+- **timelines for histories and validity periods**: a timeline for a matter's dated events, a gantt bar
+  for how long a document, lease, policy or contract runs.
+
+Every visual is drawn from **the page's own cited data**: the table it comes from sits beside it on
+the page, each row with its source, and the visual shows nothing the table does not. It is **rendered by
+a tool, never written by hand**: a deterministic renderer turns the table into the chart block (in a
+prepared folder, `pre-onboarding`'s `wiki.py chart`), so the same data always gives the same block. Where
+the data cannot support a visual (a series of fewer than three points, units or currencies mixed with no
+policy, events without dates), or no renderer is at hand, the page keeps the table or a sentence and
+draws nothing. Which chart kinds and callout types render in which editor, and any editor setting they
+need, is recorded once in `productivity:portable-markdown` ("Charts and callouts"); a page uses only what
+it lists, and the table beside every chart is what keeps the page whole where a chart does not draw.
+
+### History pages
+
+A section the Schema's layout marks `history` holds closed matters, ingested once as history rather
+than watched for change. A history page opens with what the matter was, its dates and how it ended;
+then the records that mattered, as a table, and a timeline where the events are dated. It closes with a
+**coverage table**, one row per source folder the matter used: the folder's path in backticks, its file
+count and what it holds. Coverage is how a history page accounts for every document without naming
+each: a run of readings, slides or copies is covered by its folder's row, while a document that decided
+something is named by its own path.
+
+### The rationale block
+
+Every page has one **rationale block** in `_Audit/wiki-rationale.md`, in the audit tier rather than on
+the page, so the page stays its professional's deliverable. The file opens with `# Wiki rationale`; each
+block is headed `### <page path>`, relative to the wiki folder, and has exactly five lines:
+
+```markdown
+### 20 Finance/Tax.md
+- Reader and use: Alex, checking what is due and what was filed.
+- Professional lens: chartered tax adviser; questions answered in order: 1. is anything due 2. what is the tax position
+- Shape: a one-line position, then one row per tax year with its source
+- Changed from the previous page: first version
+- Left out or flagged: nothing
+```
+
+1. **Reader and use**: who reads the page, and what for.
+2. **Professional lens**: the page's one professional, then the contract's questions, numbered in the
+   order the page answers them.
+3. **Shape**: the page's structure and visuals and why, or "as the Schema sets out".
+4. **Changed from the previous page**: what this version changed, or "first version".
+5. **Left out or flagged**: what was left out and why, and what was flagged for the owner, or "nothing".
+
+Whoever writes a page writes its block. A pass that changes a page's shape, contract or professional
+rewrites the block, line 4 saying what changed; an ingest that only integrates a fact into the page's
+existing structure leaves it as it is. A page with no block is a finding.
+
+### Acceptance
+
+Before a page is first handed to the owner, it is accepted in two lenses: **the owner's** (can the
+owner answer their real questions from it, in the order they ask them, and act on what it says?) and
+**its professional's** (does it meet its contract, do a sample of its facts match their sources, does
+it stay in scope?). Both are played by **a model that did not write the page**, so no page is marked by
+its author. Record each verdict with the models that wrote and reviewed the page; a verdict whose
+reviewer is its author is refused, a guard the recording tool or the deployment holds rather than this
+prose. Keep each finding with a response to it, rebuild the affected pages and review them again, and
+review parent and Index pages last, against their children. Acceptance is reported as its own state
+(accepted, not recorded or refused), never folded into a passing check. A page is accepted again after
+a change to its anatomy, contract or professional. The procedure is `wiki-onboarding`'s reader
+acceptance step.
+
+### Maintenance keeps each page's professional
+
+Every later pass writes a page as its professional and to its contract: an ingest puts a new fact where
+that professional would put it, in their words, and a reconcile that folds or corrects keeps the voice.
+A page created during maintenance gets its professional, and a contract if it opens a new section, in
+the Schema before it is written; a pass that cannot take them from the Schema proposes the page rather
+than inventing either. Changing a page's professional or contract is a Schema change the owner
+agrees; the page's rationale block records it and the page is accepted again. No pass blends two voices
+on one page or lets a page slide back into generic prose.
+
+## Page anatomy and evidence
+
+Every page is a briefing that answers its contract. A useful briefing begins with identity, status
+and next action in its first five body lines. Then set out required key facts, dated events, records
+on file, actions, record gaps and coming dates, with an optional reader-specific assessment. The
+Schema chooses applicable sections and labels; it need not impose one generic checklist on every
+subject. Show missing required rows as **not on file**.
 Derive Next from live actions and dates; do not print "nothing outstanding" above an open action.
 Warning callouts are for evidenced overdue, lapsed or expired states.
 
@@ -123,20 +270,13 @@ Warning callouts are for evidenced overdue, lapsed or expired states.
 - **Actions are typed** (for example pay, decide, chase, renew, file, book), with owner, evidence,
   amount and due date where known. A missing receipt is a record gap, not a payment action without
   evidence of money due. Keep gaps separate from the owner's to-do list.
-- **Lookup rows come from extracts** for identifiers, figures, dates and statuses; owner assertions
-  and deterministic calendars take their declared precedence. Narrative cannot override those rows.
-- **Owner overlays** are separate dated records: page, asserted fields/status, note, date and speaker.
-  They do not add a new page-provenance enum. Render their authority visibly, preserve them across
-  rebuilds, and supply them to permitted context. Suppress only actions explicitly settled by the
-  assertion. Retire an overlay only when a later source confirms it; record contradictions for the
-  owner under the existing manual-provenance rule. Model jobs cannot author owner overlays.
 
 ### Identifiers, series and derived views
 
 The default identifier policy is `stated`: full wherever supported by evidence. An explicit owner
-restriction may choose `last-four` or `home-only` (full at the subject's home). Store typed identifiers with
-holder, kind, home page, source and document status/dates. Masked source values are unresolved suffixes,
-not full identifiers. A structural derivation needs a declared validator and the original source;
+restriction may choose `last-four` or `home-only` (full at the subject's home). Under the rendering
+profile, store typed identifiers with holder, kind, home page, source and document status/dates.
+Masked source values are unresolved suffixes, not full identifiers. A structural derivation needs a declared validator and the original source;
 never guess from a suffix. Current, superseded and expired documents remain distinct, so an old
 passport does not create a new expiry action. Enrichment evidence and guards follow the architecture;
 test dates, decimal amounts, year prefixes, chart data and cited filenames as exclusions.
@@ -146,9 +286,10 @@ Keep distinct periods or components from one document distinct; deduplicate the 
 Extract stated values faithfully; label computations separately with their input evidence and policy.
 Reject impossible readings with a recorded reason rather than allowing them into totals. Every
 cross-page row carries its date and freshness status, using Schema thresholds. Never combine dates,
-currencies or units without an explicit policy; show a missing policy instead of assuming one. Chart
-only series declared live. Assessments may follow the reader's perspective, but parent summaries must
-agree with children or identify the conflicting evidence, and are generated after the children.
+currencies or units without an explicit policy; show a missing policy instead of assuming one. A declared
+series is charted only while it is declared live; other cited tables follow [rich pages](#rich-pages). Assessments
+may follow the reader's perspective, but parent summaries must agree with children or identify the
+conflicting evidence, and are generated after the children.
 
 #### The basis of a money table
 
@@ -188,7 +329,7 @@ settled.
 
 Citation-derived hubs (people, counterparties or another facet) are valid cross-cutting indexes, not
 new filing homes. The Schema sets their inclusion threshold. Optional `entities` frontmatter may hold
-facets deterministically derived from validated links and parties. Layout below a domain, folder-note
+facets deterministically derived from validated links and parties. Layout below a section, folder-note
 conventions and ordering are Schema choices. Qualify ambiguous links by path; follow portable-markdown
 for table escaping and the target editor's link conventions.
 
@@ -201,7 +342,7 @@ parties unless explicitly in scope. Deduplicate by fact identity, not by the num
 carry history, active conditions, treatment, dated encounters, measured values with units and printed
 reference ranges, and the documented plan. Other subjects carry their complete relevant evidence.
 The Schema declares each page's purpose and sources; clinical content and personal information may
-also appear in relevant domain notes, indexes, family summaries, roll-ups and other authorised pages.
+also appear in relevant section notes, indexes, family summaries, roll-ups and other authorised pages.
 There is no subject-page-only or existence/date ceiling. Summaries remain selective for relevance,
 not because clinical substance is automatically suppressed. Do not invent diagnoses or care plans.
 
@@ -215,6 +356,34 @@ This is a private-content policy, not an access grant. Keep identity/project acc
 explicit source exclusions at [context crossings](../../ARCHITECTURE.md#context-crossings-and-evidence-bearing-enrichment).
 An owner-requested identifier restriction applies to entire records and their typed fields as well
 as display text; the default `stated` policy preserves full identifiers throughout.
+
+<a id="contract-driven-pages-optional-profile"></a>
+
+## Deterministic rendering (optional profile)
+
+Every page has a contract ([the core wiki rule](#a-page-contract-for-every-page-type)). A wiki may also
+adopt **deterministic rendering** for some of its pages, which are then produced by the deployment's
+renderer from structured facts rather than written as body text. (Before every page had a contract,
+this profile was called *contract-driven pages*.) For those pages the Schema adds to the contract:
+the evidence sources of each required lookup field, derived sections, history rules and permitted
+action kinds. Assign each rendered page a declared render type, finer than its section. Jobs consume
+the compiled twin of the contracts and report drift; the Schema remains the authority. Unknown types or missing contracts fail
+for rendered pages, never fall back to generic prose. Pages outside the profile keep the ordinary body
+output, still written to their contract and in their professional's voice.
+
+The reasoning step returns structured `page_facts` when the deployment advertises this capability;
+the deployment validates, stores and renders them. The optional field does not replace `body` for a
+consumer that has not adopted it: templates request ordinary `body` in that case. A deployment must
+implement the alternate path before enabling it. Durable extraction and cache rules live in
+[the architecture](../../ARCHITECTURE.md#durable-extracts-for-rendered-wikis-opt-in).
+
+- **Lookup rows come from extracts** for identifiers, figures, dates and statuses; owner assertions
+  and deterministic calendars take their declared precedence. Narrative cannot override those rows.
+- **Owner overlays** are separate dated records: page, asserted fields/status, note, date and speaker.
+  They do not add a new page-provenance enum. Render their authority visibly, preserve them across
+  rebuilds, and supply them to permitted context. Suppress only actions explicitly settled by the
+  assertion. Retire an overlay only when a later source confirms it; record contradictions for the
+  owner under the existing manual-provenance rule. Model jobs cannot author owner overlays.
 
 ## The Index page — the dashboard
 
@@ -239,6 +408,8 @@ This is the spine. For **each** item in the inbox / drop folder:
    filename** (rename a meaningless `Scanned Document.pdf` to something like
    `Finance/Bills/<provider> Statement 2026-05-27.pdf`), keeping the extension. **Never create a new
    top-level folder.** Anything you can't place confidently stays put and is flagged for review.
+   An item that seems to belong to another project is still filed or flagged here (see *Rules that
+   keep it safe*).
    **On a filename collision, compare content before renaming:** hash the inbox item against the file
    already at the destination (file-preprocessing keys its whole manifest on content hashes for exactly
    this reason). Identical bytes are a duplicate, not a filing problem — don't file it; log it as a
@@ -254,7 +425,11 @@ This is the spine. For **each** item in the inbox / drop folder:
    page already tracks it: the row in the table that holds its kind, the list it extends, the field or
    line it supersedes — correcting that line, not stacking the newer statement beside it. A source does
    not earn a page, or a section, of its own: **synthesise into the existing page first**, and create a
-   page only when no existing page covers the topic, placed where it fits in the layout. **Never open a
+   page only when no existing page covers the topic, placed where it fits in the layout. Where its
+   section has a contract and names one professional, the page takes them; otherwise (a section naming
+   several professionals, or a page needing a new section) the pass proposes the page for review, naming
+   its professional, and writes it only once the owner agrees the Schema entry. Write as the page's professional,
+   to its contract ([the core wiki rule](#the-core-wiki-rule)). **Never open a
    heading named for the run, its date or the batch** (`## <date> ingest`, `## Documents added`): it
    strands the facts below the sections they belong to, where the page's own tables and summaries never
    learn them. Date the fact, not the section — a heading that dates an *event* is structure, and the
@@ -268,7 +443,8 @@ This is the spine. For **each** item in the inbox / drop folder:
    deployment can neither show nor extend keeps its sources back until it can. An edit that can only
    land at a page's end is accretion by construction. Add a provenance link down to the source file. **If the source carries a forward-looking
    date** (renewal, payment, expiry, deadline), record it as `deadline: YYYY-MM-DD` (or a `deadlines:`
-   list) in **that page's** frontmatter. If your setup has a deterministic step that rolls those dates
+   list) in **that page's** frontmatter, and a date that comes round every year (a renewal day, a
+   filing date) in its `recurring:` list. If your setup has a deterministic step that rolls those dates
    into a Deadlines page, don't hand-write that page — let the roll-up build it; otherwise update the
    Deadlines list yourself from the page dates. One item typically touches a handful of pages — and the
    Index counts among them whenever the item changes anything the Index carries (the urgent list, a key
@@ -278,7 +454,7 @@ This is the spine. For **each** item in the inbox / drop folder:
 
 **Authored notes — free text with no source document.** An inbox item that is the owner's own words
 (an idea, a brainstorm, a decision) rather than a document to file is an **authored note**: route it
-to the domain the Schema declares for authored content (e.g. an *Ideas* domain), mark the page or
+to the section the Schema declares for authored content (e.g. an *Ideas* section), mark the page or
 block `provenance: manual`, and treat its content as authoritative from then on. Carry the owner's
 text **verbatim** as the note body — synthesis may add a title, date and links around it, never
 replace it: the wiki page becomes the only copy of the owner's words once the inbox item is drained.
@@ -301,8 +477,9 @@ page rather than letting it vanish into chat.
 ## Reconcile — the periodic health pass (the lint)
 
 Reconcile the wiki **to the files** (the golden source): look for contradictions between pages, stale
-claims a newer source supersedes, orphan pages, missing domains and data gaps; refresh the Index
-(most-urgent, open-questions, key-facts); record the pass in the log.
+claims a newer source supersedes, orphan pages, missing sections, data gaps, and pages that have
+drifted from their contract or their professional's voice; refresh the Index (most-urgent,
+open-questions, key-facts); record the pass in the log.
 
 **Fold back what an ingest accreted.** On a page seen **whole**, a section is an ingest run's container
 — facts that missed their sections (step 3 of the core loop) — only on affirmative evidence: its
@@ -335,6 +512,10 @@ must never look alike:
   that predates the Index spec, this duty is also what bootstraps the dashboard into existence.)
 - **Fold the log's no-op runs.** Collapse a run of consecutive "nothing changed" entries older than a
   few days into one digest line — the log stays legible, the history stays complete.
+- **Every page carries the core rule.** Count the sections with no page contract (`fixed` sections
+  aside), the pages with no single professional, and the pages with no block in
+  `_Audit/wiki-rationale.md`; report acceptance as its own state. A missing contract or professional
+  is the owner's to agree, never invented by a pass to make the count zero.
 
 Reconcile **never flags or rewrites
 `provenance: manual` content** — that is owner-asserted and authoritative. Authored notes (ideas,
@@ -342,23 +523,26 @@ brainstorms) may be *merged or cross-linked* during a reconcile where they clear
 their content and `provenance: manual` marking are preserved — consolidation never deletes or contradicts
 what the owner asserted.
 
-### Render verification for contract-driven pages
+<a id="render-verification-for-contract-driven-pages"></a>
 
-For an opted-in wiki, every render and reconcile publishes a dated verification artefact (for example
-`_Audit/wiki-verify.json`) with page count, checked scope and counts including zero: missing mandatory
-rows or undeclared types, stale/missing extracts, source citations, broken links, malformed tables,
-identifier-policy violations and sync conflict copies. Missing or unreadable inputs are findings, not
-clean checks; an absent report is **not verified**. Record checks not performed explicitly rather than
-reporting zero. Use `productivity:portable-markdown` for table and link mechanics. Visual outputs need
-an editor/theme check when introduced or changed; text lint cannot establish chart legibility.
+### Render verification (optional profile)
+
+For a wiki that has adopted deterministic rendering, every render and reconcile publishes a dated
+verification artefact (for example `_Audit/wiki-verify.json`) with page count, checked scope and counts
+including zero: missing mandatory rows or undeclared types, stale/missing extracts, source citations,
+broken links, malformed tables, identifier-policy violations and sync conflict copies. Missing or
+unreadable inputs are findings, not clean checks; an absent report is **not verified**. Record checks
+not performed explicitly rather than reporting zero. Use `productivity:portable-markdown` for table and
+link mechanics. Visual outputs need an editor/theme check when introduced or changed; text lint cannot
+establish chart legibility.
 
 Check an "is not on file" claim against the page's own citations; deployments may enforce this
 consistency check deterministically. Verification must not flag clinical substance or full,
 evidence-supported identifiers merely because they occur outside a subject page. Report checks of
 explicit owner restrictions separately from source-evidence and access checks.
 
-Before first hand-off or after changing page anatomy, use the reader-review acceptance step in
-`wiki-onboarding`. Keep its findings and the builder's responses beside the verification artefact.
+Rendered pages are accepted like any other ([acceptance](#acceptance)); keep the review's findings
+and the builder's responses beside the verification artefact.
 
 ## Cadence — ingest and reconcile
 
@@ -429,14 +613,24 @@ with no inline maintainer, the scheduled passes are the primary path.
   pages. Do not automatically suppress medical, legal or other personal substance. Explicit path
   exclusions, including credentials the owner excludes, still prevent those sources entering a job.
 - **Deadlines are derived, not authored.** Record the date on the page that owns it; build the Deadlines
-  list from those, and keep it distinct from any calendar feed. **An empty roll-up must say why:** zero
+  list from those, and keep it distinct from any calendar feed. Recurring dates too: a date that comes
+  round every year lives in its own page's `recurring:` list, never in a table kept by hand on the
+  Deadlines page. A page the Schema marks `derived` (the Deadlines roll-up, an open-questions list built
+  from the pages) holds nothing written by hand. **An empty roll-up must say why:** zero
   rows found while derived pages exist is a likely keying fault, rendered as a loud banner on the
-  Deadlines page ("roll-up found no frontmatter deadlines across N pages") — never a bare "None". A
+  Deadlines page (a `> [!warning]` callout, its marker alone on its line, then "roll-up found no
+  frontmatter deadlines across N pages") — never a bare "None". A
   deployment's deterministic roll-up enforces this in code (prose can't hold it); a hand-kept wiki
   applies it by hand.
-- **A wiki is self-contained.** Keep a wiki about *its own folder* — don't name or link another project
-  from it. If your setup maintains a separate cross-folder or user-level wiki, that is the only place
-  cross-references live, and it only ever reads project wikis — it never writes back into them.
+- **A project files within itself; the owner's synthesis proposes migrations.** Keep a wiki about *its
+  own folder*: don't name or link another project from it. Every new item is filed inside this project
+  by its own routing, and one that seems to belong elsewhere is filed or flagged here like any other;
+  a project never routes an item to another project. Moving files between projects is a
+  **migration**. Once a folder is maintained, migrations are proposed by the owner's **user-tier
+  synthesis**, the one place cross-references live (it reads project wikis and never writes back into
+  them); while a folder is being prepared, a curation round may propose them too. Either way the owner
+  approves each one and the folder's approved curation plans carry it out (`folder-curation`); no
+  ingest or reconcile ever moves a file out of its project.
 
 Synced-folder write safety follows
 [the architecture's write contract](../../ARCHITECTURE.md#writes-into-synced-folders).
@@ -472,6 +666,7 @@ are a contract, not a style choice. The first three are **required on every deri
 | `entities` | optional | Schema-defined facet lists | hub/facet index generation |
 | `source` *(single)* / `sources` *(list)* | when file-derived | **project-root-relative** path(s) to the source file(s) — never absolute, so a folder rename or machine move is a no-op — or, for a cross-project synthesis, the source **pages** | the orphan sweep |
 | `deadline` *(single)* / `deadlines` *(list)* | when a forward date exists | `YYYY-MM-DD` (or `{date, note}`) | the Deadlines roll-up |
+| `recurring` *(list)* | when a date comes round every year | `{date, note}`, the date as `MM-DD`, month first (`04-05` is 5 April), or a day and a month name (`5 April`, `April 5th`, `5 Sept`: the name in full, its first three letters or `sept`, in any case); never another numeric form (`6/4` reads either way round) | the Deadlines roll-up, which shows it as a day and a month name, so a date written the wrong way round is visible |
 
 (A cross-project user-tier page is `provenance: derived` with `last-updated`/`status` but need carry no
 `source:` path and no deadline; a `provenance: manual` note carries no `source:` at all.)

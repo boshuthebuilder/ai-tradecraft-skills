@@ -4,6 +4,304 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v11.0.0 (2026-10-04)
+
+A **MAJOR**: page contracts, until now an opt-in profile, become mandatory for every page type, and
+several documented rules and archetype outputs change with them. Preparing a lived-in folder for
+the system had been done with one-off scripts written for one folder; it is now a method any agent
+can follow, in a new entry skill, `pre-onboarding`, which bundles the tools that do the exact parts
+and runs the existing skills as its components. The rule it builds a wiki under (how the wiki is
+divided, who writes each page, how a page is accepted) is single-homed in `wiki-maintenance` as
+**the core wiki rule**, and it binds every wiki, prepared or not. That rule, the move plan's new
+action and its Bin, and the changed outputs of the folder-curation jobs are semantic changes to
+documented rules and archetype outputs, so a deployment advancing its pin has work to do, set out
+under *Migrating a deployment* below.
+
+### Breaking (MAJOR)
+
+- **The core wiki rule** ([`wiki-maintenance`](plugins/ai-os/skills/wiki-maintenance/SKILL.md#the-core-wiki-rule),
+  #99): one new section holds how a wiki is divided, written and accepted, the same whether the wiki
+  is being prepared, onboarded or maintained. `wiki-onboarding` and `pre-onboarding` apply it and
+  every maintenance pass keeps it. Its parts follow.
+- **Sections by responsibility.** A wiki is divided as the office running the owner's affairs would
+  divide the work, one section per area of responsibility, proposed with its routing by a librarian
+  and agreed by the owner. The owner's folders are mirrored only where that does not break the
+  division (the Schema's routing maps each folder onto its section), and a matter filed in two
+  places has one home page. The recommended layout's "domains" become "sections".
+- **One professional per page.** Every page is given the one professional best suited to it, from a
+  new catalogue, who sets its voice and its first questions: tone only, with facts, sources,
+  identifiers and format rules unchanged. A section may have several professionals; a page has
+  exactly one. Maintenance keeps it: ingest writes as the page's professional, and a page it would
+  create in a section that names several, or that needs a new section, it proposes for the owner to
+  agree rather than writing it. Changing a page's professional is a Schema change the owner agrees.
+- **A page contract for every section the layout does not mark `fixed`**: its reader, its questions
+  most important first and the fields every page carries, in the Schema before the section's first
+  page is written; a required field with no evidence shows as **not on file**. Before, contracts
+  belonged to an opt-in profile. That profile, formerly *contract-driven pages*, is now
+  *deterministic rendering*: still optional, it governs only how the pages it names are produced,
+  and those pages declare a render type finer than their section. Its old anchors still resolve. The
+  Schema page records, per section, its purpose, contract and update triggers, and per page its
+  professional, in tables with fixed headers that compile into a machine-readable twin.
+- **A rationale block per page.** Every page has exactly one five-line block in
+  `_Audit/wiki-rationale.md` (reader and use; professional lens; shape; changed from the previous
+  page; left out or flagged), written by whoever writes the page and rewritten when its shape,
+  contract or professional changes. A page with no block is a finding; reconcile counts the
+  sections with no contract, the pages with no single professional and the pages with no block.
+- **Acceptance by a model that did not write the page.** Before a page is first handed to the owner
+  it is accepted in two lenses, the owner's and its professional's, both played by a model other
+  than its author. Each verdict is recorded with the models that wrote and reviewed the page; one
+  whose reviewer is its author is refused, a guard held in code rather than prose. Acceptance is
+  reported as its own state (accepted, not recorded or refused), never folded into a passing check,
+  and a page is accepted again after a change to its anatomy, contract or professional. Before, an
+  independent reader review applied only to contract-driven pages.
+- **Recurring dates live in page frontmatter.** A new canonical key, `recurring: [{date, note}]`,
+  holds a date that comes round every year, and the Deadlines roll-up reads
+  it; such a date is never kept by hand in a table on the Deadlines page. The date is `MM-DD`, month
+  first, or a day and a month name (`5 April`, `April 5th`, `5 Sept`); any other numeric form is
+  refused, and the roll-up shows the month in words, so a date written the wrong way round is
+  visible. A page the Schema marks `derived` (the Deadlines roll-up, an open-questions list built
+  from the pages) holds nothing written by hand: readiness reads the Deadlines page against the
+  roll-up's own output and reports every line it does not render from the pages' frontmatter.
+- **A project files new items within itself**, replacing "a wiki is self-contained". Every new item
+  is filed inside its project by the project's own routing, and one that seems to belong to another
+  project is filed or flagged where it arrived, like any other: no project routes an item to
+  another. Moving files between projects is a **migration**: proposed by the owner's user-tier
+  synthesis once a folder is maintained (or by a curation round while it is prepared), approved by
+  the owner, and carried out by the holding folder's approved curation plan. No ingest or reconcile
+  moves a file out of its project.
+- **Outside knowledge, dated rules, rich pages and history pages.** A professional's general
+  knowledge is labelled as such and never fills a row that cites a document. A dated rule (a rate,
+  threshold, fee or deadline) is checked against the issuing authority's own publication, which the
+  page names with the date of the check, or flagged as unchecked. Records go in tables, series and
+  shares in charts, histories and validity periods in timelines, every visual drawn from the page's
+  own cited table beside it and rendered by a tool, never by hand. A page in a section marked
+  `history` closes with a coverage table, one row per source folder.
+- **The file-ingest templates write to the contract and the voice** (`ingest.md` and
+  `reconcile.md`, #101): both now say that every page, rendered or not, is written to its Schema
+  contract and in its professional's voice, and the block that carries `{page_contracts}` is
+  retitled *Optional deterministic rendering*. The placeholder and the output shape are unchanged.
+- **The move plan**
+  ([`move-plan-schema.md`](plugins/ai-os/skills/folder-curation/references/move-plan-schema.md),
+  #100). A new action, `rmdir`, removes a folder that holds nothing but `.DS_Store`; it carries no
+  evidence hash, and a folder `rename` now carries none either (it was the id of the folder's
+  manifest listing). `status` gains `proposed`, which a proposer may seed: the owner's approval sets
+  `pending` and a decline `skipped`. A path ending in `/` names a folder. A `move` the proposer
+  cannot place (a root stray) is proposed with `to` empty, filled with the owner's choice before
+  approval, and a `move` that stages a file for another project records its copy kind in `kind`.
+- **The executor** (`folder-curation`
+  [step 5](plugins/ai-os/skills/folder-curation/SKILL.md#5-execute-deterministic-guards-not-judgement),
+  #100). Every row is dry-run before anything moves. Rows run in `seq` order: renames, moves and
+  `create` rows, then conversions, then `rmdir` rows, and deletes last, in a phase of their own. A
+  file or package must hash to its row's evidence before it moves (a package hashed exactly as the
+  audit hashes it), and nothing is overwritten. Nothing is unlinked: a deleted copy and a removed
+  folder go to the Bin, each with an undo entry saying where. The delete phase is refused until
+  every other approved row is done and the folder has been re-audited since, and each delete row is
+  re-verified against that fresh manifest (the path still `redundant`, a separate canonical copy
+  still there, both still hashing to the evidence). The executor still takes its rows only from the
+  approved plan, but now reads that fresh manifest too, where it used to read nothing but the plan.
+- **The re-audit proof is a (path, hash) diff, and it covers deletes** (`folder-curation`
+  [step 6](plugins/ai-os/skills/folder-curation/SKILL.md#6-verify-by-re-audit), #100). The pairs
+  that disappeared and appeared must be exactly the executed rows'; departures from
+  `_Migrations/<Project>/` after another project collects its files pass only as an explicit
+  allowance for that path. After the delete phase the same proof runs again from the same baseline,
+  so each deleted copy's pair must go too, and nothing else.
+- **iWork is read directly** (`folder-curation`'s
+  [class policy](plugins/ai-os/skills/folder-curation/SKILL.md#class-policy-defaults-the-rulebook-may-override-per-folder),
+  #100; the folder-curation archetype's `jobs.yaml`, #101). The `iwork` class becomes
+  `{hash: full, ingest: read}` (it was `ingest: after_convert`), a package counting as one item, and
+  a new `other` class keeps `after_convert` for the other proprietary formats. A deployment whose
+  own ingest cannot read iWork overrides `iwork`, back to `after_convert` for example: a job never
+  depends on a skill's bundled tools.
+- **The audit job's output** (folder-curation archetype `audit.md`, #101). An iWork package is one
+  entry, never walked into, its id given by the manifest's package hash rule and its entry carrying
+  `package`. The walk covers `_Migrations/<Project>/`: each live path there sets the entry's
+  `migrating` flag, with the project in `migration_target`, and stays counted until the other
+  project collects it. `AUDIT.md` gains section 11, *Migrating out*, and *Needs a look* moves from
+  11 to 12.
+- **The curate job's output** (folder-curation archetype `curate.md`, #101). `curate` never emits
+  an `rmdir` row: one is proposed only once the owner has approved the moves that empty its folder,
+  so no folder is removed on the strength of a move the owner declined, and a return round's `rmdir`
+  for `_Migrations/<Project>/` likewise comes only after its moves are approved. A folder `rename`
+  row returns an empty `evidence`, and `create` rows sit with renames and moves at the head of the
+  order.
+- **Skill descriptions** (frontmatter, #99 to #101). No skill is renamed, but the descriptions of
+  `wiki-maintenance`, `wiki-onboarding`, `folder-curation`, `project-onboarding`, `user-onboarding`
+  and `file-preprocessing` change with their roles: a person preparing a lived-in folder starts at
+  `pre-onboarding`, which runs `folder-curation` and `wiki-onboarding` as its components, where
+  before `project-onboarding` sent a messy folder to `folder-curation` first.
+
+### Added (MINOR)
+
+- **`pre-onboarding`, a new entry skill**
+  ([`SKILL.md`](plugins/ai-os/skills/pre-onboarding/SKILL.md), #98). It prepares a lived-in
+  folder in an interactive session on the operator's machine, in nine steps: audit; interview the
+  owner and write the rulebook and its twin; curation rounds, each approved by the owner (through
+  `folder-curation`); extract the full text of every document; open the gate to the engines (a scan
+  for the operator's isolation terms and a canary per engine); the vision lane and a summary card
+  per document; build the wiki (through `wiki-onboarding`, with a table of who holds the pen at each
+  stage); check readiness; hand off to `project-onboarding`. It states the engine isolation, the
+  identifier policy (passwords and activation codes never written) and the lessons of real folders:
+  iWork read without the apps, broken PDF text layers detected and read again by OCR, a
+  deterministic repair preferred to re-running a model, bundles rebuilt after any migration.
+- **Its bundled tools** (`pre-onboarding/tools/`, #87 to #90, #92 to #95 and #97): standard-library
+  Python 3.9 or later plus one Swift helper for Apple Vision OCR, generic and settings-driven.
+  `audit.py`, `settings.py`, `plan.py`, `extract.py` (with `iwa.py`, which reads iWork packages, and
+  `page_ocr.swift`), `isolation.py`, `vision.py`, `cards.py`, `refs.py`, `wiki.py`, `readiness.py`,
+  `engines.py` and the shared `common.py`, with the role briefs and card instructions in
+  `tools/templates/` and JSON schemas for cards and OCR. The tools share common flags: `--root`,
+  `--settings-dir`, `--work` (working state, kept outside the folder), `--out` and
+  `--read-only-root`, which refuses any write under the root. They are tested against a fictional
+  fixture folder with frozen expected outputs (`tests/regen_expected.py --check`).
+- **agy's prompt limit, measured**: on agy 1.2.16 with `gemini-3.1-pro-high`, agy cuts a user message at about
+  192,000 UTF-8 bytes of prompt text, silently (exit 0, a successful result), for ASCII and CJK alike, so a
+  card could be written from part of a document. `engines.py` now refuses a prompt over 180,000 bytes of its
+  text before the call (`AGY_MAX_PROMPT_BYTES`; the earlier check counted the serialised message against
+  200,000, which let ASCII through above the cut), and raises `PromptCut` when the stream shows the model
+  reading agy's stored copy and being refused a command. `cards.py`'s agy defaults for `--small-chars`,
+  `--batch-chars`, `--section-chars` and `--single-max` fall from 60,000 to 50,000 characters, which is 150,000
+  bytes of CJK text beside the largest card prompt's overhead. A real agy 1.2.16 capture also settles the
+  stream events: its tool steps (`step_update` with `step_type: "tool"`) were not seen as tool events by the
+  earlier check, which had guessed their shape, so a tool step now discards the reply in every lane (any step
+  other than a user input, an agent response or agy's own system message counts, whatever its keys), and the
+  vision lane accepts only the steps that open its images (`view_file`, `list_dir`, `find_by_name`) and only for
+  paths inside the call's own folder, whatever key or spelling names them (a `file:` URL is parsed, and any
+  value that names something in the folder, a link included, is judged by where it leads). agy is also no longer given `--json-schema`, which in plan mode sent
+  the model through plan mode's workflow (a written plan, `finish` steps, a reply asking for approval before
+  the JSON): the schema's text goes in the prompt, counted by the size limit, and `cards.py` still checks every
+  card. Only the environment-variable lists remain provisional (#125).
+- **Engine isolation, settled on the operator's machine** (#91): both engines run with the machine's own home
+  and its one login. Each keeps its login as a file there, and a per-project state folder would need that file
+  copied, so none is used; isolation comes from what each call is given and denied. codex runs ephemeral, with
+  the user's config and rules ignored, memories and tools off and an empty folder, but its global
+  `~/.codex/AGENTS.md` still reaches the model, so the isolation scan reads it for the operator's terms. agy
+  gives the model no memories, conversation summaries or instruction files. The canary is a positive control:
+  each run plants a fresh invented name in the engine's context and passes only a reply that repeats it and
+  does not read as a refusal. The old "list your context" canary passed on a refusal while proving nothing.
+- **The settings twins** (#89). A folder's rulebook and its wiki's Schema page each get a
+  machine-readable twin in `.familyai/`: `rulebook.json`, written with the rulebook, and
+  `wiki-schema.json`, compiled by `settings.py compile` from the Schema's fixed-header tables
+  (Layout, Routing, Page contracts and an optional Page professionals). Each records its source's
+  sha256, so an edited source makes its twin stale, never silently wrong, and every tool refuses a
+  stale twin.
+- **The skill's references** (#98): `references/cards.md` (the card contract: what a card holds,
+  the whole-chunk join, the isolation checks, repair from the card's own source),
+  `references/settings.md` (both twins and their stale states) and `references/tools.md` (every
+  command, flag, output and exit code).
+- **The hand-off contract** (#97 and #98): what a deployment relies on when it onboards a prepared
+  folder, checked by `readiness.py`. A current manifest; an extract record and a card for every live
+  document `extract.py` reads, no card naming an isolation term its own document lacks; each
+  engine's canary passed, or reported as not verified; the wiki at `<folder name> Wiki/` with
+  `00 Index`, `01 Deadlines`, `90 Schema` and `91 Log` and a clean `wiki.py check`; every page
+  accepted; derived pages holding nothing hand-written; the rulebook identical in `CLAUDE.md` and
+  `AGENTS.md`, naming the wiki folder, reserving the deployment's rulebook filenames (`GEMINI.md`
+  included) and routing no new file to the migrations folder; fresh twins; no scratch left in
+  `_Audit/`. Each item reports a count or a named not-verified state.
+- **The professional catalogue**
+  ([`professionals.md`](plugins/ai-os/skills/wiki-maintenance/references/professionals.md), #99): a
+  flat menu, for personal and company pages alike, of professionals with the pages they suit, their
+  deliverable and tone, their first questions and their usual visuals, and a note on choosing.
+- **`wiki-onboarding`'s stages** (#100). Step 2 is the librarian's proposal of sections, routing and
+  each page's professional; step 3a has each section's contract drafted by its professional and
+  agreed by the owner; a new step 4a drafts every page when every document has already been read (a
+  fixed page map, fresh bundles, a persona brief per page, parallel agents, a checker each agent
+  runs, and JSON returns from which only the coordinator writes the shared pages); step 6 runs the
+  two-lens acceptance. The wiki folder's name is the deployment's `{wiki_dir}`, set once in
+  configuration; in preparation the wiki is built in the session, and no job runs on it until the
+  folder is onboarded.
+- **`folder-curation` as a component of `pre-onboarding`** (#100): still the method the preparation
+  tools implement and the archetype's jobs keep running. New in it: files bound for another project
+  are staged in `_Migrations/<Project>/` at their original relative paths, with a `review.tsv`
+  listing each staged path's copies left behind, and a return migration brings them back; a
+  boundary is confirmed with the actual files from the manifest, never with a description; and a
+  re-audit after each round is expected to reveal a second round of redundancy.
+- **The manifest schema's additions**
+  ([`manifest-schema.md`](plugins/ai-os/skills/file-preprocessing/references/manifest-schema.md),
+  #100): an extension rule (within a version an optional field may be added, and a consumer ignores
+  what it does not know), under which `/2` gains `package`, the `migrating` flag and
+  `migration_target`; and the package hash rule, one definition for every producer, executor and
+  consumer. The schema string stays `family-ai-preprocess-manifest/2`, and every earlier `/2` file
+  stays valid.
+- **Proposed migrations in the user-synthesis archetype**
+  ([README](plugins/ai-os/skills/project-onboarding/archetypes/user-synthesis/README.md#proposed-migrations),
+  #101). `synthesise` and its `reconcile` twin may raise a cross-project migration as an ordinary
+  `needs_a_look` item carrying an optional `migration` object (`from_project`, `to_project`,
+  `paths`, `pages`) for the owner to approve or decline; most runs propose none, and no placeholder
+  is added. The synthesis never moves a file: an approved migration is staged by `folder-curation`
+  in the holding project.
+- **`project-onboarding`, one flow for cold and prepared folders** (#101). Step 1 tells the starting
+  state from what is on disk: a folder carrying `.familyai/rulebook.json` is prepared when it meets
+  the hand-off contract (checked with `readiness.py` or the deployment's own check), and a messy
+  cold folder is sent to `pre-onboarding`. A prepared folder is validated, never rebuilt, and its
+  config is written from the twins. A new step 4 seeds the jobs from the state the folder arrives in
+  (the ingest gate, the human-edit guard, the audit's previous pass), so the first tick is quiet;
+  the later steps are renumbered 5 to 7.
+- **`ARCHITECTURE.md`** (#101): a reviewer is never the author, held by the code that records a
+  verdict; a new section, *Preparing a folder before onboarding*, on the sequence and where
+  preparation ends; one login per machine, each call's context isolated and no project copying a
+  login or token file; and cross-project migrations proposed by the user-tier synthesis and approved
+  by the owner. `user-onboarding` follows suit: an identity needs no model login of its own.
+- **Repo docs** (#101). `AGENTS.md`'s "skills are conventions, not code" gains an exception for
+  operator tools a skill bundles for an interactive session (`adversarial-review`'s `agy-review`,
+  `ai-writing-audit`'s tools and `pre-onboarding`'s), and the versioned interface now names every
+  skill's frontmatter contract. The README lists the three ai-os entry points: `pre-onboarding`,
+  `project-onboarding` and `user-onboarding`.
+- **CI** ([`lint.yml`](.github/workflows/lint.yml), #103): a `pre-onboarding-tools` job runs the
+  tools' unit tests on Python 3.9 and the latest 3.x with the standard library alone, each skipped
+  tier named in its skip reason, then checks the frozen outputs on the fixture.
+
+### Migrating a deployment
+
+Advance the pin as [*Consuming a pinned release*](plugins/ai-os/ARCHITECTURE.md#consuming-a-pinned-release)
+sets out, after these steps:
+
+1. **Give every section that is not `fixed` a page contract** in its wiki's Schema
+   ([a page contract for every page type](plugins/ai-os/skills/wiki-maintenance/SKILL.md#a-page-contract-for-every-page-type));
+   where the Schema is compiled, use the
+   [fixed-header tables](plugins/ai-os/skills/pre-onboarding/references/settings.md#the-schema-pages-tables).
+2. **Name one professional for every page** in the Schema
+   ([one professional per page](plugins/ai-os/skills/wiki-maintenance/SKILL.md#one-professional-per-page),
+   from [the catalogue](plugins/ai-os/skills/wiki-maintenance/references/professionals.md)).
+3. **Write a rationale block for every page** in `_Audit/wiki-rationale.md`
+   ([the rationale block](plugins/ai-os/skills/wiki-maintenance/SKILL.md#the-rationale-block)).
+4. **Record acceptance for every page**
+   ([acceptance](plugins/ai-os/skills/wiki-maintenance/SKILL.md#acceptance), run as
+   [`wiki-onboarding` step 6](plugins/ai-os/skills/wiki-onboarding/SKILL.md#6-reader-acceptance-the-owners-lens-and-the-professionals)
+   sets out), and hold the reviewer-is-not-author check in the code that records a verdict
+   ([the three layers](plugins/ai-os/ARCHITECTURE.md#the-three-layers-of-a-job)).
+5. **Move hand-kept recurring tables into page frontmatter** as `recurring:` entries, and teach the
+   deterministic Deadlines roll-up to read the key
+   ([canonical frontmatter](plugins/ai-os/skills/wiki-maintenance/SKILL.md#canonical-frontmatter--the-keys-the-deterministic-sweeps-read)).
+6. **Make every rulebook stop routing new files to another project**
+   ([rules that keep it safe](plugins/ai-os/skills/wiki-maintenance/SKILL.md#rules-that-keep-it-safe));
+   migrations come from the user-tier synthesis instead
+   ([proposed migrations](plugins/ai-os/skills/project-onboarding/archetypes/user-synthesis/README.md#proposed-migrations)).
+7. **Override `iwork` if your ingest cannot read iWork**, and classify the other proprietary
+   formats as `other`, in each project's
+   [`jobs.yaml`](plugins/ai-os/skills/project-onboarding/archetypes/folder-curation/jobs.yaml).
+8. **Accept `rmdir` in plan executors**, and the plan's other changes listed above
+   ([`rmdir` and the Bin](plugins/ai-os/skills/folder-curation/references/move-plan-schema.md#rmdir-and-the-bin)),
+   and hash a package by the
+   [package hash rule](plugins/ai-os/skills/file-preprocessing/references/manifest-schema.md#entry-fields).
+9. **Re-read the archetype outputs that changed**, and re-stamp any copy a project made of them: the
+   folder-curation `audit.md` and `curate.md`
+   ([`archetypes/folder-curation/`](plugins/ai-os/skills/project-onboarding/archetypes/folder-curation/)),
+   the file-ingest `ingest.md` and `reconcile.md`
+   ([`archetypes/file-ingest/`](plugins/ai-os/skills/project-onboarding/archetypes/file-ingest/)),
+   and the user-synthesis templates, whose reply a strict validator must let carry `migration`
+   ([`archetypes/user-synthesis/`](plugins/ai-os/skills/project-onboarding/archetypes/user-synthesis/)).
+
+### Placeholders
+
+No placeholder was added, removed or made required: each of the eight prompt templates under
+`project-onboarding/archetypes/` uses the same set as at v10.0.0.
+
+### Still open
+
+The engines' environment-variable lists stay provisional until #125 records which variables each engine reads;
+the skill marks them where they are used. Everything else the milestone left open is settled: the isolation
+spike (#91) in the skill's engine isolation section and `engines.py`, the chart rendering matrix (#102) in
+`portable-markdown`, and the proof on a real prepared folder (#104), which found the tool fixes listed above.
+
 ## v10.0.0 — 2026-09-28
 
 A **MAJOR** (reference implementation family-ai-os v2.7.4): a semantic change to a documented rule.

@@ -1,0 +1,8 @@
+seq,domain,depth,action,from,to,evidence,reason,kind,sweep,needs_a_look,approved,approved_at,status,executed_at,note
+1,(root),light,move,IMG_0001.jpg,,ce7b9bd1a7cf799306f2cf5b08afb20081b68df9497219857af6e7b029b0f2a0,root stray,,,choose the folder it belongs in,,,proposed,,
+2,03 Home,light,rename,03 Home/Lease notes .txt,03 Home/Lease notes.txt,7d03711e63a16809f75bb87d4f858c7f26a0f73a74b15e31ca6282e36006389a,name defect: space before the extension or at the end of the name,,,,,,proposed,,
+3,03 Home,light,rename,03 Home/Utilities /,03 Home/Utilities/,,name defect: folder name ends with a space (1 files inside),,no,,,,proposed,,
+4,02 Finance,light,delete,02 Finance/Bank statement 2024-03 (1).pdf,,f69a0211da79d4c274422d427f1ed4c00461eeee021f80655f9170c880e76e05,accidental copy; identical bytes kept at 02 Finance/Bank statement 2024-03.pdf,redundant,,,,,proposed,,
+5,05 Archive,light,delete,05 Archive/Cours de français.pdf,,e6286ec605097f5fb2a410059335550d12459bcd25f5f45793595af37b3d194c,accidental copy; identical bytes kept at 04 Study/Cours de français.pdf,redundant,,,,,proposed,,
+6,05 Archive,light,delete,05 Archive/Slides.pptx,,a3a90b859cd2f3bee9fb0fe36225a22c676d1718647ee83c6e61f53ce0456f73,accidental copy; identical bytes kept at 04 Study/Slides.pptx,redundant,,,,,proposed,,
+7,05 Archive,light,delete,05 Archive/中文课程.pdf,,41b91fb91d3d9ef40370454cd1eece220947d0cfc5e943f37625dc4870e89e6a,accidental copy; identical bytes kept at 04 Study/中文课程.pdf,redundant,,,,,proposed,,

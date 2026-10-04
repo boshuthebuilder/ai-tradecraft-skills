@@ -1,0 +1,26 @@
+{
+ "id": "06ddad00251856478a7196a2b853cc08cebd064a1068a4a86f3c17729a500ec9",
+ "doc_type": "Essay",
+ "party": "Alex Example",
+ "parties": [],
+ "doc_date": "",
+ "title": "Essay: why learn a third language",
+ "summary": "Alex's essay for the evening class on why to learn a third language.",
+ "key_facts": {
+  "dates": [],
+  "amounts": [],
+  "reference_numbers": []
+ },
+ "category": "Language Study",
+ "language": "en",
+ "sensitive": false,
+ "confidence": "high",
+ "look": "",
+ "proposed_name": "",
+ "card_meta": {
+  "model": "fixture",
+  "via": "fixture",
+  "batch": "fixture",
+  "created_at": "2024-06-30T12:00:00+0000"
+ }
+}

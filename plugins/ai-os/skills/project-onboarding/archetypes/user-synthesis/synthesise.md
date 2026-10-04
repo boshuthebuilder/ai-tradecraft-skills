@@ -4,7 +4,8 @@ The reasoning-stage template for the `synthesise` job. Filled with the access-sc
 the **current Knowledge tree**, it returns structured JSON a deterministic write stage applies to the
 identity's user vault. Generic starting template — `{…}` are filled by the deployment. The deployment
 guarantees the report contains **only** wikis this identity may access; the template's job is coherence
-and faithful evolution, not access control.
+and faithful evolution, not access control. The optional `migration` field on a `needs_a_look` item
+carries a proposed cross-project migration (see the archetype's README).
 
 ---
 
@@ -59,7 +60,16 @@ Evolve the vault as a coherent whole — a second brain, not a file listing:
    (`project id` + wiki-relative path — never an absolute filesystem path). For people/organisations
    appearing in more than one project (use the backbone), a page each: what each project knows,
    reconciled — and where projects *disagree*, say so explicitly.
-3. **A dated log line** recording the pass.
+3. **Proposed migrations, when the sources show one** (optional; most runs propose none). A project
+   files within itself (`wiki-maintenance`'s rule), so you are the one pass that sees both sides. When
+   the pages shown make it plain that files one project in this report holds belong to another
+   project in it (the holding project's page flags them as belonging elsewhere, or the backbone shows
+   their matter is kept in the other project), raise one `needs_a_look` item per matter, however many
+   files, with its `migration` filled and an `owner_action` asking the owner to approve or decline.
+   Name each file by the folder-relative source path the holding project's page cites, never a path
+   the report does not show. You only propose; an approved migration is staged by `folder-curation`
+   in the holding project. You move nothing and write nothing into a project.
+4. **A dated log line** recording the pass.
 
 Rules:
 
@@ -115,11 +125,14 @@ Return JSON only, matching this shape (every `wiki_pages[].path` must sit under 
 {
   "verdict": "apply | skip",
   "wiki_pages": [{"path": "01 Knowledge/...", "action": "create | update", "body": "..."}],
-  "needs_a_look": [{"item": "...", "reason": "...", "owner_action": "null, OR one sentence naming the physical act only the owner can perform — name the exact file or place", "what_would_resolve": "one sentence — the single decision or action that closes this", "proposed_action": "optional — what you would do on a yes"}],
+  "needs_a_look": [{"item": "...", "reason": "...", "owner_action": "null, OR one sentence naming the physical act only the owner can perform: name the exact file or place", "what_would_resolve": "one sentence: the single decision or action that closes this", "proposed_action": "optional: what you would do on a yes", "migration": {"from_project": "<project id>", "to_project": "<project id>", "paths": ["<folder-relative path the from_project's page cites>"], "pages": ["<project id>: <wiki-relative page path>"]}}],
   "log_entry": "## [{date}] synthesise | <projects read> | <short summary>",
   "notify": {"kind": "info | action", "priority": "low", "body": "..."}
 }
 ```
+
+`migration` is optional: include it only on an item that proposes a migration (task 3), and leave it
+out of every other item.
 
 Every `needs_a_look` item must be **decidable in one step** — its `what_would_resolve` names the single
 decision or action that closes it. **A no-change run is silent: when you wrote no page *and* raised no

@@ -1,0 +1,30 @@
+{
+ "id": "258d068dbba08cefe4838f1a06538732f60023541c97d4981fd03a6428a633d5",
+ "doc_type": "Contract",
+ "party": "Alex Example",
+ "parties": [
+  "Robin Trading Ltd"
+ ],
+ "doc_date": "2022-05-01",
+ "title": "Employment contract, Robin Trading Ltd",
+ "summary": "Alex's employment contract with Robin Trading Ltd, starting on 2022-05-01, with one month's notice.",
+ "key_facts": {
+  "dates": [
+   "start 2022-05-01"
+  ],
+  "amounts": [],
+  "reference_numbers": []
+ },
+ "category": "Work & Career",
+ "language": "en",
+ "sensitive": false,
+ "confidence": "high",
+ "look": "",
+ "proposed_name": "",
+ "card_meta": {
+  "model": "fixture",
+  "via": "fixture",
+  "batch": "fixture",
+  "created_at": "2024-06-30T12:00:00+0000"
+ }
+}

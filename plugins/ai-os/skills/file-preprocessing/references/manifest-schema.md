@@ -21,6 +21,9 @@ a `/1` file treats every added field as absent. The schema string is
 `family-ai-preprocess-manifest/2`. Producers: `file-preprocessing` (either), `folder-curation`
 (always `/2`).
 
+**The extension rule.** Within a version, an optional field may be added; a consumer ignores fields
+it does not know, as it ignores unknown flags.
+
 ## Entry fields
 
 | field | type | meaning |
@@ -66,6 +69,9 @@ a `/1` file treats every added field as absent. The schema string is
 | `overlap` | string, optional | the overlap pair id this file's folder participates in (the audit's *Overlapping homes*) |
 | `generic_name` | bool, optional | the stem is a device or scanner default |
 | `plan_ref` | string, optional | `plans/<date>/move-plan.csv#<seq>` of the last approved row that touched this entry |
+| `package` | bool, optional | present and `true` when the entry is a **package**: a document its format stores as a folder of member files (an iWork `.pages`, `.numbers` or `.key` saved that way), audited as one item. Its id follows the package hash rule below; `size` is its members' total and `mtime` its newest member's |
+| `migration_target` | string, optional | present only while `migrating` is flagged: the project a live path of the entry is staged for, the folder name directly under the migrations folder (`_Migrations/<Project>/…` by default) |
+| `migration_targets` | list of strings, optional | present only when identical copies of the entry are staged for more than one project: every such project, sorted (`migration_target` then names the first staged path's) |
 | `convert_candidate` | object, optional | on a proprietary-class entry, the export the audit found for it: `{id, path, match}`. `id` is the export's own sha256 and is the authority — the pairing is re-confirmed by it first, so renaming either file does not break it; `path` is where that content sat at the last scan. `match` is `stem` (identical normalised stem) or `stem_near` (normalised stem plus a modifier — "final", "signed", an appended date), and records how the pairing was *first* established. Absent means no candidate was found at all. A `stem` match means the file **is** converted, so the entry carries no `unconverted` flag; a `stem_near` match is `unconverted` *with* the candidate named, so a `convert` row can point at what it thinks is not the export |
 
 **Duplicates do not mint entries.** Copies of the same bytes share one hash, so they share one key
@@ -75,6 +81,26 @@ live paths that one entry has, each with the kind that decides what may be done 
 is the only kind a deletion may name; a `working_copy` is consolidated to the canonical path with a
 pointer note; a `pack` copy is a submission record and stays whole. A count-only entry (`hashed:
 false`) is never a duplicate candidate and never carries `copies`.
+
+**A package is one item, with one hash rule.** A package is a folder on disk but one document to its
+owner, so the walk treats it as a single item and never descends into it. Its id is the SHA-256 of a
+stream built from its members. Walk the package depth first from its top folder: in each folder take
+its files in name order (sorted by code point), then enter its subfolders in the same order. For every
+member file, hidden ones included, append its path relative to the package (`/`-separated, UTF-8), a
+NUL byte, the member's own SHA-256 as lowercase hex, and a newline. Every producer, every executor that
+verifies a move by hash, and every consumer that matches a package to its entry computes the id
+exactly this way: a second definition makes every package look edited on the next pass, or refuses
+every package move as a hash mismatch.
+
+`package`, `migration_target` and `migration_targets`, like the `migrating` flag below, were added to
+`/2` under the extension rule at the top of this file, so the schema string stays
+`family-ai-preprocess-manifest/2` and every earlier `/2` file stays valid. `package` is not an extra a
+reader may skip, though: a package entry's `current_path` names a folder and its id hashes the member
+stream above. A consumer that hashes, moves or verifies entries reads `package` before it does any of
+those, and a consumer that does not know the field refuses a manifest holding a package entry rather
+than treat it as a file. The version did not move because no released consumer hashed `/2` entries
+before the field existed (the preparation tools, the only `/2` readers, wrote packages from their first
+pass), and a `/3` would have orphaned every prepared folder's existing manifest for no reader's benefit.
 
 ## Flags
 
@@ -105,6 +131,13 @@ match clears the flag, a weak one leaves it set with the candidate named in `con
 goes in `look_reason`). Same rule as before: consumers ignore flags they don't know. All three
 describe the entry's path — on an entry that has a `copies` list they describe its canonical one;
 the other copies are described by their own `kind`, not by a flag.
+
+**Also in /2:** `migrating` (a live path of the entry lies under the migrations folder's
+`<Project>/`, the staging area an approved curation row moves a file into for another project;
+`migration_target` names the project). Unlike the three above it holds when **any** of the entry's live paths is staged,
+canonical or not, and the walk recomputes it every pass. A staged path is out of this folder's wiki
+scope. Once the other project collects the file the entry is `departed`, or, where a copy stays
+behind, loses the flag.
 
 ## The `look` vocabulary
 
@@ -179,7 +212,8 @@ drifts. A skill *describes* these; a deployment's code is what holds them.
 
 Walk the whole folder and reckon the manifest to what is on disk:
 
-- **Hash every file (SHA-256)** — the entry's id, so identity follows the bytes, not the name.
+- **Hash every item (SHA-256)**: a file by its bytes, a package by the package hash rule. The hash
+  is the entry's id, so identity follows the bytes, not the name.
 - **A class policy decides what is hashed.** Which files are hashed in full, which are **count-only**,
   and which are never presented to a model at all is a per-folder policy, not a fixed rule — a
   library that is mostly photographs or medical imaging must not cost a full hash walk every pass. A
@@ -210,8 +244,9 @@ judgement call:
 - **Containment.** Source and target must both stay inside the folder — refuse `..`, absolute paths,
   and any symlinked path component. A path read out of a file is untrusted, even one you wrote.
 - **Create destination folders only when a move actually needs them.**
-- **Hash-verify after the move.** The moved bytes' hash must equal the entry id; a mismatch is a loud
-  error, never a silent success.
+- **Hash-verify after the move.** The moved bytes' hash must equal the entry id (a package's by the
+  package hash rule, exactly as the walk computes it); a mismatch is a loud error, never a silent
+  success.
 - **A two-phase op log**, where the environment supports it: intent → committed, fsync'd inside the
   folder (e.g. `.familyai/preprocess-log.jsonl`), replayed on the next pass so an interrupted move is
   resolved **by content**, and a committed move the manifest never learnt about is repaired from the

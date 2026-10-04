@@ -1,0 +1,186 @@
+{
+ "06 Work/Essay.docx": {
+  "status": "ok",
+  "page_count": 1,
+  "tiers": [
+   "text_layer"
+  ],
+  "text": [
+   "Essay: why learn a third language\nWritten by Alex Example for the evening class\nLearning a language changes how you see your own."
+  ]
+ },
+ "06 Work/Contract.docx": {
+  "status": "ok",
+  "page_count": 1,
+  "tiers": [
+   "text_layer"
+  ],
+  "text": [
+   "Employment contract between Robin Trading Ltd and Alex Example\nStart date 2022-05-01\nNotice period one month"
+  ]
+ },
+ "03 Home/Lease renewal.pages": {
+  "status": "ok",
+  "page_count": 1,
+  "tiers": [
+   "text_layer"
+  ],
+  "text": [
+   "Lease renewal for 3 Example Road, signed by Alex Example\n\nThe new term runs from 1 May 2024 to 30 April 2025 at 1,450 per month"
+  ]
+ },
+ "03 Home/Utilities /Electricity bill.pdf": {
+  "status": "ok",
+  "page_count": 2,
+  "tiers": [
+   "text_layer",
+   "local_ocr"
+  ],
+  "text": [
+   "Example Energy Ltd\nElectricity bill for Alex Example\n3 Example Road, Exampleton\nBill date 15 March 2024\nThe usage details are on page 2.",
+   null
+  ]
+ },
+ "04 Study/中文课程.pdf": {
+  "status": "ok",
+  "page_count": 1,
+  "tiers": [
+   "local_ocr"
+  ],
+  "text": [
+   null
+  ]
+ },
+ "01 Identity/Passport renewal 2021/Application form.docx": {
+  "status": "ok",
+  "page_count": 1,
+  "tiers": [
+   "text_layer"
+  ],
+  "text": [
+   "Passport renewal application for Alex Example\nSubmitted 2021-05-02\nPrevious passport P0987654"
+  ]
+ },
+ "02 Finance/Tax/Budget.numbers": {
+  "status": "ok",
+  "page_count": 1,
+  "tiers": [
+   "text_layer"
+  ],
+  "text": [
+   "Household budget for 2023 prepared by Alex Example\n\nRent 1,450 per month and utilities about 150 per month"
+  ]
+ },
+ "_Migrations/Other Project/02 Finance/Old invoice.pdf": {
+  "status": "ok",
+  "page_count": 1,
+  "tiers": [
+   "text_layer"
+  ],
+  "text": [
+   "Invoice 2022-117 from Robin Trading Ltd to Alex Example\nConsulting, February 2022, GBP 800.00\nPaid 2022-03-01"
+  ]
+ },
+ "02 Finance/Tax/Tax return 2023.pdf": {
+  "status": "ok",
+  "page_count": 1,
+  "tiers": [
+   "local_ocr"
+  ],
+  "text": [
+   null
+  ]
+ },
+ "03 Home/Lease renewal.pdf": {
+  "status": "ok",
+  "page_count": 1,
+  "tiers": [
+   "text_layer"
+  ],
+  "text": [
+   "Lease renewal\nLandlord: Example Lettings\nTenant: Alex Example\nProperty: 3 Example Road, Exampleton\nTerm: 1 May 2024 to 30 April 2025\nRent GBP 1,450 per month"
+  ]
+ },
+ "03 Home/Lease notes .txt": {
+  "status": "ok",
+  "page_count": 1,
+  "tiers": [
+   "text_layer"
+  ],
+  "text": [
+   "Notes on the lease: ask Example Lettings about the boiler service."
+  ]
+ },
+ "04 Study/Notes.rtf": {
+  "status": "ok",
+  "page_count": 1,
+  "tiers": [
+   "text_layer"
+  ],
+  "text": [
+   "Class notes: irregular verbs and measure words, reviewed with Robin Example."
+  ]
+ },
+ "04 Study/Slides.pptx": {
+  "status": "ok",
+  "page_count": 2,
+  "tiers": [
+   "text_layer",
+   "text_layer"
+  ],
+  "text": [
+   "Language learning plan for 2024\n\n[notes]\nSpeak with Robin every week",
+   "Targets: B2 French and HSK 4 Chinese\n\n[notes]\nExams in June"
+  ]
+ },
+ "02 Finance/Tax/Budget final.xlsx": {
+  "status": "ok",
+  "page_count": 1,
+  "tiers": [
+   "text_layer"
+  ],
+  "text": [
+   "Item\tMonthly\nRent\t1450\nUtilities\t150\nSavings\t400"
+  ]
+ },
+ "IMG_0001.jpg": {
+  "status": "photo",
+  "page_count": 1,
+  "tiers": [
+   "photo"
+  ],
+  "text": [
+   null
+  ]
+ },
+ "01 Identity/Passport scan.pdf": {
+  "status": "ok",
+  "page_count": 1,
+  "tiers": [
+   "local_ocr"
+  ],
+  "text": [
+   null
+  ]
+ },
+ "04 Study/Cours de français.pdf": {
+  "status": "ok",
+  "page_count": 1,
+  "tiers": [
+   "local_ocr"
+  ],
+  "text": [
+   null
+  ]
+ },
+ "02 Finance/Bank statement 2024-03.pdf": {
+  "status": "ok",
+  "page_count": 1,
+  "tiers": [
+   "text_layer"
+  ],
+  "text": [
+   "Example Bank plc\nStatement for Alex Example\nAccount 12345678, sort code 01-02-03\nPeriod 1 March 2024 to 31 March 2024\nOpening balance GBP 2,410.00\nSalary from Robin Trading Ltd GBP 3,200.00\nRent to Example Lettings GBP 1,450.00\nClosing balance GBP 4,160.00"
+  ]
+ }
+}

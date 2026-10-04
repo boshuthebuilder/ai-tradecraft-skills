@@ -1,0 +1,63 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding /ToUnicode 6 0 R >>
+endobj
+5 0 obj
+<< /Length 292 >>
+stream
+BT /F1 12 Tf 72 720 Td 16 TL
+(Self assessment tax return 2022 to 2023) '
+(Taxpayer: Alex Example, UTR 1234567890) '
+(Employment income from Robin Trading Ltd: GBP 38,400) '
+(Tax paid through PAYE: GBP 5,160) '
+(Balance due by 31 January 2024: GBP 0) '
+(Filed online on 12 December 2023) '
+ET
+endstream
+endobj
+6 0 obj
+<< /Length 397 >>
+stream
+/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def
+/CMapName /Adobe-Identity-UCS def
+/CMapType 2 def
+1 begincodespacerange
+<00> <FF>
+endcodespacerange
+1 beginbfchar
+<20> <0029>
+endbfchar
+1 beginbfrange
+<21> <7E> <0021>
+endbfrange
+endcmap
+CMapName currentdict /CMapName get /CMapResource defineresource pop
+end
+end
+endstream
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000000355 00000 n 
+0000000697 00000 n 
+trailer << /Size 7 /Root 1 0 R >>
+startxref
+1144
+%%EOF

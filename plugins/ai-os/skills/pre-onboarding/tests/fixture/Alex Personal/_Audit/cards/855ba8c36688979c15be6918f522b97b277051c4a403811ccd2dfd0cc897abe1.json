@@ -1,0 +1,28 @@
+{
+ "id": "855ba8c36688979c15be6918f522b97b277051c4a403811ccd2dfd0cc897abe1",
+ "doc_type": "Lecture Notes",
+ "party": "Alex Example",
+ "parties": [
+  "Robin Example"
+ ],
+ "doc_date": "",
+ "title": "Class notes",
+ "summary": "Class notes on irregular verbs and measure words, reviewed with Robin.",
+ "key_facts": {
+  "dates": [],
+  "amounts": [],
+  "reference_numbers": []
+ },
+ "category": "Language Study",
+ "language": "en",
+ "sensitive": false,
+ "confidence": "high",
+ "look": "",
+ "proposed_name": "",
+ "card_meta": {
+  "model": "fixture",
+  "via": "fixture",
+  "batch": "fixture",
+  "created_at": "2024-06-30T12:00:00+0000"
+ }
+}

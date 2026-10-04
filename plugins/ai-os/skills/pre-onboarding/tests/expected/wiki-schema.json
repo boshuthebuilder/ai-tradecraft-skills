@@ -1,0 +1,243 @@
+{
+ "version": 2,
+ "schema_path": "Alex Personal Wiki/90 Schema/90 Schema.md",
+ "schema_sha256": "e3bd053f68daaacd0d9c67d75de4e2c107dc9d1d44b50c145e6b4cea9a623322",
+ "sections": [
+  {
+   "number": "00",
+   "name": "Index",
+   "kind": "fixed",
+   "derived": false,
+   "pages": "dashboard",
+   "professionals": [
+    "chief of staff"
+   ]
+  },
+  {
+   "number": "01",
+   "name": "Deadlines",
+   "kind": "fixed",
+   "derived": true,
+   "pages": "every forward date, rolled up",
+   "professionals": [
+    "chief of staff"
+   ]
+  },
+  {
+   "number": "02",
+   "name": "People",
+   "kind": "fixed",
+   "derived": false,
+   "pages": "everyone who appears",
+   "professionals": [
+    "personal assistant"
+   ]
+  },
+  {
+   "number": "10",
+   "name": "Identity",
+   "kind": "active",
+   "derived": false,
+   "pages": "passport",
+   "professionals": [
+    "immigration adviser"
+   ]
+  },
+  {
+   "number": "20",
+   "name": "Finance",
+   "kind": "active",
+   "derived": false,
+   "pages": "Bank accounts; Cash position; Tax",
+   "professionals": [
+    "private banker",
+    "CFO",
+    "chartered tax adviser"
+   ]
+  },
+  {
+   "number": "30",
+   "name": "Home",
+   "kind": "active",
+   "derived": false,
+   "pages": "lease, bills",
+   "professionals": [
+    "household manager"
+   ]
+  },
+  {
+   "number": "40",
+   "name": "Study",
+   "kind": "history",
+   "derived": false,
+   "pages": "courses and certificates",
+   "professionals": [
+    "academic registrar"
+   ]
+  },
+  {
+   "number": "90",
+   "name": "Schema",
+   "kind": "fixed",
+   "derived": false,
+   "pages": "this page",
+   "professionals": [
+    "librarian"
+   ]
+  },
+  {
+   "number": "91",
+   "name": "Log",
+   "kind": "fixed",
+   "derived": false,
+   "pages": "append-only history",
+   "professionals": [
+    "librarian"
+   ]
+  }
+ ],
+ "routing": [
+  {
+   "prefix": "01 Identity/",
+   "target": "10 Identity",
+   "section": "10"
+  },
+  {
+   "prefix": "02 Finance/Tax/",
+   "target": "20 Tax",
+   "section": "20"
+  },
+  {
+   "prefix": "02 Finance/",
+   "target": "20 Bank accounts and Cash position",
+   "section": "20"
+  },
+  {
+   "prefix": "03 Home/",
+   "target": "30 Home",
+   "section": "30"
+  },
+  {
+   "prefix": "04 Study/",
+   "target": "40 Study",
+   "section": "40"
+  },
+  {
+   "prefix": "05 Archive/",
+   "target": "40 Study",
+   "section": "40"
+  },
+  {
+   "prefix": "06 Work/",
+   "target": "20 Tax (employment income)",
+   "section": "20"
+  },
+  {
+   "prefix": "_Inbox/",
+   "target": "filed by the routing above",
+   "section": null
+  }
+ ],
+ "contracts": [
+  {
+   "number": "10",
+   "name": "Identity",
+   "professionals": [
+    "immigration adviser"
+   ],
+   "reader": "Alex",
+   "questions": [
+    "When does the passport expire?",
+    "Which numbers would an application need?"
+   ],
+   "fields": [
+    "number",
+    "issue date",
+    "expiry",
+    "scan path"
+   ]
+  },
+  {
+   "number": "20",
+   "name": "Finance",
+   "professionals": [
+    "private banker",
+    "CFO",
+    "chartered tax adviser"
+   ],
+   "reader": "Alex",
+   "questions": [
+    "Is anything due?",
+    "What came in and went out?",
+    "What is the tax position?"
+   ],
+   "fields": [
+    "account",
+    "period",
+    "balances",
+    "tax year",
+    "amounts"
+   ]
+  },
+  {
+   "number": "30",
+   "name": "Home",
+   "professionals": [
+    "household manager"
+   ],
+   "reader": "Alex",
+   "questions": [
+    "Where does Alex live and on what terms?",
+    "What bills are due?"
+   ],
+   "fields": [
+    "address",
+    "landlord",
+    "term",
+    "rent",
+    "bills"
+   ]
+  },
+  {
+   "number": "40",
+   "name": "Study",
+   "professionals": [
+    "academic registrar"
+   ],
+   "reader": "Alex",
+   "questions": [
+    "Which courses and certificates are held?",
+    "Where are they?"
+   ],
+   "fields": [
+    "course",
+    "school",
+    "dates",
+    "result",
+    "path"
+   ]
+  }
+ ],
+ "pages": {
+  "20 Finance/20 Finance.md": {
+   "professional": "private banker",
+   "deliverable": "finance overview",
+   "tone": "measured"
+  },
+  "20 Finance/Bank accounts.md": {
+   "professional": "private banker",
+   "deliverable": "accounts schedule",
+   "tone": "measured"
+  },
+  "20 Finance/Cash position.md": {
+   "professional": "CFO",
+   "deliverable": "cash note",
+   "tone": "numerate, brief"
+  },
+  "20 Finance/Tax.md": {
+   "professional": "chartered tax adviser",
+   "deliverable": "annual tax position letter",
+   "tone": "exact, dated"
+  }
+ }
+}
