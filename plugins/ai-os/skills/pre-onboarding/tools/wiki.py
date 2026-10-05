@@ -372,7 +372,7 @@ def profile(a):
     counted and never profiled, and no copy of one is named."""
     if a.depth < 1 or a.parties < 1:
         raise common.ToolError("--depth and --parties count from 1")
-    root, settings_dir, _work = common.resolve(a)
+    root, settings_dir, work = common.resolve(a)
     rb = common.load_rulebook(root, settings_dir)
     _mp, man = load_manifest(root, a.manifest)
     cards_dir, _x = cards_dirs(a, root)
@@ -437,6 +437,7 @@ def profile(a):
     text = json.dumps(out, ensure_ascii=False, indent=1) + "\n"
     if a.out:
         common.Writer(root if a.read_only_root else None).text(a.out, text)
+        common.register_output(root, work, rb, a.out, man)
     sys.stdout.write(text)
     return 0
 
@@ -1370,7 +1371,7 @@ def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptan
 
 @os_errors
 def check(a):
-    root, settings_dir, _work = common.resolve(a)
+    root, settings_dir, work = common.resolve(a)
     rb = common.load_rulebook(root, settings_dir)
     _mp, man = load_manifest(root, a.manifest)
     res = check_result(root, rb, man, settings_dir=settings_dir,
@@ -1380,6 +1381,7 @@ def check(a):
     out = json.dumps(res, ensure_ascii=False, indent=1)
     if a.out:
         common.Writer(root if a.read_only_root else None).text(a.out, out)
+        common.register_output(root, work, rb, a.out, man)
     print(out)
     return 1 if res["problems"] else 0
 
@@ -1908,25 +1910,29 @@ def move(a):
 
 def drift_paths(rb, man):
     """{fold(folder-relative path): "departed" | "migrating"}: see the module docstring. A path is compared as
-    `common.fold` compares, and a migrating path is one `common.in_migrations` says is."""
+    `common.fold` compares, and the paths a withheld document held before it moved come from the one source `check` uses
+    (`common.prior_paths`, part of `common.withheld_paths`): the path a staged document was staged from and the
+    placements in its history are migrating, those of an excluded one departed."""
     live = set()
     for e in man.values():
         if "departed" not in e.get("flags", []):
             live.add(common.fold(e["current_path"]))
             live.update(common.fold(c["path"]) for c in e.get("copies", []))
-    cut = len(rb["migrations_dir"].rstrip("/")) + 1
     out = {}
     for e in man.values():
-        held = [common.fold(x) for x in [e["current_path"]] + [c["path"] for c in e.get("copies", [])]]
+        held = [e["current_path"]] + [c["path"] for c in e.get("copies", [])]
         if "departed" in e.get("flags", []):
-            out.update({p: "departed" for p in held if p not in live and p not in out})
+            out.update({common.fold(p): "departed" for p in held if common.fold(p) not in live
+                        and common.fold(p) not in out})
         elif "migrating" in e.get("flags", []):
-            for raw, p in zip([e["current_path"]] + [c["path"] for c in e.get("copies", [])], held):
+            for raw in held:
                 if common.in_migrations(rb, raw):
-                    out[p] = "migrating"
-                    staged_from = common.fold(raw[cut:]).split("/", 1)[1:]
-                    if staged_from and staged_from[0] not in live:
-                        out[staged_from[0]] = "migrating"
+                    out[common.fold(raw)] = "migrating"
+                    origin = common.staged_origin(rb, raw)
+                    if origin and common.fold(origin) not in live:
+                        out[common.fold(origin)] = "migrating"
+    for p, why in common.prior_paths(rb, man).items():
+        out.setdefault(p, "migrating" if why == "migrations" else "departed")
     return out
 
 
@@ -1986,11 +1992,12 @@ def citations(text):
 
 @os_errors
 def drift(a):
-    root, settings_dir, _work = common.resolve(a)
+    root, settings_dir, work = common.resolve(a)
     rb = common.load_rulebook(root, settings_dir)
     _mp, man = load_manifest(root, a.manifest)
     wiki = os.path.join(root, rb["wiki_dir"])
     paths = drift_paths(rb, man)
+    at = common.withheld_paths(rb, man)
     kinds = collections.Counter(paths.values())
     pages = [p for p in wiki_pages(wiki) if not p.startswith(LOG_DIR + "/")]
     cited = {"departed": [], "migrating": []}
@@ -1999,7 +2006,7 @@ def drift(a):
         """The path as the report names it: a path that is withheld, and every path of a migrating document (staged for
         another project, and the path it left), is named as withheld and no more."""
         why = "migrations" if kind == "migrating" else next(
-            (w for f in sorted(path_forms(path)) for w in [common.path_withheld(rb, {}, f)] if w), None)
+            (w for f in sorted(path_forms(path)) for w in [common.path_withheld(rb, at, f)] if w), None)
         return "withheld (%s)" % common.WITHHELD_WHY[why] if why else path
     for p in pages:
         for line, path in citations(read_text(os.path.join(wiki, *p.split("/")))):
@@ -2015,6 +2022,7 @@ def drift(a):
     text = json.dumps(res, ensure_ascii=False, indent=1) + "\n"
     if a.out:
         common.Writer(root if a.read_only_root else None).text(a.out, text)
+        common.register_output(root, work, rb, a.out, man)
     sys.stdout.write(text)
     return 1 if res["citing_departed"] or res["citing_migrating"] else 0
 
@@ -2433,12 +2441,14 @@ def chart_blocks(text):
 
 
 def chart(a):
-    root, settings_dir, _work = common.resolve(a)
-    reserved = chart_reserved(common.load_rulebook(root, settings_dir))
+    root, settings_dir, work = common.resolve(a)
+    rb = common.load_rulebook(root, settings_dir)
+    reserved = chart_reserved(rb)
     rows, places = chart_rows(a.data)
     out = render_chart(root, a.kind, a.title, rows, os.path.basename(a.data), places, reserved)
     if a.out:
         common.Writer(root if a.read_only_root else None).text(a.out, out)
+        common.register_output(root, work, rb, a.out)
     sys.stdout.write(out)
     return 0
 

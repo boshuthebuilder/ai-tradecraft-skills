@@ -1515,6 +1515,7 @@ def main():
     text = json.dumps(out, ensure_ascii=False, indent=1)
     if a.out:
         common.Writer(root if a.read_only_root else None).text(a.out, text)
+        common.register_output(root, work, rb, a.out, ents)
     print(text)
     return 1 if findings else 0
 

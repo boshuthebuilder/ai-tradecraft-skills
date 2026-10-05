@@ -1221,6 +1221,28 @@ class ExcludedAfterTheAuditPlanTest(PlanCase):
         self.assertNotIn("Cours de fran", read(self.plan), "the copy of an excluded document is named in a row")
         self.assertIn(("delete", "05 Archive/Slides.pptx"), proposed)
 
+    def test_light_proposes_no_rename_of_a_folder_that_holds_an_excluded_path(self):
+        """Renaming `03 Home/Utilities /` would move the excluded file inside it: the owner's exclusion also means the plan
+        leaves it alone."""
+        man = json.loads(read(self.manifest_path))  # a second, included file in the folder, so the rename is proposed
+        man["entries"]["d" * 64] = {"id": "d" * 64, "current_path": "03 Home/Utilities /Gas bill.pdf", "class": "document",
+                                    "hashed": True, "flags": [], "copies": [], "size": 1, "mtime": "2024-06-01T00:00:00Z"}
+        write(self.manifest_path, json.dumps(man))
+        self.assertIn(("rename", "03 Home/Utilities /"), self.light())
+        self.exclude("03 Home/Utilities /Electricity bill.pdf")
+        proposed = self.light()
+        self.assertNotIn("Utilities", read(self.plan), "a row names the folder or the excluded file")
+        self.assertIn(("rename", "03 Home/Lease notes .txt"), proposed, "the rows for what is not held are unchanged")
+
+    def test_light_proposes_no_rename_of_a_folder_that_holds_a_document_staged_for_another_project(self):
+        man = json.loads(read(self.manifest_path))
+        slides = next(e for e in man["entries"].values() if e["current_path"] == "04 Study/Slides.pptx")
+        slides["current_path"] = "_Migrations/Other Project/Slides.pptx"
+        slides["copies"] = [{"path": "03 Home/Utilities /Slides copy.pptx", "kind": "redundant"},
+                            {"path": "_Migrations/Other Project/Slides.pptx", "kind": "canonical"}]
+        write(self.manifest_path, json.dumps(man))
+        self.assertNotIn("Utilities", read(self.plan) if self.light() else "")
+
     def delete_row(self, path, evidence_of):
         return row(1, "delete", path, "", self.ids[evidence_of], kind="redundant")
 

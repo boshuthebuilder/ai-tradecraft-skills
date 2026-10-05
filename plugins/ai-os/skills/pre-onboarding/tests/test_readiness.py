@@ -817,6 +817,21 @@ class ContractTest(Prepared):
         write(twin, json.dumps(dict(self.json_file(".familyai", "rulebook.json"), exclude=list(paths)),
                                ensure_ascii=False, indent=1))
 
+    def test_the_result_written_with_out_is_registered_and_removed_when_the_withheld_set_changes(self):
+        """The result names documents and pages; the command registers it under the withheld digest itself."""
+        out = os.path.join(self.tmp, "readiness.json")
+        res = self.readiness("--out", out)
+        with open(os.path.join(self.work, "state", "rendered.json"), encoding="utf-8") as f:
+            self.assertIn(os.path.abspath(out), {i["path"] for i in json.load(f)})
+        self.assertEqual(json.loads(read(out)), res)
+        self.readiness()
+        self.assertTrue(os.path.isfile(out), "removed though the withheld set had not changed")
+        self.exclude("06 Work")
+        got, _o, err = run("readiness.py", "--root", self.root, "--work", self.work)
+        self.assertIn(got, (0, 1), err)
+        self.assertIn("purged what withheld documents left behind: ", err)
+        self.assertFalse(os.path.exists(out), "the result was left on disk after the withheld set changed")
+
     def test_an_excluded_document_needs_no_extract_record_or_card(self):
         """Excluded by the owner, it is read by no tool: no record or card is expected, and none was made."""
         eid = self.ids()["06 Work/Contract.docx"]

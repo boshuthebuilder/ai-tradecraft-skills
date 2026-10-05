@@ -410,7 +410,11 @@ def light(a):
                 rows.append(new_row(domain=domain_of(p), action="rename", **{"from": p}, to=tgt, evidence=h,
                                     reason="name defect: space before the extension or at the end of the name",
                                     needs_a_look="a file with the new name already exists" if tgt in allpaths else ""))
+        # renaming a folder moves everything in it: not one that holds a withheld path (an excluded file, or one staged)
+        held_under = list(common.withheld_paths(rb, entries)) + [common.fold(x).rstrip("/") for x in rb["exclude"]]
         for old, new in sorted(folder_fix.items()):
+            if any(w.startswith(common.fold(old) + "/") for w in held_under):
+                continue
             n = sum(1 for p in allpaths if p.startswith(old + "/"))
             rows.append(new_row(domain=domain_of(old), action="rename", **{"from": old + "/"}, to=new + "/",
                                 reason="name defect: folder name ends with a space (%d files inside)" % n, sweep="no"))

@@ -53,17 +53,25 @@ that could carry such a document or its path:
   to date, and its old path names nothing withheld;
 - the hash cache's lines for withheld paths (`<work>/hashcache.json`);
 - every bundles folder (`<work>/bundles`, and each folder a `bundles` run registered in `<work>/state/rendered.json`) whose
-  `bundles.json` records a `withheld_sha256` other than the current one, and every rendered brief or review prompt
-  registered under another digest (a review prompt in `<work>/reviews/` that nothing registered goes too). The digest,
-  `common.withheld_digest`, covers the folded, sorted `exclude`, the migrations folder, the ids the manifest withholds
-  and why, and every path, copies included, that a withheld document holds.
+  `bundles.json` records a `withheld_sha256` other than the current one, and every file a tool wrote that carries
+  manifest, card or path data, registered by the tool that wrote it under the digest then current: a `--out` report of
+  `wiki.py profile`, `check`, `drift` or `chart`, of `readiness.py`, a rendered brief and each review prompt (one in
+  `<work>/reviews/` that nothing registered goes too). Not registered, and so never purged: the audit's own outputs, plan
+  folders (the owner's decisions), `wiki.py rationale` and `accept` (the owner's gate records, which `check` reads) and
+  the page `deadlines --write` renders (a wiki page, which `check` judges). The digest, `common.withheld_digest`, covers the
+  folded, sorted `exclude`, the migrations folder, the ids the manifest withholds and why, and every path that names a
+  withheld document (`common.withheld_paths`, the one source `check`, `drift`, `review-prompts` and the digest share): its
+  current path, its copies', the placements in its `rename_history`, and for a document staged for another project the path
+  it was staged from, unless a live document that is not withheld holds that path now.
 
 It prints counts, never a path (`purged what withheld documents left behind: 2 cards, 2 extract records`), once on
 standard error, and nothing when there is nothing to purge. `cards.py work` and `vision.py` read the settings and the
 manifest again and purge again before every batch, so an exclusion or a staging made while one runs holds from its next
-batch. With `--read-only-root`, a purge that has to remove something inside the folder is refused (exit 2, `refused:
---read-only-root, but <n> artefact(s) of withheld documents inside the folder must be purged first`), never skipped: run
-the tool once without it. `readiness.py` and `settings.py` purge as well, when they can read the settings.
+batch, and `cards.py work` also after a quota sleep, before anything is resent. With `--read-only-root`, a purge that has
+to remove something inside the folder is refused (exit 2, `refused: --read-only-root, but <n> artefact(s) of withheld
+documents inside the folder must be purged first`), never skipped: run the tool once without it. A removal that fails
+stops the tool (exit 2, `refused: could not remove <n> <kind>s of withheld documents (<reason>)`: the kinds and counts,
+never a path); what could be removed was, and a registered file that stayed is still registered for the next purge. `readiness.py` and `settings.py` purge as well, when they can read the settings.
 
 **Exit codes.** `0`: done, nothing to act on. `1`: the tool ran and reports something to act on (a finding, a
 failed row, a problem). `2`: refused, with `error: <why>` on standard error (a stale twin, a bad argument, a guard).
@@ -159,7 +167,8 @@ Writes `<plan folder>/move-plan.csv` with a row, `status` `proposed`, for:
 - each file whose name has a space at either end or before its extension: a `rename` dropping the spaces (and a
   hyphen left dangling before the extension), with `needs_a_look` when a file of the new name exists;
 - each folder whose name has a space at either end: a folder `rename`, `sweep` `no`, the reason counting the files
-  inside;
+  inside, except a folder that holds a withheld path (an excluded file or folder, a document staged for another project,
+  or a copy of one), since renaming it would move that too;
 - each redundant copy outside any pack: a `delete`, `kind` `redundant`, `evidence` the entry's id, the reason naming
   the copy kept.
 

@@ -474,6 +474,43 @@ class CheckTest(Copy):
 
     LOG = "91 Log/91 Log.md"
 
+    def test_a_page_citing_a_staged_document_by_the_path_it_was_staged_from_is_a_problem(self):
+        """`_Migrations/Other Project/02 Finance/Old invoice.pdf` was staged from `02 Finance/Old invoice.pdf`: the page
+        still names the old path, which no live document holds, and drift already treats it as staged."""
+        page = "40 Study/40 Study.md"
+        self.base = {page: read(self.page(page))}
+        self.assertEqual([c[2] for c in self.appended(page, "The invoice is `02 Finance/Old invoice.pdf`.\n")],
+                         ["migrations"])
+        self.assertEqual([c[2] for c in self.appended(page, "See 02 Finance/Old\ninvoice.pdf for it.\n")],
+                         ["migrations"])
+        code, out, err = self.wiki("review-prompts", "--page", page, "--author-model", "a", "--reviewer-model", "b",
+                                   "--out", os.path.join(self.tmp, "q"))
+        self.assertEqual(code, 2, out + err)
+        self.assertNotIn("Old invoice", err)
+
+    def test_the_paths_a_withheld_document_held_before_it_moved_are_withheld_for_check_and_for_drift(self):
+        man = os.path.join(self.root, "_Audit", "manifest.json")
+        m = json.loads(read(man))
+        contract = next(e for e in m["entries"].values() if e["current_path"] == "06 Work/Contract.docx")
+        contract["rename_history"] = [{"path": "Drafts/Contract draft.docx", "at": "2024-01-01T00:00:00Z", "run_id": "x"},
+                                      {"path": "06 Work/Contract.docx", "at": "2024-02-01T00:00:00Z", "run_id": "y"}]
+        write(man, json.dumps(m))
+        self.exclude("06 Work")
+        page = "40 Study/40 Study.md"
+        self.base = {page: read(self.page(page))}
+        found = self.appended(page, "The draft is `Drafts/Contract draft.docx`.\n")
+        self.assertEqual([c[2] for c in found], ["excluded"])
+        code, out, err = self.wiki("drift")
+        self.assertEqual(code, 1, out + err)
+        cited = json.loads(out)["departed"]
+        self.assertEqual([c[:1] + c[2:] for c in cited if c[0] == page], [[page, "withheld (excluded)"]])
+        self.assertNotIn("Contract draft", out, "drift names a path an excluded document held")
+        # a live document that is not withheld holds that path now: it names that document, not the withheld one
+        m["entries"]["e" * 64] = {"id": "e" * 64, "current_path": "Drafts/Contract draft.docx", "class": "document",
+                                  "hashed": True, "flags": [], "copies": [], "size": 1, "mtime": "2024-06-01T00:00:00Z"}
+        write(man, json.dumps(m))
+        self.assertEqual(self.appended(page, "The draft is `Drafts/Contract draft.docx`.\n"), [])
+
     def appended(self, page, text):
         """The check's `cites_withheld` entries for `page` after `text` is added to the end of its text."""
         write(self.page(page), self.base[page] + "\n" + text)

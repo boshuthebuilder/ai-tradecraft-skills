@@ -57,6 +57,25 @@ EXCLUDE_AFTER_FIRST_CALL = (
     "runpy.run_path(sys.argv[0], run_name='__main__')\n") % os.path.realpath(TOOLS)
 
 
+# cards.py run with the quota sleep replaced by the owner excluding a folder: `TEST_EXCLUDE_AT_SLEEP` is `<twin>|<folder>`.
+# Only a sleep of a minute or more is the quota wait; nothing sleeps for real.
+EXCLUDE_AT_SLEEP = (
+    "import json, os, runpy, sys, time\n"
+    "def sleeping(seconds):\n"
+    "    if seconds < 60:\n"
+    "        return\n"
+    "    twin, folder = os.environ['TEST_EXCLUDE_AT_SLEEP'].split('|')\n"
+    "    os.makedirs(os.path.join(os.path.dirname(os.path.dirname(twin)), folder), exist_ok=True)\n"
+    "    with open(twin, encoding='utf-8') as f:\n"
+    "        data = json.load(f)\n"
+    "    data['exclude'] = [folder]\n"
+    "    with open(twin, 'w', encoding='utf-8') as f:\n"
+    "        json.dump(data, f)\n"
+    "time.sleep = sleeping\n"
+    "sys.argv = sys.argv[1:]\n"
+    "runpy.run_path(sys.argv[0], run_name='__main__')\n")
+
+
 def read(path):
     with open(path, encoding="utf-8") as f:
         return f.read()
@@ -825,6 +844,82 @@ class HeldForAnotherProjectTest(CardsCliCase):
         self.assertIn("purged what withheld documents left behind: 1 extract record", r.stderr)
         self.assertIn("worker finished; held for another project: 0; excluded: 1", r.stderr)
         self.assertNotIn("Staff", r.stderr, "the purge names counts, never paths")
+
+    def test_an_exclusion_made_during_a_quota_sleep_takes_effect_before_anything_is_resent(self):
+        """The first call is refused for quota; the worker sleeps, and the owner excludes a folder meanwhile. The batch is
+        resent only after the settings and the manifest are read again and the purge run again: the excluded document is
+        not in the second call, its record is gone and it is counted."""
+        own = self.record("03 Home/Rent.pdf", ["Rent for the flat, paid monthly by standing order."])
+        private = self.record("Staff/pay.pdf", ["Salary for the nanny, GBP 2,400, paid monthly by the family."])
+        code, _out, err = self.cards_py("build")
+        self.assertEqual(code, 0, err)
+        self.assertEqual([len(bt["items"]) for bt in self.batches().values()], [2])
+        self.rulebook(exclude=[])
+        twin = os.path.join(self.root, ".familyai", "rulebook.json")
+        self.fakes.script("codex", replies=[{"kind": "quota", "rc": 1, "message": "Quota exceeded. Resets in 5s"}],
+                          default={"kind": "text"})
+        cmd = [sys.executable, "-c", EXCLUDE_AT_SLEEP, os.path.join(TOOLS, "cards.py"), "work", "--root", self.root,
+               "--work", self.work, "--extract", self.extract, "--out", self.cards, "--terms", self.terms,
+               "--engine", "codex", "--model", "fake-model"]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=TIMEOUT,
+                           env=dict(self.env, TEST_EXCLUDE_AT_SLEEP="%s|Staff" % twin))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("quota on", r.stderr)
+        calls = self.fakes.calls("codex")
+        self.assertEqual([item_count(c) for c in calls], [2, 1], "the resend carried the excluded document")
+        self.assertIn("pay.pdf", calls[0]["prompt"])
+        self.assertNotIn("pay.pdf", calls[1]["prompt"])
+        self.assertNotIn("nanny", calls[1]["prompt"])
+        self.assertEqual(sorted(self.written()), [own])
+        self.assertFalse(os.path.exists(os.path.join(self.extract, private + ".json")), "the record was kept")
+        self.assertIn("purged what withheld documents left behind: 1 extract record", r.stderr)
+        self.assertIn("worker finished; held for another project: 0; excluded: 1", r.stderr)
+
+    def repath(self, i, to):
+        """What `extract.py repath --apply` does for the record of `i` and the manifest's entry: both now name `to`."""
+        rec = os.path.join(self.extract, i + ".json")
+        write(rec, json.dumps(dict(json.loads(read(rec)), path=to)))
+        self.stage(i, to)
+
+    def test_the_card_the_worker_writes_records_the_path_it_was_made_at_and_a_purge_reads_it(self):
+        i = self.record("Staff/pay.pdf", ["Salary for the nanny, GBP 2,400, paid monthly by the family."])
+        code, _out, err = self.cards_py("build")
+        self.assertEqual(code, 0, err)
+        code, _out, err = self.work_run("codex", "--terms", self.terms)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.written()[i]["card_meta"]["path"], "Staff/pay.pdf")
+        # the document is the copy at an included path now, its record repathed to it; the card still says where it was made
+        self.repath(i, "Public/pay copy.pdf")
+        self.rulebook(exclude=["Staff"])
+        code, _out, err = self.cards_py("build")
+        self.assertEqual(code, 0, err)
+        self.assertIn("purged what withheld documents left behind: 1 card\n", err)
+        self.assertNotIn("Staff", err)
+        self.assertEqual(self.written(), {})
+        self.assertTrue(os.path.exists(os.path.join(self.extract, i + ".json")), "the record names an included path")
+
+    def test_the_section_notes_the_worker_writes_record_the_path_and_a_purge_reads_it(self):
+        pages = ["Page %d of the course reader. " % n + "w" * 3_000 for n in (1, 2, 3)]
+        i = self.record("Staff/Course reader.pdf", pages)
+        budget = ["--small-chars", "500", "--single-max", "1000"]
+        code, _out, err = self.cards_py("build", *budget)
+        self.assertEqual(code, 0, err)
+        self.fakes.script("codex", default={"kind": "text"})
+        code, _out, err = self.cards_py("work", "--engine", "codex", "--terms", self.terms, "--section-tokens", "1000",
+                                        *budget)
+        self.assertEqual(code, 0, err)
+        cache = os.path.join(self.work, "sections")
+        notes = sorted(os.listdir(cache))
+        self.assertEqual(len(notes), 3)
+        for name in notes:
+            self.assertEqual(read(os.path.join(cache, name)).split("\n", 1)[0], "[path] Staff/Course reader.pdf")
+        self.repath(i, "Public/Course reader copy.pdf")
+        os.remove(os.path.join(self.cards, i + ".json"))  # only the notes name the old path now
+        self.rulebook(exclude=["Staff"])
+        code, _out, err = self.cards_py("build", *budget)
+        self.assertEqual(code, 0, err)
+        self.assertIn("purged what withheld documents left behind: 3 cached section notes\n", err)
+        self.assertEqual(os.listdir(cache), [])
 
     def stage_synthetic(self, i, current_path):
         """The manifest entry an audit makes for an excluded path: a synthetic id, `hashed` false, no content."""

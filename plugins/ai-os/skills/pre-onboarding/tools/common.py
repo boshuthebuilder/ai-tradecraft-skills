@@ -501,15 +501,49 @@ def withheld_in(rb, entries):
 WITHHELD_WHY = {"migrations": "held for another project", "excluded": "excluded"}  # how a model-facing text says it
 
 
+def staged_origin(rb, path):
+    """The folder-relative path a document staged under the migrations folder held before it was staged
+    (`<migrations>/<Project>/<original path>`), or None when `path` is not one that was staged that way."""
+    if not in_migrations(rb, path):
+        return None
+    rest = path[len(rb["migrations_dir"].rstrip("/")) + 1:].split("/", 1)[1:]
+    return rest[0] if rest and rest[0] else None
+
+
+def prior_paths(rb, entries):
+    """{fold(path): why} (as `withheld`) for the paths a withheld document held before it moved: each `rename_history`
+    placement, and for a document staged for another project the path it was staged from (`staged_origin`). A path a live
+    document that is not withheld holds now is left out: it names that document."""
+    included = {fold(p) for e in entries.values() if "departed" not in e.get("flags", [])
+                and not withheld(rb, e["current_path"]) for p in [e["current_path"]] + [c["path"] for c in e.get("copies", [])]}
+    out = {}
+    for e in entries.values():
+        why = None if "departed" in e.get("flags", []) else withheld(rb, e["current_path"])
+        if not why:
+            continue
+        held = [e["current_path"]] + [c["path"] for c in e.get("copies", [])]
+        before = [h.get("path") for h in e.get("rename_history", []) if isinstance(h, dict)] + [
+            staged_origin(rb, p) for p in held]
+        now = {fold(p) for p in held}
+        for p in before:
+            if isinstance(p, str) and p and fold(p) not in included and fold(p) not in now:
+                out.setdefault(fold(p), why)
+    return out
+
+
 def withheld_paths(rb, entries):
-    """{fold(path): why} (as `withheld`) for every path, current and copies', that a live entry withheld by its current
-    path holds: a copy of a withheld document at an included path is as withheld as its canonical copy."""
+    """{fold(path): why} (as `withheld`) for every path that names a withheld document, the one source `check`, `drift`,
+    `review-prompts` and the bundles digest share: the current path and every copy's of a live entry withheld by its
+    current path (a copy of a withheld document at an included path is as withheld as its canonical copy), and the paths
+    that document held before it moved (`prior_paths`)."""
     out = {}
     for e in entries.values():
         why = None if "departed" in e.get("flags", []) else withheld(rb, e["current_path"])
         if why:
             for p in [e["current_path"]] + [c["path"] for c in e.get("copies", [])]:
                 out.setdefault(fold(p), why)
+    for p, why in prior_paths(rb, entries).items():
+        out.setdefault(p, why)
     return out
 
 
@@ -582,7 +616,7 @@ STORED_PATH = re.compile(r'"path"\s*:\s*("(?:[^"\\]|\\.)*")')
 def register_rendered(work, path, digest, kind="file"):
     """Record that a tool wrote `path` (a rendered file, or a folder of bundles with `kind` `bundles`) under the withheld
     set `digest`, so a later purge can remove it when the set has changed."""
-    reg = os.path.join(work, "state", RENDERED)
+    reg, path = os.path.join(work, "state", RENDERED), os.path.abspath(path)
     try:
         with open(reg, encoding="utf-8") as f:
             items = json.load(f)
@@ -590,9 +624,19 @@ def register_rendered(work, path, digest, kind="file"):
         items = []
     items = [i for i in items if isinstance(i, dict) and i.get("path") != path] + [
         {"path": path, "sha": digest, "kind": kind}]
-    os.makedirs(os.path.dirname(reg), exist_ok=True)
-    with open(reg, "w", encoding="utf-8") as f:
-        json.dump(items, f, indent=1)
+    Writer().json(reg, items, indent=1)
+
+
+def register_output(root, work, rb, path, entries=None):
+    """`register_rendered` for a file a tool wrote that carries manifest, card or path data (a report, a rendered brief or
+    prompt) under the withheld digest of `entries`, the manifest's. A tool that does not read the manifest passes none:
+    it is read when it exists, and otherwise the digest covers the settings alone."""
+    if entries is None:
+        try:
+            entries = _manifest_entries(root)
+        except ToolError:
+            entries = {}
+    register_rendered(work, path, withheld_digest(rb, entries))
 
 
 def stored_path(file):
@@ -645,8 +689,11 @@ def purge_withheld(root, rb, work, manifest=None, extract_dirs=(), cards_dirs=()
       carded, while its canonical copy sat in a folder that is excluded now: it is re-derived from the included path);
       a card whose `card_meta.path` is withheld; a cached note whose first line records a withheld path;
     - (`thorough`) the hash cache's entries for withheld paths, every bundle folder whose recorded digest is not the
-      withheld digest now, and every rendered file registered under another digest, or in the folder's review prompts
-      without one.
+      withheld digest now, and every rendered file (a report, a brief, a prompt: `register_output`) registered under another
+      digest, or in the folder's review prompts without one.
+
+    A removal that fails raises `ToolError` after the rest were tried, naming kinds and counts and never a path; a
+    registered file that stayed stays registered.
 
     A record or card that only moved between included paths is kept: `extract.py repath` brings a record up to date and
     its old included path names nothing withheld. With `read_only` (`--read-only-root`) a purge inside the folder is
@@ -701,7 +748,7 @@ def purge_withheld(root, rb, work, manifest=None, extract_dirs=(), cards_dirs=()
                     re.match(r"card_err_([0-9a-f]{64})\.txt$", name)
                 if m and (m.group(1) in states or m.group(1) in stale):
                     todo.append((os.path.join(d, name), what))
-    cache_edit = None
+    cache_edit, stale_items = None, {}
     if thorough:
         digest = withheld_digest(rb, entries or {})
         cache = os.path.join(work, "hashcache.json")
@@ -740,6 +787,7 @@ def purge_withheld(root, rb, work, manifest=None, extract_dirs=(), cards_dirs=()
                 continue
             registered.add(os.path.realpath(i["path"]))
             if i.get("sha") != digest:
+                stale_items[os.path.realpath(i["path"])] = i
                 if os.path.lexists(i["path"]):
                     todo.append((i["path"], "rendered file"))
             else:
@@ -757,25 +805,49 @@ def purge_withheld(root, rb, work, manifest=None, extract_dirs=(), cards_dirs=()
     if read_only and inside:
         raise ToolError("refused: --read-only-root, but %d artefact(s) of withheld documents inside the folder must be "
                         "purged first (run the tool without --read-only-root)" % len(inside))
-    counts = collections.Counter()
+    counts, failed, why = collections.Counter(), collections.Counter(), None
+    failed_paths = set()
     for path, what in todo:
         protected.check(path)
         try:
             os.remove(path)
             counts[what] += 1
-        except OSError:
-            pass
-    if cache_edit:
-        with open(cache_edit[0], "w", encoding="utf-8") as f:
-            json.dump(cache_edit[1], f)
-        counts["hash cache entry"] += cache_edit[2]
+        except FileNotFoundError:
+            pass  # already gone: what was to be removed is
+        except OSError as e:
+            failed[what] += 1
+            failed_paths.add(os.path.realpath(path))
+            why = why or e.strerror or type(e).__name__
+    try:
+        if cache_edit:
+            with open(cache_edit[0], "w", encoding="utf-8") as f:
+                json.dump(cache_edit[1], f)
+            counts["hash cache entry"] += cache_edit[2]
+    except OSError as e:
+        failed["hash cache file"] += 1
+        why = why or e.strerror or type(e).__name__
     if thorough:
-        os.makedirs(os.path.dirname(reg), exist_ok=True)
-        with open(reg, "w", encoding="utf-8") as f:
-            json.dump(keep_items, f, indent=1)
-    print("purged what withheld documents left behind: %s" % ", ".join(
-        "%d %s%s" % (n, what, "" if n == 1 else "s") for what, n in sorted(counts.items())), file=sys.stderr)
+        keep_items += [i for k, i in stale_items.items() if k in failed_paths]  # still to be removed: stays registered
+        try:
+            os.makedirs(os.path.dirname(reg), exist_ok=True)
+            with open(reg, "w", encoding="utf-8") as f:
+                json.dump(keep_items, f, indent=1)
+        except OSError as e:
+            failed["rendered-files registry file"] += 1
+            why = why or e.strerror or type(e).__name__
+    if counts:
+        print("purged what withheld documents left behind: %s" % _counted(counts), file=sys.stderr)
+    if failed:
+        raise ToolError("refused: could not remove %s of withheld documents (%s); a tool does not carry on with what a "
+                        "withheld document left behind, so fix the permissions or remove them, and run it again"
+                        % (_counted(failed), why))
     return counts
+
+
+def _counted(counts):
+    """Counts as text, kinds sorted, never a path: `2 cards, 1 extract record`."""
+    return ", ".join("%d %s" % (n, what if n == 1 else what[:-1] + "ies" if what.endswith("y") else what + "s")
+                     for what, n in sorted(counts.items()))
 
 
 def purge_at_start(root, settings_dir, work, args, verify, extract=None, cards=None, manifest=None):

@@ -1152,6 +1152,69 @@ class MalformedInputTest(Copy):
                               self.refused(cmd, flag, path))
 
 
+class RenderedOutputsTest(Copy):
+    """Every file a wiki.py command writes that carries manifest, card or path data is registered under the withheld
+    digest by the command itself, so the next tool's start removes it once the withheld set changes. Each file is written
+    by the real command; a command that stops registering its output leaves its file behind and fails here."""
+
+    def exclude(self, *paths):
+        twin = os.path.join(self.root, ".familyai", "rulebook.json")
+        write(twin, json.dumps(dict(json.loads(read(twin)), exclude=list(paths)), ensure_ascii=False, indent=1))
+
+    def write_everything(self):
+        """{command: the file it wrote}, each command run once with its output outside the folder."""
+        made = {}
+        for cmd in ("profile", "check", "drift"):
+            made[cmd] = os.path.join(self.tmp, "out", cmd + ".json")
+            code, _o, err = self.wiki(cmd, "--out", made[cmd])
+            self.assertIn(code, (0, 1), err)
+        rows = os.path.join(self.tmp, "rows.csv")
+        write(rows, "label,value,unit,source\n" + "".join(
+            "%s,%d,GBP,02 Finance/Bank statement 2024-03.pdf\n" % (k, n) for n, k in enumerate("abc", 1)))
+        made["chart"] = os.path.join(self.tmp, "out", "chart.md")
+        self.ok("chart", "--kind", "bar", "--data", rows, "--title", "t", "--out", made["chart"])
+        self.ok("bundles", code=1)
+        made["brief"] = os.path.join(self.tmp, "out", "brief.md")
+        self.ok("brief", "--page", BRIEF_PAGES[0], "--out", made["brief"])
+        prompts = os.path.join(self.tmp, "out", "prompts")
+        self.ok("review-prompts", "--page", BRIEF_PAGES[0], "--author-model", "a", "--reviewer-model", "b", "--out", prompts)
+        base = os.path.join(prompts, "20 Finance", "Tax")
+        made["review owner prompt"], made["review professional prompt"] = base + ".owner.md", base + ".professional.md"
+        return made
+
+    def registered(self):
+        with open(os.path.join(self.work, "state", "rendered.json"), encoding="utf-8") as f:
+            return {i["path"] for i in json.load(f)}
+
+    def test_every_output_is_registered_kept_while_the_withheld_set_is_the_same_and_removed_when_it_changes(self):
+        made = self.write_everything()
+        for what, path in made.items():
+            with self.subTest(what=what):
+                self.assertTrue(os.path.isfile(path), "the command wrote nothing")
+                self.assertIn(os.path.abspath(path), self.registered())
+        self.ok("profile")  # a later tool with nothing withheld that was not before: nothing is purged
+        self.assertEqual([w for w, path in made.items() if not os.path.isfile(path)], [])
+        self.exclude("06 Work")
+        code, _out, err = self.wiki("profile")
+        self.assertEqual(code, 0, err)
+        self.assertIn("purged what withheld documents left behind: ", err)
+        for what, path in made.items():
+            with self.subTest(what=what):
+                self.assertFalse(os.path.exists(path), "%s was left on disk after the withheld set changed" % what)
+        self.assertNotIn("06 Work", err)
+
+
+    def test_bundles_built_in_a_folder_of_the_users_choosing_are_registered_and_purged_too(self):
+        out = os.path.join(self.tmp, "out", "my-bundles")
+        self.ok("bundles", "--out", out, code=1)
+        self.assertIn(os.path.abspath(out), self.registered())
+        self.exclude("06 Work")
+        code, _o, err = self.wiki("profile")
+        self.assertEqual(code, 0, err)
+        self.assertIn("5 bundle files", err)
+        self.assertEqual(os.listdir(out), [], "the bundles were left on disk after the withheld set changed")
+
+
 class RebuildTest(Copy):
     def test_a_failed_rebuild_leaves_no_bundles_json(self):
         """F7: the rebuild removes bundles.json first, so one failing part way leaves none, and brief refuses."""

@@ -11,6 +11,7 @@ set. It prints counts, never paths. The first group of tests drives the function
 """
 import ast
 import contextlib
+import errno
 import hashlib
 import io
 import json
@@ -21,6 +22,7 @@ import sys
 import tempfile
 import unicodedata
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOOLS = os.path.join(HERE, "..", "tools")
@@ -218,6 +220,74 @@ class PurgeTest(PurgeCase):
         self.assertEqual(self.purge()[0], {})
 
 
+class RemovalFailureTest(PurgeCase):
+    """A removal that fails stops the tool (exit 2) naming the kind and count of what stayed, never a path."""
+
+    def test_a_removal_that_fails_raises_naming_kinds_and_counts_and_no_path(self):
+        a, b = eid(self.PAY), eid(self.STAGED)
+        for i, path in ((a, self.PAY), (b, self.STAGED)):
+            self.record(i, path)
+            self.card(i, path)
+        real = os.remove
+
+        def remove(path, *args, **kw):
+            if os.sep + "extract" + os.sep in path:
+                raise PermissionError(errno.EACCES, "Permission denied", path)
+            return real(path, *args, **kw)
+        with mock.patch("os.remove", remove), self.assertRaises(common.ToolError) as caught:
+            self.purge()
+        text = str(caught.exception)
+        self.assertIn("could not remove 2 extract records of withheld documents (Permission denied)", text)
+        for named in ("Staff", "pay", "Letter", self.tmp):
+            self.assertNotIn(named, text, "the failure names counts, never paths")
+        self.assertFalse(self.has(self.audit, "cards", a + ".json"), "what could be removed was")
+        self.assertTrue(self.has(self.audit, "extract", a + ".json"))
+
+    def test_a_rendered_file_that_could_not_be_removed_stays_registered_for_the_next_purge(self):
+        stuck, gone = os.path.join(self.tmp, "stuck.md"), os.path.join(self.tmp, "gone.md")
+        for path in (stuck, gone):
+            write(path, "x\n")
+            common.register_rendered(self.work, path, "old")
+        real = os.remove
+
+        def remove(path, *args, **kw):
+            if path == stuck:
+                raise PermissionError(errno.EACCES, "Permission denied", path)
+            return real(path, *args, **kw)
+        with mock.patch("os.remove", remove), self.assertRaises(common.ToolError) as caught:
+            self.purge()
+        self.assertIn("could not remove 1 rendered file", str(caught.exception))
+        with open(os.path.join(self.work, "state", "rendered.json"), encoding="utf-8") as f:
+            self.assertEqual([i["path"] for i in json.load(f)], [stuck])
+        self.assertFalse(self.has(gone))
+        self.assertEqual(dict(self.purge()[0]), {"rendered file": 1}, "the next purge removes it")
+
+    @unittest.skipIf(os.name != "posix" or os.geteuid() == 0, "a directory that cannot be written needs a non-root user")
+    def test_a_tool_stops_with_exit_2_when_the_folder_will_not_let_a_record_go(self):
+        tmp = os.path.realpath(tempfile.mkdtemp(prefix="purge_stuck_"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        root = os.path.join(tmp, "Alex Personal")
+        shutil.copytree(FIXTURE, root)
+        shutil.copy(MANIFEST, os.path.join(root, "_Audit", "manifest.json"))
+        env = dict(os.environ, HOME=os.path.join(tmp, "home"))
+        r = subprocess.run([sys.executable, os.path.join(TOOLS, "settings.py"), "compile", "--root", root, "--work",
+                            os.path.join(tmp, "work")], capture_output=True, text=True, env=env, timeout=TIMEOUT)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        twin = os.path.join(root, ".familyai", "rulebook.json")
+        write(twin, json.dumps(dict(json.loads(read(twin)), exclude=["06 Work"]), ensure_ascii=False))
+        extract = os.path.join(root, "_Audit", "extract")
+        os.chmod(extract, 0o500)  # records can be read, none removed
+        self.addCleanup(os.chmod, extract, 0o700)
+        r = subprocess.run([sys.executable, os.path.join(TOOLS, "wiki.py"), "profile", "--root", root, "--work",
+                            os.path.join(tmp, "work")], capture_output=True, text=True, env=env, timeout=TIMEOUT)
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertEqual(r.stdout, "", "the tool carried on")
+        self.assertIn("error: refused: could not remove 2 extract records of withheld documents (Permission denied)",
+                      r.stderr)
+        self.assertNotIn("Contract", r.stderr)
+        self.assertNotIn("Traceback", r.stderr)
+
+
 class RenderedFilesTest(PurgeCase):
     """Bundles, rendered briefs and review prompts are purged whenever the withheld set changed since they were written."""
 
@@ -270,6 +340,35 @@ class RenderedFilesTest(PurgeCase):
         again = self.digest()
         self.entries[eid(self.OK)]["copies"].append({"path": "Public/ok copy.pdf", "kind": "redundant"})
         self.assertEqual(self.digest(), again, "a copy of a document that is not withheld changes nothing")
+
+
+class PriorPathsTest(PurgeCase):
+    """The paths a withheld document held before it moved are withheld too, from the one function every consumer uses."""
+
+    def test_staged_origin_is_the_path_under_the_project_folder(self):
+        for path, want in (("_Migrations/Other Project/02 Finance/Old.pdf", "02 Finance/Old.pdf"),
+                           ("_migrations/Other Project/Old.pdf", "Old.pdf"), ("_Migrations/Other Project", None),
+                           ("_Migrations/Other Project/", None), ("_Migrations", None), ("Public/ok.pdf", None)):
+            with self.subTest(path):
+                self.assertEqual(common.staged_origin(RB, path), want)
+
+    def test_the_history_and_the_staged_from_path_of_a_withheld_document_are_withheld_unless_a_live_document_holds_them(self):
+        self.entries[eid(self.STAGED)]["current_path"] = self.STAGED
+        self.entries[eid(self.PAY)]["rename_history"] = [{"path": "Old/pay draft.pdf"}, {"path": self.PAY}]
+        self.entries[eid(self.OK)]["rename_history"] = [{"path": "Old/ok before.pdf"}]  # not withheld: not read
+        got = common.withheld_paths(RB, self.entries)
+        self.assertEqual(got[common.fold("Old/pay draft.pdf")], "excluded")
+        self.assertEqual(got[common.fold("Letter.pdf")], "migrations")
+        self.assertNotIn(common.fold("Old/ok before.pdf"), got)
+        self.assertEqual(set(common.prior_paths(RB, self.entries)), {common.fold("Old/pay draft.pdf"),
+                                                                      common.fold("Letter.pdf")})
+        self.add("Old/pay draft.pdf")  # a live document that is not withheld holds it now
+        self.assertNotIn(common.fold("Old/pay draft.pdf"), common.withheld_paths(RB, self.entries))
+
+    def test_a_departed_withheld_entry_contributes_nothing(self):
+        self.entries[eid(self.PAY)]["rename_history"] = [{"path": "Old/pay draft.pdf"}]
+        self.entries[eid(self.PAY)]["flags"] = ["departed"]
+        self.assertNotIn(common.fold("Old/pay draft.pdf"), common.withheld_paths(RB, self.entries))
 
 
 # What each tool does with its own work directory is written into the folder's tree, so a tool is run on a copy.

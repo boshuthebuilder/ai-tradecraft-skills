@@ -165,7 +165,7 @@ class Run:
 
     def refresh(self):
         """Read the settings and the manifest again and purge again, as the start of the run did: an exclusion or a staging
-        made while the worker runs (or sleeps on quota) takes effect at the next batch."""
+        made while the worker runs takes effect at the next batch, and after a quota sleep before anything is resent."""
         self.rb = common.load_rulebook(self.root, self.settings_dir)
         common.purge_withheld(self.root, self.rb, self.work, self.manifest, extract_dirs=[self.extract],
                               cards_dirs=[self.cards], read_only=self.read_only, thorough=False)
@@ -671,7 +671,15 @@ def work(a):
                 wait = min(5 * 3600, (ex.reset_seconds or (1800 if a.engine == "codex" else 600)) + 90)
                 log("quota on %s; sleeping %d min" % (bt["name"], wait // 60))
                 time.sleep(wait)
-                todo = [e for e in todo if not has(e)]
+                run.refresh()  # hours may have passed: read the settings and the manifest and purge again before any resend
+                resend = []
+                for e in todo:
+                    why = run.unsendable(e)
+                    if why:
+                        held[e] = why
+                    elif not has(e):
+                        resend.append(e)
+                todo = resend
         log("batch %s mode=%s carded in %.0fs" % (bt["name"], bt["mode"], time.time() - t0))
     with open(os.path.join(run.state, ("redo%d" if a.redo else "cards%d") % wi + ".done"), "w", encoding="utf-8") as f:
         f.write(common.now_local())
