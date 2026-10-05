@@ -528,7 +528,27 @@ class FixtureRun:
 class FixtureRunTest(FixtureRun, unittest.TestCase):
     def test_the_folder_is_untouched(self):
         self.assertEqual(tree_digest(self.root), self.before)
-        self.assertEqual(len(self.records), 18)
+        self.assertEqual(len(self.records), 17, "the 18th live entry is staged for another project")
+
+    def test_the_file_staged_for_another_project_is_not_read(self):
+        staged = "_Migrations/Other Project/02 Finance/Old invoice.pdf"
+        self.assertTrue(os.path.exists(os.path.join(self.root, staged)))
+        self.assertNotIn(staged, self.records)
+        self.assertEqual([p for p in self.records if p.startswith("_Migrations/")], [])
+        log = read(os.path.join(self.work, "logs", "extract_main0.log"))
+        self.assertIn("start lane=main worker=0/1 todo=15 held_for_another_project=1\n", log)
+        self.assertIn("finished done=15 failed=0 skipped=0 held_for_another_project=1 in ", log)
+
+    def test_the_workers_count_the_held_file_once_between_them(self):
+        work, held = os.path.join(self.tmp, "work-held"), []
+        for w in ("0/2", "1/2"):
+            code, _o, err = run("extract.py", "--root", self.root, "--work", work, "--manifest", self.manifest,
+                                "--out", os.path.join(self.tmp, "held" + w[0]), "--read-only-root", "--lane", "main",
+                                "--worker", w)
+            self.assertEqual(code, 0, err)
+            held.append(int(re.search(r"held_for_another_project=(\d+)\n",
+                                      read(os.path.join(work, "logs", "extract_main%s.log" % w[0]))).group(1)))
+        self.assertEqual(sorted(held), [0, 1])
 
     def test_office_iwork_plain_and_photo_records_match_expected(self):
         exp = expected()
@@ -542,7 +562,7 @@ class FixtureRunTest(FixtureRun, unittest.TestCase):
     @unittest.skipIf(POPPLER, "PDF text-layer tier is installed here; its records are compared instead")
     def test_pdfs_fail_naming_poppler_when_it_is_missing(self):
         pdfs = {p: r for p, r in self.records.items() if p.endswith(".pdf")}
-        self.assertEqual(len(pdfs), 8)
+        self.assertEqual(len(pdfs), 7)
         for rel, r in pdfs.items():
             with self.subTest(rel):
                 self.assertEqual((r["status"], r["error"], r["pages"]),
@@ -645,6 +665,9 @@ class StatusTest(unittest.TestCase):
             "Docs/Blank.pages/Index/Document.iwa": b"\x00\x05\x00\x00hello",
             "Docs/Blank.pages/preview.jpg": preview,
             "Docs/Empty.numbers": zip_bytes([("Index/Document.iwa", b"\x00\x05\x00\x00hello")]),
+            "_Migrations/Other Project/Docs/Staged.md": "Staged for another project.\n",
+            "_Migrations/Other Project/Docs/Unflagged.md": "Staged for another project, its flag lost.\n",
+            "_Migrations/Other Project/Docs/Sheet.numbers": zip_bytes([("Index/Document.iwa", b"\x00\x05\x00\x00hello again")]),
         }
         for rel, data in files.items():
             write(os.path.join(cls.root, rel), data)
@@ -659,6 +682,9 @@ class StatusTest(unittest.TestCase):
                 e["hashed"] = False
             if e["current_path"] == "Docs/Gone.md":
                 e["flags"] = ["departed"]
+            if e["current_path"] == "_Migrations/Other Project/Docs/Unflagged.md":
+                assert "migrating" in e["flags"], "the audit flags a staged file"
+                e["flags"] = []  # held whatever its flags: a flag lost or never set must not let it be read
         write(manifest, json.dumps(m))
         cls.out = os.path.join(cls.tmp, "extract")
         for lane in ("main", "apps"):
@@ -666,6 +692,7 @@ class StatusTest(unittest.TestCase):
                 "--lane", lane, "--read-only-root")
         cls.records = {r["path"]: r for r in (json.loads(read(os.path.join(cls.out, f)))
                                               for f in os.listdir(cls.out))}
+        cls.work = work
 
     @classmethod
     def tearDownClass(cls):
@@ -701,6 +728,20 @@ class StatusTest(unittest.TestCase):
         if not (HAVE["page-ocr"] or HAVE["tesseract"]):
             self.assertEqual(r["pages"][0]["tier"], "blank")
             self.assertEqual(r["notes"], ["local OCR tier not available here: page-ocr, tesseract"])
+
+    def test_a_document_staged_for_another_project_is_held_and_counted_whatever_its_flags(self):
+        """Staged under the migrations folder, flagged `migrating` or not, in either lane: never read, never queued
+        for the model, and counted as held for another project in each lane's log."""
+        staged = [p for p in self.records if p.startswith("_Migrations/")]
+        self.assertEqual(staged, [], "a document staged for another project was read")
+        for lane, held in (("main0", 2), ("apps0", 1)):
+            log = read(os.path.join(self.work, "logs", "extract_%s.log" % lane))
+            self.assertIn("held_for_another_project=%d" % held, log, lane)
+            self.assertEqual(log.count("held_for_another_project="), 2, "counted at the start and at the end")
+        for name in os.listdir(os.path.join(self.work, "index")):
+            self.assertNotIn("_Migrations", read(os.path.join(self.work, "index", name)))
+        self.assertFalse(os.path.isdir(os.path.join(self.work, "vision_queue"))
+                         and os.listdir(os.path.join(self.work, "vision_queue")), "a page was queued")
 
     def test_unhashed_and_departed_entries_are_left_alone(self):
         self.assertEqual(sorted(self.records), ["Docs/Blank.pages", "Docs/Broken.docx", "Docs/Empty.numbers",

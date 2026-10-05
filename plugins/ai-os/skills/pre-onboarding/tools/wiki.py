@@ -23,6 +23,9 @@
                                                            migrating path
     wiki.py chart   --root R --kind K --data <rows.csv|rows.json> --title T [--out <md>]
                                                            a Mermaid chart and its data table, from cited rows
+    wiki.py deadlines --root R [--today D] [--write [--out <md>]]
+                                                           the derived `01 Deadlines` page, from the pages'
+                                                           `deadline`, `deadlines` and `recurring` frontmatter
 
 Every subcommand takes --settings-dir, --work, --manifest (default <root>/_Audit/manifest.json) and
 --read-only-root; profile and bundles also take --cards and --extract (default <root>/_Audit/cards, .../extract).
@@ -132,6 +135,12 @@ are not read. Fences open and close as `chart_blocks` reads them; line numbers c
 Malformed input (a manifest, card, extract record or bundles.json of the wrong shape, a file where a folder must
 be) is refused by name, exit 2.
 
+Deadlines: renders `01 Deadlines/01 Deadlines.md` as a derived roll-up of the wiki pages' frontmatter, in exactly the
+form `readiness.py` reads, with that tool's own reading of the pages and its own grammar (`readiness.read_sources`,
+`parse_entry`'s layout, the intro, banner and heading lines), so the page it renders is one the readiness check of the
+Deadlines page accepts. A dry run prints the page and writes nothing; `--write` writes it, to `--out` when given,
+otherwise to the wiki's own page. See `deadlines`.
+
 Charts: `--data` is a CSV file with a header row or a JSON array of objects, rows kept in order, every row with the
 same columns: bar `label` (or `period`), `value`, `unit`, `source`; line `period`, `value`, `unit`, `source`; pie
 `label`, `value`, `unit`, `source`; gantt `label`, `start`, `end`, `source`, optional `section`; timeline `date`,
@@ -155,6 +164,7 @@ import posixpath
 import re
 import shlex
 import sys
+import time
 import urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -1720,6 +1730,87 @@ def drift(a):
     return 1 if res["citing_departed"] or res["citing_migrating"] else 0
 
 
+# ------------------------------------------------------------------------------------ deadlines
+
+def deadline_lines(r, groups, when):
+    """The roll-up's lines for `groups`, {(date, note): [pages]} in order: `- **<when>**: <titles>. <note> (<links>)`,
+    or `- **<when>**: <titles> (<links>)` with no note. The titles are the linked pages' own, each once, in the order
+    of the links; a link's text is its page's path without `.md` and its target the path from the Deadlines page,
+    percent-encoded with `/` and `&` literal, so the line reads back as `parse_entry` reads it."""
+    lines = []
+    for (key, note), pages in groups:
+        titles = ", ".join(dict.fromkeys(posixpath.basename(p)[:-3] for p in pages))
+        links = ", ".join("[%s](%s)" % (p[:-3], link_to(r.DEADLINES, p)) for p in pages)
+        lines.append("- **%s**: %s%s (%s)" % (when(key), titles, ". " + note if note else "", links))
+    return lines
+
+
+def render_deadlines(r, src, today):
+    """The derived Deadlines page for what `readiness.read_sources` read (`src`), built on the day `today`. Dated
+    entries go under Upcoming from `today` on and under Past before it, yearly ones under Every year in calendar order,
+    a line apart for each (date, note) with every page that gives it named in the one line, ordered by title; what
+    could not be read goes under Could not read, and a wiki whose readable pages give no date says so in the banner."""
+    groups = collections.defaultdict(list)
+    for key, note, page in src.entries:
+        groups[(key, note)].append(page)
+    ordered = sorted((k, sorted(ps, key=lambda p: (posixpath.basename(p)[:-3], p))) for k, ps in groups.items())
+    dated = [g for g in ordered if r.ISO_DAY.fullmatch(g[0][0])]  # the others are MM-DD, a date every year
+    upcoming = [g for g in dated if g[0][0] >= today]
+    past = [g for g in dated if g[0][0] < today]
+    yearly = [g for g in ordered if not r.ISO_DAY.fullmatch(g[0][0])]
+    blocks = ["---\nprovenance: derived\nlast-updated: %s\nstatus: current\n---" % today, r.TITLE, r.INTRO_FIXTURE]
+    if not src.entries and src.scanned:
+        blocks.append((r.BANNER_LINE % ":").replace("{}", str(src.scanned)))
+    blocks.append("\n\n".join([r.UPCOMING] + ["\n".join(deadline_lines(r, upcoming, lambda d: d)) or r.NOTHING]))
+    for heading, rows, when in ((r.EVERY_YEAR, yearly, r.rendered_month_day), (r.PAST, past, lambda d: d)):
+        if rows:
+            blocks.append("\n\n".join([heading, "\n".join(deadline_lines(r, rows, when))]))
+    if src.unread_lines:
+        blocks.append("\n\n".join([r.UNREAD, r.UNREAD_INTRO, "\n".join(src.unread_lines)]))
+    return "\n\n".join(blocks) + "\n", (len(upcoming), len(yearly), len(past))
+
+
+@os_errors
+def deadlines(a):
+    import readiness as r  # here, not above: readiness imports this module, and holds the roll-up's grammar
+    root, settings_dir, _work = common.resolve(a)
+    rb = common.load_rulebook(root, settings_dir)
+    wiki = os.path.join(root, rb["wiki_dir"])
+    if not os.path.isdir(wiki):
+        raise common.ToolError("no wiki folder: %s" % wiki)
+    clock_day = datetime.date.fromtimestamp(common.clock()).isoformat()
+    today = clock_day if a.today is None else a.today
+    if not r.real_day(today):
+        raise common.ToolError("--today %r is not a day written YYYY-MM-DD" % today)
+    if today > clock_day:
+        raise common.ToolError("--today %s is after today (%s): the page's last-updated is a build stamp, never after "
+                               "today, and readiness reports one that is" % (today, clock_day))
+    if a.out and not a.write:
+        raise common.ToolError("--out names where --write puts the page; without --write nothing is written")
+    src = r.read_sources(wiki, r.roll_up_pages(wiki))
+    if src.outside:
+        raise common.ToolError("cannot render: what the roll-up writes for %d page(s) is not known, since their "
+                               "frontmatter uses YAML this tool does not read (%s); rewrite each within the subset "
+                               "readiness.py reads (references/tools.md, the frontmatter subset), quoting a value "
+                               "that YAML would read as anything but text"
+                               % (len(src.outside), "; ".join(x[len("not verified: "):] for x in src.outside)))
+    page, (upcoming, yearly, past) = render_deadlines(r, src, today)
+    target = a.out or os.path.join(wiki, *r.DEADLINES.split("/"))
+    if a.write:
+        common.Writer(root if a.read_only_root else None).text(target, page)
+    else:
+        sys.stdout.write(page)
+    print("deadlines: %d upcoming, %d every year, %d past, %d could not read; %s %s"
+          % (upcoming, yearly, past, len(src.unread_lines), "wrote" if a.write else "would write (a dry run: --write "
+             "writes it)", os.path.relpath(target, root)), file=sys.stderr)
+    fix = [("deadline entries not a real YYYY-MM-DD", src.bad_days),
+           ("recurring entries not {date, note} with a date as MM-DD or a day and a month name", src.bad)]
+    for what, items in fix:
+        if items:
+            print("fix in the pages' frontmatter, %d %s (%s)" % (len(items), what, r.sample(items)), file=sys.stderr)
+    return 1 if src.unread_lines or src.bad_days or src.bad else 0
+
+
 # ------------------------------------------------------------------------------------ chart
 
 CHART_COLUMNS = {  # kind: (the columns every row has, "a|b" meaning exactly one of the two; optional columns)
@@ -2110,6 +2201,11 @@ def main():
     p.add_argument("--map", required=True)
     p = common_args(sub.add_parser("drift"))
     p.add_argument("--out")
+    p = common_args(sub.add_parser("deadlines"))
+    p.add_argument("--today", help="the day the page is built for, YYYY-MM-DD (default the local date); a dated "
+                   "entry before it is Past, and it is the page's last-updated, which is never after today")
+    p.add_argument("--write", action="store_true", help="write the page (default: print it, change nothing)")
+    p.add_argument("--out", help="where --write puts the page (default <root>/<wiki>/01 Deadlines/01 Deadlines.md)")
     p = common_args(sub.add_parser("chart"))
     p.add_argument("--kind", required=True, choices=list(CHART_COLUMNS))
     p.add_argument("--data", required=True)
@@ -2117,7 +2213,8 @@ def main():
     p.add_argument("--out")
     a = ap.parse_args()
     return {"profile": profile, "bundles": bundles, "brief": brief, "check": check, "rationale": rationale,
-            "review-prompts": review_prompts, "accept": accept, "move": move, "drift": drift, "chart": chart}[a.cmd](a)
+            "review-prompts": review_prompts, "accept": accept, "move": move, "drift": drift, "chart": chart,
+            "deadlines": deadlines}[a.cmd](a)
 
 
 if __name__ == "__main__":

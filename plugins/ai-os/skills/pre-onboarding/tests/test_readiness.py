@@ -366,6 +366,83 @@ class RollUpFormsTest(unittest.TestCase):
         self.assertIn(readiness.INTRO, readiness.ROLL_UP_LINES)
 
 
+class RoutesNewFilesOutTest(unittest.TestCase):
+    """The rulebook check reads prose by keyword: a statement routes new files to the migrations folder when a clause
+    names `_Migrations/` with "new file", "dropped", "goes to" or "go to", unless it negates that or only describes
+    staging through an approved plan row."""
+
+    NOT_ROUTING = (
+        "New files never go to `_Migrations/`.",
+        "New files never go to `_Migrations/`; one that seems to belong to another project is filed here like any other.",
+        "No new file is dropped into `_Migrations/`.",
+        "Do not send new files to `_Migrations/`.",
+        "New files are not routed to `_Migrations/`.",
+        "New files don't go to `_Migrations/`.",
+        "New files don\u2019t go to `_Migrations/`.",
+        "New files should never be dropped into `_Migrations/`, which only an approved plan row fills.",
+        "`_Migrations/` never receives new files.",
+        "Nothing is dropped into `_Migrations/` by the system.",
+        "New files go to the inbox, not `_Migrations/`.",
+        "New files are filed within the folder instead of going to `_Migrations/`.",
+        "Files go to `_Migrations/<Project>/` only through an approved plan row (`plan.py migrate`).",
+        "Files the owner approved for another project are dropped into `_Migrations/<Project>/` by an approved row.",
+        "Approved files go to `_Migrations/<Project>/` when the owner approves the row in the plan.",
+        "- New files never\n  go to `_Migrations/`.",
+        "`_Migrations/<Project>/`: files the owner approved moving to another project.",
+        "Files the owner approved wait in `_Migrations/<Project>/` until their project collects them.",
+        "New files are filed by the wiki's routing. `_Migrations/` is only for staging.",
+    )
+    ROUTING = (
+        "New files that belong to another project go to `_Migrations/<Project>/`.",
+        "Files that may belong to another project are dropped into `_Migrations/`.",
+        "A new file for another project goes to `_Migrations/<Project>/`.",
+        "NEW FILES GO TO `_MIGRATIONS/`.".replace("_MIGRATIONS", "_Migrations"),
+        "New files go to `_Migrations/`, not to the inbox.",
+        "Never put new files in the inbox; they go to `_Migrations/<Project>/`.",
+        "New files go to `_Migrations/`. Nothing else is filed there.",
+        "New files go to `_Migrations/`; an approved row in the plan then moves them on.",
+        "- New files that belong to another\n  project go to `_Migrations/<Project>/`.",
+        "- A file that seems to belong to another project is not filed here:\n  it is dropped into `_Migrations/`.",
+        "Do not file new files in the inbox, but let them go to `_Migrations/` by hand.",
+    )
+
+    def routing(self, text, folder="_Migrations"):
+        return readiness.routes_new_files_out(text, folder)
+
+    def test_a_negation_or_a_description_of_staging_does_not_route_new_files(self):
+        for sentence in self.NOT_ROUTING:
+            with self.subTest(sentence=sentence):
+                self.assertEqual(self.routing(sentence), [])
+
+    def test_a_statement_that_routes_new_files_there_does(self):
+        for sentence in self.ROUTING:
+            with self.subTest(sentence=sentence):
+                self.assertEqual(len(self.routing(sentence)), 1)
+
+    def test_a_negation_after_the_routing_does_not_negate_it(self):
+        self.assertEqual(len(self.routing("New files go to `_Migrations/`, not to the inbox.")), 1)
+        self.assertEqual(self.routing("New files go to the inbox, not `_Migrations/`."), [])
+
+    def test_a_statement_not_naming_the_folder_is_not_read(self):
+        self.assertEqual(self.routing("New files go to the migrations folder."), [])
+        self.assertEqual(self.routing("New files go to `_Inbox/`."), [])
+
+    def test_the_folder_is_the_one_given(self):
+        text = "New files go to `_Leaving/`. Approved files wait in `_Migrations/`."
+        self.assertEqual(self.routing(text, "_Leaving"), [text])
+        self.assertEqual(self.routing(text), [])
+
+    def test_a_wrapped_line_is_read_with_the_one_it_continues(self):
+        text = ("- New files never\n  go to `_Migrations/`.\n- New files that belong to another\n  project go to "
+                "`_Migrations/<Project>/`.\n\nA heading follows\n\n## Rules\ngo to `_Migrations/`\n")
+        self.assertEqual(self.routing(text), ["New files that belong to another project go to `_Migrations/<Project>/`.",
+                                              "go to `_Migrations/`"])
+
+    def test_a_table_row_and_a_heading_stand_alone(self):
+        text = "## New files\n| a | go to `_Migrations/` |\n| b | filed here |\n"
+        self.assertEqual(self.routing(text), ["| a | go to `_Migrations/` |"])
+
+
 class MigrationsClearedTest(unittest.TestCase):
     """`migrations_cleared`: the migrations folder holds no file. It lists names and never opens a file; `.DS_Store`
     and empty folders do not count, and anything else does, an iCloud placeholder included."""
@@ -657,6 +734,22 @@ class ContractTest(Prepared):
         self.assertIn("routes new files to _Migrations/ (1 line(s))",
                       self.one_finding("handoff_contract.new_files_routed_within_folder"))
 
+    def test_a_rulebook_that_says_where_new_files_never_go_passes(self):
+        self.edit_rulebook("\n## Formats and packs",
+                           "- New files never go to `_Migrations/`; one that seems to belong to another project is\n"
+                           "  filed here like any other.\n"
+                           "- Files the owner approved for another project wait in `_Migrations/<Project>/`, put\n"
+                           "  there only by an approved row in a plan.\n\n## Formats and packs")
+        res = self.readiness(code=0)
+        self.assertEqual(res["handoff_contract"]["new_files_routed_within_folder"], "ok")
+
+    def test_a_rulebook_that_routes_new_files_to_the_migrations_folder_fails_wherever_it_wraps(self):
+        self.edit_rulebook("\n## Formats and packs",
+                           "- A new file that belongs to another project\n  goes to `_Migrations/<Project>/`.\n\n"
+                           "## Formats and packs")
+        self.assertIn("routes new files to _Migrations/ (1 line(s))",
+                      self.one_finding("handoff_contract.new_files_routed_within_folder"))
+
     MIGRATIONS = ("_Migrations", "Other Project", "02 Finance", "Old invoice.pdf")
     UNCLEARED = ("finding: _Migrations/ holds 1 file(s) (Other Project: 1); a folder is onboarded only once its "
                  "migrations folder is empty, so the owner clears it by hand")
@@ -664,6 +757,33 @@ class ContractTest(Prepared):
     def test_a_file_in_the_migrations_folder(self):
         write(self.path(*self.MIGRATIONS), "staged for another project")
         self.assertEqual(self.one_finding("handoff_contract.migrations_folder_cleared"), self.UNCLEARED)
+
+    def stage_and_audit(self):
+        """The staged file written, the folder audited again: the manifest now holds it, flagged `migrating`."""
+        write(self.path(*self.MIGRATIONS), "Invoice for the other project.")
+        self.tool("audit.py")
+        entry, = [e for e in self.json_file("_Audit", "manifest.json")["entries"].values()
+                  if e["current_path"].startswith("_Migrations/")]
+        self.assertEqual(entry["flags"], ["migrating"])
+        return entry["id"]
+
+    def test_a_staged_document_needs_no_extract_record_or_card(self):
+        """Held for another project, it is read by no tool: only the clearance of the migrations folder blocks."""
+        self.stage_and_audit()
+        res = self.readiness()
+        self.assertEqual(res["manifest"]["migrating"], 1)
+        self.assertEqual((res["records"]["missing_extracts"], res["records"]["missing_cards"]), (0, 0))
+        self.assertEqual([f[0] for f in res["findings"]], ["handoff_contract.migrations_folder_cleared"])
+
+    def test_a_record_kept_at_the_path_a_staged_document_had_is_not_stale(self):
+        eid = self.stage_and_audit()
+        write(self.path("_Audit", "extract", eid + ".json"),
+              json.dumps({"id": eid, "path": "02 Finance/Old invoice.pdf", "class": "document", "status": "ok",
+                          "page_count": 1, "tiers": {"text_layer": 1}, "chars": 5, "extractor": "x",
+                          "pages": [{"n": 1, "tier": "text_layer", "text": "Hello"}]}))
+        res = self.readiness()
+        self.assertEqual(res["records"]["extract_paths_stale"], 0)
+        self.assertEqual([f[0] for f in res["findings"]], ["handoff_contract.migrations_folder_cleared"])
 
     def test_an_evicted_placeholder_in_the_migrations_folder_is_a_finding(self):
         write(self.path("_Migrations", "Other Project", ".Old invoice.pdf.icloud"), "")

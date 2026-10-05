@@ -71,16 +71,6 @@
    "Household budget for 2023 prepared by Alex Example\n\nRent 1,450 per month and utilities about 150 per month"
   ]
  },
- "_Migrations/Other Project/02 Finance/Old invoice.pdf": {
-  "status": "ok",
-  "page_count": 1,
-  "tiers": [
-   "text_layer"
-  ],
-  "text": [
-   "Invoice 2022-117 from Robin Trading Ltd to Alex Example\nConsulting, February 2022, GBP 800.00\nPaid 2022-03-01"
-  ]
- },
  "02 Finance/Tax/Tax return 2023.pdf": {
   "status": "ok",
   "page_count": 1,

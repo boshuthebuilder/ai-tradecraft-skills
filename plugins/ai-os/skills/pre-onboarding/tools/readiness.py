@@ -9,7 +9,8 @@ pass either, and the operator reads it.
 - manifest: live, departed, migrating, root strays, redundant copies, hygiene and unconverted iWork entries, and the
   items on disk (reported, not findings); `live_paths_missing`, live entries whose current path is gone, is a
   finding (the manifest is not current: re-audit);
-- records: every live hashed document (those `extract.py` reads) has an extract record and a card, each card and
+- records: every live hashed document (those `extract.py` reads, bar one held for another project, whose current path
+  is under the migrations folder) has an extract record and a card, each card and
   extract record is in its format (one that is not is counted and named, never the end of the run), each card's
   category is one the rulebook allows, every extract record's path agrees with the manifest (else the finding
   names the repair, `extract.py repath`), and no card names an isolation term its own source lacks (not verified
@@ -32,7 +33,8 @@ pass either, and the operator reads it.
   Deadlines page holds only what the roll-up renders from the pages' frontmatter, and every other line is reported)
   and recurring dates live in page frontmatter, with any other derived page not verified (see `deadline_items`); the
   rulebook reserves the deployment's rulebook filenames and routes no new file to the migrations folder (read by
-  keyword, see `contract`); the migrations folder holds no file (names listed, never a file opened; see
+  keyword, a negation or a description of staging through an approved plan row not counted: see
+  `routes_new_files_out`); the migrations folder holds no file (names listed, never a file opened; see
   `migrations_cleared`); both settings twins present and fresh.
 
 Numbered sections are held by `check`: a page outside every Layout section of the compiled Schema is one of its
@@ -52,6 +54,7 @@ import shlex
 import sys
 import time
 import traceback
+import types
 import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -833,6 +836,69 @@ def could_not_read(line, pages, longest):
     return None
 
 
+def read_sources(wiki, every):
+    """What the roll-up reads from the pages of `wiki`, `every` being `roll_up_pages(wiki)`: the one reading that the
+    check of the Deadlines page and `wiki.py deadlines`, which renders it, share, so they cannot disagree about which
+    pages are sources or what each gives. Returns an object with:
+
+    - `readable`: the pages the roll-up reads as sources (see `read_by_roll_up`), the Deadlines page excluded;
+    - `entries`: {(date or MM-DD, note, page)} it renders from them, a note as the roll-up writes it ("" for none);
+    - `unread` (a Counter) and `unread_lines` (a list, in the roll-up's order: pages by path, a page's items in order):
+      the lines of its "Could not read" list, `- <page> (<reason>)`, each as many times as the roll-up writes it;
+    - `outside` and `outside_pages`: the pages whose frontmatter uses YAML `read_frontmatter` does not read, each
+      named as not verified, and the pages themselves;
+    - `scanned`: the pages it read and did not skip, the count in its empty-roll-up banner;
+    - `days` and `yearly`: {YYYY-MM-DD or MM-DD: the current pages holding it}; `swept_days` and `swept_yearly`:
+      the same dates as sets; `bad_days` and `bad`: the `deadline` and `deadlines` entries not read as a real
+      YYYY-MM-DD, and the `recurring` entries not read as {date, note}, as `page: entry`; `any_derived`: whether a
+      page read has `provenance: derived`."""
+    src = types.SimpleNamespace(
+        days=collections.defaultdict(list), yearly=collections.defaultdict(list),  # date: the current pages
+        swept_days=set(), swept_yearly=set(), bad_days=[], bad=[], any_derived=False,
+        entries=set(), unread=collections.Counter(), unread_lines=[], outside=[],  # rendered, and could not read
+        scanned=0, outside_pages=set(),
+        readable={p for p in every if p != DEADLINES and read_by_roll_up(p)})  # the roll-up's own: it knows no Schema
+
+    def cannot(line):
+        src.unread[line] += 1
+        src.unread_lines.append(line)
+    for p in every:
+        if p not in src.readable:
+            continue
+        try:
+            text = read(os.path.join(wiki, *p.split("/")))
+        except (OSError, UnicodeDecodeError) as e:  # a malformed page: wiki.py check counts it, and so does the roll-up
+            cannot("- %s (unreadable: %s)" % (p, type(e).__name__))
+            continue
+        try:
+            fm = read_frontmatter(text)
+        except Malformed:
+            cannot("- %s (malformed frontmatter)" % p)
+            continue
+        except OutOfScope as e:
+            src.outside.append("not verified: %s uses YAML this check does not read (%s)" % (p, e))
+            src.outside_pages.add(p)
+            continue
+        if fm.get("status") is not None and getattr(fm["status"], "text", None) == "superseded":
+            continue  # no longer the wiki's: the roll-up shows none of its dates
+        src.scanned += 1
+        d, y, bd, b, rendered, refused = frontmatter_dates(fm)
+        src.entries |= {(key, note, p) for key, note in rendered}
+        for why in refused:
+            cannot("- %s (unreadable recurring date: %s)" % (p, why))
+        for x in d:
+            src.days[x].append(p)
+        for x in y:
+            src.yearly[x].append(p)
+        provenance = getattr(fm.get("provenance"), "text", None)
+        src.swept_days |= d  # the roll-up reads a page whatever its provenance: what it may hold, it must show
+        src.swept_yearly |= y
+        src.bad_days += ["%s: %s" % (p, e) for e in bd]
+        src.bad += ["%s: %s" % (p, e) for e in b]
+        src.any_derived = src.any_derived or provenance == "derived"
+    return src
+
+
 def deadline_items(wiki, pages, ws):
     """(derived pages hold nothing hand-written, recurring dates in frontmatter, other derived pages, the pages whose
     frontmatter this check does not read): the first three each "ok", "finding: ..." or "not verified: ...", the last a
@@ -887,46 +953,13 @@ def deadline_items(wiki, pages, ws):
     if DEADLINES not in pages:
         why = "not verified: no %s (fixed_pages reports it)" % DEADLINES
         return why, why, other_item, []
-    days, yearly = collections.defaultdict(list), collections.defaultdict(list)  # date: the current pages holding it
-    swept_days, swept_yearly, bad_days, bad, any_derived = set(), set(), [], [], False
-    entries, unread, outside = set(), collections.Counter(), []  # what the roll-up renders and could not read
-    scanned = 0  # the pages it read and did not skip: the count in its empty-roll-up banner
     every = roll_up_pages(wiki)
-    readable = {p for p in every if p != DEADLINES and read_by_roll_up(p)}  # the roll-up's own: it knows no Schema
-    outside_pages = set()
-    for p in every:
-        if p not in readable:
-            continue
-        try:
-            text = read(os.path.join(wiki, *p.split("/")))
-        except (OSError, UnicodeDecodeError) as e:  # a malformed page: wiki.py check counts it, and so does the roll-up
-            unread["- %s (unreadable: %s)" % (p, type(e).__name__)] += 1
-            continue
-        try:
-            fm = read_frontmatter(text)
-        except Malformed:
-            unread["- %s (malformed frontmatter)" % p] += 1
-            continue
-        except OutOfScope as e:
-            outside.append("not verified: %s uses YAML this check does not read (%s)" % (p, e))
-            outside_pages.add(p)
-            continue
-        if fm.get("status") is not None and getattr(fm["status"], "text", None) == "superseded":
-            continue  # no longer the wiki's: the roll-up shows none of its dates
-        scanned += 1
-        d, y, bd, b, rendered, refused = frontmatter_dates(fm)
-        entries |= {(key, note, p) for key, note in rendered}
-        unread.update("- %s (unreadable recurring date: %s)" % (p, why) for why in refused)
-        for x in d:
-            days[x].append(p)
-        for x in y:
-            yearly[x].append(p)
-        provenance = getattr(fm.get("provenance"), "text", None)
-        swept_days |= d  # the roll-up reads a page whatever its provenance: what it may hold, it must show
-        swept_yearly |= y
-        bad_days += ["%s: %s" % (p, e) for e in bd]
-        bad += ["%s: %s" % (p, e) for e in b]
-        any_derived = any_derived or provenance == "derived"
+    src = read_sources(wiki, every)
+    days, yearly, readable, entries, unread, outside = (src.days, src.yearly, src.readable, src.entries, src.unread,
+                                                         src.outside)
+    swept_days, swept_yearly, bad_days, bad, any_derived = (src.swept_days, src.swept_yearly, src.bad_days, src.bad,
+                                                            src.any_derived)
+    scanned, outside_pages = src.scanned, src.outside_pages
     verified = not outside  # every page read: what the roll-up could write is known
     try:
         text = read(os.path.join(wiki, *DEADLINES.split("/")))
@@ -1126,6 +1159,60 @@ def migrations_cleared(root, name):
         " and %d folder(s) could not be listed, so the count may be low" % len(unlisted) if unlisted else "", tail)
 
 
+# The rulebook's prose, read by keyword. A statement routes new files to the migrations folder when a clause of it
+# names the folder together with one of ROUTES, unless the clause negates it (a NEGATORS word before the last of the
+# folder's name and the routing words, so `never go to _Migrations/` and `no new file is dropped into it` pass but
+# `go to _Migrations/, not to the inbox` does not) or only describes staging through an approved plan row.
+ROUTES = re.compile(r"(?i)new file|dropped|goes to|go to")
+NEGATORS = re.compile(r"(?i)\b(?:never|not|no|none|nothing|nowhere|neither|nor|cannot|avoid(?:s|ed)?|forbid(?:s|den)?"
+                      r"|prohibit(?:s|ed)?|prevent(?:s|ed)?|instead of|rather than)\b|n['\u2019]t\b")
+STAGED_BY_ROW = re.compile(r"(?i)\bapprov\w*\b.*\b(?:plan|rows?)\b|\b(?:plan|rows?)\b.*\bapprov\w*\b")
+CLAUSE_END = re.compile(r"(?i)[;:.!?](?:\s|$)|;|\s(?:but|however|whereas)\s")
+LIST_ITEM = re.compile(r"(?:[-*+]|[0-9]+[.)])\s")
+
+
+def statements(text):
+    """The rulebook's statements as a reader takes them: each list item and each paragraph is one, with a line it
+    wraps onto joined to it, so a negation cannot fall on one line and the folder on the next; a heading, a table row
+    and a code fence stand alone."""
+    out, open_ = [], False
+    for line in text.splitlines():
+        s = line.strip()
+        item = LIST_ITEM.match(s)
+        if not s:
+            open_ = False
+        elif s.startswith(("#", "|", "```", "~~~")):
+            out.append(s)
+            open_ = False
+        elif open_ and not item:
+            out[-1] += " " + s
+        else:
+            out.append(s[item.end():].lstrip() if item else s)
+            open_ = True
+    return out
+
+
+def routes_new_files_out(text, folder):
+    """The statements of the rulebook `text` that route new files to the migrations folder `folder`: a clause (a
+    sentence, split further at `;`, a colon, `but` and `however`) that names `<folder>/` and one of ROUTES (`new file`,
+    `dropped`, `goes to`, `go to`, in any case), unless it negates the routing, a NEGATORS word standing before the
+    last of the folder's name and the routing words, or only describes staging through an approved plan row (`approved`
+    with `plan` or `row` in the clause)."""
+    named = folder + "/"
+    routed = []
+    for statement in statements(text):
+        for clause in CLAUSE_END.split(statement) if named in statement else ():
+            at = clause.rfind(named)
+            ways = [m.start() for m in ROUTES.finditer(clause)]
+            if at < 0 or not ways or STAGED_BY_ROW.search(clause):
+                continue
+            last = max(at, ways[-1])
+            if not any(m.start() < last for m in NEGATORS.finditer(clause)):
+                routed.append(statement)
+                break
+    return routed
+
+
 def contract(root, rb, settings_dir, ws, pages, rulebook_text):
     items = collections.OrderedDict()
     wiki = os.path.join(root, rb["wiki_dir"])
@@ -1137,7 +1224,7 @@ def contract(root, rb, settings_dir, ws, pages, rulebook_text):
     items["derived_pages_hold_nothing_hand_written"], items["recurring_dates_in_frontmatter"], \
         items["other_derived_pages"], outside = deadline_items(wiki, pages, ws)
     # The rulebook is prose, read by keyword and substring: each filename written anywhere in it reserves it, and a
-    # line naming the migrations folder with "new file", "dropped", "goes to" or "go to" routes new files there.
+    # statement that routes new files to the migrations folder is read by `routes_new_files_out`.
     if rulebook_text is None:
         items["rulebook_reserves_rulebook_filenames"] = items["new_files_routed_within_folder"] = \
             "not verified: CLAUDE.md missing (rulebook.present reports it)"
@@ -1145,8 +1232,7 @@ def contract(root, rb, settings_dir, ws, pages, rulebook_text):
         unreserved = [n for n in common.RULEBOOK_FILES if n not in rulebook_text]
         items["rulebook_reserves_rulebook_filenames"] = "ok" if not unreserved else \
             "finding: the rulebook does not reserve %s" % ", ".join(unreserved)
-        routes_out = [line.strip() for line in rulebook_text.splitlines() if rb["migrations_dir"] + "/" in line
-                      and re.search(r"(?i)new file|dropped|goes to|go to", line)]
+        routes_out = routes_new_files_out(rulebook_text, rb["migrations_dir"])
         items["new_files_routed_within_folder"] = "ok" if not routes_out else \
             "finding: the rulebook routes new files to %s/ (%d line(s)); migrations are the owner's cross-project " \
             "synthesis to propose" % (rb["migrations_dir"], len(routes_out))
@@ -1212,6 +1298,8 @@ def record_checks(root, rb, live, evidence):
                                    "audit.py wrote: re-run audit.py" % (h, e["current_path"]))
         if not e["hashed"]:
             continue  # counted only, never read: extract.py makes no record for it
+        if common.in_migrations(rb, e["current_path"]):
+            continue  # held for another project: no tool reads it, so no record or card is expected
         path = e["current_path"]
         try:
             card = W.load_card(cdir, h)

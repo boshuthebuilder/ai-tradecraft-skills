@@ -592,5 +592,73 @@ class RulebookValidationTest(FixtureCopy):
             common.load_rulebook(self.root, settings_dir, required=True)
 
 
+class MigrationsFolderTest(unittest.TestCase):
+    """`common.in_migrations`, the one decision the tools share about a document staged for another project, and
+    `common.migrations_held`, which applies it to a manifest."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="migrations_held_")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.rb = dict(common.DEFAULTS)
+
+    def test_a_path_under_the_folder_is_held(self):
+        for path in ("_Migrations/Other Project/02 Finance/Old invoice.pdf", "_Migrations/a.pdf",
+                     "_Migrations/Other Project/a/b/c/d.pdf"):
+            with self.subTest(path):
+                self.assertTrue(common.in_migrations(self.rb, path))
+
+    def test_nothing_else_is_held(self):
+        for path in ("", "_Migrations", "_Migrations.pdf", "_Migrationsx/a.pdf", "_migrations/a.pdf",
+                     "02 Finance/_Migrations/a.pdf", "02 Finance/Old invoice.pdf", "Migrations/a.pdf"):
+            with self.subTest(path):
+                self.assertFalse(common.in_migrations(self.rb, path))
+
+    def test_the_folder_is_the_one_the_settings_name(self):
+        self.rb["migrations_dir"] = "_Leaving"
+        self.assertTrue(common.in_migrations(self.rb, "_Leaving/Other Project/a.pdf"))
+        self.assertFalse(common.in_migrations(self.rb, "_Migrations/Other Project/a.pdf"))
+        self.rb["migrations_dir"] = "_Leaving/"  # a trailing slash names the same folder
+        self.assertTrue(common.in_migrations(self.rb, "_Leaving/Other Project/a.pdf"))
+
+    def test_names_are_compared_composed_or_decomposed(self):
+        composed, decomposed = "_Migr\u00e9es", "_Migre\u0301es"
+        self.rb["migrations_dir"] = composed
+        self.assertTrue(common.in_migrations(self.rb, decomposed + "/Autre/a.pdf"))
+        self.rb["migrations_dir"] = decomposed
+        self.assertTrue(common.in_migrations(self.rb, composed + "/Autre/a.pdf"))
+
+    def manifest(self, entries):
+        path = os.path.join(self.tmp, "manifest.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"entries": entries}, f)
+        return path
+
+    def test_the_ids_held_are_those_whose_current_path_is_under_the_folder_whatever_their_flags(self):
+        path = self.manifest({
+            "a" * 64: {"current_path": "_Migrations/Other Project/a.pdf", "flags": ["migrating"]},
+            "b" * 64: {"current_path": "_Migrations/Other Project/b.pdf", "flags": []},
+            "c" * 64: {"current_path": "_Migrations/Other Project/c.pdf", "flags": ["departed"]},
+            "d" * 64: {"current_path": "02 Finance/d.pdf", "flags": ["migrating"]},
+            "e" * 64: {"current_path": "02 Finance/e.pdf"}})
+        self.assertEqual(common.migrations_held(self.tmp, self.rb, path), {"a" * 64, "b" * 64, "c" * 64})
+
+    def test_a_manifest_that_cannot_be_read_is_refused_never_read_as_nothing_held(self):
+        with self.assertRaisesRegex(common.ToolError, "manifest missing"):
+            common.migrations_held(self.tmp, self.rb)  # no _Audit/manifest.json in the folder
+        for name, content, why in (("not JSON", "{", "not valid JSON"), ("a list", "[]", "expected a JSON object"),
+                                   ("no entries", "{}", "no \"entries\" object"),
+                                   ("entries as a list", "{\"entries\": []}", "no \"entries\" object")):
+            with self.subTest(name):
+                path = os.path.join(self.tmp, "bad.json")
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(content)
+                with self.assertRaisesRegex(common.ToolError, why):
+                    common.migrations_held(self.tmp, self.rb, path)
+        for entry in ({}, {"current_path": ""}, {"current_path": 3}, "x"):
+            with self.subTest(entry=entry):
+                with self.assertRaisesRegex(common.ToolError, "has no current_path"):
+                    common.migrations_held(self.tmp, self.rb, self.manifest({"a" * 64: entry}))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -31,8 +31,8 @@ Stated once here; each tool's section below lists only its own.
 | `wiki.py` | yes | yes | yes | per subcommand | yes |
 | `readiness.py` | yes | yes | yes | result file | yes |
 
-`plan.py`'s subcommands with `--root`, `extract.py`, `wiki.py` and `readiness.py` also take `--manifest <file>`
-(default `<root>/_Audit/manifest.json`).
+`plan.py`'s subcommands with `--root`, `extract.py`, `vision.py`, `cards.py`, `wiki.py` and `readiness.py` also take
+`--manifest <file>` (default `<root>/_Audit/manifest.json`).
 
 **The stale-twin gate.** Every tool that takes `--root` refuses a stale, unpinned or malformed settings twin before
 it reads or writes anything, except `settings.py` (`compile` is the remedy, `check` the diagnosis) and
@@ -213,9 +213,21 @@ and again, on the same before-manifest, after the delete phase's.
                [--out <dir>] [--ocr-bin <file>]
     extract.py repath --root <folder> [--manifest <file>] [--out <dir>] [--apply]
 
-The full text of every live, hashed document in the manifest (images over the size cap are not read; staged files
-are), every page, with local tools only. Records go to `--out` (default `<root>/_Audit/extract`), one
+The full text of every live, hashed document in the manifest (images over the size cap are not read, and nor is a
+document held for another project: see below), every page, with local tools only. Records go to `--out` (default `<root>/_Audit/extract`), one
 `<id>.json` per document. An existing record is never rewritten, except a `failed` one with `--retry-failed`.
+
+### Held for another project
+
+A manifest entry whose current path is under the folder's migrations folder (`migrations_dir` in `rulebook.json`,
+`_Migrations` by default; one decision, `common.in_migrations`, shared by `extract.py`, `vision.py`, `cards.py` and
+`readiness.py`) is a document staged for another project. It is skipped **whatever its flags**, so a `migrating` flag
+that was lost or never set does not let it through: it is never read, never queued for the vision lane, and the run's
+log counts it as `held_for_another_project=<n>` on its `start` and `finished` lines, over the documents the lane and
+worker would otherwise have read (so the workers' counts add up to the folder's). A record made before the document was
+staged stays where it is, never rewritten or read again. Staged material is not the preparation's to read: its text
+would reach a model's context as another project's material, which the isolation terms exist to prevent, and the
+terms check cannot see it, since the document's own text carries the term.
 
 ### Lanes and workers
 
@@ -310,6 +322,13 @@ or the attempt fails. A transcription replaces the page's text (tier `vision`, e
 `<root>/_Audit/extract`); once none of its pages is pending, its status becomes `ok`, or `partial` if a page was left
 unread. A page whose batch fails three times is marked `unread`, its local text kept. Tries are kept in
 `<work>/state/vision_tries_<k>.json`.
+
+**Held for another project.** An image whose document's current path in the manifest (`--manifest`, default
+`<root>/_Audit/manifest.json`, required) is under the migrations folder is never sent, whatever the document's flags: it
+stays in the queue and out of the share that has to be empty, so the lane still ends, and the log's last line counts the
+documents held (`finished; held for another project: <n>`). The manifest is read again before each batch, so a round
+that stages a document while the lane runs is seen, and a missing or malformed manifest stops the lane (exit 2) rather
+than read as nothing held.
 
 It sleeps through quota, stops (exit 3) while `<work>/state/ALERT` exists, and stops (exit 2) on a credential file or
 a setup problem, which is not counted as a failed try. It exits once every done marker named in `--lanes` (default
@@ -438,6 +457,7 @@ One card per live document. What a card holds, how it is written and joined, and
 | --- | --- | --- |
 | `--extract` | extract records | `<root>/_Audit/extract` |
 | `--out` | cards | `<root>/_Audit/cards` |
+| `--manifest` | the manifest, which says which documents are held for another project (required) | `<root>/_Audit/manifest.json` |
 | `--engine` | `agy` or `codex` | `agy` |
 | `--model` | the engine's model id (with `agy`, the effort is part of the id); `agy` without one is refused | none |
 | `--effort` | `codex` reasoning effort | `medium` |
@@ -447,6 +467,13 @@ One card per live document. What a card holds, how it is written and joined, and
 | `--redo` | a file of ids to card again, one per line | none |
 | `--small-chars`, `--batch-chars`, `--batch-items`, `--textless-batch`, `--section-chars`, `--single-max` | the batch budgets, in characters and items | 60,000; 180,000; 30; 60; 400,000; 600,000, except that with `--engine agy` (the default) `--small-chars`, `--batch-chars`, `--section-chars` and `--single-max` default to 50,000 (`AGY_BUDGET_CHARS`): three-byte CJK text plus the largest card prompt's own overhead (about 27 KB measured) then stays under agy's 180,000-byte limit, where 60,000 characters would not (so a document over `--small-chars` is read in sections: single mode is not used with agy's defaults) |
 | `--section-tokens`, `--single-tokens` | budgets in estimated tokens instead (for `codex`, 110,000 and 150,000) | unset |
+
+**Held for another project.** A document whose current path in the manifest is under the migrations folder is never
+carded, whatever its flags and wherever its extract record says it was read: `build` plans no batch for its record and
+counts it (`build: <n> new batches, <n> records still waiting for extraction, <n> held for another project`, a held
+record not counted as waiting), and `work` drops it from a batch planned before it was staged and from a `--redo` file,
+so it is never sent to the engine and no card is written for it; the worker's last log line counts the ones it held
+(`worker finished; held for another project: <n>`). A missing or malformed manifest is refused (exit 2).
 
 `--redo` plans each id as a first run would (its size decides: a long document is read in sections, reusing the
 cached notes), and refuses an id with no extract record. Batches go in `<work>/batches/`, section notes in
@@ -495,6 +522,7 @@ allows; `rationale` and `accept` write their audit file (default in `<root>/_Aud
 | `review-prompts`, `accept` | acceptance prompts, and the verdicts recorded |
 | `move` | moves pages and rewrites every link to and from them |
 | `drift` | page lines citing a path that has left or is leaving |
+| `deadlines` | renders the derived `01 Deadlines` page from the pages' frontmatter |
 
 Malformed input (a manifest, card, extract record or `bundles.json` of the wrong shape, or a file where a folder
 must be) is refused by name, exit 2.
@@ -792,6 +820,78 @@ marks it departed:
      "citing_departed": 1, "citing_migrating": 0, "pages_citing": 1,
      "departed": [["30 Home/30 Home.md", 31, "03 Home/Lease notes .txt"]], "migrating": []}
 
+### `deadlines`
+
+    wiki.py deadlines --root <folder> [--today <YYYY-MM-DD>] [--write [--out <file>]]
+
+Renders the derived Deadlines page, `<wiki>/01 Deadlines/01 Deadlines.md`, from the wiki pages' frontmatter, in the
+one form `readiness.py` accepts ([the derived pages check](#readinesspy)), so a cold agent need not write it. It is
+`readiness.py`'s own reading, not a second one: the pages the roll-up reads as sources, the frontmatter subset, what
+each `deadline` (with its `deadline_note`), `deadlines` and `recurring` entry gives, the spellings of a yearly date
+(`MM-DD`, `5 April`, `April 5`, `5th Apr`), the intro, the banner and the heading lines are `readiness.py`'s
+(`read_sources`, `month_day`, `INTRO_FIXTURE`, `BANNER_LINE`), imported and never copied. The suite renders the
+reference roll-up's own scenarios and every shape below and reads each result back through that check.
+
+    ---
+    provenance: derived
+    last-updated: 2024-06-30
+    status: current
+    ---
+
+    # Deadlines
+
+    _File-derived deadlines, rolled up deterministically from page frontmatter: do not hand-edit, regenerated each run. (Calendar events live in `Coming Events`.)_
+
+    ## Upcoming
+
+    - **2025-04-30**: 30 Home. Lease ends ([30 Home/30 Home](../30%20Home/30%20Home.md))
+    - **2031-02-01**: Tax ([20 Finance/Tax](../20%20Finance/Tax.md))
+
+    ## Every year
+
+    - **5 April**: 30 Home, Tax. Tax year ends ([30 Home/30 Home](../30%20Home/30%20Home.md), [20 Finance/Tax](../20%20Finance/Tax.md))
+
+    ## Past
+
+    - **2024-01-31**: Tax. Paid ([20 Finance/Tax](../20%20Finance/Tax.md))
+
+- **Entries.** `- **<when>**: <titles>. <note> (<links>)`, or `- **<when>**: <titles> (<links>)` when there is no note. A
+  dated entry's `<when>` is `YYYY-MM-DD`, a yearly one's is its day and month name with no ordinal and no leading zero.
+  The titles are the linked pages' own names, each once and in the order of the links; a link's text is its page's
+  path without `.md` and its target the path from the Deadlines page, percent-encoded with `/` and `&` literal
+  (`../20%20Finance/Tax.md`), as the reference roll-up writes them.
+- **Order and merging.** Dated entries go under `## Upcoming` from `--today` on and under `## Past` before it, each in
+  date order; yearly ones go under `## Every year` in calendar order, whichever way the page wrote the date. Entries
+  with the same date and note, from any number of pages, are one line naming every page, ordered by title and then
+  path. `## Upcoming` is always written, with `_None._` when no page gives a date to come; `## Every year` and
+  `## Past` only over an entry.
+- **Could not read.** What the roll-up could not read goes under `## Could not read`, over its own intro, one line each
+  in the roll-up's wording and order (pages by path, a page's entries in order): `- <page> (malformed frontmatter)`;
+  `- <page> (unreadable: <exception class>)` for a page that is not UTF-8 text, or a folder named `*.md`; and
+  `- <page> (unreadable recurring date: <the item as Python writes it, at most 60 characters>; <the way to write it>)`.
+- **The banner.** When the readable pages give no date at all, the one-line banner `> **Roll-up found no frontmatter
+  deadlines across <n> readable pages: likely a keying fault, not a deadline-free wiki.** ...` follows the intro, with
+  `<n>` the pages read (superseded pages and the unreadable not counted). A wiki with no readable page has none.
+- **The day.** `--today` (default the local date by the tools' clock) is the page's `last-updated` and the day that
+  splits Upcoming from Past; a day after today is refused, since `readiness.py` reports a build stamp in the future.
+
+A dry run, the default, prints the page to standard output and changes nothing. `--write` writes it, to `--out` when
+given (any path; with `--read-only-root`, one outside the folder), otherwise over the wiki's own page; `--out` without
+`--write` is refused, so nothing reads as written that was not. A summary goes to standard error either way (`deadlines:
+<n> upcoming, <n> every year, <n> past, <n> could not read; wrote <page>`). The output is deterministic: the same pages
+and day give the same bytes, and the existing page is never read as a source, so rendering again changes nothing.
+
+Exit `0` when the page is whole. Exit `1` when it wrote or printed the page and something in the pages' frontmatter
+needs mending, which standard error lists and no page can mend: an entry under `## Could not read`, a `deadline` that
+is not a real `YYYY-MM-DD`, or a `recurring` entry that is not `{date, note}` with a note (`readiness.py` reports the
+same entries). Exit `2`, nothing written, for a page whose frontmatter uses YAML that `readiness.py` does not read
+(a flow sequence such as `tags: [a, b]`, a note YAML would read as a bool or a number, a tab, and the other constructs
+of [the frontmatter subset](#readinesspy)): what the roll-up writes for it is not known, and a page that left it out
+or misstated it would be wrong without a word, so the tool names each page and construct and stops. Rewrite that
+frontmatter within the subset (quoting a value YAML would read as anything but text) and run it again. The page
+written is new text, so its acceptance by the owner's and the professional's lenses (`wiki.py accept`) must be given
+again before `readiness.py` reports it `accepted`.
+
 ### `chart`
 
     wiki.py chart --root <folder> --kind bar|line|pie|gantt|timeline --data <rows.csv|rows.json> --title <text>
@@ -885,7 +985,9 @@ same way, which is not a finding and not a pass either, and does not change the 
 - `manifest`: the live, departed, migrating, root stray, redundant copy, hygiene and unconverted iWork counts and
   the items on disk, reported, not findings; `live_paths_missing` counts live entries whose current path is gone, a
   finding (the manifest is not current: re-audit).
-- `records`, over the live documents `extract.py` reads (hashed ones): `missing_extracts`, `missing_cards`,
+- `records`, over the live documents `extract.py` reads (hashed ones, and not one held for another project, whose current
+  path is under the migrations folder and which no tool reads: no record or card is expected for it, and
+  `migrations_folder_cleared` below blocks the hand-off while any staged file remains): `missing_extracts`, `missing_cards`,
   `malformed_cards` (a card not in the card format, such as a `sensitive` that is not true or false: counted and
   named, never the end of the check, so a folder carded by an older tool shows every card to redo),
   `malformed_extracts` (an extract record that is not JSON, not UTF-8, not an object, unreadable, or whose pages are
@@ -922,10 +1024,31 @@ same way, which is not a finding and not a pass either, and does not change the 
   `rulebook_reserves_rulebook_filenames` and `new_files_routed_within_folder`
   ([a project files within itself](../../wiki-maintenance/SKILL.md#rules-that-keep-it-safe)), both reading the
   rulebook's prose by substring and keyword: a filename is reserved when `CLAUDE.md`, `AGENTS.md` or `GEMINI.md` is
-  written anywhere in `CLAUDE.md`, and new files are routed out when a line names the migrations folder
-  (`_Migrations/`) together with "new file", "dropped", "goes to" or "go to", in any case, so a line saying where
-  approved migrations wait passes and one saying new files go there does not; `migrations_folder_cleared` (below);
+  written anywhere in `CLAUDE.md`, and new files are routed out only when a statement routes them to the migrations
+  folder (below); `migrations_folder_cleared` (below);
   `settings_rulebook_json` and `settings_wiki_schema_json` (present and fresh).
+
+**Routing new files to the migrations folder.** `new_files_routed_within_folder` reads the rulebook a statement at a
+time (a list item or a paragraph, with the lines it wraps over joined, so a negation and the folder name need not share
+a line; a heading, a table row and a code fence stand alone), each split into clauses at `;`, a colon, a sentence end,
+`but`, `however` and `whereas`. A clause routes new files out when it names the migrations folder (`_Migrations/`)
+together with "new file", "dropped", "goes to" or "go to", in any case, **unless** it negates the routing or only
+describes staging through an approved plan row:
+
+- **a negation** is any of `never`, `not`, `no`, `none`, `nothing`, `nowhere`, `neither`, `nor`, `cannot`, `n't`,
+  `avoid`, `forbid`, `prohibit`, `prevent`, `instead of` or `rather than` standing before the last of the folder's name
+  and the routing words in the clause. So "new files never go to `_Migrations/`", "no new file is dropped into it",
+  "do not send new files to it" and "new files go to the inbox, not `_Migrations/`" pass, while "new files go to
+  `_Migrations/`, not to the inbox" (the negation comes after) and "never put new files in the inbox; they go to
+  `_Migrations/`" (it is another clause) do not;
+- **staging through an approved plan row** is a clause that says `approved` (or `approve`, `approval`) together with
+  `plan` or `row`: "files go to `_Migrations/<Project>/` only through an approved plan row" passes.
+
+A line saying where approved migrations wait (`_Migrations/<Project>/`: files the owner approved moving to another
+project) names no routing word and passes, as it always did. The finding counts the statements that route, and names
+none of them; the check reads prose by keyword, so a sentence it cannot judge is the owner's to read, never a pass for
+a rule the rulebook does not state. [Pinned](../tests/test_readiness.py) by the passing and failing sentences of
+`RoutesNewFilesOutTest`.
 
 **The migrations folder.** `migrations_folder_cleared` lists the names under the folder's migrations folder
 (`migrations_dir`, `_Migrations` by default) and never opens a file. It is `ok` when no file is there, or no such
@@ -1101,7 +1224,9 @@ those captures predate, are pinned line by line in `tests/test_readiness.py`.
 ## `common.py`
 
 The helpers every tool shares: settings loading and the stale-twin gate, `Writer`, `reserved_names` (every
-top-level name a rulebook must reserve), `pack_matcher`, `page_voice` (the one reading of
+top-level name a rulebook must reserve), `pack_matcher`, `in_migrations` (the one decision that a path lies under the
+migrations folder, in Unicode NFC, and so is held for another project) and `migrations_held` (the ids of the
+manifest's entries it holds; a missing or malformed manifest is refused, never read as nothing held), `page_voice` (the one reading of
 [a page's professional](settings.md#a-pages-professional)), JSON parsing of model replies, the token estimate and
 `sha256_package`. `sha256_package` is the manifest's package hash rule
 ([`manifest-schema.md`](../../file-preprocessing/references/manifest-schema.md#added-in-2)), which the audit, the

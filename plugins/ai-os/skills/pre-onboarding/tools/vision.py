@@ -8,6 +8,11 @@ commands are refused). The transcription replaces the page's text in the extract
 sent, with its text; anything else is a failed attempt, and after three a page is marked `unread` with the local
 text kept. Worker k of N owns the ids that hash to k. Exits when extraction has finished and its share is empty.
 
+A queued image whose document's current path in the manifest is under the migrations folder is held for another
+project: it is never sent, whatever its flags, it stays in the queue and out of the share that has to be empty, and
+the lane's log counts the documents held. The manifest is read again before each batch, so a round that stages a
+document while the lane runs is seen.
+
     python3 vision.py --root R --model <vision model id> [--worker 0/2]
 """
 import collections
@@ -39,10 +44,12 @@ def main():
     ap.add_argument("--model", required=True, help="agy model id for transcription (effort encoded in the id)")
     ap.add_argument("--worker", default="0/1")
     ap.add_argument("--out", help="extract records (default <root>/_Audit/extract)")
+    ap.add_argument("--manifest", help="default <root>/_Audit/manifest.json")
     ap.add_argument("--lanes", default="extract_main0,extract_apps0",
                     help="done markers in <work>/state that mean extraction has finished")
     a = ap.parse_args()
-    root, _sd, work = common.resolve(a)
+    root, settings_dir, work = common.resolve(a)
+    rb = common.load_rulebook(root, settings_dir)
     out = os.path.realpath(a.out) if a.out else os.path.join(root, "_Audit", "extract")
     writer = common.Writer(root if a.read_only_root else None)
     queue = os.path.join(work, "vision_queue")
@@ -68,6 +75,7 @@ def main():
         return load_json(p) if os.path.exists(p) else None
 
     idle = 0
+    held_seen = set()
     while True:
         if os.path.exists(alert):
             log("ALERT present, stopping")
@@ -75,9 +83,13 @@ def main():
         os.makedirs(queue, exist_ok=True)
         files = sorted(f for f in os.listdir(queue) if re.match(r"[0-9a-f]{64}_\d{5}\.png$", f)
                        and int(f[:8], 16) % wn == wi)
+        held = common.migrations_held(root, rb, a.manifest)
         ready, recs = [], {}
         for f in files:
             eid = f[:64]
+            if eid in held:
+                held_seen.add(eid)
+                continue
             recs.setdefault(eid, load(eid))
             if recs[eid] and recs[eid].get("status") == "needs_vision":
                 ready.append(f)
@@ -156,7 +168,7 @@ def main():
         with open(tries_p, "w", encoding="utf-8") as f:
             json.dump(tries, f)
         log("batch %d images %s" % (len(ready), "ok" if got is not None else "FAILED"))
-    log("finished")
+    log("finished; held for another project: %d" % len(held_seen))
     with open(os.path.join(state, "vision%d.done" % wi), "w", encoding="utf-8") as f:
         f.write(common.now_local())
     return 0

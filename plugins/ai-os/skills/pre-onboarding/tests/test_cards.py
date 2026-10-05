@@ -421,15 +421,26 @@ class CardsCliCase(unittest.TestCase):
         write(self.terms, TERMS)
         self.fakes = Fakes(self.tmp)
         self.env = tool_env(self.tmp, self.fakes)
+        self.entries = {}
 
-    def record(self, path, pages, status="ok", tier="text_layer"):
+    def record(self, path, pages, status="ok", tier="text_layer", now_at=None, flags=()):
+        """An extract record for `path`, and its manifest entry: its current path is `now_at` when the document has
+        moved since it was read (a record keeps the path it was read at), its flags `flags`."""
         i = eid(path)
         rec = {"id": i, "path": path, "class": "document", "status": status, "page_count": len(pages),
                "tiers": {tier: len(pages)}, "pages": [{"n": n + 1, "tier": tier, "text": t}
                                                       for n, t in enumerate(pages)]}
         rec["chars"] = sum(len(t) for t in pages)
         write(os.path.join(self.extract, i + ".json"), json.dumps(rec, ensure_ascii=False))
+        self.stage(i, now_at or path, flags)
         return i
+
+    def stage(self, i, current_path, flags=()):
+        """The manifest entry of document `i`, at `current_path` with `flags`, written to the folder's own manifest."""
+        self.entries[i] = {"id": i, "current_path": current_path, "class": "document", "hashed": True,
+                           "flags": list(flags)}
+        write(os.path.join(self.root, "_Audit", "manifest.json"),
+              json.dumps({"schema": "family-ai-preprocess-manifest/2", "entries": self.entries}))
 
     def cards_py(self, *args):
         cmd = [sys.executable, os.path.join(TOOLS, "cards.py")] + list(args[:1]) + [
@@ -671,6 +682,84 @@ class WorkTest(CardsCliCase):
         self.assertEqual(self.fakes.calls("agy"), [])
 
 
+class HeldForAnotherProjectTest(CardsCliCase):
+    """A document whose current path in the manifest is under the migrations folder is held for another project:
+    no batch is planned for it, no call is sent it, and the run counts it, whatever its flags and wherever its record
+    says it was read."""
+
+    STAGED = "_Migrations/Other Project/02 Finance/Old invoice.pdf"
+
+    def test_build_plans_no_batch_for_a_held_record_and_counts_it(self):
+        own = self.record("03 Home/Rent.pdf", ["Rent for the flat."])
+        self.record(self.STAGED, ["Invoice for the other project."], flags=["migrating"])
+        self.record("_Migrations/Other Project/Letter.pdf", ["A letter, its flag lost."])  # no `migrating` flag
+        self.record("02 Finance/Statement.pdf", ["A statement."], now_at="_Migrations/Other Project/Statement.pdf",
+                    flags=["migrating", "departed"])  # staged after it was read: its record keeps the old path
+        self.record("01 Identity/Scan.pdf", ["x"], status="needs_vision",
+                    now_at="_Migrations/Other Project/Scan.pdf")  # held, so not one still waiting for extraction
+        code, out, err = self.cards_py("build")
+        self.assertEqual(code, 0, err)
+        self.assertIn("build: 1 new batches, 0 records still waiting for extraction, 4 held for another project", out)
+        self.assertEqual([[it["id"] for it in bt["items"]] for bt in self.batches().values()], [[own]])
+
+    def test_a_batch_planned_before_the_staging_is_not_sent(self):
+        own = self.record("03 Home/Rent.pdf", ["Rent for the flat."])
+        gone = self.record("02 Finance/Old invoice.pdf", ["Invoice for the other project, GBP 800."])
+        code, _out, err = self.cards_py("build")
+        self.assertEqual(code, 0, err)
+        self.assertEqual([len(bt["items"]) for bt in self.batches().values()], [2])
+        self.stage(gone, self.STAGED, ["migrating"])  # a round stages it, and the audit is run again
+        code, _out, err = self.work_run("codex", "--terms", self.terms)
+        self.assertEqual(code, 0, err)
+        calls = self.fakes.calls("codex")
+        self.assertEqual([item_count(c) for c in calls], [1])
+        self.assertNotIn("Old invoice", calls[0]["prompt"])
+        self.assertNotIn("GBP 800", calls[0]["prompt"])
+        self.assertEqual(sorted(self.written()), [own])
+        self.assertIn("worker finished; held for another project: 1", err)
+        self.assertEqual(self.card_errors(), [])
+
+    def test_a_redo_does_not_send_a_held_document(self):
+        own = self.record("03 Home/Rent.pdf", ["Rent for the flat."])
+        held = self.record(self.STAGED, ["Invoice for the other project, GBP 800."], flags=["migrating"])
+        redo = os.path.join(self.tmp, "redo.txt")
+        write(redo, "%s\n%s\n" % (held, own))
+        code, _out, err = self.work_run("codex", "--terms", self.terms, "--redo", redo)
+        self.assertEqual(code, 0, err)
+        calls = self.fakes.calls("codex")
+        self.assertEqual([item_count(c) for c in calls], [1])
+        self.assertNotIn("GBP 800", calls[0]["prompt"])
+        self.assertEqual(sorted(self.written()), [own])
+        self.assertIn("worker finished; held for another project: 1", err)
+
+    def test_the_migrations_folder_is_the_one_the_settings_name(self):
+        write(os.path.join(self.root, "CLAUDE.md"), "# Rules\n")
+        pin = hashlib.sha256(read(os.path.join(self.root, "CLAUDE.md")).encode()).hexdigest()
+        write(os.path.join(self.root, ".familyai", "rulebook.json"),
+              json.dumps({"version": 1, "rulebook_sha256": pin, "migrations_dir": "_Leaving"}))
+        own = self.record("_Migrations/Notes.pdf", ["An ordinary folder now."])
+        self.record("_Leaving/Other Project/Letter.pdf", ["Staged for another project."])
+        code, out, err = self.cards_py("build")
+        self.assertEqual(code, 0, err)
+        self.assertIn("build: 1 new batches, 0 records still waiting for extraction, 1 held for another project", out)
+        self.assertEqual([[it["id"] for it in bt["items"]] for bt in self.batches().values()], [[own]])
+
+    def test_a_missing_or_unreadable_manifest_is_refused_not_read_as_nothing_held(self):
+        for name, text, why in (("missing", None, "manifest missing"), ("not JSON", "{", "not valid JSON"),
+                                ("no entries", "{}", "no \"entries\" object"),
+                                ("an entry with no path", json.dumps({"entries": {"a" * 64: {}}}),
+                                 "has no current_path")):
+            with self.subTest(name):
+                manifest = os.path.join(self.root, "_Audit", "manifest.json")
+                shutil.rmtree(os.path.dirname(manifest), True)
+                if text is not None:
+                    write(manifest, text)
+                code, out, err = self.cards_py("build")
+                self.assertEqual(code, 2, out + err)
+                self.assertIn(why, err)
+                self.assertNotIn("Traceback", err)
+
+
 def fixture_batch():
     """The fixture's text records (tests/expected/extract.json: the pages read by text layer, office or iWork
     readers), as extract records."""
@@ -697,10 +786,6 @@ HONEST = {
     "01 Identity/Passport renewal 2021/Application form.docx": {
         "doc_date": "2021-05-02", "key_facts": {"dates": ["submitted 2021-05-02"], "amounts": [],
                                                 "reference_numbers": ["previous passport p0987654"]}},
-    "_Migrations/Other Project/02 Finance/Old invoice.pdf": {
-        "doc_date": "2022-02", "key_facts": {"dates": ["paid 2022-03-01"], "amounts": ["GBP 800.00"],
-                                             "reference_numbers": ["invoice 2022/117"]},
-        "look": "Paid into account 12345678? Check the Bank statement 2024-03.pdf."},
     "03 Home/Utilities /Electricity bill.pdf": {"doc_date": "2024-03-15"},
     "03 Home/Lease renewal.pages": {
         "key_facts": {"dates": ["term 2024-05-01 to 2025-04-30"], "amounts": ["GBP 1,450 per month"],
@@ -716,12 +801,13 @@ HONEST = {
 
 
 # The whole batch is rejected once and halved at once (no same-size retries); the two crossed documents fall into
-# different halves (by id order), so each half is carded in one call: 3 calls, 26 items sent.
-CROSSING_CALLS = [13, 6, 7]
+# different halves (by id order), so each half is carded in one call: 3 calls, 24 items sent.
+CROSSING_CALLS = [12, 6, 6]
 
 
 class FixtureBatchTest(CardsCliCase):
-    """The cost of the join on the fixture's 13-item text batch: honest cards take one call; a crossing between the
+    """The cost of the join on the fixture's 12-item text batch (the fixture's staged file is held for another
+    project, so it is never extracted or carded): honest cards take one call; a crossing between the
     two documents that carry identifiers is halved until they are apart, and never written."""
 
     def setUp(self):
@@ -729,7 +815,7 @@ class FixtureBatchTest(CardsCliCase):
         self.ids = {path: self.record(path, [p["text"] for p in pages]) for path, pages in fixture_batch().items()}
         code, _out, err = self.cards_py("build")
         self.assertEqual(code, 0, err)
-        self.assertEqual([len(bt["items"]) for bt in self.batches().values()], [13])
+        self.assertEqual([len(bt["items"]) for bt in self.batches().values()], [12])
 
     def run_batch(self, **reply):
         self.fakes.script("codex", default=dict(kind="text", cards_by_path=HONEST, **reply), watch=self.cards)
@@ -742,8 +828,8 @@ class FixtureBatchTest(CardsCliCase):
         return [item_count(c) for c in self.fakes.calls("codex")]
 
     def test_honest_cards_take_one_call(self):
-        self.assertEqual(len(self.ids), 13)
-        self.assertEqual(self.run_batch(), [13])
+        self.assertEqual(len(self.ids), 12)
+        self.assertEqual(self.run_batch(), [12])
 
     def test_a_crossing_is_halved_until_apart(self):
         calls = self.run_batch(cross_paths=["02 Finance/Bank statement 2024-03.pdf",

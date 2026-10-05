@@ -399,6 +399,38 @@ def reserved_names(rb):
     return list(dict.fromkeys(names + rb["reserved"]))
 
 
+def in_migrations(rb, path):
+    """True when `path`, relative to the folder with `/` separators, lies under the folder's migrations folder
+    (`migrations_dir`, `_Migrations` by default): the one decision that `extract.py`, `cards.py`, `vision.py` and
+    `readiness.py` share about a document staged for another project. Names are compared in Unicode NFC, as a name may
+    be stored decomposed on disk and composed in rulebook.json."""
+    name = unicodedata.normalize("NFC", rb["migrations_dir"]).rstrip("/")
+    return unicodedata.normalize("NFC", path).startswith(name + "/")
+
+
+def migrations_held(root, rb, manifest=None):
+    """The ids of the manifest's entries whose current path is under the migrations folder, whatever their flags: the
+    documents held for another project, which no tool reads, sends to an engine or queues. The manifest is required
+    and checked, since a missing or malformed one would otherwise read as nothing held."""
+    path = manifest or os.path.join(root, "_Audit", "manifest.json")
+    if not os.path.exists(path):
+        raise ToolError("manifest missing: %s; run audit.py first" % path)
+    try:
+        entries = read_json_object(path).get("entries")
+    except OSError as e:
+        raise ToolError("cannot read %s (%s)" % (path, e.strerror or e))
+    if not isinstance(entries, dict):
+        raise ToolError("%s has no \"entries\" object; it is not a manifest audit.py wrote" % path)
+    held = set()
+    for h, e in entries.items():
+        where = e.get("current_path") if isinstance(e, dict) else None
+        if not (isinstance(where, str) and where):
+            raise ToolError("%s: entry %s has no current_path; re-run audit.py" % (path, h))
+        if in_migrations(rb, where):
+            held.add(h)
+    return held
+
+
 def pack_matcher(root, rb):
     """A test of whether a folder (relative to the root) lies in a pack: under a folder the rulebook lists in
     `packs`, or matching its `pack_keywords`. The audit marks every copy there `pack`, even a duplicate beside its
