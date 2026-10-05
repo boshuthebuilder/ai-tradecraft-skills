@@ -113,6 +113,16 @@ need it — don't impose the archetype where the material doesn't justify it.
   folder that still has two homes for one subject writes that ambiguity into the Schema's routing
   table, where it stays.
 
+**Then check the migrations folder, whichever state the folder is in: onboard only once it is empty.** The
+migrations folder (`_Migrations`, unless the settings name another) holds files staged for another project, and
+while it holds any file the folder is not ready, since those files are still in flight between projects. List it
+by names alone and never open a file. `.DS_Store` and empty folders do not count; an evicted iCloud placeholder
+does. If it holds any file, stop, tell the owner the count for each target project (each first-level subfolder is
+one), and wait for the owner to clear it by hand. Never move files between projects to clear it yourself: a
+migration is the owner's act, and onboarding only reads. On a prepared folder `readiness.py` reports the same
+state as its `migrations_folder_cleared` item
+([the tool reference](../pre-onboarding/references/tools.md#readinesspy)).
+
 ### 2. Ensure a wiki exists: validate it, or onboard one only if there is none
 
 The jobs need a Schema to maintain, so this step guarantees one exists, **without rebuilding a wiki

@@ -25,6 +25,7 @@ EXPECTED = os.path.join(HERE, "expected")
 NOW = "1719748800"          # 2024-06-30T12:00:00Z
 MTIME = 1717200000          # 2024-06-01T00:00:00Z
 DETERMINISTIC_TIERS = {"text_layer", "listing"}
+STAGED_FILE_ONLY = ["handoff_contract.migrations_folder_cleared"]  # the fixture stages a file in its migrations folder
 
 
 def tree_digest(root):
@@ -78,9 +79,12 @@ def produce(tmp, with_extract):
         "summary.json": open(os.path.join(out, "_Audit", "summary.json"), encoding="utf-8").read(),
         "wiki-schema.json": open(os.path.join(root, ".familyai", "wiki-schema.json"), encoding="utf-8").read(),
         "wiki-check.json": run("wiki.py", "check", *common, "--manifest", manifest, env=env),
-        "readiness.json": run("readiness.py", *common, "--manifest", manifest, env=env, ok=(0,)),  # green, or fail
+        "readiness.json": run("readiness.py", *common, "--manifest", manifest, env=env, ok=(0, 1)),
         "plan-light.csv": None,
     }
+    findings = [f[0] for f in json.loads(results["readiness.json"])["findings"]]
+    if findings != STAGED_FILE_ONLY:  # green but for the file the fixture stages for the other tools, or fail
+        raise SystemExit("readiness found %s, not only the fixture's staged file (%s)" % (findings, STAGED_FILE_ONLY))
     run("plan.py", "light", "--root", root, "--manifest", manifest, "--out", os.path.join(out, "plan"), env=env,
         ok=(0,))
     results["plan-light.csv"] = open(os.path.join(out, "plan", "move-plan.csv"), encoding="utf-8").read()

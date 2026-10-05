@@ -65,10 +65,10 @@ Evolve the vault as a coherent whole — a second brain, not a file listing:
    the pages shown make it plain that files one project in this report holds belong to another
    project in it (the holding project's page flags them as belonging elsewhere, or the backbone shows
    their matter is kept in the other project), raise one `needs_a_look` item per matter, however many
-   files, with its `migration` filled and an `owner_action` asking the owner to approve or decline.
-   Name each file by the folder-relative source path the holding project's page cites, never a path
-   the report does not show. You only propose; an approved migration is staged by `folder-curation`
-   in the holding project. You move nothing and write nothing into a project.
+   files, with its `migration` filled and an `owner_action` naming the move for the owner to make by
+   hand, or to decline. Name each file by the folder-relative source path the holding project's page
+   cites, never a path the report does not show. You only suggest: the owner makes any move by hand,
+   in the folders. You move nothing and write nothing into a project.
 4. **A dated log line** recording the pass.
 
 Rules:

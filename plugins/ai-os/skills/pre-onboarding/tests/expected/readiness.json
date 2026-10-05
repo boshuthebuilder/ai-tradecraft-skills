@@ -160,10 +160,16 @@
   "other_derived_pages": "ok",
   "rulebook_reserves_rulebook_filenames": "ok",
   "new_files_routed_within_folder": "ok",
+  "migrations_folder_cleared": "finding: _Migrations/ holds 1 file(s) (Other Project: 1); a folder is onboarded only once its migrations folder is empty, so the owner clears it by hand",
   "settings_rulebook_json": "ok",
   "settings_wiki_schema_json": "ok"
  },
- "findings": [],
+ "findings": [
+  [
+   "handoff_contract.migrations_folder_cleared",
+   "finding: _Migrations/ holds 1 file(s) (Other Project: 1); a folder is onboarded only once its migrations folder is empty, so the owner clears it by hand"
+  ]
+ ],
  "not_verified": [
   [
    "records.contamination",
@@ -179,7 +185,7 @@
   ]
  ],
  "summary": {
-  "findings": 0,
+  "findings": 1,
   "not_verified": 3
  }
 }

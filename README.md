@@ -146,7 +146,7 @@ tidy or has been prepared (`project-onboarding`), and a person who wants a cross
   **type-1 user vault** ("second brain") skeleton, and stamping the **user-synthesis archetype**
   (an incremental `synthesise` + its periodic `reconcile` twin) so the person gets a
   self-maintaining, cross-project view over the wikis they can access. The synthesis is also where
-  cross-project migrations are proposed, for the owner to approve.
+  cross-project migrations are suggested, for the owner to make by hand.
 - **`wiki-onboarding`**: bootstrap a wiki for a folder that doesn't have one. Scan the folder
   read-only; a librarian proposes **sections by responsibility**, the routing and the one
   professional best suited to each page; interview the owner on a few key points; agree a page
@@ -170,7 +170,8 @@ tidy or has been prepared (`project-onboarding`), and a person who wants a cross
   overlapping homes, files staged for another project, and drift since the last pass. The curate
   half is **propose-only**: an interview on a fixed depth ladder, then a move-plan the owner
   approves row by row, executed under the shared move guards and proved by a re-audit. Approved
-  plans are also how files migrate between projects. The curated folder goes back to
+  plans are also how files are staged for another project while a folder is being prepared. The
+  curated folder goes back to
   `pre-onboarding` for its extraction, cards and wiki, and the audit keeps running afterwards as the
   project's periodic `audit` job.
 

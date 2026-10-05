@@ -875,7 +875,8 @@ report (also to `--out`, refused inside the folder with `--read-only-root`) and 
 any finding, and 2 on a tool error: a missing or malformed manifest (a live entry without `hashed` true or false
 included) or canary result, or a crash, so 1 always means findings (a malformed card or extract record is a finding,
 counted with the rest). The fixture's report is
-[`../tests/expected/readiness.json`](../tests/expected/readiness.json).
+[`../tests/expected/readiness.json`](../tests/expected/readiness.json): the fixture stages a file in its migrations
+folder for the other tools, so that report carries the one finding, `migrations_folder_cleared`, and no other.
 
 Each check is a count, a state, `ok`, `finding: ...` or `not verified: ...`. `findings` lists every finding as
 `[check, what]`, `check` being the report key that holds it; `not_verified` lists every named not-verified state the
@@ -923,8 +924,19 @@ same way, which is not a finding and not a pass either, and does not change the 
   rulebook's prose by substring and keyword: a filename is reserved when `CLAUDE.md`, `AGENTS.md` or `GEMINI.md` is
   written anywhere in `CLAUDE.md`, and new files are routed out when a line names the migrations folder
   (`_Migrations/`) together with "new file", "dropped", "goes to" or "go to", in any case, so a line saying where
-  approved migrations wait passes and one saying new files go there does not; `settings_rulebook_json` and
-  `settings_wiki_schema_json` (present and fresh).
+  approved migrations wait passes and one saying new files go there does not; `migrations_folder_cleared` (below);
+  `settings_rulebook_json` and `settings_wiki_schema_json` (present and fresh).
+
+**The migrations folder.** `migrations_folder_cleared` lists the names under the folder's migrations folder
+(`migrations_dir`, `_Migrations` by default) and never opens a file. It is `ok` when no file is there, or no such
+folder, and otherwise a finding that gives the count per first-level subfolder (one for each project the files are
+staged for), at any depth beneath it, with the files directly in the folder apart, cut after five like the other
+lists (`finding: _Migrations/ holds 3 file(s) (Household: 1; Other Project: 2); ...`). `.DS_Store` and empty folders
+do not count; every other name does, an evicted iCloud placeholder (`.<name>.icloud`) and any other hidden file
+included, and so does a link, which is counted and never followed. A folder it cannot list leaves the count a floor,
+which the finding says; with no file found and a folder it could not list, the item is `not verified`, never `ok`. A
+deployment onboards a folder only once it is `ok`
+([`project-onboarding` step 1](../../project-onboarding/SKILL.md#1-scope-the-folder-and-tell-its-starting-state-read-only)).
 
 **Derived pages.** The rule is `wiki-maintenance`'s *Deadlines are derived, not authored*
 ([rules that keep it safe](../../wiki-maintenance/SKILL.md#rules-that-keep-it-safe)), read through the keys its
@@ -1029,13 +1041,21 @@ read otherwise than PyYAML reads it.
    always writes are required, and so are those its entries or list make it write: the title, the intro, `## Upcoming`;
    `## Every year` beside a yearly entry, `## Past` beside a past one, the intro line of a list that is there, and
    `_None._` when no page gives a forward deadline (judged only while every page is read). A missing one is reported as
-   an incomplete derived page naming it. The fixture's roll-up writes no em dash, so its intro puts a colon where the
-   reference roll-up puts the dash, as its entries do.
-3. An entry is `- **<date>**`, then the page titles and, when there is one, the note, each after a spaced em dash
-   (the reference deployment's roll-up), or `: <note>` (the fixture's roll-up), then ` (<links>)` ending the line. The links are read from
-   the end of the line, each `[<page path without .md, or its title>](<its path from the roll-up, percent-encoded>)`
-   to a different page of the wiki, so a page name holding brackets, `](` or a long encoded name is read by its own
-   text and no target length is capped. The titles are the linked pages' own, so a note is never guessed at.
+   an incomplete derived page naming it. A roll-up that writes no em dash puts a colon where the older reference
+   roll-up puts the dash, in its intro and in its one-line banner as in its entries. The reference roll-up writes that
+   form now, and the fixture's always did, so both intros and both one-line banners are read, the older one for a
+   deployment that has not re-rendered.
+3. An entry is `- **<date>**`, then ` (<links>)` ending the line, and between them one of three layouts: `: <titles>.
+   <note>`, or `: <titles>` with no note (the reference roll-up now); the titles and, when there is one, the note,
+   each after a spaced em dash (the same roll-up before it dropped the dash); or `: <note>` (the fixture's roll-up).
+   The links are read from the end of the line, each `[<page path without .md, or its title>](<its path from the
+   roll-up, percent-encoded>)` to a different page of the wiki, so a page name holding brackets, `](` or a long
+   encoded name is read by its own text and no target length is capped. The titles are the linked pages' own, each
+   once and in the order of the links, so a note is never guessed at. A date followed by a colon fits two layouts, and
+   the titled one wins: the line is titled when what stands between the colon and the links is the titles alone, or
+   the titles, a full stop, a space and a note that is not empty, and is note-only otherwise. A note-only line whose
+   note is the titles, or starts with them and a full stop and a space, is therefore read as titled, so its note
+   differs from the one the page gives and the line is reported.
 4. An entry is clean only when its date is in the form the roll-up writes (`<day> <Month name>`, no ordinal and no
    leading zero, or `YYYY-MM-DD`) and its `(date, note, page)` is in the set from step 1, the dated ones by their full
    date and the recurring ones by month and day, the note exactly. `04-05` or `April 5th` in an entry line is
@@ -1061,7 +1081,8 @@ real roll-up: `tests/rollups/` holds the pages the reference deployment's roll-u
 recurring-only one, one with a "Could not read" list, one of page names holding brackets and long encoded targets, one
 of the YAML rules (a comma, a comment, a comment after `}`, block items), one of refused items (a quoted empty value, a
 quoted bare item, the same item twice) and one of pages under a dot folder and of `.superseded.md` and `.proposed.md`
-siblings; each must read clean (`rollups/capture.py` refreshes them).
+siblings; each must read clean (`rollups/capture.py` refreshes them). The dashless layout and one-line banner, which
+those captures predate, are pinned line by line in `tests/test_readiness.py`.
 
 - `derived_pages_hold_nothing_hand_written`: the page holds only what the roll-up renders (above); every `YYYY-MM-DD`
   on it is a page's `deadline` or `deadlines` date (`YYYY-MM-DD` or `{date, note}`); the roll-up shows every such

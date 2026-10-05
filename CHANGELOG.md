@@ -4,6 +4,85 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v12.0.0 (2026-10-05)
+
+A **MAJOR**: a semantic change to a documented rule (#126), with a new hand-off check and a roll-up reader
+that follow it. The reference deployment's owner decided that no job moves a file between projects. A
+deployment may propose or suggest a move, and the owner makes it by hand. Staging files in the migrations
+folder still happens during preparation, through plan rows the owner approves, and a folder is onboarded only
+once that folder is empty. Its generated pages also stopped using em dashes, which `readiness.py` had to learn
+to read.
+
+### Breaking (MAJOR)
+
+- **No job moves a file between projects** (`wiki-maintenance`'s rule that a project files within itself,
+  `folder-curation`, `user-onboarding`, `pre-onboarding`, `project-onboarding`, the user-synthesis archetype
+  and `ARCHITECTURE.md`, #126). Before, once a folder was maintained, the user-tier synthesis proposed a
+  migration and, the owner approving it, the holding project's approved curation plan carried it out, staged
+  in `<migrations folder>/<Project>/`. Now a file that belongs to another project is filed in the folder like
+  any other, the synthesis still proposes the move with its evidence, and the owner makes it by hand. A
+  deployment surfaces the proposal as a suggestion, and executes no guarded cross-project move and stages no
+  plan from an approval. What stays: during preparation a curation round stages files in the migrations
+  folder through plan rows the owner approves (`plan.py migrate` and `return`).
+- **A folder is onboarded only once its migrations folder is empty** (`project-onboarding` step 1,
+  `pre-onboarding`'s hand-off contract). Onboarding stops while the folder holds any file, an evicted iCloud
+  placeholder included, names the count per target project, and never moves files between projects to clear
+  it. Before, nothing required the folder to be cleared.
+- **The user-synthesis templates say who makes the move** (`synthesise.md` and `reconcile.md`, #126): the
+  owner makes any move by hand, and a template only suggests it. The reply may still carry `migration`, and its
+  shape is unchanged.
+- **Skill descriptions** (frontmatter, #126): `folder-curation` now says approved plans stage files for another
+  project while a folder is being prepared, and `user-onboarding` says the synthesis suggests migrations for the
+  owner to make by hand. No skill is renamed.
+
+### Added (MINOR)
+
+- **`migrations_folder_cleared`, a hand-off contract item**
+  ([`pre-onboarding`](plugins/ai-os/skills/pre-onboarding/SKILL.md#the-hand-off-contract),
+  [`readiness.py`](plugins/ai-os/skills/pre-onboarding/references/tools.md#readinesspy), #126). The folder's
+  migrations folder (`migrations_dir`, `_Migrations` by default) must hold no file. `readiness.py` lists names
+  and never opens a file; `.DS_Store` and empty folders do not count, and an evicted iCloud placeholder does.
+  The finding names the count per first-level subfolder, one for each target project. A folder it cannot list
+  is reported as not verified, never as cleared.
+- **The roll-up reader follows the dashless form** (`readiness.py`, #126). The reference roll-up now writes
+  `- **<when>**: <titles>. <note> (<links>)`, or `- **<when>**: <titles> (<links>)` with no note, a colon where
+  it had a spaced em dash in the intro, the entries and the empty-roll-up banner. `parse_entry` and the banner
+  check read it, still read the em-dash form a deployment that has not re-rendered writes, and still read the
+  note-only colon form of the fixture. A colon line that fits both colon forms is read as titled; the rule and
+  its one misreading are in the tool reference. Each form is pinned in `tests/test_readiness.py`.
+
+### Changed
+
+- **The fixture's report carries the new finding.** The fixture stages a file in its migrations folder for the
+  audit, plan and wiki tools, so `tests/expected/readiness.json` now reports exactly that one finding and
+  `regen_expected.py` fails on any other. The readiness tests start from the fixture with that file, its
+  extract record and its card removed.
+
+### Migrating a deployment
+
+Advance the pin as [*Consuming a pinned release*](plugins/ai-os/ARCHITECTURE.md#consuming-a-pinned-release)
+sets out, after these steps:
+
+1. **Stop carrying out cross-project migrations.** Surface a user-synthesis item that carries `migration` to
+   the owner as a suggestion, with its two projects, its files and its evidence, and let the owner make the
+   move by hand. Remove any step that turns an approval into a staging plan, or into a guarded move, in the
+   holding project once the folder is maintained.
+2. **Refuse to onboard a folder whose migrations folder holds any file.** Name the count per target project
+   and wait for the owner to clear it by hand; never move files between projects to clear it. A deployment's
+   own check of the hand-off contract refuses such a folder the same way, and `readiness.py` reports it as
+   `migrations_folder_cleared`. A prepared folder that still has files staged there goes back to the owner.
+3. **Re-read the two user-synthesis templates** and re-stamp any copy a project made of them
+   ([`archetypes/user-synthesis/`](plugins/ai-os/skills/project-onboarding/archetypes/user-synthesis/)): the
+   wording changed, the reply shape did not.
+
+Nothing is needed for the roll-up reader: a deployment that has not re-rendered its roll-ups still passes, and
+one that has passes too.
+
+### Placeholders
+
+No placeholder was added, removed or made required: each of the eight prompt templates under
+`project-onboarding/archetypes/` uses the same set as at v11.0.0.
+
 ## v11.0.0 (2026-10-04)
 
 A **MAJOR**: page contracts, until now an opt-in profile, become mandatory for every page type, and

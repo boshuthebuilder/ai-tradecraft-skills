@@ -79,7 +79,7 @@ archetype); keeping a wiki that already exists (`wiki-maintenance`).
     wiki-rationale.md        one rationale block per wiki page
     wiki-acceptance.json     the acceptance verdicts
   _Inbox/                    the drop point the rulebook names
-  _Migrations/<Project>/     files approved for another project, only while a migration is open
+  _Migrations/<Project>/     files approved for another project, only while a migration is open; empty at hand-off
   <folder name> Wiki/        00 Index, 01 Deadlines, the numbered sections, 90 Schema, 91 Log
   <the owner's folders>      unchanged except by approved rows
 ```
@@ -115,8 +115,9 @@ sha256 as `rulebook_sha256`, which says the twin was reviewed against it
   ([the list](references/settings.md#rulebookjson)); a pack listed in `rulebook.json` must be an existing folder,
   named exactly, or the audit and plan tools refuse to run;
 - new files are filed within this folder by the wiki's routing, never routed to the migrations folder: a file that
-  seems to belong to another project is filed or flagged here, and moving it is the owner's user-tier synthesis to
-  propose ([a project files within itself](../wiki-maintenance/SKILL.md#rules-that-keep-it-safe)).
+  seems to belong to another project is filed here like any other, and the move is only suggested, by the owner's
+  user-tier synthesis; the owner makes it by hand
+  ([a project files within itself](../wiki-maintenance/SKILL.md#rules-that-keep-it-safe)).
 
 Then run `settings.py check --root "<folder>"`. Until the wiki exists it reports `wiki-schema.json` as missing;
 fix every other finding now.
@@ -167,6 +168,13 @@ were built from. A round after that is repaired, never read again (*A round afte
    ([folder-curation step 5, *Expect a second round of redundancy*](../folder-curation/SKILL.md#5-execute-deterministic-guards-not-judgement)):
    propose what the re-audit shows as a new round. Curation is done when a round's proof and delete check are
    clean and the owner wants nothing more at the depth they chose.
+
+**The migrations folder is cleared by hand before hand-off.** Staging is for this preparation only:
+`project-onboarding` stops while the migrations folder holds any file. The owner empties it, each staged file
+collected by its own project (a departure `prove` expects by name, item 6) or brought back by an approved `return`
+round, until nothing is left but `.DS_Store` and empty folders. After onboarding the system stages nothing: a file
+that belongs to another project is filed in the folder like any other, and the move is only suggested, for the
+owner to make.
 
 **A round after extraction.** When a round has to run after step 4 (a migration found while the wiki is drafted,
 say), repair what it moved rather than read anything again. Once the round's re-audit is proved,
@@ -454,7 +462,11 @@ What a deployment relies on when it onboards a prepared folder, and what `readin
   list, is reported as not verified.
 - **The rulebook**: `CLAUDE.md` present, valid UTF-8 and identical to `AGENTS.md`; naming the wiki folder; reserving
   the deployment's rulebook filenames, `GEMINI.md` included; routing no new file to the migrations folder, which
-  leaves migrations to the owner's user-tier synthesis.
+  leaves a migration to the owner: the user-tier synthesis only suggests it.
+- **The migrations folder is cleared**: the folder's migrations folder (`migrations_dir` in `rulebook.json`,
+  `_Migrations` by default) holds no file, since a deployment onboards a folder only once it is empty. Names are
+  listed and no file is opened; `.DS_Store` and empty folders do not count, an evicted iCloud placeholder does, and
+  the finding names the count per first-level subfolder. The owner clears it by hand before hand-off.
 - **The settings twins** present and fresh.
 - **No scratch**: `_Audit/` holds no folder but `plans`, `extract` and `cards`.
 
