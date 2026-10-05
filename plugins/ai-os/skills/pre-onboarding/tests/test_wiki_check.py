@@ -493,7 +493,9 @@ class CheckTest(Copy):
     PRIVATE = "Alex's Scans/Private [old]/Secret, 2024.pdf"  # excluded, and its names hold an apostrophe, brackets, a comma
 
     def live_paths(self):
-        return ["%s/Scan 1.pdf" % f for f in self.LIVE_FOLDERS] + ["Backups/%s/Scan 1.pdf" % os.path.basename(self.root)]
+        return ["%s/Scan 1.pdf" % f for f in self.LIVE_FOLDERS] + ["Backups/%s/Scan 1.pdf" % os.path.basename(self.root),
+                                                                    "Old (2019)/06 Work/Contract.docx",
+                                                                    "05 Archive/06 Work/Contract.docx"]
 
     def live_inside_a_copy_of_the_folder(self):
         """A live document under a folder that is a copy of this one: a page may name it from the copy's own name."""
@@ -594,6 +596,34 @@ class CheckTest(Copy):
         for form, text in live.items():
             with self.subTest(live=form):
                 self.assertEqual(self.appended(page, text + "\n"), [], text)
+        blockers = {
+            # a name that only ends in a live folder's name is no path that starts a segment there
+            "a folder that is not live, ending in a live one's name": ("See `Household (2019)/06 Work/Contract.docx`.", "excluded"),
+            "the same in prose": ("See Household (2019)/06 Work/Contract.docx here.", "excluded"),
+            "MyPhotos": ("See MyPhotos/Scan 1.pdf here.", "migrations"),
+            "Family-Photos": ("See Family-Photos/Scan 1.pdf here.", "migrations"),
+            "Old_Photos": ("See `Old_Photos/Scan 1.pdf`.", "migrations"),
+            "Old.Photos": ("See Old.Photos/Scan 1.pdf here.", "migrations"),
+            "NotBackups, the withheld folder": ("See `NotBackups/Staff/pay.pdf`.", "excluded"),
+            "OldBackups, the withheld folder": ("See OldBackups/Staff/pay.pdf here.", "excluded"),
+            "TaxReports, as the copy's Reports": ("See TaxReports/Scan 1.pdf here.", "migrations"),
+            # a live folder at the end of one paragraph, a withheld path opening the next
+            "a list of folders, then a blank line": ("Folders reviewed: 02 Finance/, Photos/\n\nScan 1.pdf was staged for another "
+                                                     "project.", "migrations"),
+            "a slash and the path, after a blank line": ("Everything else is in Photos\n\n/Scan 1.pdf was staged.", "migrations"),
+            "a quotation, then a blank line": ("> Kept in Photos/\n\nScan 1.pdf was staged.", "migrations"),
+            "an indented path after a blank line": ("Folders: Photos/\n\n    Scan 1.pdf was staged.", "migrations"),
+            "the excluded document after a blank line": ("Older papers: Old (2019)/\n\n06 Work/Contract.docx is the contract.",
+                                                         "excluded"),
+            "the withheld folder after a blank line": ("Copies are in Backups/\n\nStaff/pay.pdf is the payroll.", "excluded"),
+            "a heading, with no blank line": ("## Photos/\nScan 1.pdf was staged for another project.", "migrations"),
+            "a heading before the excluded document": ("## Old (2019)/\n06 Work/Contract.docx is the contract.", "excluded")}
+        for form, (text, why) in blockers.items():
+            with self.subTest(blocker=form):
+                self.assertEqual({c[2] for c in self.appended(page, text + "\n")}, {why}, text)
+                code, out, err = self.wiki("review-prompts", "--page", page, "--author-model", "a", "--reviewer-model", "b",
+                                           "--out", os.path.join(self.tmp, "q"))
+                self.assertEqual(code, 2, "review-prompts rendered a page that cites a withheld document: " + text + err)
         with self.subTest(live="a live folder explains a withheld folder of the same tail"):
             for text in ("See `Backups/Staff/pay.pdf`.", "See Backups/Staff/pay.pdf here.", "See [s](Backups/Staff/pay.pdf).",
                          "- Backups/Staff/pay.pdf", "> Backups/\nStaff/pay.pdf"):

@@ -1186,16 +1186,20 @@ def withheld_citer(root, rb, man, ws):
         document's path (or of a live, included folder's, with its `/`) that the text before and up to `e` ends with:
         `Photos (2024)/Scan 1.pdf` is that document, not the staged root stray `Scan 1.pdf`. A direct suffix test, no
         reading of where the longer path starts: a bracket, an apostrophe, a comma or a glued word before it cannot
-        matter. Anything else is a citation."""
+        matter. The live path must start a path segment, though: the character before it is no letter, digit, `-`, `_`
+        or `.`, so `MyPhotos/Scan 1.pdf` is not `Photos/Scan 1.pdf`. Anything else is a citation."""
         if token not in ending_with:
             ending_with[token] = [q for q in live_ends if q.endswith("/" + token)]
-        return any(text[:e].endswith(q) for q in ending_with[token])
+        return any(text[:e].endswith(q) and (e == len(q) or not (text[e - len(q) - 1].isalnum()
+                                                                or text[e - len(q) - 1] in "_-."))
+                   for q in ending_with[token])
 
     def scan(lines):
         """[(line number, why, kind)] for every token of `withheld_at` and `folders` in `lines`, read three ways: each
         line followed by a space (wrapped at a space); the lines' indentation, quote marks and line breaks taken out
         (wrapped after any character, a `/` included); and joined by a space except at a `/` or before a `.`. `//` and
-        `/./` are taken out of each. An occurrence (its line and column) that a live document explains in any of the
+        `/./` are taken out of each; a blank line and a heading line (`#`) are joined to the next with a space in the
+        second and third readings, since no path is wrapped across a paragraph. An occurrence (its line and column) that a live document explains in any of the
         three readings is not a citation, so a path hard-wrapped at a space or at a `/` is judged as it was written."""
         seen = {}
         for variant in ("spaced", "bare", "mixed"):
@@ -1206,8 +1210,8 @@ def withheld_citer(root, rb, man, ws):
             for n, k in enumerate(keys):
                 starts.append(len(joined))
                 follows = keys[n + 1] if n + 1 < len(keys) else ""
-                joined += k + ("" if variant == "bare" or variant == "mixed" and (k.endswith("/") or follows[:1] in "/.")
-                               and follows else " ")
+                joined += k + ("" if (variant == "bare" or variant == "mixed" and (k.endswith("/") or follows[:1] in "/."))
+                               and k and follows and not k.startswith("#") else " ")
             text, at = collapse(joined)
             for tokens, kind in ((withheld_at, "document"), (folders, "folder")):
                 for token, why in tokens.items():

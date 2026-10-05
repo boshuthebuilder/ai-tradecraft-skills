@@ -801,11 +801,13 @@ default that does not exist reads as `not recorded`. Line numbers count from the
   (the last part of its real path), the path after any segment of that name is a form too, and `file://` is dropped. A
   withheld path is also found anywhere in the page's text, in plain text and in a fenced block, with its percent-escapes
   decoded, wrapped across lines at any point (read joined by a space, with the lines' indentation, quote marks and breaks
-  taken out, and joined by a space except at a `/` or before a `.`), with `//` and `/./` taken out, and in a `sources:`
+  taken out, and joined by a space except at a `/` or before a `.`; a blank line and a heading line are joined to the next
+  with a space, since no path is wrapped across a paragraph), with `//` and `/./` taken out, and in a `sources:`
   entry or a backticked span. A match in the text that follows a `/` is explained, and no citation, when it ends a live,
   included document's path (or a live, included folder's, with its `/`) that the text before it and up to the match ends
-  with, compared folded: `Photos (2024)/Scan 1.pdf` is that document, not the staged root stray `Scan 1.pdf`. It is a direct
-  suffix test with no reading of where the longer path starts, so a bracket, an apostrophe, a comma or a space in a folder
+  with, compared folded, and that live path starts a path segment there (the character before it is no letter, digit, `-`,
+  `_` or `.`: `MyPhotos/Scan 1.pdf` is not `Photos/Scan 1.pdf`): `Photos (2024)/Scan 1.pdf` is that document, not the
+  staged root stray `Scan 1.pdf`. It is a direct suffix test with no reading of where the longer path starts, so a bracket, an apostrophe, a comma or a space in a folder
   name, a word glued on from the line before, and a list marker or a quotation mark do not matter; a live path also
   counts as it reads after a segment named as the folder is (`Archive/Alex Personal/Reports/x` as `Reports/x`), as a link
   is read. A citation or a link target that, spelt as a folder-relative path and no other way, is a live document's or
