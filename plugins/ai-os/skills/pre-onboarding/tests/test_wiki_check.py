@@ -360,6 +360,36 @@ class CheckTest(Copy):
         edit(study, "| `04 Study` | 5 |", "| 04 Study | 5 |")  # a folder named without backticks does not
         self.assertEqual(self.check()["not_covered_sample"], ["04 Study/Notes.rtf", "04 Study/Slides.pptx"])
 
+    def exclude(self, *paths, root=None):
+        """The rulebook's `exclude` set to `paths`: the twin only (its pin is of CLAUDE.md, which is not touched)."""
+        twin = os.path.join(root or self.root, ".familyai", "rulebook.json")
+        write(twin, json.dumps(dict(json.loads(read(twin)), exclude=list(paths)), ensure_ascii=False, indent=1))
+
+    def test_an_excluded_document_is_never_required_by_coverage_and_never_named(self):
+        """No page names it, and none need: it is counted, never listed, so its path is in no output."""
+        plant = [d for d in DEFECTS if d[0] == "a document no page covers"][0][3]
+        plant(self.root, self.work)
+        self.assertEqual(self.check()["not_covered_sample"], ["03 Home/Lease notes .txt"])
+        self.exclude("03 Home/Lease notes .txt")
+        res = self.check()
+        self.assertEqual((res["problems"], res["documents_not_covered"], res["not_covered_sample"]), (0, 0, []))
+        self.assertEqual((res["documents_in_scope"], res["documents_excluded"],
+                          res["documents_held_for_another_project"]), (16, 1, 1))
+        self.assertNotIn("Lease notes", json.dumps(res))
+
+    def test_an_excluded_folder_takes_everything_under_it_out_of_scope(self):
+        study = sum(e["current_path"].startswith("04 Study/") for e in json.loads(read(MANIFEST))["entries"].values())
+        self.assertEqual(study, 4)
+        self.exclude("04 Study")
+        res = self.check()
+        self.assertEqual((res["documents_in_scope"], res["documents_excluded"]), (17 - study, study))
+
+    def test_a_document_held_for_another_project_is_counted_apart(self):
+        res = self.check()
+        self.assertEqual((res["documents_in_scope"], res["documents_held_for_another_project"],
+                          res["documents_excluded"]), (17, 1, 0))
+        self.assertEqual(self.check("--page", TAX)["documents_held_for_another_project"], 1)
+
     def test_live_top_folders(self):
         man = {"a": {"current_path": "07 Old/x.pdf", "flags": ["departed"], "copies": [{"path": "09 Gone/x.pdf"}]},
                "b": {"current_path": "01 A/y.pdf", "flags": [], "copies": [{"path": "08 C/y.pdf"}]},

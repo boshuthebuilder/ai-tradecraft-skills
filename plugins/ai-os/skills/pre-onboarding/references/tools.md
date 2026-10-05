@@ -565,8 +565,12 @@ must be) is refused by name, exit 2.
 For the readers interview and the librarian: per top-level folder and subfolder down to `--depth`, its live
 documents (by current path), the copies held there of documents living elsewhere (and the folders those live in),
 and from the documents' cards their categories, the span of their `doc_date`s and their top `--parties` parties,
-aliases folded to the rulebook's canonical names. Migrating and departed entries are counted, not profiled. Prints
-JSON (`folder`, `depth`, `documents`, `carded`, `copies`, `migrating`, `departed`, `uncarded`, `categories`, and
+aliases folded to the rulebook's canonical names. Departed entries are counted, not profiled, and so is a document
+withheld by [`common.withheld`](#held-for-another-project-and-excluded): `migrating` counts those staged under the
+migrations folder and `excluded` those the rulebook excludes. A withheld document is never profiled, and none of its
+copies, nor a copy of any document in a withheld path, is counted or named, since a path alone can carry another
+project's name or an excluded person's. Prints
+JSON (`folder`, `depth`, `documents`, `carded`, `copies`, `migrating`, `excluded`, `departed`, `uncarded`, `categories`, and
 `folders`, one object each), also to `--out` where `--read-only-root` allows. For example, a folder that only
 mirrors others:
 
@@ -577,23 +581,31 @@ mirrors others:
 
     wiki.py bundles --root <folder> [--out <dir>] [--reuse] [--text-cap 12000] [--cards <dir>] [--extract <dir>]
 
-Routes every live manifest entry outside the migrations folder by the compiled routing (its longest matching prefix; a
+Routes every live manifest entry that is not withheld ([`common.withheld`](#held-for-another-project-and-excluded):
+staged under the migrations folder, or excluded by the rulebook) by the compiled routing (its longest matching prefix; a
 note row routes nothing) and writes one `bundle_<NN>.jsonl` per section to `--out` (default `<work>/bundles`; refused
 inside the folder, and the tool's own: a rebuild removes `bundles.json` and the section files there). Each line is a
 document: its short id, path, other copies, pages, extract status, and from its card `title`, `doc_type`, `party`,
 `parties`, `doc_date`, `category`, `language` and `sensitive`; then `summary` and `key_facts`, and in an `active`
 section the full text, capped at `--text-cap` characters. In any other section, reading, photos and other bulk
-material is listed `compact`, without summary or text. A card with no extract record is refused.
+material is listed `compact`, without summary or text. A card with no extract record is refused. A withheld document is
+in no bundle, in neither the `unrouted` nor the `uncarded` list, and in no `copies` list (a copy of an included document
+under a withheld path is left out too); it is counted in the summary the command prints and `bundles.json` keeps
+(`held_for_another_project`, `excluded`).
 
-`bundles.json` records `manifest_sha256`, `routing_sha256` (the routing rows and section kinds), `arguments` (the
+`bundles.json` records `manifest_sha256`, `routing_sha256` (the routing rows and section kinds), `withheld_sha256` (a
+digest of which documents were withheld, by id and why), `arguments` (the
 non-default `--settings-dir`, `--manifest`, `--cards`, `--extract` and `--text-cap` it was built with), `text_cap`,
-the counts per section, the files, and the `unrouted` and `uncarded` paths; either list non-empty exits 1. A
+the counts per section, the files, the withheld counts, and the `unrouted` and `uncarded` paths; either list non-empty
+exits 1. A
 rebuild removes `bundles.json` before anything else, so one that fails part way leaves none to trust, and removes
 section files it no longer writes.
 
 **Staleness.** `brief`, and `bundles --reuse` (which reuses fresh bundles without rebuilding), refuse (exit 2)
 bundles whose recorded `manifest_sha256` differs from the current manifest's, whose `routing_sha256` differs from
-the current Schema's, or whose files are missing, and name the command that rebuilds them with the recorded
+the current Schema's, whose `withheld_sha256` differs from the withheld set now (the migrations folder or `exclude` in
+`rulebook.json` changed, which the manifest alone does not show: a bundle built before an exclusion would hold the
+excluded document), or whose files are missing, and name the command that rebuilds them with the recorded
 `arguments`. `--reuse` also refuses bundles built with other `--cards`, `--extract` or `--text-cap` than the ones
 it is given. Every curation round ends in a re-audit that rewrites the manifest, so bundles built before it are
 refused rather than read.
@@ -682,8 +694,10 @@ default that does not exist reads as `not recorded`. Line numbers count from the
   whose source `chart` would refuse (missing, resolving outside the folder, or under a reserved name); those cells
   are checked there, not again as backticked paths.
 - `deadlines`, `[date, page]`: every `deadlines:` entry in the pages' frontmatter (no problem).
-- `documents_in_scope`, `documents_not_covered` and the first twenty as `not_covered_sample`: coverage. A live
-  document outside the migrations folder is covered when a page names its path or a copy's, in `sources:` or in
+- `documents_in_scope`, `documents_not_covered` and the first twenty as `not_covered_sample`: coverage, with
+  `documents_held_for_another_project` and `documents_excluded` counting the live documents withheld
+  ([`common.withheld`](#held-for-another-project-and-excluded)), which are out of scope, never required by coverage and
+  never listed. A live document that is not withheld is covered when a page names its path or a copy's, in `sources:` or in
   backticks, or names its own parent folder in backticks, with or without the trailing `/` (`04 Study/` and
   `04 Study` cover `04 Study/Notes.rtf`, not `04 Study/Old/Notes.rtf`; a folder named without backticks covers
   nothing). The Schema page (whose routing names folders to route them) and the Log do not cover.

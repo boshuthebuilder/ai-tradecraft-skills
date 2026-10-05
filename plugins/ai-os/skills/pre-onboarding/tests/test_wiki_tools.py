@@ -277,6 +277,35 @@ class ProfileTest(Copy):
     def test_golden(self):
         self.assertEqual(self.ok("profile"), read(os.path.join(GOLDEN, "profile.json")))
 
+    def exclude(self, *paths):
+        twin = os.path.join(self.root, ".familyai", "rulebook.json")
+        write(twin, json.dumps(dict(json.loads(read(twin)), exclude=list(paths)), ensure_ascii=False, indent=1))
+
+    def test_an_excluded_document_is_counted_and_never_profiled_or_named(self):
+        self.exclude("06 Work")
+        text = self.ok("profile")
+        res = json.loads(text)
+        self.assertEqual({k: res[k] for k in ("documents", "carded", "copies", "migrating", "excluded")},
+                         {"documents": 15, "carded": 15, "copies": 5, "migrating": 1, "excluded": 2})
+        self.assertNotIn("06 Work", text, "a folder, a path or a copy of an excluded document named in the profile")
+        self.assertNotIn("06 Work", [r["folder"] for r in res["folders"]])
+        archive = {r["folder"]: r for r in res["folders"]}["05 Archive"]
+        self.assertEqual(archive["copies_of"], {"04 Study": 3}, "the copies of Essay.docx are not counted")
+        self.exclude("05 Archive")  # a copy under an excluded path is named by no one's profile either
+        text = self.ok("profile")
+        self.assertNotIn("05 Archive", text)
+        self.assertEqual(json.loads(text)["copies"], 7 - 4)
+
+    def test_a_copy_under_the_migrations_folder_is_never_named(self):
+        man = json.loads(read(os.path.join(self.root, "_Audit", "manifest.json")))
+        entry = next(e for e in man["entries"].values() if e["current_path"] == "03 Home/Lease renewal.pdf")
+        entry["copies"] = [{"path": entry["current_path"], "kind": "canonical"},
+                           {"path": "_Migrations/Other Project/Lease renewal.pdf", "kind": "working_copy"}]
+        write(os.path.join(self.root, "_Audit", "manifest.json"), json.dumps(man))
+        text = self.ok("profile")
+        self.assertNotIn("Other Project", text)
+        self.assertEqual(json.loads(text)["copies"], 7)
+
     def test_folders_copies_dates_and_parties(self):
         res = self.profile()
         self.assertEqual({k: res[k] for k in ("documents", "carded", "uncarded", "copies", "migrating", "departed")},
@@ -328,7 +357,8 @@ class BundlesTest(Copy):
         res = self.build()
         self.assertEqual(tree_digest(self.root), before, "bundles wrote inside the folder")
         self.assertEqual(res, {"routed": 16, "sections": {"10": 2, "20": 6, "30": 4, "40": 4}, "compact": {"40": 2},
-                               "unrouted": ["IMG_0001.jpg"], "uncarded": []})
+                               "unrouted": ["IMG_0001.jpg"], "uncarded": [], "held_for_another_project": 1,
+                               "excluded": 0})
         names = sorted(os.listdir(self.bundles_dir()))
         self.assertEqual(names, sorted(os.listdir(os.path.join(GOLDEN, "bundles"))))
         first = {n: read(os.path.join(self.bundles_dir(), n), "rb") for n in names}
@@ -373,6 +403,52 @@ class BundlesTest(Copy):
                                                                        "section": None}]}
         self.assertEqual([wiki.route(ws, p) for p in ("02 Finance/a.pdf", "02 Finance/Scratch/a.pdf", "a.pdf")],
                          ["20", None, None])
+
+    def exclude(self, *paths):
+        twin = os.path.join(self.root, ".familyai", "rulebook.json")
+        write(twin, json.dumps(dict(json.loads(read(twin)), exclude=list(paths)), ensure_ascii=False, indent=1))
+
+    def bundle_text(self):
+        return "".join(read(os.path.join(self.bundles_dir(), n)) for n in sorted(os.listdir(self.bundles_dir())))
+
+    def test_an_excluded_document_is_in_no_bundle_list_or_record_and_is_counted(self):
+        ids = {e["current_path"]: h for h, e in json.loads(read(MANIFEST))["entries"].items()}
+        os.remove(os.path.join(self.root, "_Audit", "cards", ids["06 Work/Contract.docx"] + ".json"))  # no card
+        self.exclude("06 Work", "05 Archive")
+        res = self.build()
+        self.assertEqual((res["excluded"], res["held_for_another_project"], res["uncarded"], res["unrouted"]),
+                         (2, 1, [], ["IMG_0001.jpg"]), "withheld is neither uncarded nor unrouted")
+        self.assertEqual(res["sections"]["20"], 4)
+        text = self.bundle_text()
+        for named in ("06 Work", "05 Archive", "Contract", "Essay"):
+            self.assertNotIn(named, text, "an excluded document, or a copy of one, is named in a bundle")
+        rows = [json.loads(x) for x in read(os.path.join(self.bundles_dir(), "bundle_40.jsonl")).splitlines()]
+        self.assertEqual({r["path"]: r["copies"] for r in rows if r["path"] == "04 Study/Slides.pptx"},
+                         {"04 Study/Slides.pptx": []}, "the copy of Slides.pptx in the excluded 05 Archive is named")
+        self.assertEqual(json.loads(read(os.path.join(self.bundles_dir(), "bundles.json")))["excluded"], 2)
+
+    def test_a_copy_staged_for_another_project_is_in_no_bundle(self):
+        man = json.loads(read(os.path.join(self.root, "_Audit", "manifest.json")))
+        entry = next(e for e in man["entries"].values() if e["current_path"] == "03 Home/Lease renewal.pdf")
+        entry["copies"] = [{"path": entry["current_path"], "kind": "canonical"},
+                           {"path": "_Migrations/Other Project/Lease renewal.pdf", "kind": "working_copy"}]
+        write(os.path.join(self.root, "_Audit", "manifest.json"), json.dumps(man))
+        self.build()
+        self.assertNotIn("Other Project", self.bundle_text())
+
+    def test_bundles_built_before_an_exclusion_are_stale_and_a_rebuild_drops_the_document(self):
+        self.build()
+        self.assertIn("Contract.docx", self.bundle_text())
+        self.exclude("06 Work")  # the owner excludes it; the manifest has not moved, so only the withheld set says so
+        for cmd, args in (("bundles", ["--reuse"]), ("brief", ["--page", BRIEF_PAGES[0]])):
+            with self.subTest(cmd=cmd):
+                err = self.refused(cmd, *args)
+                self.assertIn("stale bundles", err)
+                self.assertIn("held for another project or excluded", err)
+                self.assertIn("rebuild them: wiki.py bundles --root", err)
+        self.build()
+        self.assertNotIn("Contract.docx", self.bundle_text())
+        self.brief(BRIEF_PAGES[0])
 
     def test_a_rebuild_leaves_only_its_own_files(self):
         write(os.path.join(self.bundles_dir(), "bundle_99.jsonl"), "{}\n")
@@ -845,7 +921,7 @@ class MalformedInputTest(Copy):
         good = json.loads(read(self.meta))
         write(self.meta, "[]")
         self.consumers("expected a JSON object")
-        for key in ("sections", "compact", "files"):
+        for key in ("sections", "compact", "files", "withheld_sha256", "excluded", "held_for_another_project"):
             write(self.meta, json.dumps({k: v for k, v in good.items() if k != key}))
             self.consumers("not a bundles.json that wiki.py bundles wrote (%s missing or malformed)" % key)
         write(self.meta, json.dumps(dict(good, sections={"20": "six"})))

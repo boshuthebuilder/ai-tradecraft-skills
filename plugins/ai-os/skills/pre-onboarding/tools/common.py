@@ -444,15 +444,16 @@ def withheld_ids(root, rb, manifest=None):
         raise ToolError("cannot read %s (%s)" % (path, e.strerror or e))
     if not isinstance(entries, dict):
         raise ToolError("%s has no \"entries\" object; it is not a manifest audit.py wrote" % path)
-    held = {}
     for h, e in entries.items():
         where = e.get("current_path") if isinstance(e, dict) else None
         if not (isinstance(where, str) and where):
             raise ToolError("%s: entry %s has no current_path; re-run audit.py" % (path, h))
-        why = withheld(rb, where)
-        if why:
-            held[h] = why
-    return held
+    return withheld_in(rb, entries)
+
+
+def withheld_in(rb, entries):
+    """{id: why} (as `withheld`) for the entries of a manifest already read and checked, whatever their flags."""
+    return {h: why for h, e in entries.items() for why in [withheld(rb, e["current_path"])] if why}
 
 
 def named_exactly(root, rel):

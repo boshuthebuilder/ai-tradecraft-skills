@@ -40,8 +40,8 @@ holding a live manifest entry or copy) and that does not exist (any other such s
 Log's pages are history and not read); a link that does not resolve, or resolves to a file that is not a page (a
 link to a page the page map only plans is dead until the page is written), local links being those `move` rewrites
 (`local_link`) and a link's "title" allowed; a body line with an em dash outside inline code (lines counted from the
-page's first); a document in scope (live, outside the migrations folder) that no page names by its path or a copy's,
-in `sources:` or a backticked span, and whose own parent folder no page names in backticks, with or without the
+page's first); a document in scope (live, and not withheld: `common.withheld`) that no page names by its path or a
+copy's, in `sources:` or a backticked span, and whose own parent folder no page names in backticks, with or without the
 trailing `/` (the Schema page's routing and the Log do not count); a Mermaid block that does not parse as a kind
 `chart` renders, a chart block without its data table, or a table source `chart` would refuse (missing, outside the
 folder or reserved); a page with no single professional (`common.page_voice` refuses it); and in the rationale file
@@ -104,13 +104,15 @@ because their professional and contract cannot be read (no compiled Schema, a st
 removed; its records stay as made). Acceptance never counts as a problem and never makes the check
 pass.
 
-Bundles: each live manifest entry outside the migrations folder routes by the compiled Schema routing, its
-longest matching prefix (a note row, with no section, routes nothing). A routed entry with a card joins its
+Bundles: each live manifest entry that is not withheld (`common.withheld`: under the migrations folder, or excluded by
+the rulebook) routes by the compiled Schema routing, its longest matching prefix (a note row, with no section, routes nothing). A routed entry with a card joins its
 section's `bundle_<NN>.jsonl`; entries with no route, or routed but with no card, are listed as `unrouted` and
-`uncarded`. `bundles.json` records the manifest's sha256, a digest of the routing and section kinds the bundles
-were built by, and the non-default arguments they were built with. A consumer (`brief`, and `bundles --reuse`)
-refuses bundles whose recorded digests differ from the current manifest's and routing's: bundles go stale after any
-migration, re-audit or routing change, and are rebuilt by the command the refusal names. A rebuild removes
+`uncarded`. A withheld document is in no bundle, list or record (a `copies` list names none of its copies either) and is
+counted in the summary (`held_for_another_project`, `excluded`). `bundles.json` records the manifest's sha256, a digest of
+the routing and section kinds the bundles were built by, a digest of the documents then withheld, and the non-default
+arguments they were built with. A consumer (`brief`, and `bundles --reuse`) refuses bundles whose recorded digests
+differ from the current manifest's, routing's and withheld set: bundles go stale after any migration, re-audit,
+routing change or change to the migrations folder or `exclude`, and are rebuilt by the command the refusal names. A rebuild removes
 bundles.json first, so one that fails part way leaves none to trust.
 
 Brief: the pages' professionals, deliverables and tones (`common.page_voice`), their sections' contracts, the owner
@@ -363,7 +365,8 @@ def profile(a):
     """Per folder, for the folder and each subfolder down to --depth: live documents (by current path), copies
     held there of documents whose current path is elsewhere or beside them, and from the documents' cards the
     categories, the doc_date span and the top parties (aliases folded to the rulebook's canonical names; each
-    document counts a party once)."""
+    document counts a party once). A document held for another project (`migrating`) or excluded (`excluded`) is
+    counted and never profiled, and no copy of one is named."""
     if a.depth < 1 or a.parties < 1:
         raise common.ToolError("--depth and --parties count from 1")
     root, settings_dir, _work = common.resolve(a)
@@ -371,11 +374,10 @@ def profile(a):
     _mp, man = load_manifest(root, a.manifest)
     cards_dir, _x = cards_dirs(a, root)
     names = people_names(rb)
-    migr = rb["migrations_dir"] + "/"
     rows = collections.defaultdict(lambda: {"documents": 0, "copies": 0, "copies_of": collections.Counter(),
                                             "carded": 0, "categories": collections.Counter(), "dates": [],
                                             "parties": collections.Counter()})
-    total = {"documents": 0, "carded": 0, "copies": 0, "migrating": 0, "departed": 0}
+    total = {"documents": 0, "carded": 0, "copies": 0, "migrating": 0, "excluded": 0, "departed": 0}
     categories = collections.Counter()
 
     def folders(path):
@@ -387,8 +389,9 @@ def profile(a):
         if "departed" in e.get("flags", []):
             total["departed"] += 1
             continue
-        if p.startswith(migr):
-            total["migrating"] += 1
+        why = common.withheld(rb, p)
+        if why:  # held for another project or excluded: counted, and never profiled or named
+            total["migrating" if why == "migrations" else "excluded"] += 1
             continue
         card = load_card(cards_dir, h)
         total["documents"] += 1
@@ -410,7 +413,7 @@ def profile(a):
                     r["dates"].append(card["doc_date"])
                 r["parties"].update(parties)
         for c in e.get("copies", []):
-            if c["path"] == p or c["path"].startswith(migr):
+            if c["path"] == p or common.withheld(rb, c["path"]):
                 continue
             total["copies"] += 1
             for f in folders(c["path"]):
@@ -456,8 +459,17 @@ def routing_digest(ws):
 
 BUILD_ARGS = (("settings_dir", "--settings-dir"), ("manifest", "--manifest"), ("cards", "--cards"),
               ("extract", "--extract"))
-BUNDLES_META = {"manifest_sha256": str, "routing_sha256": str, "arguments": dict, "sections": dict, "compact": dict,
-                "files": dict, "unrouted": list, "uncarded": list}
+BUNDLES_META = {"manifest_sha256": str, "routing_sha256": str, "withheld_sha256": str, "arguments": dict,
+                "sections": dict, "compact": dict, "files": dict, "unrouted": list, "uncarded": list,
+                "held_for_another_project": int, "excluded": int}
+
+
+def withheld_digest(rb, man):
+    """The digest of which documents the tools withhold (staged for another project, or excluded), by id and why: the
+    rulebook's `exclude` and `migrations_dir` are not in the manifest, so a change to either leaves a bundle built
+    before it holding documents that must not be in one."""
+    held = common.withheld_in(rb, man)
+    return hashlib.sha256(json.dumps(sorted(held.items())).encode("utf-8")).hexdigest()
 
 
 def build_arguments(a):
@@ -478,9 +490,9 @@ def bundles_command(verb, root, bdir, arguments):
 REUSE_ARGS = ("--cards", "--extract", "--text-cap")  # what `bundles --reuse` must have been built with, as asked
 
 
-def fresh_bundles(root, bdir, mpath, ws, arguments, reuse=False):
-    """bundles.json in `bdir`, refused unless it is one `bundles` wrote, built from the current manifest and routing,
-    with every section's file there. The rebuild command repeats the arguments the bundles were built with
+def fresh_bundles(root, bdir, mpath, ws, arguments, rb, man, reuse=False):
+    """bundles.json in `bdir`, refused unless it is one `bundles` wrote, built from the current manifest, routing and
+    withheld documents, with every section's file there. The rebuild command repeats the arguments the bundles were built with
     (`arguments`, the caller's, when none are recorded). With `reuse`, the caller's --cards, --extract and
     --text-cap (defaults included) must be those the bundles were built with."""
     caller = arguments
@@ -495,6 +507,7 @@ def fresh_bundles(root, bdir, mpath, ws, arguments, reuse=False):
     rebuild = bundles_command("rebuild", root, bdir, arguments)
     bad = sorted(k for k, kind in BUNDLES_META.items() if not isinstance(meta.get(k), kind)
                  or (k in ("sections", "compact") and not all(type(v) is int for v in meta[k].values()))
+                 or (kind is int and type(meta.get(k)) is not int)
                  or (k == "arguments" and not texts))
     if bad:
         raise common.ToolError("%s is not a bundles.json that wiki.py bundles wrote (%s missing or malformed); %s"
@@ -506,6 +519,10 @@ def fresh_bundles(root, bdir, mpath, ws, arguments, reuse=False):
                                % (meta_path, meta.get("manifest_sha256"), mpath, have, rebuild))
     if meta.get("routing_sha256") != routing_digest(ws):
         raise common.ToolError("stale bundles: %s was routed by another Schema routing or section kinds; %s"
+                               % (meta_path, rebuild))
+    if meta.get("withheld_sha256") != withheld_digest(rb, man):
+        raise common.ToolError("stale bundles: %s was built when other documents were held for another project or "
+                               "excluded (the migrations folder or `exclude` in rulebook.json changed); %s"
                                % (meta_path, rebuild))
     missing = sorted(str(f) for f in meta["files"].values()
                      if not (isinstance(f, str) and BUNDLE_FILE.fullmatch(f) and os.path.isfile(os.path.join(bdir, f))))
@@ -524,7 +541,8 @@ def fresh_bundles(root, bdir, mpath, ws, arguments, reuse=False):
 
 def bundle_summary(meta):
     return {"routed": sum(meta["sections"].values()), "sections": meta["sections"], "compact": meta["compact"],
-            "unrouted": meta["unrouted"], "uncarded": meta["uncarded"]}
+            "unrouted": meta["unrouted"], "uncarded": meta["uncarded"],
+            "held_for_another_project": meta["held_for_another_project"], "excluded": meta["excluded"]}
 
 
 @os_errors
@@ -540,7 +558,7 @@ def bundles(a):
     writer = common.Writer(root)
     arguments = build_arguments(a)
     if a.reuse:
-        meta = fresh_bundles(root, out, mpath, ws, arguments, reuse=True)
+        meta = fresh_bundles(root, out, mpath, ws, arguments, rb, man, reuse=True)
         print(json.dumps(bundle_summary(meta), ensure_ascii=False))
         return 1 if meta["unrouted"] or meta["uncarded"] else 0
     meta_path = os.path.join(out, "bundles.json")
@@ -551,10 +569,14 @@ def bundles(a):
     kinds = {s["number"]: s["kind"] for s in ws["sections"]}
     cards_dir, extract_dir = cards_dirs(a, root)
     bund, unrouted, uncarded = collections.defaultdict(list), [], []
-    counts, compact = collections.Counter(), collections.Counter()
+    counts, compact, held = collections.Counter(), collections.Counter(), collections.Counter()
     for h, e in sorted(man.items(), key=lambda x: x[1]["current_path"]):
         p = e["current_path"]
-        if "departed" in e.get("flags", []) or p.startswith(rb["migrations_dir"] + "/"):
+        if "departed" in e.get("flags", []):
+            continue
+        why = common.withheld(rb, p)
+        if why:  # held for another project or excluded: counted, and in no bundle, list or record
+            held[why] += 1
             continue
         sec = route(ws, p)
         if sec is None:
@@ -565,7 +587,8 @@ def bundles(a):
             uncarded.append(p)
             continue
         xr = load_extract(extract_dir, h, os.path.join(cards_dir, h + ".json"))
-        rec = {"id": h[:12], "path": p, "copies": [x["path"] for x in e.get("copies", []) if x["path"] != p],
+        rec = {"id": h[:12], "path": p, "copies": [x["path"] for x in e.get("copies", [])
+                                                   if x["path"] != p and not common.withheld(rb, x["path"])],
                "pages": xr.get("page_count", 0), "read": xr.get("status")}
         rec.update({k: c.get(k) for k in ("title", "doc_type", "party", "parties", "doc_date", "category",
                                            "language", "sensitive")})
@@ -590,9 +613,10 @@ def bundles(a):
         if BUNDLE_FILE.fullmatch(name) and name not in files.values():
             os.remove(writer.check(os.path.join(out, name)))
     meta = collections.OrderedDict(
-        manifest_sha256=digest, routing_sha256=routing_digest(ws), arguments=arguments, text_cap=a.text_cap,
+        manifest_sha256=digest, routing_sha256=routing_digest(ws), withheld_sha256=withheld_digest(rb, man),
+        arguments=arguments, text_cap=a.text_cap,
         sections=dict(sorted(counts.items())), compact=dict(sorted(compact.items())), files=files,
-        unrouted=unrouted, uncarded=uncarded)
+        unrouted=unrouted, uncarded=uncarded, held_for_another_project=held["migrations"], excluded=held["excluded"])
     writer.text(meta_path, json.dumps(meta, ensure_ascii=False, indent=1) + "\n")
     print(json.dumps(bundle_summary(meta), ensure_ascii=False))
     return 1 if unrouted or uncarded else 0
@@ -695,9 +719,9 @@ def brief(a):
     root, settings_dir, work = common.resolve(a)
     rb = common.load_rulebook(root, settings_dir)
     ws = common.load_wiki_schema(root, settings_dir)
-    mpath, _man = load_manifest(root, a.manifest)
+    mpath, man = load_manifest(root, a.manifest)
     bdir = os.path.realpath(a.bundles) if a.bundles else os.path.join(work, "bundles")
-    meta = fresh_bundles(root, bdir, mpath, ws, build_arguments(a))
+    meta = fresh_bundles(root, bdir, mpath, ws, build_arguments(a), rb, man)
     wiki = os.path.join(root, rb["wiki_dir"])
     pages = sorted(set(a.page))
     for p in pages:
@@ -1083,7 +1107,8 @@ def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptan
         return (any(x in cited for x in [pth] + [c["path"] for c in e.get("copies", [])])
                 or folder is not None and (folder + "/" in cited or folder in cited))
 
-    in_scope = sorted((e for e in live.values() if not e["current_path"].startswith(rb["migrations_dir"] + "/")),
+    withheld = collections.Counter(common.withheld(rb, e["current_path"]) for e in live.values())
+    in_scope = sorted((e for e in live.values() if not common.withheld(rb, e["current_path"])),
                       key=lambda e: e["current_path"])
     scope = [e["current_path"] for e in in_scope]
     uncovered = [e["current_path"] for e in in_scope if not covered(e)] if only is None else []
@@ -1101,7 +1126,9 @@ def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptan
                em_dash_where=em[:10], chart_blocks=charts, charts_without_data_table=unpaired,
                charts_not_renderable=unrenderable, chart_sources_bad=bad_chart_src,
                deadlines=sorted(map(list, {tuple(x) for x in dls})),
-               documents_in_scope=len(scope), documents_not_covered=len(uncovered), not_covered_sample=uncovered[:20],
+               documents_in_scope=len(scope), documents_held_for_another_project=withheld["migrations"],
+               documents_excluded=withheld["excluded"], documents_not_covered=len(uncovered),
+               not_covered_sample=uncovered[:20],
                pages_without_single_professional=no_voice)
     problems = (len(fm_bad) + len(dead_src) + len(dead_links) + len(outside) + len(em) + len(uncovered)
                 + len(unpaired) + len(unrenderable) + len(bad_chart_src) + (len(no_voice) if ws else 0))
