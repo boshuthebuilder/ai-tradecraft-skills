@@ -28,7 +28,7 @@ import readiness  # noqa: E402
 
 NOW = "1719748800"  # 2024-06-30T12:00:00Z, the day the roll-ups were rendered
 TODAY = "2024-06-30"
-EM = "—"
+EM = "\u2014"
 PAGE = "01 Deadlines/01 Deadlines.md"
 NOT_READ = {"coerced", "yaml-malformed"}  # pages the roll-up reads as YAML does, which the tool cannot: refused
 FRONTMATTER_FINDING = re.compile(r"finding: [0-9]+ recurring: entr\(ies\) not \{date, note\} with a date as MM-DD "
