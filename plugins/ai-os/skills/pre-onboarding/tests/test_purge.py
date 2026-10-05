@@ -243,6 +243,40 @@ class RemovalFailureTest(PurgeCase):
         self.assertFalse(self.has(self.audit, "cards", a + ".json"), "what could be removed was")
         self.assertTrue(self.has(self.audit, "extract", a + ".json"))
 
+    def test_register_output_refuses_a_path_inside_the_folder_and_registers_one_outside(self):
+        rb = dict(RB, exclude=[])
+        for inside in (os.path.join(self.root, "_Audit", "profile.json"), os.path.join(self.root, "profile.json"), self.root):
+            with self.subTest(inside=os.path.relpath(inside, self.root)), self.assertRaises(common.ToolError) as caught:
+                common.register_output(self.root, self.work, rb, inside)
+            self.assertIn("are working files, never written inside the folder", str(caught.exception))
+        self.assertFalse(self.has(self.work, "state", "rendered.json"), "a refused path was registered")
+        outside = os.path.join(self.tmp, "report.json")
+        common.register_output(self.root, self.work, rb, outside)
+        with open(os.path.join(self.work, "state", "rendered.json"), encoding="utf-8") as f:
+            self.assertEqual([i["path"] for i in json.load(f)], [outside])
+
+    def test_the_message_says_where_the_artefacts_that_stayed_are_without_naming_one(self):
+        a = eid(self.PAY)
+        self.record(a, self.PAY)
+        self.card(a, self.PAY)
+        stuck = os.path.join(self.tmp, "stuck.md")
+        write(stuck, "x\n")
+        common.register_rendered(self.work, stuck, "old")
+        real = os.remove
+
+        def remove(path, *args, **kw):
+            if os.sep + "extract" + os.sep in path or os.sep + "cards" + os.sep in path or path == stuck:
+                raise PermissionError(errno.EACCES, "Permission denied", path)
+            return real(path, *args, **kw)
+        with mock.patch("os.remove", remove), self.assertRaises(common.ToolError) as caught:
+            self.purge()
+        text = str(caught.exception)
+        for where in ("card in the cards folder", "extract record in the extract records folder",
+                      "rendered file listed in %s" % os.path.join(self.work, "state", "rendered.json")):
+            self.assertIn(where, text)
+        for named in ("Staff", "pay.pdf", stuck, self.audit):
+            self.assertNotIn(named, text, "the message names a path of a withheld document")
+
     def test_a_rendered_file_that_could_not_be_removed_stays_registered_for_the_next_purge(self):
         stuck, gone = os.path.join(self.tmp, "stuck.md"), os.path.join(self.tmp, "gone.md")
         for path in (stuck, gone):

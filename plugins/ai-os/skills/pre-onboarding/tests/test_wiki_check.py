@@ -488,6 +488,65 @@ class CheckTest(Copy):
         self.assertEqual(code, 2, out + err)
         self.assertNotIn("Old invoice", err)
 
+    def test_a_withheld_path_is_matched_only_as_a_whole_root_relative_path_never_as_the_tail_of_another(self):
+        """A root stray staged at the top of its project (`_Migrations/Other Project/Scan 1.pdf`) was staged from the bare
+        name `Scan 1.pdf`. A page citing the different live document `Photos/Scan 1.pdf` must not be flagged for it; a page
+        naming the stray by its whole path, or by a longer path that resolves to it, is."""
+        man = os.path.join(self.root, "_Audit", "manifest.json")
+        m = json.loads(read(man))
+        for path, flags in (("_Migrations/Other Project/Scan 1.pdf", ["migrating"]), ("Photos/Scan 1.pdf", [])):
+            m["entries"][hashlib.sha256(path.encode()).hexdigest()] = {
+                "id": hashlib.sha256(path.encode()).hexdigest(), "current_path": path, "class": "document",
+                "hashed": True, "flags": flags, "copies": [], "size": 1, "mtime": "2024-06-01T00:00:00Z",
+                "rename_history": [{"path": "Scan 1.pdf" if flags else path, "at": "2024-06-01T00:00:00Z", "run_id": "x"}]}
+        write(man, json.dumps(m))
+        page = "40 Study/40 Study.md"
+        self.base = {page: read(self.page(page))}
+        whole = {"cited": "See `Scan 1.pdf`.", "in text": "See Scan 1.pdf for it.", "after a climb": "See ../Scan 1.pdf here.",
+                 "after two": "See ../../Scan 1.pdf here.", "after the folder's name": "See Alex Personal/Scan 1.pdf here.",
+                 "after the folder's path": "See %s/Scan 1.pdf here." % self.root, "in a link": "See [s](../../Scan%201.pdf).",
+                 "wrapped": "See Scan\n1.pdf here.", "in a fence": "```\nScan 1.pdf\n```"}
+        for name, text in whole.items():
+            with self.subTest(name):
+                self.assertEqual([c[2] for c in self.appended(page, text + "\n")], ["migrations"], name)
+        tails = {"cited": "See `Photos/Scan 1.pdf`.", "in text": "See Photos/Scan 1.pdf for it.",
+                 "other folder": "See Other/Scan 1.pdf here.", "a link": "See [s](Photos/Scan%201.pdf).",
+                 "deeper": "See `20 Finance/Photos/Scan 1.pdf`.", "an address": "See https://example.org/Scan 1.pdf here.",
+                 "after a name": "See Archive/Alex Personal/Scan 1.pdf here."}
+        for name, text in tails.items():
+            with self.subTest(name):
+                self.assertEqual(self.appended(page, text + "\n"), [], name)
+        self.exclude("06 Work/Contract.docx")
+        self.assertEqual([c[2] for c in self.appended(page, "See Alex Personal/06 Work/Contract.docx.\n")], ["excluded"])
+        self.assertEqual(self.appended(page, "See Archive/06 Work/Contract.docx.\n"), [])
+
+    def test_a_document_moved_by_a_round_and_then_staged_is_withheld_at_the_path_it_started_at(self):
+        """`04 Study/Notes.rtf` is moved to `04 Study/Class notes.rtf`, then staged from there. The audits that saw it do
+        the work: the first placement must be in `rename_history`, or the page that still cites the first path passes
+        (the manifest here is one an audit made before it recorded the first placement)."""
+        man = os.path.join(self.root, "_Audit", "manifest.json")
+        m = json.loads(read(man))
+        for e in m["entries"].values():
+            e["rename_history"] = []
+        write(man, json.dumps(m))
+        audit = lambda: self.assertEqual(run("audit.py", "--root", self.root, "--work", self.work)[0], 0)
+        os.rename(os.path.join(self.root, "04 Study", "Notes.rtf"), os.path.join(self.root, "04 Study", "Class notes.rtf"))
+        audit()
+        staged = os.path.join(self.root, "_Migrations", "Other Project", "04 Study")
+        os.makedirs(staged)
+        os.rename(os.path.join(self.root, "04 Study", "Class notes.rtf"), os.path.join(staged, "Class notes.rtf"))
+        audit()
+        page = "40 Study/40 Study.md"
+        self.base = {page: read(self.page(page))}
+        for cited in ("04 Study/Notes.rtf", "04 Study/Class notes.rtf"):
+            with self.subTest(cited=cited):
+                found = self.appended(page, "The notes are `%s`.\n" % cited)
+                self.assertIn("migrations", [c[2] for c in found])
+                self.assertIn(len(self.base[page].split("\n")) + 1, [c[1] for c in found])
+        code, out, err = self.wiki("review-prompts", "--page", page, "--author-model", "a", "--reviewer-model", "b",
+                                   "--out", os.path.join(self.tmp, "q"))
+        self.assertEqual(code, 2, out + err)
+
     def test_the_paths_a_withheld_document_held_before_it_moved_are_withheld_for_check_and_for_drift(self):
         man = os.path.join(self.root, "_Audit", "manifest.json")
         m = json.loads(read(man))

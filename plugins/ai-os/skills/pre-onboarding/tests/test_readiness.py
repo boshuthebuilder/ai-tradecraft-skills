@@ -645,7 +645,8 @@ class GreenTest(Prepared):
         self.assertEqual((res["manifest"]["live_entries"], res["manifest"]["departed_entries"]), (17, 1))
 
     def test_out_is_refused_inside_a_read_only_root(self):
-        self.assertIn("--read-only-root", self.refused("--out", self.path("readiness.json"), "--read-only-root"))
+        self.assertIn("readiness reports are working files, never written inside the folder",
+                      self.refused("--out", self.path("readiness.json"), "--read-only-root"))
         out = os.path.join(self.tmp, "readiness.json")
         self.readiness("--out", out, "--read-only-root", code=0)
         self.assertEqual(json.loads(read(out))["findings"], [])
@@ -831,6 +832,15 @@ class ContractTest(Prepared):
         self.assertIn(got, (0, 1), err)
         self.assertIn("purged what withheld documents left behind: ", err)
         self.assertFalse(os.path.exists(out), "the result was left on disk after the withheld set changed")
+
+    def test_the_result_is_never_written_inside_the_folder(self):
+        before = tree_digest(self.root)
+        for inside in (self.path("_Audit", "readiness.json"), self.path("readiness.json")):
+            got, out, err = run("readiness.py", "--root", self.root, "--work", self.work, "--out", inside)
+            self.assertEqual(got, 2, out + err)
+            self.assertIn("readiness reports are working files, never written inside the folder", err)
+            self.assertFalse(os.path.exists(inside))
+        self.assertEqual(tree_digest(self.root), before)
 
     def test_an_excluded_document_needs_no_extract_record_or_card(self):
         """Excluded by the owner, it is read by no tool: no record or card is expected, and none was made."""

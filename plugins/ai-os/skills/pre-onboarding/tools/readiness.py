@@ -1396,6 +1396,8 @@ def main():
     # A diagnosis, not a gate: a stale or unpinned twin is a hand-off finding below, so the settings are read here
     # without trusting them (as settings.py check does). A malformed rulebook.json still fails loud.
     root, settings_dir, work = common.resolve(a, verify=False)
+    if a.out:
+        common.working_file(root, a.out, "readiness reports")
     rb = common.load_rulebook(root, settings_dir, verify=False)
     mpath, ents = W.load_manifest(root, a.manifest)
     evidence = isolation.load_terms(a.terms) if a.terms else None

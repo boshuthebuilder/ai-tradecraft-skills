@@ -15,7 +15,7 @@ Stated once here; each tool's section below lists only its own.
 | `--root <folder>` | the folder being prepared; required wherever it is taken | none |
 | `--settings-dir <dir>` | where `rulebook.json` and `wiki-schema.json` live | `<root>/.familyai` |
 | `--work <dir>` | working state outside the folder: logs, caches, batches, queues, bundles, briefs; refused inside the folder | `~/.ai-os-pre-onboarding/<folder name>`, where `<folder name>` is the last part of the folder's real path (a link is followed), with each run of one or more characters other than the ASCII letters `A`-`Z` and `a`-`z`, the digits, `.`, `_` and `-` written as one `-` (see below) |
-| `--out <path>` | where the tool writes its result; each tool's own default is in its section | per tool |
+| `--out <path>` | where the tool writes its result; each tool's own default is in its section. A report that carries manifest, card or path data (`wiki.py profile`, `check`, `drift`, `chart`, `brief`, `review-prompts`, `bundles`, and `readiness.py`) is refused inside the folder (`<what> are working files, never written inside the folder`), and is registered for a later purge | per tool |
 | `--read-only-root` | refuse any write inside `--root`; with `--out` elsewhere, it proves a tool against a real folder without changing it | off |
 
 | Tool | `--root` | `--settings-dir` | `--work` | `--out` | `--read-only-root` |
@@ -70,8 +70,10 @@ manifest again and purge again before every batch, so an exclusion or a staging 
 batch, and `cards.py work` also after a quota sleep, before anything is resent. With `--read-only-root`, a purge that has
 to remove something inside the folder is refused (exit 2, `refused: --read-only-root, but <n> artefact(s) of withheld
 documents inside the folder must be purged first`), never skipped: run the tool once without it. A removal that fails
-stops the tool (exit 2, `refused: could not remove <n> <kind>s of withheld documents (<reason>)`: the kinds and counts,
-never a path); what could be removed was, and a registered file that stayed is still registered for the next purge. `readiness.py` and `settings.py` purge as well, when they can read the settings.
+stops the tool (exit 2, `refused: could not remove <n> <kind>s of withheld documents (<reason>); <kind> in <where>`: the
+kinds and counts, and where they live, which is `<work>/state/rendered.json` for a rendered file and the folder kind
+(the extract records folder, the cards folder) for a record or a card, never a path of a withheld document); what could be
+removed was, and a registered file that stayed is still registered for the next purge. `readiness.py` and `settings.py` purge as well, when they can read the settings.
 
 **Exit codes.** `0`: done, nothing to act on. `1`: the tool ran and reports something to act on (a finding, a
 failed row, a problem). `2`: refused, with `error: <why>` on standard error (a stale twin, a bad argument, a guard).
@@ -108,7 +110,12 @@ compare byte for byte; nothing else should set it.
 The deterministic audit of [`folder-curation` step 1](../../folder-curation/SKILL.md#1-audit-deterministic-never-moves-anything),
 with no model call. It writes `manifest.json` (schema `family-ai-preprocess-manifest/2`), `summary.json` and
 `AUDIT.md` to `--out` (default `<root>/_Audit`), merging with the manifest already there, so first-seen dates,
-rename history and departures are kept; a manifest of another schema there is refused.
+rename history and departures are kept; a manifest of another schema there is refused. An entry's `rename_history` has a
+placement for every path the document has been at, oldest first, its first included (`{path, at, run_id}`, as
+[the manifest schema](../../file-preprocessing/references/manifest-schema.md) says): a document first seen gets its
+first placement, and one in a manifest an earlier audit made, which lacks it, has the path it held added before its next
+move is recorded; an entry that has not moved is left as it was. That is what lets a page that still cites the path a
+document started at be judged once the document was moved by a round and then staged for another project.
 
 - **What it walks.** Everything under the root but, at the top: the rulebook files, `.familyai`, `Outbox`, `Wiki`,
   the wiki folder, the rulebook's `reserved` names, and every `_`-prefixed folder except the migrations folder.
@@ -788,7 +795,7 @@ default that does not exist reads as `not recorded`. Line numbers count from the
   `/` dropped), leading `../` dropped, then `common.fold` (case and Unicode form ignored). A link's target of any
   kind of file, a reference definition and an angle-bracketed target are candidates too, resolved from the page's own
   folder as well as from the folder's root, so `[x](../06%20Work/./Contract.docx)` is a citation. A withheld path is also
-  found anywhere in the page's text, in plain text and in a fenced block, with its percent-escapes decoded, wrapped across
+  found anywhere in the page's text, but only as a whole root-relative path: at the start of the text or after a character that is no part of a path, or after only `./` and `../` segments, the folder's own name or its path. A path after any other directory is the tail of another document's path and no match (`Photos/Scan 1.pdf` is not the staged `Scan 1.pdf`), as a web address ending in the path is none. In plain text and in a fenced block, with its percent-escapes decoded, wrapped across
   lines at any point (read joined by a space, with the lines' indentation, quote marks and breaks taken out, and joined by a
   space except at a `/` or before a `.`), and with `//` and `/./` taken out; and in a `sources:` entry or a backticked span. A page must not depend on a document
   the tools may not read, so each is a problem. The Schema page and the Log may name a withheld **folder** (a routing

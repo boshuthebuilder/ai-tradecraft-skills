@@ -178,7 +178,7 @@ class GoldenTest(Charts):
         inside = os.path.join(self.root, "chart.md")
         code, _out, err = self.chart(kind, os.path.join(GOLDEN, data), title, "--out", inside)
         self.assertEqual(code, 2)
-        self.assertIn("--read-only-root", err)
+        self.assertIn("charts are working files, never written inside the folder", err)  # read-only or not
         self.assertFalse(os.path.exists(inside))
 
 

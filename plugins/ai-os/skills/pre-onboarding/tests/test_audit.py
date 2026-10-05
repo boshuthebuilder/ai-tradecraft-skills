@@ -685,6 +685,48 @@ class MigratingTest(AuditCase):
 class HistoryTest(AuditCase):
     """The manifest merges with the previous pass: renames are recorded, departures kept and stamped once."""
 
+    def test_the_first_placement_is_recorded_and_a_move_chain_keeps_every_path(self):
+        """manifest-schema.md: `rename_history` is a placement per path, oldest first, the first included. A document moved
+        by an approved row and then staged from where it moved to must still name the path it started at."""
+        root = self.fixture()
+        t1, t2, t3 = NOW, NOW + 86400, NOW + 2 * 86400
+        m1 = self.audit(root, now=t1)
+        for e in m1["entries"].values():
+            self.assertEqual(e["rename_history"], [{"path": e["current_path"], "at": common.iso_utc(t1),
+                                                    "run_id": "audit"}], e["current_path"])
+        os.rename(os.path.join(root, "04 Study", "Notes.rtf"), os.path.join(root, "04 Study", "Class notes.rtf"))
+        m2 = self.audit(root, now=t2)
+        notes = by_path(m2)["04 Study/Class notes.rtf"]
+        self.assertEqual([h["path"] for h in notes["rename_history"]], ["04 Study/Notes.rtf", "04 Study/Class notes.rtf"])
+        staged = os.path.join(root, "_Migrations", "Other Project", "04 Study")
+        os.makedirs(staged)
+        os.rename(os.path.join(root, "04 Study", "Class notes.rtf"), os.path.join(staged, "Class notes.rtf"))
+        m3 = self.audit(root, now=t3)
+        entry = by_path(m3)["_Migrations/Other Project/04 Study/Class notes.rtf"]
+        self.assertEqual(entry["id"], notes["id"])
+        self.assertEqual([(h["path"], h["at"]) for h in entry["rename_history"]],
+                         [("04 Study/Notes.rtf", common.iso_utc(t1)), ("04 Study/Class notes.rtf", common.iso_utc(t2)),
+                          ("_Migrations/Other Project/04 Study/Class notes.rtf", common.iso_utc(t3))])
+
+    def test_a_manifest_without_the_first_placement_is_read_as_before_and_completed_at_the_first_move(self):
+        root = self.fixture()
+        t1, t2, t3 = NOW, NOW + 86400, NOW + 2 * 86400
+        self.audit(root, now=t1)
+        path = os.path.join(self.out(root), "manifest.json")
+        old = json.loads(read(path))
+        for e in old["entries"].values():
+            e["rename_history"] = []  # what an audit that did not record it left
+        write(path, json.dumps(old))
+        m2 = self.audit(root, now=t2)
+        self.assertEqual([e["rename_history"] for e in m2["entries"].values() if e["rename_history"]], [],
+                         "an entry that has not moved is left as it was")
+        os.rename(os.path.join(root, "04 Study", "Notes.rtf"), os.path.join(root, "04 Study", "Class notes.rtf"))
+        m3 = self.audit(root, now=t3)
+        moved = by_path(m3)["04 Study/Class notes.rtf"]
+        self.assertEqual([(h["path"], h["at"]) for h in moved["rename_history"]],
+                         [("04 Study/Notes.rtf", common.iso_utc(t1)), ("04 Study/Class notes.rtf", common.iso_utc(t3))],
+                         "the path the entry held is recorded first, at the time it was first seen")
+
     def test_departed_entries_and_drift(self):
         root = self.fixture()
         t1, t2, t3, t4 = NOW, NOW + 86400, NOW + 2 * 86400, NOW + 3 * 86400
@@ -710,7 +752,9 @@ class HistoryTest(AuditCase):
         self.assertEqual(e2[lease]["current_path"], "03 Home/Lease notes.txt")
         self.assertEqual(e2[lease]["original_name"], "Lease notes .txt")
         self.assertEqual(e2[lease]["first_seen"], common.iso_utc(t1))
-        self.assertEqual(e2[lease]["rename_history"], [{"path": "03 Home/Lease notes.txt", "at": common.iso_utc(t2),
+        self.assertEqual(e2[lease]["rename_history"], [{"path": "03 Home/Lease notes .txt", "at": common.iso_utc(t1),
+                                                        "run_id": "audit"},
+                                                       {"path": "03 Home/Lease notes.txt", "at": common.iso_utc(t2),
                                                         "run_id": "audit"}])
         self.assertEqual(e2[lease]["flags"], [])                                                # the defect is gone
         self.assertNotIn("look_reason", e2[lease])

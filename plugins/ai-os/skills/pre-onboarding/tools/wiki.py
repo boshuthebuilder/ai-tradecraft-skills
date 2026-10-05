@@ -334,10 +334,7 @@ def schema_rel(root, rb, ws):
 
 def working_file(root, path, what):
     """`path`, refused when it is inside the folder: `what` is a working file, kept in the work dir or elsewhere."""
-    real = os.path.realpath(path)
-    if real == root or real.startswith(root + os.sep):
-        raise common.ToolError("%s are working files, never written inside the folder: %s" % (what, path))
-    return real
+    return common.working_file(root, path, what)
 
 
 def cards_dirs(a, root):
@@ -373,6 +370,8 @@ def profile(a):
     if a.depth < 1 or a.parties < 1:
         raise common.ToolError("--depth and --parties count from 1")
     root, settings_dir, work = common.resolve(a)
+    if a.out:
+        common.working_file(root, a.out, "profile reports")
     rb = common.load_rulebook(root, settings_dir)
     _mp, man = load_manifest(root, a.manifest)
     cards_dir, _x = cards_dirs(a, root)
@@ -1160,6 +1159,24 @@ def withheld_citer(root, rb, man, ws):
                 return why, "folder"
         return None
 
+    root_forms = (common.fold(root).rstrip("/") + "/", common.fold(os.path.basename(root)) + "/")
+
+    def whole(text, i):
+        """True when the token at `text[i:]` is a whole root-relative path, not the tail of another document's: it starts
+        the text, or follows a character that is no part of a path, or follows only `./` and `../` segments (a link
+        climbing to the folder), or the folder's own path or name. A token after any other directory is the tail of a
+        longer path that does not resolve to it, as `Photos/Scan 1.pdf` is not `Scan 1.pdf`."""
+        if i == 0:
+            return True
+        if text[i - 1] != "/":
+            return not (text[i - 1].isalnum() or text[i - 1] == "_")
+        head = text[max(0, i - 400):i]
+        if re.search(r"(?<![\w.\-])(?:\.\.?/)+$", head):
+            return True
+        absolute, name = root_forms
+        return head.endswith(absolute) or (head.endswith(name) and (
+            len(head) == len(name) or not (head[-len(name) - 1].isalnum() or head[-len(name) - 1] in "_/.-")))
+
     def scan(lines):
         """[(line number, why, kind)] for every token of `withheld_at` and `folders` in `lines`, read three ways: each
         line followed by a space (wrapped at a space); the lines' indentation, quote marks and line breaks taken out
@@ -1180,9 +1197,8 @@ def withheld_citer(root, rb, man, ws):
                     i = text.find(token)
                     while i >= 0:
                         after = i + len(token)
-                        if (i == 0 or not text[i - 1].isalnum() and text[i - 1] != "_") and (
-                                kind == "folder" or after >= len(text) or not (text[after].isalnum()
-                                                                              or text[after] == "_")):
+                        if whole(text, i) and (kind == "folder" or after >= len(text)
+                                               or not (text[after].isalnum() or text[after] == "_")):
                             found.append((bisect.bisect_right(starts, at[i]), why, kind))
                         i = text.find(token, i + 1)
         return found
@@ -1372,6 +1388,8 @@ def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptan
 @os_errors
 def check(a):
     root, settings_dir, work = common.resolve(a)
+    if a.out:
+        common.working_file(root, a.out, "check reports")
     rb = common.load_rulebook(root, settings_dir)
     _mp, man = load_manifest(root, a.manifest)
     res = check_result(root, rb, man, settings_dir=settings_dir,
@@ -1993,6 +2011,8 @@ def citations(text):
 @os_errors
 def drift(a):
     root, settings_dir, work = common.resolve(a)
+    if a.out:
+        common.working_file(root, a.out, "drift reports")
     rb = common.load_rulebook(root, settings_dir)
     _mp, man = load_manifest(root, a.manifest)
     wiki = os.path.join(root, rb["wiki_dir"])
@@ -2442,6 +2462,8 @@ def chart_blocks(text):
 
 def chart(a):
     root, settings_dir, work = common.resolve(a)
+    if a.out:
+        common.working_file(root, a.out, "charts")
     rb = common.load_rulebook(root, settings_dir)
     reserved = chart_reserved(rb)
     rows, places = chart_rows(a.data)

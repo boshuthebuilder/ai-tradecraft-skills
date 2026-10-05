@@ -1204,6 +1204,25 @@ class RenderedOutputsTest(Copy):
         self.assertNotIn("06 Work", err)
 
 
+    def test_a_report_with_manifest_or_path_data_is_never_written_inside_the_folder(self):
+        rows = os.path.join(self.tmp, "rows.csv")
+        write(rows, "label,value,unit,source\n" + "".join(
+            "%s,%d,GBP,02 Finance/Bank statement 2024-03.pdf\n" % (k, n) for n, k in enumerate("abc", 1)))
+        before = tree_digest(self.root)
+        for cmd, args in (("profile", []), ("check", []), ("drift", []),
+                          ("chart", ["--kind", "bar", "--data", rows, "--title", "t"]),
+                          ("brief", ["--page", BRIEF_PAGES[0]]),
+                          ("review-prompts", ["--page", BRIEF_PAGES[0], "--author-model", "a", "--reviewer-model", "b"])):
+            for inside in (os.path.join(self.root, "_Audit", cmd + ".out"), os.path.join(self.root, cmd + ".out")):
+                with self.subTest(cmd=cmd, out=os.path.relpath(inside, self.root)):
+                    if cmd in ("brief", "review-prompts"):
+                        self.ok("bundles", code=1)
+                    code, out, err = self.wiki(cmd, *args, "--out", inside)
+                    self.assertEqual(code, 2, out + err)
+                    self.assertIn("are working files, never written inside the folder", err)
+                    self.assertNotIn("Traceback", err)
+        self.assertEqual(tree_digest(self.root), before, "a refused command wrote into the folder")
+
     def test_bundles_built_in_a_folder_of_the_users_choosing_are_registered_and_purged_too(self):
         out = os.path.join(self.tmp, "out", "my-bundles")
         self.ok("bundles", "--out", out, code=1)

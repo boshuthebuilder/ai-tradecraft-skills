@@ -627,10 +627,20 @@ def register_rendered(work, path, digest, kind="file"):
     Writer().json(reg, items, indent=1)
 
 
+def working_file(root, path, what):
+    """The real path of `path`, refused when it is `root` or inside it: `what` are working files (a report, a rendered brief
+    or prompt, bundles), which carry manifest, card or path data and so are kept outside the folder."""
+    root, real = os.path.realpath(root), os.path.realpath(path)
+    if real == root or real.startswith(root + os.sep):
+        raise ToolError("%s are working files, never written inside the folder: %s" % (what, path))
+    return real
+
+
 def register_output(root, work, rb, path, entries=None):
     """`register_rendered` for a file a tool wrote that carries manifest, card or path data (a report, a rendered brief or
     prompt) under the withheld digest of `entries`, the manifest's. A tool that does not read the manifest passes none:
     it is read when it exists, and otherwise the digest covers the settings alone."""
+    working_file(root, path, "reports")  # kept outside the folder: a purge never has to reach into it
     if entries is None:
         try:
             entries = _manifest_entries(root)
@@ -838,9 +848,17 @@ def purge_withheld(root, rb, work, manifest=None, extract_dirs=(), cards_dirs=()
     if counts:
         print("purged what withheld documents left behind: %s" % _counted(counts), file=sys.stderr)
     if failed:
-        raise ToolError("refused: could not remove %s of withheld documents (%s); a tool does not carry on with what a "
-                        "withheld document left behind, so fix the permissions or remove them, and run it again"
-                        % (_counted(failed), why))
+        where = {"extract record": "in the extract records folder", "card": "in the cards folder",
+                 "cached section note": "in " + os.path.join(work, "sections"),
+                 "queued page image": "in " + os.path.join(work, "vision_queue"),
+                 "card error": "in " + os.path.join(work, "state"), "bundle file": "in a bundles folder",
+                 "rendered file": "listed in " + os.path.join(work, "state", RENDERED),
+                 "hash cache file": "at " + os.path.join(work, "hashcache.json"),
+                 "rendered-files registry file": "at " + os.path.join(work, "state", RENDERED)}
+        raise ToolError("refused: could not remove %s of withheld documents (%s); %s. A tool does not carry on with what a "
+                        "withheld document left behind: fix the permissions or remove them, and run it again"
+                        % (_counted(failed), why, "; ".join("%s %s" % (what, where.get(what, "in the folder"))
+                                                            for what in sorted(failed))))
     return counts
 
 

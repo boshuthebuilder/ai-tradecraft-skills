@@ -7,7 +7,13 @@
    "id": "06ddad00251856478a7196a2b853cc08cebd064a1068a4a86f3c17729a500ec9",
    "original_name": "Essay.docx",
    "current_path": "06 Work/Essay.docx",
-   "rename_history": [],
+   "rename_history": [
+    {
+     "path": "06 Work/Essay.docx",
+     "at": "2024-06-30T12:00:00Z",
+     "run_id": "audit"
+    }
+   ],
    "class": "document",
    "size": 763,
    "mtime": "2024-06-01T00:00:00Z",
@@ -34,7 +40,13 @@
    "id": "258d068dbba08cefe4838f1a06538732f60023541c97d4981fd03a6428a633d5",
    "original_name": "Contract.docx",
    "current_path": "06 Work/Contract.docx",
-   "rename_history": [],
+   "rename_history": [
+    {
+     "path": "06 Work/Contract.docx",
+     "at": "2024-06-30T12:00:00Z",
+     "run_id": "audit"
+    }
+   ],
    "class": "document",
    "size": 742,
    "mtime": "2024-06-01T00:00:00Z",
@@ -46,7 +58,13 @@
    "id": "2f7678864ea3c87b821f3e9e4e528d7f3de4e038c7a188cdd2d04baf388b42c6",
    "original_name": "Lease renewal.pages",
    "current_path": "03 Home/Lease renewal.pages",
-   "rename_history": [],
+   "rename_history": [
+    {
+     "path": "03 Home/Lease renewal.pages",
+     "at": "2024-06-30T12:00:00Z",
+     "run_id": "audit"
+    }
+   ],
    "class": "iwork",
    "size": 2999,
    "mtime": "2024-06-01T00:00:00Z",
@@ -64,7 +82,13 @@
    "id": "389ca49e3eff8205944648e07827f0be2c41d99ffbbdb31fe3a6b9be17273d35",
    "original_name": "Electricity bill.pdf",
    "current_path": "03 Home/Utilities /Electricity bill.pdf",
-   "rename_history": [],
+   "rename_history": [
+    {
+     "path": "03 Home/Utilities /Electricity bill.pdf",
+     "at": "2024-06-30T12:00:00Z",
+     "run_id": "audit"
+    }
+   ],
    "class": "document",
    "size": 46726,
    "mtime": "2024-06-01T00:00:00Z",
@@ -79,7 +103,13 @@
    "id": "41b91fb91d3d9ef40370454cd1eece220947d0cfc5e943f37625dc4870e89e6a",
    "original_name": "中文课程.pdf",
    "current_path": "04 Study/中文课程.pdf",
-   "rename_history": [],
+   "rename_history": [
+    {
+     "path": "04 Study/中文课程.pdf",
+     "at": "2024-06-30T12:00:00Z",
+     "run_id": "audit"
+    }
+   ],
    "class": "document",
    "size": 37603,
    "mtime": "2024-06-01T00:00:00Z",
@@ -102,7 +132,13 @@
    "id": "41db27c93154584b6bc23cf48ae38b8ba9c5ace2e95e02e3be500f75caa3e0f7",
    "original_name": "Application form.docx",
    "current_path": "01 Identity/Passport renewal 2021/Application form.docx",
-   "rename_history": [],
+   "rename_history": [
+    {
+     "path": "01 Identity/Passport renewal 2021/Application form.docx",
+     "at": "2024-06-30T12:00:00Z",
+     "run_id": "audit"
+    }
+   ],
    "class": "document",
    "size": 727,
    "mtime": "2024-06-01T00:00:00Z",
@@ -114,7 +150,13 @@
    "id": "5a43ac695f9f2accf379ce89a2321ea6f523d0271cb698478cf710cf8f6ef601",
    "original_name": "Budget.numbers",
    "current_path": "02 Finance/Tax/Budget.numbers",
-   "rename_history": [],
+   "rename_history": [
+    {
+     "path": "02 Finance/Tax/Budget.numbers",
+     "at": "2024-06-30T12:00:00Z",
+     "run_id": "audit"
+    }
+   ],
    "class": "iwork",
    "size": 3208,
    "mtime": "2024-06-01T00:00:00Z",
@@ -133,7 +175,13 @@
    "id": "5c557b28d799c8ba2772db915be95a351c62939aaae9b170cbdb9eb0fcda50c1",
    "original_name": "Old invoice.pdf",
    "current_path": "_Migrations/Other Project/02 Finance/Old invoice.pdf",
-   "rename_history": [],
+   "rename_history": [
+    {
+     "path": "_Migrations/Other Project/02 Finance/Old invoice.pdf",
+     "at": "2024-06-30T12:00:00Z",
+     "run_id": "audit"
+    }
+   ],
    "class": "document",
    "size": 13044,
    "mtime": "2024-06-01T00:00:00Z",
@@ -148,7 +196,13 @@
    "id": "67b34839a261ae78283f3cb388454358feaf8e8bfaf995c05637b2f21acb74d6",
    "original_name": "Tax return 2023.pdf",
    "current_path": "02 Finance/Tax/Tax return 2023.pdf",
-   "rename_history": [],
+   "rename_history": [
+    {
+     "path": "02 Finance/Tax/Tax return 2023.pdf",
+     "at": "2024-06-30T12:00:00Z",
+     "run_id": "audit"
+    }
+   ],
    "class": "document",
    "size": 1348,
    "mtime": "2024-06-01T00:00:00Z",
@@ -160,7 +214,13 @@
    "id": "6955a99f5b2ced966c8fc8cd5f5fb4a416489a206f24074ea57d98e6080cd744",
    "original_name": "Lease renewal.pdf",
    "current_path": "03 Home/Lease renewal.pdf",
-   "rename_history": [],
+   "rename_history": [
+    {
+     "path": "03 Home/Lease renewal.pdf",
+     "at": "2024-06-30T12:00:00Z",
+     "run_id": "audit"
+    }
+   ],
    "class": "document",
    "size": 12388,
    "mtime": "2024-06-01T00:00:00Z",
@@ -172,7 +232,13 @@
    "id": "7d03711e63a16809f75bb87d4f858c7f26a0f73a74b15e31ca6282e36006389a",
    "original_name": "Lease notes .txt",
    "current_path": "03 Home/Lease notes .txt",
-   "rename_history": [],
+   "rename_history": [
+    {
+     "path": "03 Home/Lease notes .txt",
+     "at": "2024-06-30T12:00:00Z",
+     "run_id": "audit"
+    }
+   ],
    "class": "document",
    "size": 67,
    "mtime": "2024-06-01T00:00:00Z",
@@ -187,7 +253,13 @@
    "id": "855ba8c36688979c15be6918f522b97b277051c4a403811ccd2dfd0cc897abe1",
    "original_name": "Notes.rtf",
    "current_path": "04 Study/Notes.rtf",
-   "rename_history": [],
+   "rename_history": [
+    {
+     "path": "04 Study/Notes.rtf",
+     "at": "2024-06-30T12:00:00Z",
+     "run_id": "audit"
+    }
+   ],
    "class": "document",
    "size": 117,
    "mtime": "2024-06-01T00:00:00Z",
@@ -199,7 +271,13 @@
    "id": "a3a90b859cd2f3bee9fb0fe36225a22c676d1718647ee83c6e61f53ce0456f73",
    "original_name": "Slides.pptx",
    "current_path": "04 Study/Slides.pptx",
-   "rename_history": [],
+   "rename_history": [
+    {
+     "path": "04 Study/Slides.pptx",
+     "at": "2024-06-30T12:00:00Z",
+     "run_id": "audit"
+    }
+   ],
    "class": "document",
    "size": 1185,
    "mtime": "2024-06-01T00:00:00Z",
@@ -222,7 +300,13 @@
    "id": "ba3c651ccc2bac0b3b4dbfa547ea7f045c292a68734b11af3ff84bcf891c4b8c",
    "original_name": "Budget final.xlsx",
    "current_path": "02 Finance/Tax/Budget final.xlsx",
-   "rename_history": [],
+   "rename_history": [
+    {
+     "path": "02 Finance/Tax/Budget final.xlsx",
+     "at": "2024-06-30T12:00:00Z",
+     "run_id": "audit"
+    }
+   ],
    "class": "document",
    "size": 947,
    "mtime": "2024-06-01T00:00:00Z",
@@ -234,7 +318,13 @@
    "id": "ce7b9bd1a7cf799306f2cf5b08afb20081b68df9497219857af6e7b029b0f2a0",
    "original_name": "IMG_0001.jpg",
    "current_path": "IMG_0001.jpg",
-   "rename_history": [],
+   "rename_history": [
+    {
+     "path": "IMG_0001.jpg",
+     "at": "2024-06-30T12:00:00Z",
+     "run_id": "audit"
+    }
+   ],
    "class": "image",
    "size": 3177,
    "mtime": "2024-06-01T00:00:00Z",
@@ -249,7 +339,13 @@
    "id": "d45d8396d4731b9c0259a7bc65109714e488b7e11b024a168e9eab437b572750",
    "original_name": "Passport scan.pdf",
    "current_path": "01 Identity/Passport scan.pdf",
-   "rename_history": [],
+   "rename_history": [
+    {
+     "path": "01 Identity/Passport scan.pdf",
+     "at": "2024-06-30T12:00:00Z",
+     "run_id": "audit"
+    }
+   ],
    "class": "document",
    "size": 34576,
    "mtime": "2024-06-01T00:00:00Z",
@@ -271,7 +367,13 @@
    "id": "e6286ec605097f5fb2a410059335550d12459bcd25f5f45793595af37b3d194c",
    "original_name": "Cours de français.pdf",
    "current_path": "04 Study/Cours de français.pdf",
-   "rename_history": [],
+   "rename_history": [
+    {
+     "path": "04 Study/Cours de français.pdf",
+     "at": "2024-06-30T12:00:00Z",
+     "run_id": "audit"
+    }
+   ],
    "class": "document",
    "size": 39931,
    "mtime": "2024-06-01T00:00:00Z",
@@ -294,7 +396,13 @@
    "id": "f69a0211da79d4c274422d427f1ed4c00461eeee021f80655f9170c880e76e05",
    "original_name": "Bank statement 2024-03.pdf",
    "current_path": "02 Finance/Bank statement 2024-03.pdf",
-   "rename_history": [],
+   "rename_history": [
+    {
+     "path": "02 Finance/Bank statement 2024-03.pdf",
+     "at": "2024-06-30T12:00:00Z",
+     "run_id": "audit"
+    }
+   ],
    "class": "document",
    "size": 14356,
    "mtime": "2024-06-01T00:00:00Z",

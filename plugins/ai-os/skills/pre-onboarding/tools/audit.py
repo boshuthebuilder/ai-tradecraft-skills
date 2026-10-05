@@ -353,15 +353,22 @@ def main():
             "id": h,
             "original_name": old.get("original_name", os.path.basename(c)),
             "current_path": c,
-            "rename_history": old.get("rename_history", []),
+            "rename_history": list(old.get("rename_history", [])),
             "class": m["cls"],
             "size": m["size"],
             "mtime": common.iso_utc(m["mtime"]),
             "hashed": m["hashed"],
             "first_seen": old.get("first_seen", run_at),
         })
-        if old.get("current_path") and old["current_path"] != c:
-            e["rename_history"] = e["rename_history"] + [{"path": c, "at": run_at, "run_id": "audit"}]
+        # a placement per path the document has been at, oldest first, the first included (a manifest an older audit made
+        # lacks it: it is added here, from the path the entry held, before the move is recorded)
+        if not old:
+            e["rename_history"] = [{"path": c, "at": run_at, "run_id": "audit"}]
+        elif old.get("current_path") and old["current_path"] != c:
+            if not any(h.get("path") == old["current_path"] for h in e["rename_history"] if isinstance(h, dict)):
+                e["rename_history"].append({"path": old["current_path"], "at": old.get("first_seen", run_at),
+                                            "run_id": "audit"})
+            e["rename_history"].append({"path": c, "at": run_at, "run_id": "audit"})
         e.pop("copies", None)
         e.pop("synthetic_id", None)
         e.pop("package", None)
