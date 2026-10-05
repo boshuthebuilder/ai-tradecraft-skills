@@ -699,7 +699,8 @@ class HeldForAnotherProjectTest(CardsCliCase):
                     now_at="_Migrations/Other Project/Scan.pdf")  # held, so not one still waiting for extraction
         code, out, err = self.cards_py("build")
         self.assertEqual(code, 0, err)
-        self.assertIn("build: 1 new batches, 0 records still waiting for extraction, 4 held for another project", out)
+        self.assertIn("build: 1 new batches, 0 records still waiting for extraction, 4 held for another project, "
+                      "0 excluded", out)
         self.assertEqual([[it["id"] for it in bt["items"]] for bt in self.batches().values()], [[own]])
 
     def test_a_batch_planned_before_the_staging_is_not_sent(self):
@@ -716,7 +717,7 @@ class HeldForAnotherProjectTest(CardsCliCase):
         self.assertNotIn("Old invoice", calls[0]["prompt"])
         self.assertNotIn("GBP 800", calls[0]["prompt"])
         self.assertEqual(sorted(self.written()), [own])
-        self.assertIn("worker finished; held for another project: 1", err)
+        self.assertIn("worker finished; held for another project: 1; excluded: 0", err)
         self.assertEqual(self.card_errors(), [])
 
     def test_a_redo_does_not_send_a_held_document(self):
@@ -730,7 +731,50 @@ class HeldForAnotherProjectTest(CardsCliCase):
         self.assertEqual([item_count(c) for c in calls], [1])
         self.assertNotIn("GBP 800", calls[0]["prompt"])
         self.assertEqual(sorted(self.written()), [own])
-        self.assertIn("worker finished; held for another project: 1", err)
+        self.assertIn("worker finished; held for another project: 1; excluded: 0", err)
+
+    def rulebook(self, **settings):
+        """The folder's rulebook and its twin, pinned to it, carrying `settings`."""
+        write(os.path.join(self.root, "CLAUDE.md"), "# Rules\n")
+        pin = hashlib.sha256(read(os.path.join(self.root, "CLAUDE.md")).encode()).hexdigest()
+        write(os.path.join(self.root, ".familyai", "rulebook.json"),
+              json.dumps(dict(settings, version=1, rulebook_sha256=pin)))
+
+    def test_an_excluded_document_is_never_carded_and_is_counted_apart(self):
+        self.rulebook(exclude=["Staff", "Letters/Private.pdf"])
+        own = self.record("03 Home/Rent.pdf", ["Rent for the flat."])
+        self.record("Staff/pay.pdf", ["Salary for the nanny."])
+        self.record("Staff/2024/review.pdf", ["Review.", "More."], flags=["migrating"])
+        self.record("Letters/Private.pdf", ["A private letter."], status="needs_vision")
+        self.record("Letters/Kept.pdf", ["A letter to share."], now_at="Staff/Kept.pdf")  # moved under Staff since
+        self.record(self.STAGED, ["Invoice for the other project."], flags=["migrating"])
+        code, out, err = self.cards_py("build")
+        self.assertEqual(code, 0, err)
+        self.assertIn("build: 1 new batches, 0 records still waiting for extraction, 1 held for another project, "
+                      "4 excluded", out)
+        self.assertEqual([[it["id"] for it in bt["items"]] for bt in self.batches().values()], [[own]])
+
+    def test_a_batch_planned_before_the_exclusion_is_not_sent_and_a_redo_does_not_send_it_either(self):
+        own = self.record("03 Home/Rent.pdf", ["Rent for the flat."])
+        private = self.record("Staff/pay.pdf", ["Salary for the nanny, GBP 2,400."])
+        code, _out, err = self.cards_py("build")
+        self.assertEqual(code, 0, err)
+        self.assertEqual([len(bt["items"]) for bt in self.batches().values()], [2])
+        self.rulebook(exclude=["Staff"])  # the owner excludes it after the batches were planned
+        redo = os.path.join(self.tmp, "redo.txt")
+        write(redo, "%s\n" % private)
+        for extra in ([], ["--redo", redo]):
+            with self.subTest(extra):
+                shutil.rmtree(self.cards, True)
+                self.fakes.reset("codex")
+                code, _out, err = self.work_run("codex", "--terms", self.terms, *extra)
+                self.assertEqual(code, 0, err)
+                calls = self.fakes.calls("codex")
+                self.assertEqual([item_count(c) for c in calls], [] if extra else [1])
+                for c in calls:
+                    self.assertNotIn("nanny", c["prompt"])
+                self.assertEqual(sorted(self.written()), [] if extra else [own])
+                self.assertIn("worker finished; held for another project: 0; excluded: 1", err)
 
     def test_the_migrations_folder_is_the_one_the_settings_name(self):
         write(os.path.join(self.root, "CLAUDE.md"), "# Rules\n")
@@ -741,7 +785,8 @@ class HeldForAnotherProjectTest(CardsCliCase):
         self.record("_Leaving/Other Project/Letter.pdf", ["Staged for another project."])
         code, out, err = self.cards_py("build")
         self.assertEqual(code, 0, err)
-        self.assertIn("build: 1 new batches, 0 records still waiting for extraction, 1 held for another project", out)
+        self.assertIn("build: 1 new batches, 0 records still waiting for extraction, 1 held for another project, "
+                      "0 excluded", out)
         self.assertEqual([[it["id"] for it in bt["items"]] for bt in self.batches().values()], [[own]])
 
     def test_a_missing_or_unreadable_manifest_is_refused_not_read_as_nothing_held(self):

@@ -40,7 +40,10 @@ it reads or writes anything, except `settings.py` (`compile` is the remedy, `che
 
 **Exit codes.** `0`: done, nothing to act on. `1`: the tool ran and reports something to act on (a finding, a
 failed row, a problem). `2`: refused, with `error: <why>` on standard error (a stale twin, a bad argument, a guard).
-`3`: stopped by an alert (`cards.py work`, `vision.py`).
+`3`: a worker stopped because another worker's alert stands, `<work>/state/ALERT` existing: `cards.py work` and
+`vision.py` look for it before each batch and exit 3 (the `vision.py` lane never writes one). The `cards.py work`
+worker that finds the contamination itself writes the alert file and exits 2, with `contamination alert` on standard
+error; every other worker exits 3 at its next batch.
 
 **Writes.** Every record and result a tool writes goes through `common.Writer`: a temporary file, synced, then
 renamed into place, so no reader sees half a file; with `--read-only-root`, a path inside the folder is refused
@@ -81,7 +84,18 @@ rename history and departures are kept; a manifest of another schema there is re
   an existing folder, named exactly (each part compared with its folder's listing, case included, in Unicode NFC),
   refuses the run, here and in `plan.py`: it would match nothing and leave its copies deletable.
 - **Cloud files.** A file whose bytes are not on this machine stops the audit (exit 2) with a list, unless
-  `--dataless read`, which reads it and so downloads it.
+  `--dataless read`, which reads it and so downloads it. A file the owner excluded (below) is not downloaded.
+- **Excluded paths.** The rulebook's `exclude` lists paths the owner excluded from reading, each a file or folder
+  relative to the folder, and everything under it ([the settings](settings.md#rulebookjson)). The audit lists them
+  still, but opens no file under them: each is recorded from the folder's listing alone, as an entry with its path, size,
+  modification time and class, `hashed` false and a `synthetic_id` (the sha256 of `<size>:<modification time>:<path>`,
+  as for an item counted and not hashed), no `copies` and no hash-cache line. The manifest keeps no content hash for it
+  because getting one means reading the file, and an entry with a content id would be matched as a copy of any
+  included file with the same bytes. An entry nothing can read is how every later tool already treats a counted item,
+  and a manifest an older audit made, which hashed it, is still read by path (below). An entry that names no path
+  under the folder, exactly as spelled (each part compared with its folder's listing, case included, in Unicode NFC),
+  refuses the run: a typo would exclude nothing, and the owner's exclusion would reach the engines without a word.
+  Dropping an exclusion hashes the file at the next audit, and the entry made while it was excluded becomes history.
 
 ## `plan.py`
 
@@ -132,6 +146,11 @@ The paths file holds one folder-relative path per line; blank lines and lines st
 
 Both also write `review.tsv` beside the plan.
 
+**A plan the owner has begun to decide is never replaced.** `light`, `migrate` and `return` refuse (exit 2, nothing
+written) when the plan folder already holds a `move-plan.csv` with any row approved, declined or deferred, naming the
+file and the number of rows, and saying to choose a new plan folder; a plan that cannot be read as one is refused the
+same way. A proposal nobody has decided is replaced, so a round can be proposed again until the owner starts on it.
+
 ### `review.tsv`
 
 Tab-separated, no header, one line per staged path or missing path, for the owner to read before approving:
@@ -169,8 +188,10 @@ away (and `.DS_Store`), unless it already has one. The rows are `proposed`, or a
 A dry run of every row, `delete` rows included (checked against the manifest), under the executor's own guards:
 the rules [the plan schema](../../folder-curation/references/move-plan-schema.md) encodes and
 [folder-curation step 5](../../folder-curation/SKILL.md#5-execute-deterministic-guards-not-judgement) sets out.
-Prints a `FAIL` line per failing row and `rows ok <n> failed <n>`; exit 1 on any failure. A destination that
-already exists is seen only by `execute`.
+Prints a `FAIL` line per failing row, naming it (`FAIL <seq> <action> <from> <why>`), and `rows ok <n> failed <n>`; exit
+1 on any failure. A `move` or `rename` row with no `to`, such as a root stray the owner has not placed, fails with `no
+destination: the owner must choose one before approving`, as `execute` refuses it; a row the owner declined or
+deferred is never run, so it is not refused. A destination that already exists is seen only by `execute`.
 
 ### `execute`
 
@@ -217,17 +238,24 @@ The full text of every live, hashed document in the manifest (images over the si
 document held for another project: see below), every page, with local tools only. Records go to `--out` (default `<root>/_Audit/extract`), one
 `<id>.json` per document. An existing record is never rewritten, except a `failed` one with `--retry-failed`.
 
-### Held for another project
+### Held for another project, and excluded
 
-A manifest entry whose current path is under the folder's migrations folder (`migrations_dir` in `rulebook.json`,
-`_Migrations` by default; one decision, `common.in_migrations`, shared by `extract.py`, `vision.py`, `cards.py` and
-`readiness.py`) is a document staged for another project. It is skipped **whatever its flags**, so a `migrating` flag
-that was lost or never set does not let it through: it is never read, never queued for the vision lane, and the run's
-log counts it as `held_for_another_project=<n>` on its `start` and `finished` lines, over the documents the lane and
-worker would otherwise have read (so the workers' counts add up to the folder's). A record made before the document was
-staged stays where it is, never rewritten or read again. Staged material is not the preparation's to read: its text
-would reach a model's context as another project's material, which the isolation terms exist to prevent, and the
-terms check cannot see it, since the document's own text carries the term.
+One decision, `common.withheld`, shared by `extract.py`, `vision.py`, `cards.py` and `readiness.py`, says which
+documents no tool reads, by the manifest entry's current path and **whatever its flags**:
+
+- **held for another project**: under the folder's migrations folder (`migrations_dir` in `rulebook.json`,
+  `_Migrations` by default), a document staged for another project. A `migrating` flag that was lost or never set does
+  not let it through. Staged material is not the preparation's to read: its text would reach a model's context as
+  another project's material, which the isolation terms exist to prevent, and the terms check cannot see it, since the
+  document's own text carries the term;
+- **excluded**: a path the rulebook's `exclude` lists, or under one, matched on the folder's own spelling (a part
+  exactly, case included, in Unicode NFC), so `Staff` takes `Staff/pay.txt` and not `Staffing/` or `staff/`. Matching
+  by path means a manifest an older audit made, which hashed the file, does not let it through either.
+
+Such a document is never read and never queued for the vision lane, and the run's log counts each kind on its `start`
+and `finished` lines (`held_for_another_project=<n> excluded=<n>`), over the entries the lane and worker take, so the
+workers' counts add up to the folder's. A record made before the document was staged or excluded stays where it is,
+never rewritten or read again. A path both staged and excluded is counted as held for another project.
 
 ### Lanes and workers
 
@@ -243,7 +271,7 @@ Each run writes `<work>/index/extract_<lane><k>.jsonl` as it goes and, when it e
 | Format | How it is read |
 | --- | --- |
 | PDF | per page: the text layer, unless it is broken (spaces decoded as `)` or `!`); otherwise the page is rendered at 200 dpi and read by Apple Vision (`page-ocr`), then tesseract; a page none reads cleanly is queued for the vision lane |
-| image | Apple Vision; fewer than 80 characters read makes it a photo, not a document |
+| image | Apple Vision; fewer than 80 characters read makes it a photo, not a document. A photo's record names a local OCR tier that is missing, exactly as a PDF page's does (`notes`), since with no OCR helper (a bad `--ocr-bin`) a clean scan reads as a photo |
 | Pages, Numbers, Keynote | `iwa.py`, reading the package without the apps; the package's preview image, by OCR, when that finds no text |
 | `.docx`, `.pptx` (with its notes), `.xlsx` | parsed directly |
 | `.doc`, `.rtf`, `.odt`, `.html` | `textutil` |
@@ -274,7 +302,7 @@ confidence of at least 0.45.
 | `tiers` | how many pages each tier read |
 | `pages` | `[{n, text, tier, ...}]`; `tier` is `text_layer`, `local_ocr` (with `engine` `vision` or `tesseract`, and `conf` from Vision), `pending_vision` (with `queued`, the image's name), `blank`, `none` (with a `note`: the page could not be rendered), `photo` or `listing`, and after the vision lane `vision` or `unread`; `via` names an indirect reader (`iwa`, `preview_image`, `textutil`, `libreoffice`) |
 | `extractor`, `extracted_at` | the tool's version and the time |
-| `notes` | a local OCR tool that was missing where a page needed it, or an iWork read that failed |
+| `notes` | a local OCR tool that was missing where a page needed it, a photo included (`local OCR tier not available here: page-ocr, tesseract`, naming each tier missing), or an iWork read that failed |
 | `error` | on a `failed` record, why |
 
 ### `repath`
@@ -323,10 +351,11 @@ or the attempt fails. A transcription replaces the page's text (tier `vision`, e
 unread. A page whose batch fails three times is marked `unread`, its local text kept. Tries are kept in
 `<work>/state/vision_tries_<k>.json`.
 
-**Held for another project.** An image whose document's current path in the manifest (`--manifest`, default
-`<root>/_Audit/manifest.json`, required) is under the migrations folder is never sent, whatever the document's flags: it
-stays in the queue and out of the share that has to be empty, so the lane still ends, and the log's last line counts the
-documents held (`finished; held for another project: <n>`). The manifest is read again before each batch, so a round
+**Held for another project, and excluded.** An image whose document's current path in the manifest (`--manifest`,
+default `<root>/_Audit/manifest.json`, required) is under the migrations folder or is one the rulebook `exclude`s
+([the decision](#held-for-another-project-and-excluded)) is never sent, whatever the document's flags: it stays in the
+queue and out of the share that has to be empty, so the lane still ends, and the log's last line counts the documents
+of each kind (`finished; held for another project: <n>; excluded: <n>`). The manifest is read again before each batch, so a round
 that stages a document while the lane runs is seen, and a missing or malformed manifest stops the lane (exit 2) rather
 than read as nothing held.
 
@@ -468,12 +497,14 @@ One card per live document. What a card holds, how it is written and joined, and
 | `--small-chars`, `--batch-chars`, `--batch-items`, `--textless-batch`, `--section-chars`, `--single-max` | the batch budgets, in characters and items | 60,000; 180,000; 30; 60; 400,000; 600,000, except that with `--engine agy` (the default) `--small-chars`, `--batch-chars`, `--section-chars` and `--single-max` default to 50,000 (`AGY_BUDGET_CHARS`): three-byte CJK text plus the largest card prompt's own overhead (about 27 KB measured) then stays under agy's 180,000-byte limit, where 60,000 characters would not (so a document over `--small-chars` is read in sections: single mode is not used with agy's defaults) |
 | `--section-tokens`, `--single-tokens` | budgets in estimated tokens instead (for `codex`, 110,000 and 150,000) | unset |
 
-**Held for another project.** A document whose current path in the manifest is under the migrations folder is never
-carded, whatever its flags and wherever its extract record says it was read: `build` plans no batch for its record and
-counts it (`build: <n> new batches, <n> records still waiting for extraction, <n> held for another project`, a held
-record not counted as waiting), and `work` drops it from a batch planned before it was staged and from a `--redo` file,
-so it is never sent to the engine and no card is written for it; the worker's last log line counts the ones it held
-(`worker finished; held for another project: <n>`). A missing or malformed manifest is refused (exit 2).
+**Held for another project, and excluded.** A document whose current path in the manifest is under the migrations
+folder or is one the rulebook `exclude`s ([the decision](#held-for-another-project-and-excluded)) is never carded,
+whatever its flags and wherever its extract record says it was read: `build` plans no batch for its record and counts
+it (`build: <n> new batches, <n> records still waiting for extraction, <n> held for another project, <n> excluded`, a
+withheld record not counted as waiting), and `work` drops it from a batch planned before it was staged or excluded and
+from a `--redo` file, so it is never sent to the engine and no card is written for it; the worker's last log line counts
+the ones it held (`worker finished; held for another project: <n>; excluded: <n>`). A missing or malformed manifest is
+refused (exit 2).
 
 `--redo` plans each id as a first run would (its size decides: a long document is read in sections, reusing the
 cached notes), and refuses an id with no extract record. Batches go in `<work>/batches/`, section notes in
@@ -1224,9 +1255,11 @@ those captures predate, are pinned line by line in `tests/test_readiness.py`.
 ## `common.py`
 
 The helpers every tool shares: settings loading and the stale-twin gate, `Writer`, `reserved_names` (every
-top-level name a rulebook must reserve), `pack_matcher`, `in_migrations` (the one decision that a path lies under the
-migrations folder, in Unicode NFC, and so is held for another project) and `migrations_held` (the ids of the
-manifest's entries it holds; a missing or malformed manifest is refused, never read as nothing held), `page_voice` (the one reading of
+top-level name a rulebook must reserve), `pack_matcher`, `withheld` (the one decision that a path is read by no tool:
+staged for another project, under the migrations folder, or excluded by the rulebook's `exclude`, compared in Unicode
+NFC; built on `in_migrations` and `is_excluded`), `withheld_ids` (the manifest's entries it withholds, as `{id: why}`; a
+missing or malformed manifest is refused, never read as nothing withheld), `named_exactly` and `check_excluded` (an
+`exclude` entry that names no path under the folder fails loud), `page_voice` (the one reading of
 [a page's professional](settings.md#a-pages-professional)), JSON parsing of model replies, the token estimate and
 `sha256_package`. `sha256_package` is the manifest's package hash rule
 ([`manifest-schema.md`](../../file-preprocessing/references/manifest-schema.md#added-in-2)), which the audit, the

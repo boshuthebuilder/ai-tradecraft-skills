@@ -251,6 +251,10 @@ def validate_rulebook(data, path):
         if p != p.strip() or p.startswith("/") or any(x in ("", ".", "..") for x in p.rstrip("/").split("/")):
             raise ToolError("%s: packs entry %r must be a folder path relative to the folder, with no leading or "
                             "trailing space, no leading /, and no empty, . or .. parts" % (path, p))
+    for p in data.get("exclude", []):
+        if p != p.strip() or p.startswith("/") or any(x in ("", ".", "..") for x in p.rstrip("/").split("/")):
+            raise ToolError("%s: exclude entry %r must be a path relative to the folder, with no leading or trailing "
+                            "space, no leading /, and no empty, . or .. parts" % (path, p))
     for k in data.get("pack_keywords", []):
         try:
             re.compile(k)
@@ -316,6 +320,7 @@ def load_rulebook(root, settings_dir, required=False, verify=True):
     merged.update(data)
     merged["wiki_dir"] = (merged.get("wiki_dir") or os.path.basename(root) + " Wiki").rstrip("/")
     merged["packs"] = [p.rstrip("/") for p in merged["packs"]]
+    merged["exclude"] = [p.rstrip("/") for p in merged["exclude"]]
     merged["_source"] = path if data else None
     return merged
 
@@ -399,19 +404,37 @@ def reserved_names(rb):
     return list(dict.fromkeys(names + rb["reserved"]))
 
 
+def _nfc(text):
+    return unicodedata.normalize("NFC", text)
+
+
 def in_migrations(rb, path):
     """True when `path`, relative to the folder with `/` separators, lies under the folder's migrations folder
-    (`migrations_dir`, `_Migrations` by default): the one decision that `extract.py`, `cards.py`, `vision.py` and
-    `readiness.py` share about a document staged for another project. Names are compared in Unicode NFC, as a name may
-    be stored decomposed on disk and composed in rulebook.json."""
-    name = unicodedata.normalize("NFC", rb["migrations_dir"]).rstrip("/")
-    return unicodedata.normalize("NFC", path).startswith(name + "/")
+    (`migrations_dir`, `_Migrations` by default). Names are compared in Unicode NFC, as a name may be stored
+    decomposed on disk and composed in rulebook.json."""
+    return _nfc(path).startswith(_nfc(rb["migrations_dir"]).rstrip("/") + "/")
 
 
-def migrations_held(root, rb, manifest=None):
-    """The ids of the manifest's entries whose current path is under the migrations folder, whatever their flags: the
-    documents held for another project, which no tool reads, sends to an engine or queues. The manifest is required
-    and checked, since a missing or malformed one would otherwise read as nothing held."""
+def is_excluded(rb, path):
+    """True when `path` is a path the folder's `exclude` lists, or lies under one: matched on the folder's own
+    spelling (each part exactly, case included), in Unicode NFC."""
+    p = _nfc(path)
+    return any(p == e or p.startswith(e + "/") for e in map(_nfc, rb["exclude"]))
+
+
+def withheld(rb, path):
+    """Why a document at `path` is read by no tool, or None. `"migrations"`: it is staged for another project, under
+    the migrations folder. `"excluded"`: the owner excluded it from reading (`exclude`, a path and everything under
+    it). The one decision `extract.py`, `cards.py`, `vision.py` and `readiness.py` share, whatever a document's flags:
+    a withheld document is never read, sent to an engine or queued for one."""
+    if in_migrations(rb, path):
+        return "migrations"
+    return "excluded" if is_excluded(rb, path) else None
+
+
+def withheld_ids(root, rb, manifest=None):
+    """{id: why} (as `withheld`) for the manifest's entries whose current path is withheld. The manifest is required and
+    checked, since a missing or malformed one would otherwise read as nothing withheld."""
     path = manifest or os.path.join(root, "_Audit", "manifest.json")
     if not os.path.exists(path):
         raise ToolError("manifest missing: %s; run audit.py first" % path)
@@ -421,14 +444,36 @@ def migrations_held(root, rb, manifest=None):
         raise ToolError("cannot read %s (%s)" % (path, e.strerror or e))
     if not isinstance(entries, dict):
         raise ToolError("%s has no \"entries\" object; it is not a manifest audit.py wrote" % path)
-    held = set()
+    held = {}
     for h, e in entries.items():
         where = e.get("current_path") if isinstance(e, dict) else None
         if not (isinstance(where, str) and where):
             raise ToolError("%s: entry %s has no current_path; re-run audit.py" % (path, h))
-        if in_migrations(rb, where):
-            held.add(h)
+        why = withheld(rb, where)
+        if why:
+            held[h] = why
     return held
+
+
+def named_exactly(root, rel):
+    """The path of `rel` under `root` when every part is spelled exactly as its folder lists it (case included; both in
+    Unicode NFC, as a name may be stored decomposed on disk and composed in rulebook.json), else None."""
+    cur = root
+    for part in _nfc(rel).split("/"):
+        names = {_nfc(n): n for n in os.listdir(cur)} if os.path.isdir(cur) else {}
+        if part not in names:
+            return None
+        cur = os.path.join(cur, names[part])
+    return cur
+
+
+def check_excluded(root, rb):
+    """Fail loud on an `exclude` entry that is no path under `root`, named exactly: a typo or a changed case would
+    exclude nothing, and the owner's exclusion would reach the engines without a word."""
+    for p in rb["exclude"]:
+        if named_exactly(root, p) is None:
+            raise ToolError("%s: exclude entry %r is not a path under %s (names compared exactly, case included); "
+                            "update rulebook.json exclude" % (rb.get("_source") or "rulebook.json", p, root))
 
 
 def pack_matcher(root, rb):
@@ -438,18 +483,11 @@ def pack_matcher(root, rb):
     folder under `root`, named exactly (each part compared with its folder's listing, case included; both in Unicode
     NFC, as a name may be stored decomposed on disk and composed in rulebook.json), fails loud: it would match
     nothing and leave its copies deletable without a word."""
-    def nfc(s):
-        return unicodedata.normalize("NFC", s)
+    nfc = _nfc
     for p in rb["packs"]:
-        cur = root
-        for part in nfc(p).split("/"):
-            names = {nfc(n): n for n in os.listdir(cur)} if os.path.isdir(cur) else {}
-            if part not in names:
-                break
-            cur = os.path.join(cur, names[part])
-        else:
-            if os.path.isdir(cur):
-                continue
+        cur = named_exactly(root, p)
+        if cur is not None and os.path.isdir(cur):
+            continue
         raise ToolError("%s: packs entry %r is not an existing folder under %s (names compared exactly); update "
                         "rulebook.json packs (and name it in the rulebook, which `settings.py check` verifies)"
                         % (rb.get("_source") or "rulebook.json", p, root))

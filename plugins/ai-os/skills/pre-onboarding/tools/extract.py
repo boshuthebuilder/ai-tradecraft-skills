@@ -8,8 +8,9 @@ vision lane (`vision.py`) and marked `pending_vision`. Office zip formats are pa
 `textutil`, iWork through the `.iwa` reader (`iwa.py`) with the preview image as a fallback, legacy .ppt/.xls through
 LibreOffice when it is installed. Resumable: an existing record is never rewritten unless `--retry-failed`.
 
-A document whose current path is under the migrations folder is held for another project: it is never read, whatever
-its flags, and the run's log counts it (`held_for_another_project`).
+A document whose current path is under the migrations folder is held for another project, and one the rulebook
+`exclude`s (a listed path, or under one) is excluded: neither is ever read or queued, whatever its flags, and the run's
+log counts each (`held_for_another_project`, `excluded`).
 
     python3 extract.py --root R --lane main --worker 0/4
     python3 extract.py --root R --lane apps
@@ -467,7 +468,7 @@ def process(ctx, e):
         else:
             status = "ok"
     missing = [n for n in ("page-ocr", "tesseract") if not ctx.bins[n]]
-    if missing and any(p["tier"] in ("pending_vision", "blank", "none") for p in pages):
+    if missing and any(p["tier"] in ("pending_vision", "blank", "none", "photo") for p in pages):
         notes.append("local OCR tier not available here: %s" % ", ".join(missing))
     rec = {"id": e["id"], "path": e["current_path"], "class": cls, "status": status,
            "page_count": len(pages), "tiers": dict(tiers), "chars": sum(len(p.get("text", "")) for p in pages),
@@ -501,9 +502,9 @@ def main():
     log("tools:", {k: bool(v) for k, v in ctx.bins.items()})
     with open(a.manifest or os.path.join(root, "_Audit", "manifest.json"), encoding="utf-8") as f:
         man = json.load(f)
-    todo, held = [], 0
+    todo, held = [], collections.Counter()
     for e in sorted(man["entries"].values(), key=lambda x: x["id"]):
-        if not e.get("hashed") or "departed" in e.get("flags", []):
+        if "departed" in e.get("flags", []):
             continue
         ext = os.path.splitext(e["current_path"])[1].lower()
         is_app = ext in IWORK or ext in LEGACY or bool(e.get("package"))
@@ -511,11 +512,14 @@ def main():
             continue
         if a.lane == "main" and int(e["id"][:8], 16) % wn != wi:
             continue
-        if common.in_migrations(rb, e["current_path"]):
-            held += 1  # staged for another project: never read, whatever its flags
+        why = common.withheld(rb, e["current_path"])
+        if why:
+            held[why] += 1  # staged for another project, or excluded by the owner: never read, whatever its flags
             continue
-        todo.append(e)
-    log("start lane=%s worker=%s todo=%d held_for_another_project=%d" % (a.lane, a.worker, len(todo), held))
+        if e.get("hashed"):
+            todo.append(e)
+    counts = "held_for_another_project=%d excluded=%d" % (held["migrations"], held["excluded"])
+    log("start lane=%s worker=%s todo=%d %s" % (a.lane, a.worker, len(todo), counts))
     os.makedirs(os.path.join(work, "index"), exist_ok=True)
     idx = open(os.path.join(work, "index", "extract_%s.jsonl" % tag), "a", encoding="utf-8")
     done = failed = skipped = 0
@@ -550,8 +554,7 @@ def main():
     idx.close()
     ctx.ocr.close()
     shutil.rmtree(ctx.tmp, True)
-    log("finished done=%d failed=%d skipped=%d held_for_another_project=%d in %.0fs"
-        % (done, failed, skipped, held, time.time() - t0))
+    log("finished done=%d failed=%d skipped=%d %s in %.0fs" % (done, failed, skipped, counts, time.time() - t0))
     os.makedirs(os.path.join(work, "state"), exist_ok=True)
     with open(os.path.join(work, "state", "extract_%s.done" % tag), "w") as f:
         f.write(common.now_local())

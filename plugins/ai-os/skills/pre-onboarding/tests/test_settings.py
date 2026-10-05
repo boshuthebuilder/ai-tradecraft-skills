@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import unicodedata
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -592,28 +593,30 @@ class RulebookValidationTest(FixtureCopy):
             common.load_rulebook(self.root, settings_dir, required=True)
 
 
-class MigrationsFolderTest(unittest.TestCase):
-    """`common.in_migrations`, the one decision the tools share about a document staged for another project, and
-    `common.migrations_held`, which applies it to a manifest."""
+class WithheldTest(unittest.TestCase):
+    """`common.withheld`, the one decision the tools share about a document they must not read (staged for another
+    project, or excluded by the owner), and `common.withheld_ids`, which applies it to a manifest."""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="migrations_held_")
+        self.tmp = tempfile.mkdtemp(prefix="withheld_")
         self.addCleanup(shutil.rmtree, self.tmp, True)
         self.rb = dict(common.DEFAULTS)
 
-    def test_a_path_under_the_folder_is_held(self):
+    def test_a_path_under_the_migrations_folder_is_held(self):
         for path in ("_Migrations/Other Project/02 Finance/Old invoice.pdf", "_Migrations/a.pdf",
                      "_Migrations/Other Project/a/b/c/d.pdf"):
             with self.subTest(path):
                 self.assertTrue(common.in_migrations(self.rb, path))
+                self.assertEqual(common.withheld(self.rb, path), "migrations")
 
-    def test_nothing_else_is_held(self):
+    def test_nothing_else_is_withheld_by_default(self):
         for path in ("", "_Migrations", "_Migrations.pdf", "_Migrationsx/a.pdf", "_migrations/a.pdf",
                      "02 Finance/_Migrations/a.pdf", "02 Finance/Old invoice.pdf", "Migrations/a.pdf"):
             with self.subTest(path):
                 self.assertFalse(common.in_migrations(self.rb, path))
+                self.assertIsNone(common.withheld(self.rb, path))
 
-    def test_the_folder_is_the_one_the_settings_name(self):
+    def test_the_migrations_folder_is_the_one_the_settings_name(self):
         self.rb["migrations_dir"] = "_Leaving"
         self.assertTrue(common.in_migrations(self.rb, "_Leaving/Other Project/a.pdf"))
         self.assertFalse(common.in_migrations(self.rb, "_Migrations/Other Project/a.pdf"))
@@ -627,24 +630,48 @@ class MigrationsFolderTest(unittest.TestCase):
         self.rb["migrations_dir"] = decomposed
         self.assertTrue(common.in_migrations(self.rb, composed + "/Autre/a.pdf"))
 
+    def test_an_excluded_path_and_everything_under_it_is_withheld(self):
+        self.rb["exclude"] = ["Staff", "Letters/Private.pdf", "Caf\u00e9"]
+        for path in ("Staff", "Staff/pay.txt", "Staff/2024/pay.txt", "Letters/Private.pdf",
+                     unicodedata.normalize("NFD", "Caf\u00e9/menu.txt")):
+            with self.subTest(path):
+                self.assertTrue(common.is_excluded(self.rb, path))
+                self.assertEqual(common.withheld(self.rb, path), "excluded")
+
+    def test_an_exclusion_is_matched_exactly_by_part_never_by_prefix_or_case(self):
+        self.rb["exclude"] = ["Staff", "Letters/Private.pdf"]
+        for path in ("Staffing/a.txt", "Staff.txt", "staff/a.txt", "STAFF/a.txt", "Letters/Private.pdf.bak",
+                     "Letters/Private.pdfx/a", "Letters/private.pdf", "Other/Staff/a.txt", "Letters", "Letters/Other.pdf"):
+            with self.subTest(path):
+                self.assertFalse(common.is_excluded(self.rb, path))
+
+    def test_an_exclusion_that_is_also_staged_is_held_for_the_other_project_first(self):
+        self.rb["exclude"] = ["_Migrations/Other Project"]
+        self.assertEqual(common.withheld(self.rb, "_Migrations/Other Project/a.pdf"), "migrations")
+
     def manifest(self, entries):
         path = os.path.join(self.tmp, "manifest.json")
         with open(path, "w", encoding="utf-8") as f:
             json.dump({"entries": entries}, f)
         return path
 
-    def test_the_ids_held_are_those_whose_current_path_is_under_the_folder_whatever_their_flags(self):
+    def test_the_ids_withheld_are_those_whose_current_path_is_withheld_whatever_their_flags(self):
+        self.rb["exclude"] = ["Staff"]
         path = self.manifest({
             "a" * 64: {"current_path": "_Migrations/Other Project/a.pdf", "flags": ["migrating"]},
             "b" * 64: {"current_path": "_Migrations/Other Project/b.pdf", "flags": []},
             "c" * 64: {"current_path": "_Migrations/Other Project/c.pdf", "flags": ["departed"]},
             "d" * 64: {"current_path": "02 Finance/d.pdf", "flags": ["migrating"]},
-            "e" * 64: {"current_path": "02 Finance/e.pdf"}})
-        self.assertEqual(common.migrations_held(self.tmp, self.rb, path), {"a" * 64, "b" * 64, "c" * 64})
+            "e" * 64: {"current_path": "02 Finance/e.pdf"},
+            "f" * 64: {"current_path": "Staff/pay.txt", "flags": [], "hashed": True},
+            "0" * 64: {"current_path": "Staff/Old/pay.txt", "flags": ["departed"], "hashed": False}})
+        self.assertEqual(common.withheld_ids(self.tmp, self.rb, path),
+                         {"a" * 64: "migrations", "b" * 64: "migrations", "c" * 64: "migrations",
+                          "f" * 64: "excluded", "0" * 64: "excluded"})
 
-    def test_a_manifest_that_cannot_be_read_is_refused_never_read_as_nothing_held(self):
+    def test_a_manifest_that_cannot_be_read_is_refused_never_read_as_nothing_withheld(self):
         with self.assertRaisesRegex(common.ToolError, "manifest missing"):
-            common.migrations_held(self.tmp, self.rb)  # no _Audit/manifest.json in the folder
+            common.withheld_ids(self.tmp, self.rb)  # no _Audit/manifest.json in the folder
         for name, content, why in (("not JSON", "{", "not valid JSON"), ("a list", "[]", "expected a JSON object"),
                                    ("no entries", "{}", "no \"entries\" object"),
                                    ("entries as a list", "{\"entries\": []}", "no \"entries\" object")):
@@ -653,11 +680,43 @@ class MigrationsFolderTest(unittest.TestCase):
                 with open(path, "w", encoding="utf-8") as f:
                     f.write(content)
                 with self.assertRaisesRegex(common.ToolError, why):
-                    common.migrations_held(self.tmp, self.rb, path)
+                    common.withheld_ids(self.tmp, self.rb, path)
         for entry in ({}, {"current_path": ""}, {"current_path": 3}, "x"):
             with self.subTest(entry=entry):
                 with self.assertRaisesRegex(common.ToolError, "has no current_path"):
-                    common.migrations_held(self.tmp, self.rb, self.manifest({"a" * 64: entry}))
+                    common.withheld_ids(self.tmp, self.rb, self.manifest({"a" * 64: entry}))
+
+    def test_an_exclude_entry_is_a_path_relative_to_the_folder(self):
+        rulebook = os.path.join(self.tmp, "rulebook.json")
+        for entry in ("/Staff", "./Staff", "Staff/../Staff", "Staff//pay", "Staff ", " Staff", ".", "/"):
+            with self.subTest(entry):
+                with self.assertRaisesRegex(common.ToolError, "exclude entry %s" % re.escape(repr(entry))):
+                    common.validate_rulebook({"version": 1, "exclude": [entry]}, rulebook)
+        common.validate_rulebook({"version": 1, "exclude": ["Staff", "Letters/Private.pdf", "Staff/"]}, rulebook)
+
+    def test_a_trailing_slash_on_an_exclude_entry_is_dropped(self):
+        root = os.path.join(self.tmp, "Papers")
+        os.makedirs(os.path.join(root, ".familyai"))
+        with open(os.path.join(root, "CLAUDE.md"), "w", encoding="utf-8") as f:
+            f.write("# Rules\n")
+        pin = hashlib.sha256(b"# Rules\n").hexdigest()
+        with open(os.path.join(root, ".familyai", "rulebook.json"), "w", encoding="utf-8") as f:
+            json.dump({"version": 1, "rulebook_sha256": pin, "exclude": ["Staff/"]}, f)
+        self.assertEqual(common.load_rulebook(root, os.path.join(root, ".familyai"))["exclude"], ["Staff"])
+
+    def test_an_exclude_entry_that_names_no_path_is_refused_by_name(self):
+        root = os.path.join(self.tmp, "Papers")
+        os.makedirs(os.path.join(root, "Staff"))
+        os.makedirs(os.path.join(root, "Caf\u00e9"))
+        for entry, ok in (("Staff", True), ("staff", False), ("Staf", False), ("Staff/pay.txt", False),
+                          ("Caf\u00e9", True), (unicodedata.normalize("NFD", "Caf\u00e9"), True)):
+            with self.subTest(entry):
+                rb = dict(self.rb, exclude=[entry])
+                if ok:
+                    common.check_excluded(root, rb)
+                else:
+                    with self.assertRaisesRegex(common.ToolError, "exclude entry %s is not a path" % re.escape(repr(entry))):
+                        common.check_excluded(root, rb)
 
 
 if __name__ == "__main__":

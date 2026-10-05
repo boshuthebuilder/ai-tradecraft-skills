@@ -775,6 +775,33 @@ class ContractTest(Prepared):
         self.assertEqual((res["records"]["missing_extracts"], res["records"]["missing_cards"]), (0, 0))
         self.assertEqual([f[0] for f in res["findings"]], ["handoff_contract.migrations_folder_cleared"])
 
+    def exclude(self, *paths):
+        twin = self.path(".familyai", "rulebook.json")
+        write(twin, json.dumps(dict(self.json_file(".familyai", "rulebook.json"), exclude=list(paths)),
+                               ensure_ascii=False, indent=1))
+
+    def test_an_excluded_document_needs_no_extract_record_or_card(self):
+        """Excluded by the owner, it is read by no tool: no record or card is expected, and none was made."""
+        eid = self.ids()["06 Work/Contract.docx"]
+        for sub in ("extract", "cards"):
+            os.remove(self.path("_Audit", sub, eid + ".json"))
+        self.exclude("06 Work")
+        self.tool("audit.py")
+        entry, = [e for e in self.json_file("_Audit", "manifest.json")["entries"].values()
+                  if e["current_path"] == "06 Work/Contract.docx" and "departed" not in e["flags"]]
+        self.assertEqual((entry["hashed"], entry["synthetic_id"]), (False, True))
+        res = self.readiness()
+        self.assertEqual((res["records"]["missing_extracts"], res["records"]["missing_cards"]), (0, 0))
+        self.assertNotIn("records.missing_extracts", [f[0] for f in res["findings"]])
+
+    def test_an_excluded_document_a_manifest_still_hashes_needs_no_record_either(self):
+        """A manifest an earlier audit made, which read the file: the path decides, not whether it was hashed."""
+        eid = self.ids()["06 Work/Contract.docx"]
+        for sub in ("extract", "cards"):
+            os.remove(self.path("_Audit", sub, eid + ".json"))
+        self.exclude("06 Work/Contract.docx")
+        self.assertEqual(self.readiness()["records"]["missing_extracts"], 0)
+
     def test_a_record_kept_at_the_path_a_staged_document_had_is_not_stale(self):
         eid = self.stage_and_audit()
         write(self.path("_Audit", "extract", eid + ".json"),

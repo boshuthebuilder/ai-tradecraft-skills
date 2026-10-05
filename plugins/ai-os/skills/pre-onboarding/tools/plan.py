@@ -158,7 +158,7 @@ def execute(a):
                     os.makedirs(dst, exist_ok=True)
             elif act in ("move", "rename") and not r["from"].endswith("/"):
                 if not r["to"]:
-                    raise ValueError("no destination: the owner must choose one before approving")
+                    raise ValueError(NO_DESTINATION)
                 src, dst = guard.inside(r["from"]), guard.inside(r["to"])
                 if not is_item(src):
                     raise ValueError("source missing")
@@ -251,6 +251,16 @@ def execute(a):
     return 1 if failed_domains else 0
 
 
+NO_DESTINATION = "no destination: the owner must choose one before approving"
+
+
+def no_destination(r):
+    """Refuse a move or rename row with no `to` (a root stray the owner has not placed), as the executor does when it
+    reaches the row. A row the owner declined or deferred is never run, so it is not refused."""
+    if not r["to"] and r["approved"] not in ("declined", "deferred"):
+        raise ValueError(NO_DESTINATION)
+
+
 def check(a):
     """Dry run of every row with the executor's own guards; delete rows validated against the manifest."""
     root = os.path.realpath(a.root)
@@ -274,11 +284,14 @@ def check(a):
                 if common.content_id(src) != r["evidence"] or common.content_id(keep) != r["evidence"]:
                     raise ValueError("hash differs")
             elif r["action"] in ("move", "rename") and not r["from"].endswith("/"):
+                no_destination(r)
                 src = guard.inside(r["from"])
                 guard.inside(r["to"])
                 if not is_item(src) or common.content_id(src) != r["evidence"]:
                     raise ValueError("source missing or hash differs")
             elif r["action"] in ("rmdir", "rename", "create"):
+                if r["action"] == "rename":
+                    no_destination(r)
                 guard.inside((r["from"] or r["to"]).rstrip("/"))
             ok += 1
         except (KeyError, IndexError, ValueError, OSError) as ex:
@@ -306,9 +319,26 @@ def number(rows):
     return rows
 
 
+def refuse_decided(out):
+    """Refuse to replace the plan in the plan folder `out` when the owner has begun to decide it: any row approved,
+    declined or deferred. An untouched proposal may be replaced, so a round proposed again is not an error."""
+    path = os.path.join(os.path.abspath(out), "move-plan.csv")
+    if not os.path.lexists(path):
+        return
+    try:
+        decided = sum(1 for r in read_plan(path) if r["approved"])
+    except (OSError, UnicodeDecodeError, csv.Error) as ex:
+        raise common.ToolError("%s already exists and cannot be read as a plan (%s); choose a new plan folder"
+                               % (path, ex))
+    if decided:
+        raise common.ToolError("%s already holds %d approved, declined or deferred row(s); proposing again would "
+                               "overwrite the owner's decisions: choose a new plan folder" % (path, decided))
+
+
 def light(a):
     """A light-depth proposal: root strays (destination left for the owner), name defects, redundant copies."""
     import re
+    refuse_decided(a.out)
     root = os.path.realpath(a.root)
     entries = load_manifest(a.manifest or os.path.join(root, "_Audit", "manifest.json"))
     live = {h: e for h, e in entries.items() if "departed" not in e.get("flags", [])}
@@ -367,6 +397,7 @@ def read_paths(path):
 def migrate(a):
     """Stage files for another project under <migrations dir>/<Project>/, keeping their original paths. A listed
     path ending in `/` stands for every live file under it. Copies left behind are listed in review.tsv."""
+    refuse_decided(a.out)
     root = os.path.realpath(a.root)
     rb = common.load_rulebook(root, common.settings_dir_for(root, a.settings_dir))
     entries = load_manifest(a.manifest or os.path.join(root, "_Audit", "manifest.json"))
@@ -391,6 +422,7 @@ def migrate(a):
 
 
 def return_(a):
+    refuse_decided(a.out)
     root = os.path.realpath(a.root)
     rb = common.load_rulebook(root, common.settings_dir_for(root, a.settings_dir))
     entries = load_manifest(a.manifest or os.path.join(root, "_Audit", "manifest.json"))

@@ -4,13 +4,17 @@
 No model calls. Walks the folder, hashes every item (an iWork package counts as one item, hashed over its members),
 groups copies by content, tags each copy canonical, redundant, working copy or pack, finds overlapping homes,
 generic names, unconverted iWork files, hygiene defects, root strays and files staged for another project, and
-merges with the previous manifest so history (first seen, renames, departures) is kept.
+merges with the previous manifest so history (first seen, renames, departures) is kept. An item the rulebook's
+`exclude` lists (a path, or under one) is recorded from the folder's listing alone, its path, size, modification time
+and class, and never opened: it has the synthetic id of an item counted and not hashed, so it is no duplicate of any
+other and no later tool reads it.
 
     python3 audit.py --root <folder> [--out <dir>] [--work <dir>] [--settings-dir <dir>] [--read-only-root]
 
 `--out` defaults to <root>/_Audit; the previous manifest is read from there. Schema family-ai-preprocess-manifest/2.
 """
 import collections
+import hashlib
 import json
 import os
 import re
@@ -61,6 +65,26 @@ def near_stem(stem):
     return s
 
 
+def class_of(ext):
+    return ("iwork" if ext in IWORK else "image" if ext in IMG else "document" if ext in DOC else
+            "email" if ext in EMAIL else "archive" if ext in ARCH else "other")
+
+
+def stat_item(full, pkg):
+    """(size, modification time) of an item from the folder's listing alone: a file's own, or a package's members'
+    total size and newest time. No file is opened."""
+    if not pkg:
+        st = os.stat(full)
+        return st.st_size, st.st_mtime
+    size, mt = 0, 0.0
+    for r2, _ds, fs in os.walk(full):
+        for f in fs:
+            st = os.stat(os.path.join(r2, f))
+            size += st.st_size
+            mt = max(mt, st.st_mtime)
+    return size, mt
+
+
 def main():
     ap = common.base_args("Deterministic folder audit")
     ap.add_argument("--out", help="output directory (default <root>/_Audit); the previous manifest is read here")
@@ -77,6 +101,7 @@ def main():
     reserved = BASE_RESERVED | set(rb["reserved"]) | {rb["wiki_dir"]}
     img_cap = int(rb["image_cap_mb"]) * 1024 * 1024
     in_pack = common.pack_matcher(root, rb)
+    common.check_excluded(root, rb)
     log = common.logger(work, "audit")
     folder = os.path.basename(root)
 
@@ -125,6 +150,8 @@ def main():
     items.sort()
     for rel, pkg in items:
         full = os.path.join(root, rel)
+        if common.is_excluded(rb, rel):
+            continue  # never read, so never downloaded either
         if pkg:
             dataless += [os.path.relpath(os.path.join(r2, f), root) for r2, _, fs in os.walk(full) for f in fs
                          if common.is_dataless(os.path.join(r2, f))]
@@ -153,9 +180,20 @@ def main():
     newcache = {}
     meta = {}
     done_bytes = 0
+    excluded = 0
     for i, (rel, pkg) in enumerate(items):
         full = os.path.join(root, rel)
         ext = os.path.splitext(rel)[1].lower()
+        if common.is_excluded(rb, rel):
+            # The owner excluded it from reading: record what the folder says (path, size, modification time, class)
+            # and open no file. Its id is the synthetic one of an item counted and not hashed, so it is never matched
+            # to another copy, and every later tool leaves it alone as an entry it cannot read.
+            size, mt = stat_item(full, pkg)
+            h = hashlib.sha256(("%d:%s:%s" % (size, common.iso_utc(mt), rel)).encode()).hexdigest()
+            meta[rel] = dict(id=h, size=size, mtime=mt, cls="iwork" if pkg else class_of(ext), hashed=False,
+                             package=pkg)
+            excluded += 1
+            continue
         if pkg:
             members = []
             size, mt = 0, 0.0
@@ -174,10 +212,8 @@ def main():
         else:
             st = os.stat(full)
             size, mt = st.st_size, st.st_mtime
-            cls = ("iwork" if ext in IWORK else "image" if ext in IMG else "document" if ext in DOC else
-                   "email" if ext in EMAIL else "archive" if ext in ARCH else "other")
+            cls = class_of(ext)
             if cls == "image" and size > img_cap:
-                import hashlib
                 h = hashlib.sha256(("%d:%s:%s" % (size, common.iso_utc(mt), rel)).encode()).hexdigest()
                 meta[rel] = dict(id=h, size=size, mtime=mt, cls=cls, hashed=False, package=False)
                 continue
@@ -190,7 +226,7 @@ def main():
             log("hashed %d/%d  %.1f GB" % (i, len(items), done_bytes / 1e9))
             save_cache()
     save_cache()
-    log("hashing done in %.0fs" % (time.time() - t0))
+    log("hashing done in %.0fs; %d excluded from reading, not hashed" % (time.time() - t0, excluded))
 
     # ---- group, canonical, copy kinds -------------------------------------------------
     groups = collections.defaultdict(list)

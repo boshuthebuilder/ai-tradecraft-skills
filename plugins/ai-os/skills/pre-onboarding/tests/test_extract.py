@@ -536,8 +536,8 @@ class FixtureRunTest(FixtureRun, unittest.TestCase):
         self.assertNotIn(staged, self.records)
         self.assertEqual([p for p in self.records if p.startswith("_Migrations/")], [])
         log = read(os.path.join(self.work, "logs", "extract_main0.log"))
-        self.assertIn("start lane=main worker=0/1 todo=15 held_for_another_project=1\n", log)
-        self.assertIn("finished done=15 failed=0 skipped=0 held_for_another_project=1 in ", log)
+        self.assertIn("start lane=main worker=0/1 todo=15 held_for_another_project=1 excluded=0\n", log)
+        self.assertIn("finished done=15 failed=0 skipped=0 held_for_another_project=1 excluded=0 in ", log)
 
     def test_the_workers_count_the_held_file_once_between_them(self):
         work, held = os.path.join(self.tmp, "work-held"), []
@@ -546,7 +546,7 @@ class FixtureRunTest(FixtureRun, unittest.TestCase):
                                 "--out", os.path.join(self.tmp, "held" + w[0]), "--read-only-root", "--lane", "main",
                                 "--worker", w)
             self.assertEqual(code, 0, err)
-            held.append(int(re.search(r"held_for_another_project=(\d+)\n",
+            held.append(int(re.search(r"held_for_another_project=(\d+) excluded=0\n",
                                       read(os.path.join(work, "logs", "extract_main%s.log" % w[0]))).group(1)))
         self.assertEqual(sorted(held), [0, 1])
 
@@ -643,6 +643,89 @@ class ResumeTest(FixtureRun, unittest.TestCase):
             with self.subTest(rel):
                 redone = self.records[rel]["status"] == "failed"
                 self.assertEqual(r["extracted_at"] != self.records[rel]["extracted_at"], redone)
+
+
+# ------------------------------------------------------------------------ the owner's exclusions
+
+class ExcludedTest(Tmp):
+    """A path the rulebook `exclude`s, and everything under it, is never read, whatever the manifest says of it."""
+
+    def folder(self):
+        root = os.path.join(self.tmp, "Alex Papers")
+        rulebook = "# Rules\n\nThe owner's rules for this folder.\n"
+        files = {"CLAUDE.md": rulebook, "Notes.txt": "Robin's notes on the move.",
+                 "Staff/pay.txt": "Salary for the nanny, GBP 2,400 a month.",
+                 "Staff/2024/review.txt": "Annual review of the nanny.", "Letters/Private.txt": "A private letter.",
+                 "Letters/Kept.txt": "A letter the owner is happy to share.",
+                 "Staffing/Agency.txt": "Not under Staff: a different folder with a similar name."}
+        for rel, data in files.items():
+            write(os.path.join(root, rel), data)
+        pin = hashlib.sha256(rulebook.encode()).hexdigest()
+        write(os.path.join(root, ".familyai", "rulebook.json"),
+              json.dumps({"version": 1, "rulebook_sha256": pin, "exclude": ["Staff", "Letters/Private.txt"]}))
+        return root
+
+    def audit_and_extract(self, root, out, edit=None, work=None):
+        work = work or os.path.join(self.tmp, "work")
+        audit_out = os.path.join(self.tmp, "audit")
+        code, _o, err = run("audit.py", "--root", root, "--work", work, "--out", audit_out, "--read-only-root")
+        self.assertEqual(code, 0, err)
+        manifest = os.path.join(audit_out, "manifest.json")
+        if edit:
+            m = json.loads(read(manifest))
+            edit(m["entries"])
+            write(manifest, json.dumps(m))
+        code, _o, err = run("extract.py", "--root", root, "--work", work, "--manifest", manifest, "--out", out,
+                            "--lane", "main", "--read-only-root")
+        self.assertEqual(code, 0, err)
+        return work, {json.loads(read(os.path.join(out, f)))["path"] for f in os.listdir(out)}
+
+    def test_an_excluded_path_and_what_is_under_it_is_never_read(self):
+        root = self.folder()
+        work, read_paths = self.audit_and_extract(root, os.path.join(self.tmp, "extract"))
+        self.assertEqual(read_paths, {"Notes.txt", "Letters/Kept.txt", "Staffing/Agency.txt"})
+        log = read(os.path.join(work, "logs", "extract_main0.log"))
+        self.assertIn("start lane=main worker=0/1 todo=3 held_for_another_project=0 excluded=3\n", log)
+        self.assertIn("finished done=3 failed=0 skipped=0 held_for_another_project=0 excluded=3 in ", log)
+        self.assertNotIn("nanny", "".join(read(os.path.join(self.tmp, "extract", f))
+                                          for f in os.listdir(os.path.join(self.tmp, "extract"))))
+
+    def test_a_manifest_that_still_hashes_an_excluded_file_does_not_let_it_through(self):
+        """A manifest an earlier audit made, which read every file: the path, not the flags, decides."""
+        def hashed(entries):
+            for e in entries.values():
+                if e["current_path"].startswith("Staff/") or e["current_path"] == "Letters/Private.txt":
+                    e["hashed"], e["flags"] = True, ["migrating"]
+                    e.pop("synthetic_id", None)
+        _work, read_paths = self.audit_and_extract(self.folder(), os.path.join(self.tmp, "extract"), edit=hashed)
+        self.assertEqual(read_paths, {"Notes.txt", "Letters/Kept.txt", "Staffing/Agency.txt"})
+
+    def test_excluded_and_staged_documents_are_counted_apart(self):
+        root = self.folder()
+        write(os.path.join(root, "_Migrations", "Other Project", "Invoice.txt"), "Invoice for the other project.")
+        work, read_paths = self.audit_and_extract(root, os.path.join(self.tmp, "extract"))
+        self.assertEqual(read_paths, {"Notes.txt", "Letters/Kept.txt", "Staffing/Agency.txt"})
+        self.assertIn("todo=3 held_for_another_project=1 excluded=3\n",
+                      read(os.path.join(work, "logs", "extract_main0.log")))
+
+
+class ImageWithoutOcrTest(Tmp):
+    """An image read with no OCR helper names the missing tier in its record, as a PDF page does."""
+
+    def test_a_scan_is_not_recorded_as_a_photo_without_a_word(self):
+        root = os.path.join(self.tmp, "Alex Papers")
+        write(os.path.join(root, "Scans", "Letter.jpg"), b"\xff\xd8\xff\xe0 a scan of a letter, not a photo")
+        work, audit_out, out = (os.path.join(self.tmp, n) for n in ("work", "audit", "extract"))
+        code, _o, err = run("audit.py", "--root", root, "--work", work, "--out", audit_out, "--read-only-root")
+        self.assertEqual(code, 0, err)
+        code, _o, err = run("extract.py", "--root", root, "--work", work, "--manifest",
+                            os.path.join(audit_out, "manifest.json"), "--out", out, "--lane", "main",
+                            "--ocr-bin", os.path.join(self.tmp, "no-such-page-ocr"), "--read-only-root")
+        self.assertEqual(code, 0, err)
+        rec, = (json.loads(read(os.path.join(out, f))) for f in os.listdir(out))
+        self.assertEqual((rec["path"], rec["status"], rec["pages"][0]["tier"]), ("Scans/Letter.jpg", "photo", "photo"))
+        self.assertEqual(len(rec["notes"]), 1)
+        self.assertRegex(rec["notes"][0], "^local OCR tier not available here: page-ocr(, tesseract)?$")
 
 
 # ------------------------------------------------------------------------ statuses on a synthetic folder

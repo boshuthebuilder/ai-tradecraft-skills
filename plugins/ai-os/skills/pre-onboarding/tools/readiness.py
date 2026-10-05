@@ -10,7 +10,7 @@ pass either, and the operator reads it.
   items on disk (reported, not findings); `live_paths_missing`, live entries whose current path is gone, is a
   finding (the manifest is not current: re-audit);
 - records: every live hashed document (those `extract.py` reads, bar one held for another project, whose current path
-  is under the migrations folder) has an extract record and a card, each card and
+  is under the migrations folder, or excluded by the rulebook's `exclude`) has an extract record and a card, each card and
   extract record is in its format (one that is not is counted and named, never the end of the run), each card's
   category is one the rulebook allows, every extract record's path agrees with the manifest (else the finding
   names the repair, `extract.py repath`), and no card names an isolation term its own source lacks (not verified
@@ -1298,8 +1298,8 @@ def record_checks(root, rb, live, evidence):
                                    "audit.py wrote: re-run audit.py" % (h, e["current_path"]))
         if not e["hashed"]:
             continue  # counted only, never read: extract.py makes no record for it
-        if common.in_migrations(rb, e["current_path"]):
-            continue  # held for another project: no tool reads it, so no record or card is expected
+        if common.withheld(rb, e["current_path"]):
+            continue  # held for another project or excluded: no tool reads it, so no record or card is expected
         path = e["current_path"]
         try:
             card = W.load_card(cdir, h)

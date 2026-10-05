@@ -55,6 +55,29 @@ common.run_main(audit.main)
 """
 
 
+# audit.py with every file under the named folders (argv 2, separated by `|`) made unopenable: a read of one raises.
+NEVER_OPENED = """
+import builtins
+import os
+import sys
+sys.path.insert(0, sys.argv[1])
+import audit
+import common
+fragments, real_open = sys.argv[2].split("|"), builtins.open
+
+
+def guarded(p, *a, **k):
+    if isinstance(p, str) and any(f in p.replace(os.sep, "/") for f in fragments):
+        raise AssertionError("opened " + p)
+    return real_open(p, *a, **k)
+
+
+builtins.open = guarded
+sys.argv = ["audit.py"] + sys.argv[3:]
+common.run_main(audit.main)
+"""
+
+
 def read(path, mode="r"):
     with open(path, mode, **({} if "b" in mode else {"encoding": "utf-8"})) as f:
         return f.read()
@@ -536,6 +559,72 @@ class WalkTest(AuditCase):
         s = self.summary(root)
         self.assertEqual((s["hidden"], s["symlinks"], s["placeholders"], s["items"]), (3, 2, 1, 2))
         self.assertIn("Hidden 3, symlinks 2, cloud-only placeholders 1, not downloaded 0.", self.report(root))
+
+
+class ExcludedTest(AuditCase):
+    """A path the rulebook `exclude`s is recorded from the folder's listing and never opened."""
+
+    FILES = {"Staff/pay.txt": "Salary for the nanny.", "Staff/Bills/Gas.pdf": "gas", "Staff/Photo.jpg": "a photo",
+             "Staff/Pages.pages/Index/Document.iwa": "package member one",
+             "Staff/Pages.pages/preview.jpg": "package member two", "Letters/Private.pdf": "private",
+             "Letters/Kept.pdf": "kept", "Bills/Gas.pdf": "gas", "Staffing/Agency.txt": "a different folder"}
+
+    def folder_with(self, exclude=("Staff", "Letters/Private.pdf"), parent="x"):
+        return self.folder(dict(self.pinned(exclude=list(exclude)), **self.FILES), parent=parent)
+
+    def test_an_excluded_path_is_recorded_from_the_listing_and_never_opened(self):
+        root = self.folder_with()
+        for rel in self.FILES:
+            os.utime(os.path.join(root, rel), (MTIME, MTIME))
+        work = os.path.join(os.path.dirname(root), "work")
+        code, _o, err = run("audit.py", "Alex Papers/Staff/|Alex Papers/Letters/Private.pdf", "--root", root, "--work",
+                            work, "--out", self.out(root), "--read-only-root", script=NEVER_OPENED)
+        self.assertEqual(code, 0, err)
+        entries = by_path(json.loads(read(os.path.join(self.out(root), "manifest.json"))))
+        excluded = {"Staff/pay.txt": "document", "Staff/Bills/Gas.pdf": "document", "Staff/Photo.jpg": "image",
+                    "Staff/Pages.pages": "iwork", "Letters/Private.pdf": "document"}
+        for rel, cls in excluded.items():
+            with self.subTest(rel):
+                e = entries[rel]
+                full = os.path.join(root, rel)
+                if os.path.isdir(full):
+                    members = [os.stat(os.path.join(d, f)) for d, _ds, fs in os.walk(full) for f in fs]
+                    size, mtime = sum(m.st_size for m in members), max(m.st_mtime for m in members)
+                else:
+                    size, mtime = os.stat(full).st_size, os.stat(full).st_mtime
+                self.assertEqual((e["hashed"], e["synthetic_id"], e["class"], e["size"]), (False, True, cls, size))
+                self.assertEqual(e["id"], hashlib.sha256(("%d:%s:%s" % (size, common.iso_utc(mtime), rel)).encode())
+                                 .hexdigest(), "a synthetic id: no byte of the file is in it")
+                self.assertNotIn("copies", e)
+        self.assertEqual(entries["Staff/Pages.pages"].get("package"), True)
+        for rel in ("Letters/Kept.pdf", "Bills/Gas.pdf", "Staffing/Agency.txt"):
+            self.assertTrue(entries[rel]["hashed"], rel)
+        self.assertNotIn("copies", entries["Bills/Gas.pdf"], "an excluded copy is no duplicate of an included file")
+        cache = read(os.path.join(work, "hashcache.json"))
+        self.assertNotIn("Staff/", cache)
+        self.assertNotIn("Private", cache)
+
+    def test_an_exclusion_that_names_no_path_is_refused_and_nothing_is_written(self):
+        for entry in ("Staf", "staff", "Staff/nobody.txt"):
+            with self.subTest(entry):
+                root = self.folder_with(exclude=[entry], parent="bad" + str(len(entry)))
+                code, _o, err = run("audit.py", "--root", root, "--work", os.path.join(self.tmp, "work"), "--out",
+                                    self.out(root), "--read-only-root")
+                self.assertEqual(code, 2)
+                self.assertIn("exclude entry %r is not a path under" % entry, err)
+                self.assertFalse(os.path.exists(os.path.join(self.out(root), "manifest.json")))
+
+    def test_dropping_an_exclusion_reads_the_file_at_the_next_audit(self):
+        root = self.folder_with(exclude=["Staff"])
+        first = by_path(self.audit(root))["Staff/pay.txt"]
+        self.assertEqual((first["hashed"], first["synthetic_id"]), (False, True))
+        write(os.path.join(root, ".familyai", "rulebook.json"),
+              json.dumps(dict(json.loads(read(os.path.join(root, ".familyai", "rulebook.json"))), exclude=[])))
+        second = self.audit(root)
+        now = by_path(second)["Staff/pay.txt"]
+        self.assertEqual((now["hashed"], now["id"]), (True, hashlib.sha256(b"Salary for the nanny.").hexdigest()))
+        self.assertNotIn("synthetic_id", now)
+        self.assertIn("departed", second["entries"][first["id"]]["flags"], "the unread entry is history")
 
 
 class MigratingTest(AuditCase):

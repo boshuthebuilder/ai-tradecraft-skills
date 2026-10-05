@@ -187,6 +187,53 @@ class ProposalTest(PlanCase):
         self.assertEqual(code, 0, err)
         self.assertEqual(read(self.plan, "rb"), read(os.path.join(EXPECTED, "plan-light.csv"), "rb"))
 
+    def propose(self, cmd, out, *, code=0):
+        """`cmd` proposing into the plan folder `out`: light, or migrate or return of one file."""
+        paths = os.path.join(self.tmp, cmd + "-paths.txt")
+        write(paths, {"light": "", "migrate": "06 Work/Contract.docx\n",
+                      "return": "02 Finance/Old invoice.pdf\n"}[cmd])
+        extra = [] if cmd == "light" else ["--project", "Other Project" if cmd == "return" else "Household",
+                                           "--paths-file", paths]
+        got, o, err = self.run_plan(cmd, "--root", self.root, "--out", out, *extra)
+        self.assertEqual(got, code, o + err)
+        self.assertNotIn("Traceback", err)
+        return err
+
+    def test_a_proposal_does_not_replace_a_plan_the_owner_has_begun_to_decide(self):
+        for cmd in ("light", "migrate", "return"):
+            for decision in ([], ["--decline"], ["--defer"]):
+                with self.subTest(cmd=cmd, decision=decision):
+                    out = os.path.join(self.tmp, "round-%s-%s" % (cmd, decision[0][2:] if decision else "approve"))
+                    self.propose(cmd, out)
+                    plan_path = os.path.join(out, "move-plan.csv")
+                    self.run_plan("approve", "--plan", plan_path, "--rows", "1", "--note", "Alex agreed", *decision)
+                    before = tree_digest(out)
+                    err = self.propose(cmd, out, code=2)
+                    self.assertIn("error: %s already holds 1 approved, declined or deferred row(s)" % plan_path, err)
+                    self.assertIn("choose a new plan folder", err)
+                    self.assertEqual(tree_digest(out), before, "the owner's decision was overwritten")
+
+    def test_an_untouched_proposal_may_be_proposed_again(self):
+        for cmd in ("light", "migrate", "return"):
+            with self.subTest(cmd):
+                out = os.path.join(self.tmp, "again-" + cmd)
+                self.propose(cmd, out)
+                plan_path = os.path.join(out, "move-plan.csv")
+                proposed = read(plan_path, "rb")
+                rows = read_rows(plan_path)
+                rows[0]["to"], rows[0]["reason"] = "somewhere", "edited by hand"
+                write_rows(plan_path, rows)
+                self.propose(cmd, out)
+                self.assertEqual(read(plan_path, "rb"), proposed, "a proposal nobody has decided is replaced")
+
+    def test_a_plan_that_cannot_be_read_is_not_replaced_unseen(self):
+        out = os.path.join(self.tmp, "unreadable")
+        write(os.path.join(out, "move-plan.csv"), b"\xff\xfe not a plan")
+        err = self.propose("light", out, code=2)
+        self.assertIn("already exists and cannot be read as a plan", err)
+        self.assertIn("choose a new plan folder", err)
+        self.assertEqual(read(os.path.join(out, "move-plan.csv"), "rb"), b"\xff\xfe not a plan")
+
     def test_deletes_only(self):
         self.run_plan("light", "--root", self.root, "--out", os.path.dirname(self.plan), "--deletes-only")
         self.assertEqual([(r["action"], r["from"], r["kind"]) for r in self.rows().values()],
@@ -948,6 +995,43 @@ class CheckTest(PlanCase):
         rows = read_rows(self.plan)
         rows[0]["to"] = "03 Home/Beach.jpg"
         write_rows(self.plan, rows)
+        self.assertEqual(self.check(), {})
+
+    def stray(self):
+        """The fixture's one root stray, proposed with no destination: the owner has yet to choose one."""
+        self.run_plan("light", "--root", self.root, "--out", os.path.dirname(self.plan))
+        rows = read_rows(self.plan)
+        self.assertEqual((rows[0]["action"], rows[0]["from"], rows[0]["to"]), ("move", "IMG_0001.jpg", ""))
+        return rows
+
+    def test_a_stray_row_with_no_destination_is_refused_with_the_row_named(self):
+        self.stray()
+        failed = self.check()
+        self.assertEqual(sorted(failed), ["1"])
+        self.assertIn("FAIL 1 move IMG_0001.jpg no destination: the owner must choose one before approving",
+                      failed["1"])
+        self.run_plan("approve", "--plan", self.plan, "--rows", "1")
+        self.assertIn("no destination", self.check()["1"], "approved, the executor refuses it too")
+
+    def test_check_and_execute_refuse_the_same_row(self):
+        self.stray()
+        self.run_plan("approve", "--plan", self.plan, "--rows", "1")
+        self.assertIn("no destination", self.check()["1"])
+        code, out, _err = self.execute(apply=False)
+        self.assertEqual(code, 1)
+        self.assertIn("FAILED row 1 no destination", out)
+
+    def test_a_declined_or_deferred_row_with_no_destination_is_never_run_so_check_passes_it(self):
+        for decision in ("--decline", "--defer"):
+            with self.subTest(decision):
+                self.stray()
+                self.run_plan("approve", "--plan", self.plan, "--rows", "1", decision)
+                self.assertEqual(self.check(), {})
+
+    def test_a_folder_rename_with_no_destination_is_refused_too(self):
+        write_rows(self.plan, [row(1, "rename", "03 Home/Utilities /", "")])
+        self.assertIn("no destination", self.check()["1"])
+        write_rows(self.plan, [row(1, "rename", "03 Home/Utilities /", "03 Home/Utilities/")])
         self.assertEqual(self.check(), {})
 
     def test_every_bad_row_is_named(self):

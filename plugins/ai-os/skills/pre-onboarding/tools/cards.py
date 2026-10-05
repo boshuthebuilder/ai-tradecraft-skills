@@ -38,10 +38,11 @@ them all: a term from the operator's isolation list that a card names but its ow
 writes <work>/state/ALERT, writes none of them and stops every worker. With --redo, an id counts as redone only once
 its card is written.
 
-A document whose current path in the manifest is under the migrations folder is held for another project: `build`
-plans no batch for it, `work` sends it in none (a batch planned earlier and a --redo id alike), and both count it as
-held for another project, whatever its flags.
+A document whose current path in the manifest is under the migrations folder is held for another project, and one the
+rulebook `exclude`s is excluded: `build` plans no batch for it, `work` sends it in none (a batch planned earlier and a
+--redo id alike), and both count each kind, whatever the document's flags.
 """
+import collections
 import glob
 import hashlib
 import json
@@ -154,7 +155,7 @@ class Run:
         self.alert = os.path.join(self.state, "ALERT")
         self.writer = common.Writer(self.root if getattr(a, "read_only_root", False) else None)
         self.budget = Budget(a)
-        self.held = common.migrations_held(self.root, self.rb, getattr(a, "manifest", None))
+        self.held = common.withheld_ids(self.root, self.rb, getattr(a, "manifest", None))
 
     def record(self, eid):
         return load_json(os.path.join(self.extract, eid + ".json"))
@@ -172,13 +173,13 @@ def build(a):
     planned = {it["id"] for f in glob.glob(os.path.join(run.batches, "*.json"))
                for it in load_json(f)["items"]}
     buckets = {0: [], 1: [], 2: [], 3: []}
-    waiting = held = 0
+    waiting, held = 0, collections.Counter()
     for f in sorted(os.listdir(run.extract)):
         if not f.endswith(".json"):
             continue
         eid = f[:-5]
         if eid in run.held:
-            held += 1
+            held[run.held[eid]] += 1
             continue
         if eid in planned or os.path.exists(os.path.join(run.cards, eid + ".json")):
             continue
@@ -210,8 +211,8 @@ def build(a):
                 continue
             cur.append(it)
             cur_chars += it["chars"]
-    print("build: %d new batches, %d records still waiting for extraction, %d held for another project"
-          % (made, waiting, held))
+    print("build: %d new batches, %d records still waiting for extraction, %d held for another project, %d excluded"
+          % (made, waiting, held["migrations"], held["excluded"]))
     return 0
 
 
@@ -591,12 +592,12 @@ def work(a):
 
         def written(cards):
             pass
-    held = set()
+    held = {}
     for bt in batches:
         if os.path.exists(run.alert):
             log("ALERT present, stopping")
             return 3
-        held |= {it["id"] for it in bt["items"] if it["id"] in run.held}
+        held.update({it["id"]: run.held[it["id"]] for it in bt["items"] if it["id"] in run.held})
         todo = [it["id"] for it in bt["items"] if it["id"] not in run.held and not has(it["id"])]
         if not todo:
             continue
@@ -629,7 +630,8 @@ def work(a):
         log("batch %s mode=%s carded in %.0fs" % (bt["name"], bt["mode"], time.time() - t0))
     with open(os.path.join(run.state, ("redo%d" if a.redo else "cards%d") % wi + ".done"), "w", encoding="utf-8") as f:
         f.write(common.now_local())
-    log("worker finished; held for another project: %d" % len(held))
+    log("worker finished; held for another project: %d; excluded: %d"
+        % tuple(sum(why == kind for why in held.values()) for kind in ("migrations", "excluded")))
     return 0
 
 

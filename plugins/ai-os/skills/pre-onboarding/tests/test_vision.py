@@ -182,6 +182,39 @@ class VisionTest(unittest.TestCase):
                 self.assertIn("finished; held for another project: 1", err)
                 self.assertTrue(os.path.exists(os.path.join(self.work, "state", "vision0.done")))
 
+    def exclude(self, *paths):
+        write(os.path.join(self.root, "CLAUDE.md"), "# Rules\n")
+        pin = hashlib.sha256(b"# Rules\n").hexdigest()
+        write(os.path.join(self.root, ".familyai", "rulebook.json"),
+              json.dumps({"version": 1, "rulebook_sha256": pin, "exclude": list(paths)}))
+
+    def test_an_excluded_document_is_never_sent_and_is_counted_apart(self):
+        for paths in (["01 Identity"], ["01 Identity/Scan.pdf"]):
+            with self.subTest(paths):
+                self.setUp()
+                self.exclude(*paths)
+                before = self.record()
+                code, _out, err = self.vision()
+                self.assertEqual(code, 0, err)
+                self.assertEqual(self.fakes.calls("agy"), [], "a page of an excluded document was sent")
+                self.assertEqual(self.record(), before)
+                self.assertEqual(len(os.listdir(self.queue)), 2)
+                self.assertIn("finished; held for another project: 0; excluded: 1", err)
+
+    def test_staged_and_excluded_documents_are_counted_apart(self):
+        other = hashlib.sha256(b"02 Finance/Statement.pdf").hexdigest()
+        write(os.path.join(self.queue, "%s_%05d.png" % (other, 1)), b"\x89PNG fake statement")
+        write(os.path.join(self.out, other + ".json"), json.dumps({
+            "id": other, "path": "02 Finance/Statement.pdf", "class": "document", "status": "needs_vision",
+            "page_count": 1, "tiers": {"pending_vision": 1},
+            "pages": [{"n": 1, "tier": "pending_vision", "text": "local statement", "queued": True}]}))
+        self.stage(other, self.STAGED)
+        self.exclude("01 Identity")
+        code, _out, err = self.vision()
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.fakes.calls("agy"), [])
+        self.assertIn("finished; held for another project: 1; excluded: 1", err)
+
     def test_only_the_document_that_is_not_held_is_sent(self):
         other = hashlib.sha256(b"02 Finance/Statement.pdf").hexdigest()
         write(os.path.join(self.queue, "%s_%05d.png" % (other, 1)), b"\x89PNG fake statement")
