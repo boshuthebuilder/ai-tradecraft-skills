@@ -28,7 +28,9 @@ TIMEOUT = 600  # seconds: a tool that hangs fails its test instead of the run
 FIXTURE = os.path.join(HERE, "fixture", "Alex Personal")
 MANIFEST = os.path.join(HERE, "expected", "manifest.json")
 sys.path.insert(0, TOOLS)
+sys.path.insert(0, HERE)
 import common  # noqa: E402
+from fake_engines import Fakes, tool_env  # noqa: E402
 
 RB = {"exclude": ["Staff"], "migrations_dir": "_Migrations"}
 PLAN_COLUMNS = ["seq", "domain", "depth", "action", "from", "to", "evidence", "reason", "kind", "sweep", "needs_a_look",
@@ -344,7 +346,7 @@ class EveryToolTest(unittest.TestCase):
                   "runpy.run_path(sys.argv[0], run_name='__main__')")
         r = subprocess.run([sys.executable, "-c", runner, os.path.join(TOOLS, "vision.py"), "--root", root, "--work", work,
                             "--lanes", "extraction", "--model", "m"], capture_output=True, text=True,
-                           env=dict(os.environ, HOME=os.path.join(self.tmp, "home")), timeout=TIMEOUT)
+                           env=tool_env(self.tmp, Fakes(self.tmp)), timeout=TIMEOUT)  # the fake agy, never a real one
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assert_purged(root, r.stderr)
 
