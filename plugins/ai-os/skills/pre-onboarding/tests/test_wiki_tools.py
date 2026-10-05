@@ -450,6 +450,14 @@ class BundlesTest(Copy):
         self.assertNotIn("Contract.docx", self.bundle_text())
         self.brief(BRIEF_PAGES[0])
 
+    def test_a_brief_does_not_name_a_withheld_folder_in_its_routes(self):
+        self.exclude("06 Work")
+        self.build()
+        brief = self.brief(BRIEF_PAGES[0])
+        self.assertNotIn("06 Work", brief)
+        self.assertIn("  - 1 route to a withheld folder, not shown", brief)
+        self.assertIn("  - `02 Finance/`: 20 Bank accounts and Cash position", brief)
+
     def test_a_rebuild_leaves_only_its_own_files(self):
         write(os.path.join(self.bundles_dir(), "bundle_99.jsonl"), "{}\n")
         write(os.path.join(self.bundles_dir(), "notes.txt"), "kept\n")
@@ -744,9 +752,25 @@ class DriftTest(Copy):
                          {"departed_paths": 1, "migrating_paths": 2, "citing_departed": 1, "citing_migrating": 2,
                           "pages_citing": 2})
         self.assertEqual(res["departed"], [["30 Home/30 Home.md", notes, "03 Home/Lease notes .txt"]])
-        self.assertEqual(res["migrating"], [["20 Finance/Cash position.md", 8, "02 Finance/Old invoice.pdf"],
+        self.assertEqual(res["migrating"], [["20 Finance/Cash position.md", 8, "withheld (held for another project)"],
                                             ["20 Finance/Cash position.md", at,
-                                             "_Migrations/Other Project/02 Finance/Old invoice.pdf"]])
+                                             "withheld (held for another project)"]])
+        report = self.ok("drift", code=1)
+        for named in ("Old invoice", "Other Project", "_Migrations"):
+            self.assertNotIn(named, report, "the report names a document held for another project")
+        self.assertIn("03 Home/Lease notes .txt", report, "a departed document that is not withheld is still named")
+
+    def test_a_departed_document_under_an_excluded_path_is_named_as_withheld(self):
+        os.remove(os.path.join(self.root, "03 Home", "Lease notes .txt"))
+        code, _out, err = run("audit.py", "--root", self.root, "--work", self.work)
+        self.assertEqual(code, 0, err)
+        with open(self.page("30 Home/30 Home.md"), "a", encoding="utf-8") as f:
+            f.write("\nSee also `03 Home/Lease notes .txt`.\n")
+        twin = os.path.join(self.root, ".familyai", "rulebook.json")
+        write(twin, json.dumps(dict(json.loads(read(twin)), exclude=["03 Home"]), ensure_ascii=False, indent=1))
+        res = self.drift(code=1)
+        self.assertEqual([c[2] for c in res["departed"]], ["withheld (excluded)", "withheld (excluded)"])
+        self.assertNotIn("Lease notes", json.dumps(res))
 
     def test_an_edited_file_is_not_departed(self):
         with open(os.path.join(self.root, "03 Home", "Lease notes .txt"), "a", encoding="utf-8") as f:

@@ -27,6 +27,7 @@ RATIONALE = os.path.join("_Audit", "wiki-rationale.md")
 ACCEPTANCE = os.path.join("_Audit", "wiki-acceptance.json")
 TAX = "20 Finance/Tax.md"
 sys.path.insert(0, TOOLS)
+import common  # noqa: E402
 import wiki  # noqa: E402
 
 CARDS = {  # path: title and key_facts of a synthetic card; the Tax page cites all three and Budget.numbers
@@ -45,7 +46,7 @@ TAX_FACTS = sorted([  # what the Tax page's cards hold, as (path, kind, value); 
     ("06 Work/Contract.docx", "dates", "2022-05-01"),
     ("06 Work/Contract.docx", "amounts", "one month's notice"),
     ("06 Work/Essay.docx", "dates", "2023-11")])
-PROBLEM_LISTS = ("frontmatter_bad", "dead_source_paths", "dead_page_links", "links_outside_page_map",
+PROBLEM_LISTS = ("frontmatter_bad", "dead_source_paths", "cites_withheld", "dead_page_links", "links_outside_page_map",
                  "charts_without_data_table", "charts_not_renderable", "chart_sources_bad",
                  "pages_without_single_professional")
 
@@ -389,6 +390,49 @@ class CheckTest(Copy):
         self.assertEqual((res["documents_in_scope"], res["documents_held_for_another_project"],
                           res["documents_excluded"]), (17, 1, 0))
         self.assertEqual(self.check("--page", TAX)["documents_held_for_another_project"], 1)
+
+    def cites(self, *excluded, cite=(), page=TAX):
+        twin = os.path.join(self.root, ".familyai", "rulebook.json")
+        write(twin, json.dumps(dict(json.loads(read(twin)), exclude=list(excluded)), ensure_ascii=False, indent=1))
+        if cite:
+            write(self.page(page), read(self.page(page)) + "\n" + "".join("Also see `%s`.\n" % c for c in cite))
+        return self.check()
+
+    def test_a_page_citing_an_excluded_document_is_a_problem_and_names_no_path(self):
+        res = self.cites("06 Work")
+        found = res["cites_withheld"]  # the `sources:` entry and the two spans of the body that name it
+        self.assertEqual([[p, why] for p, _line, why in found], [[TAX, "excluded"]] * 3)
+        self.assertEqual((res["problems"], findings(res)), (3, {"cites_withheld": 3}))
+        text = read(self.page(TAX)).split("\n")
+        self.assertEqual([text[line - 1].count("06 Work") > 0 for _p, line, _w in found], [True, True, True])
+        self.assertNotIn("06 Work", json.dumps(found))
+
+    def test_a_page_citing_a_copy_of_a_withheld_document_or_a_staged_one_is_a_problem_too(self):
+        res = self.cites("06 Work", cite=["05 Archive/Essay.docx", "_Migrations/Other Project/02 Finance/Old invoice.pdf",
+                                          "_Migrations/Other Project/02 Finance/"])
+        self.assertEqual(sorted(why for _p, _l, why in res["cites_withheld"]),
+                         ["excluded"] * 4 + ["migrations"] * 2)
+
+    def test_only_a_citation_of_a_withheld_document_counts(self):
+        res = self.cites("06 Work", cite=["_Migrations/<Project>/", "_Migrations/", "06 Work/Nothing.docx", "06 Workshop/x.pdf",
+                                          "05 Archive/", "04 Study/Notes.rtf"])
+        self.assertEqual(len(res["cites_withheld"]), 3, "the three the Tax page already has, and none of these")
+
+    def test_the_schema_and_the_log_may_name_a_withheld_folder(self):
+        res = self.cites("06 Work")
+        pages = {p for p, _l, _w in res["cites_withheld"]}
+        self.assertEqual(pages, {TAX})
+        self.assertIn("06 Work/", read(os.path.join(self.root, WIKI, "90 Schema", "90 Schema.md")))
+
+    def test_a_chart_whose_source_is_excluded_is_a_problem(self):
+        res = self.cites("03 Home/Lease renewal.pdf")
+        self.assertEqual(len(res["chart_sources_bad"]), 1)
+        self.assertEqual(res["chart_sources_bad"][0][0], "30 Home/30 Home.md")
+
+    def test_a_scoped_check_reports_the_citations_of_its_pages_only(self):
+        self.exclude("06 Work")
+        self.assertEqual(len(self.check("--page", TAX)["cites_withheld"]), 3)
+        self.assertEqual(self.check("--page", "00 Index/00 Index.md")["cites_withheld"], [])
 
     def test_live_top_folders(self):
         man = {"a": {"current_path": "07 Old/x.pdf", "flags": ["departed"], "copies": [{"path": "09 Gone/x.pdf"}]},
@@ -748,6 +792,101 @@ class ReviewPromptsTest(Copy):
         self.assertRegex(tax, r"- `02 Finance/Tax`: a folder, \d+ files? directly in it")
         self.assertNotIn("`02 Finance/Tax`: not a document or folder", tax)
 
+    OTHER = "_Migrations/Other Project/02 Finance/Old invoice.pdf"
+
+    def withhold(self, *excluded, cite=(), card_for=None):
+        """The rulebook `exclude`s `excluded`; the Tax page cites `cite` as well; `card_for` (a path) is given a card
+        with a title and key facts, as a document carded before it was staged or excluded would have."""
+        twin = os.path.join(self.root, ".familyai", "rulebook.json")
+        write(twin, json.dumps(dict(json.loads(read(twin)), exclude=list(excluded)), ensure_ascii=False, indent=1))
+        if cite:
+            write(self.page(TAX), read(self.page(TAX)) + "\n" + "".join("Also see `%s`.\n" % c for c in cite))
+        if card_for:
+            ids = {e["current_path"]: h for h, e in json.loads(read(MANIFEST))["entries"].items()}
+            write(os.path.join(self.root, "_Audit", "cards", ids[card_for] + ".json"), json.dumps(
+                {"id": ids[card_for], "title": "Invoice 2022-117 from the other project", "key_facts": {
+                    "dates": ["2022-03-01"], "amounts": ["GBP 800.00"], "reference_numbers": ["INV 2022/117"]}}))
+
+    def review(self, page=TAX):
+        """The professional prompt of `page`, and the command's output."""
+        out = os.path.join(self.tmp, "p")
+        res = self.prompts(page, out=out)
+        return read(os.path.join(out, *(page[:-3] + ".professional.md").split("/"))), res
+
+    @staticmethod
+    def sections(prompt):
+        """The model-facing parts built from the manifest and the cards: the scope, the sources and the facts."""
+        scope = prompt.split("## Its scope")[1].split("## The page")[0]
+        return scope + prompt.split("## Its sources")[1].split("## Judge")[0]
+
+    def test_a_cited_excluded_document_is_named_only_as_withheld(self):
+        self.withhold("06 Work")
+        prompt, res = self.review()
+        for line in ("- `06 Work/Contract.docx`: withheld (excluded); not to be opened, and the page is not checked "
+                     "against it", "- `06 Work/Essay.docx`: withheld (excluded); not to be opened, and the page is "
+                     "not checked against it"):
+            self.assertIn(line + "\n", prompt)
+        model_facing = self.sections(prompt)
+        for leaked in ("Employment contract", "Essay: why learn", "one month", "2022-05-01", "2023-11",
+                       "Contract.docx`, date", "Essay.docx`, date"):
+            self.assertNotIn(leaked, model_facing, "a title or a fact of a withheld document is in the prompt")
+        self.assertIn("4 of 4 facts", prompt)  # the Tax return's own: the withheld documents give none
+        self.assertEqual(res["withheld_cited"], {TAX: 2})
+
+    def test_a_cited_document_staged_for_another_project_is_named_only_as_withheld(self):
+        self.withhold(cite=[self.OTHER], card_for=self.OTHER)
+        prompt, res = self.review()
+        self.assertIn("- `%s`: withheld (held for another project); not to be opened, and the page is not checked "
+                      "against it\n" % self.OTHER, prompt)
+        model_facing = self.sections(prompt)
+        for leaked in ("Invoice 2022-117", "from the other project", "GBP 800.00", "INV 2022/117", "2022-03-01"):
+            self.assertNotIn(leaked, model_facing)
+        self.assertEqual(res["withheld_cited"], {TAX: 1})
+
+    def test_a_cited_copy_of_a_withheld_document_does_not_name_its_canonical_path(self):
+        """06 Work/Essay.docx is the canonical copy: with it excluded, a page citing its copy in 05 Archive still
+        names no title, no fact and not `06 Work/Essay.docx`."""
+        self.withhold("06 Work", cite=["05 Archive/Essay.docx"])
+        prompt, _res = self.review()
+        self.assertIn("- `05 Archive/Essay.docx`: withheld (excluded); not to be opened", prompt)
+        model_facing = self.sections(prompt)
+        self.assertNotIn("a copy of `06 Work/Essay.docx`", model_facing)
+        self.assertNotIn("Essay: why learn", model_facing)
+        self.assertNotIn("2023-11", model_facing)
+
+    def test_a_cited_withheld_folder_is_named_as_withheld_and_counts_no_file(self):
+        self.withhold("05 Archive", cite=["05 Archive/", "%s" % "_Migrations/Other Project/02 Finance/",
+                                          "04 Study/"])
+        prompt, res = self.review()
+        self.assertIn("- `05 Archive/`: withheld (excluded); not to be opened", prompt)
+        self.assertIn("- `_Migrations/Other Project/02 Finance/`: withheld (held for another project); not to be opened",
+                      prompt)
+        self.assertNotIn("folder, 4 file", prompt, "the count of files in an excluded folder")
+        self.assertNotIn("`_Migrations/Other Project/02 Finance/`: a folder", prompt)
+        self.assertRegex(prompt, r"- `04 Study/`: a folder, \d files? directly in it")
+        self.assertEqual(res["withheld_cited"], {TAX: 2})
+
+    def test_a_folder_holding_one_excluded_file_still_counts_the_others(self):
+        before = self.review()[0]
+        self.withhold("04 Study/Notes.rtf", cite=["04 Study/"])
+        prompt, _res = self.review()
+        self.assertRegex(prompt, r"- `04 Study/`: a folder, [34] files? directly in it")
+        self.assertIn("04 Study/", prompt)
+        self.assertNotIn("withheld", prompt.split("## Its sources")[1].split("04 Study/")[0])
+
+    def test_the_routes_into_a_withheld_folder_are_not_shown(self):
+        self.withhold("06 Work")
+        prompt, _res = self.review()
+        scope = prompt.split("## Its scope")[1].split("## The page")[0]
+        self.assertNotIn("06 Work", scope)
+        self.assertIn("  - 1 route to a withheld folder, not shown", scope)
+        self.assertIn("  - `02 Finance/`: 20 Bank accounts", scope, "a route to an included folder is still shown")
+
+    def test_a_page_citing_nothing_withheld_is_unchanged_and_counts_none(self):
+        prompt, res = self.review()
+        self.assertEqual(res["withheld_cited"], {})
+        self.assertNotIn("withheld", prompt)
+
     def test_a_file_given_as_the_cards_folder_is_refused(self):
         cards = os.path.join(self.tmp, "cards.json")
         write(cards, "{}")
@@ -779,7 +918,7 @@ class ReviewPromptsTest(Copy):
         self.addCleanup(setattr, wiki, "load_card", saved)
         wiki.load_card = lambda _d, _h: {"title": "t", "key_facts": {"dates": "2022-05-01", "amounts": ["12"]}}
         self.assertEqual(wiki.page_sources("`06 Work/Contract.docx`", {"h": {"current_path": "06 Work/Contract.docx"}},
-                                           {"06 Work/Contract.docx": "h"}, "cards")[1],
+                                           {"06 Work/Contract.docx": "h"}, "cards", dict(common.DEFAULTS), {})[1],
                          [("06 Work/Contract.docx", "amounts", "12")])
 
     def test_fixed_page(self):

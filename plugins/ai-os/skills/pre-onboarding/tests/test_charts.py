@@ -282,6 +282,21 @@ class RefusalTest(Charts):
                 self.refused("bar", "r.csv", self.rows(("a", "1"), ("b", "2"), ("c", "3"), src=src), "t",
                              "r.csv line 2: source %r" % src, why, root=root)
 
+    def test_a_source_the_owner_excluded_is_refused(self):
+        root = self.own_copy()
+        twin = os.path.join(root, ".familyai", "rulebook.json")
+        write(twin, json.dumps(dict(json.loads(read(twin)), exclude=["02 Finance/Tax", "02 Finance/Bank statement 2024-03.pdf"]),
+                               ensure_ascii=False, indent=1))
+        for src in ("02 Finance/Tax", "02 Finance/Tax/", "02 Finance/Tax/Tax return 2023.pdf",
+                    "02 Finance/Bank statement 2024-03.pdf"):
+            with self.subTest(src=src):
+                err = self.refused("bar", "x.csv", self.rows(("a", "1"), ("b", "2"), ("c", "3"), src=src), "t",
+                                   "x.csv line 2: source %r" % src, "which the folder reserves or the owner excluded "
+                                   "from reading", root=root)
+                self.assertNotIn("Traceback", err)
+        self.assertIn("(GBP)", self.rendered("bar", self.data("ok.csv", self.rows(
+            ("a", "1"), ("b", "2"), ("c", "3"), src="02 Finance/Bank statement 2024-03 (1).pdf")), "t (GBP)", root=root))
+
     def test_a_series_needs_three_points(self):
         for kind, key in (("bar", "label"), ("line", "period"), ("pie", "label")):
             with self.subTest(kind=kind):

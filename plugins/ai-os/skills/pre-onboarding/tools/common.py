@@ -456,6 +456,29 @@ def withheld_in(rb, entries):
     return {h: why for h, e in entries.items() for why in [withheld(rb, e["current_path"])] if why}
 
 
+WITHHELD_WHY = {"migrations": "held for another project", "excluded": "excluded"}  # how a model-facing text says it
+
+
+def withheld_paths(rb, entries):
+    """{path: why} (as `withheld`) for every path, current and copies', that a live entry withheld by its current path
+    holds: a copy of a withheld document at an included path is as withheld as its canonical copy."""
+    out = {}
+    for e in entries.values():
+        why = None if "departed" in e.get("flags", []) else withheld(rb, e["current_path"])
+        if why:
+            for p in [e["current_path"]] + [c["path"] for c in e.get("copies", [])]:
+                out.setdefault(p, why)
+    return out
+
+
+def path_withheld(rb, at, path):
+    """Why a path a page, a routing row or a prompt names is withheld, or None: it is a path a withheld entry holds
+    (`at`, from `withheld_paths`), or one `withheld` says is, as a file or as a folder (so the folder `Staff` and the
+    bare migrations folder are withheld, and a folder holding only one excluded file is not)."""
+    bare = path.rstrip("/")
+    return at.get(path) or at.get(bare) or withheld(rb, bare) or withheld(rb, bare + "/")
+
+
 def named_exactly(root, rel):
     """The path of `rel` under `root` when every part is spelled exactly as its folder lists it (case included; both in
     Unicode NFC, as a name may be stored decomposed on disk and composed in rulebook.json), else None."""

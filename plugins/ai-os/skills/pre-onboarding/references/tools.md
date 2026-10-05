@@ -617,7 +617,8 @@ refused rather than read.
 Renders `templates/page-brief.md` for a set of pages, sorted, so the order given does not matter: each page's
 professional, deliverable and tone ([a page's professional](settings.md#a-pages-professional)) and its section's
 contract (reader, questions, fields; a `fixed` section takes the method's shape, and any other section without a
-contract is refused); the routing into its section and its bundle; the owner context from `rulebook.json` (folder
+contract is refused); the routing into its section (a row whose prefix is a withheld folder is not shown, and a line
+says how many) and its bundle; the owner context from `rulebook.json` (folder
 description, people with aliases, identifier policy, boundaries); the page map; each page's rationale block with what
 the Schema fixes filled in; the JSON a drafting agent returns, which is what [wiki-onboarding step
 4a](../../wiki-onboarding/SKILL.md#4a-draft-the-pages-when-every-document-has-been-read) names (`pages`, each with its
@@ -691,8 +692,15 @@ default that does not exist reads as `not recorded`. Line numbers count from the
   `timeline`, or `xychart-beta` with exactly one `bar` or `line` series), a `flowchart` or `sequenceDiagram`
   included: only the kinds verified to render in the owner's apps are allowed, and a diagram the tool does not draw
   is written by hand and checked by nobody. `chart_sources_bad`, `[page, line, source]`: a paired chart's table row
-  whose source `chart` would refuse (missing, resolving outside the folder, or under a reserved name); those cells
+  whose source `chart` would refuse (missing, resolving outside the folder, or under a reserved name or an excluded
+  path); those cells
   are checked there, not again as backticked paths.
+- `cites_withheld`, `[page, line, why]`: a `sources:` entry or a backticked span that names a withheld document
+  ([`common.withheld`](#held-for-another-project-and-excluded)): a path a withheld entry holds (a copy at an included
+  path of a withheld document too), or a path under the migrations folder or an excluded path that the manifest holds
+  as a file or a folder (so a placeholder such as `_Migrations/<Project>/` is not one). `why` is `migrations` or
+  `excluded`, and the report names no path. A page must not depend on a document the tools may not read, so each is a
+  problem; the Schema and the Log are not read for it, and a chart's source cell is judged as a chart source.
 - `deadlines`, `[date, page]`: every `deadlines:` entry in the pages' frontmatter (no problem).
 - `documents_in_scope`, `documents_not_covered` and the first twenty as `not_covered_sample`: coverage, with
   `documents_held_for_another_project` and `documents_excluded` counting the live documents withheld
@@ -747,6 +755,17 @@ their path or a copy's), as (the document's current path, kind, value), deduplic
 `--sample k`, all of them when `n <= k`; otherwise the facts at indices `(s + j * n // k) % n` for `j` from 0 to
 `k - 1`, in index order, where `s` is the page path's sha256 read as an integer, modulo `n`: evenly spread over the
 sorted facts, from an offset each page has its own.
+
+**A withheld document is never opened for a prompt.** A prompt goes to a model, so every part of it built from the
+manifest and the cards goes through [`common.withheld`](#held-for-another-project-and-excluded). A cited path that is
+withheld (a path a withheld entry holds, copies included, a path under the migrations folder or an excluded path, or
+that folder) is listed under "Its sources" as `` - `<path>`: withheld (held for another project); not to be opened, and
+the page is not checked against it`` (or `withheld (excluded)`), and nothing else: its card is not loaded, so no
+title or fact reaches the sample, a cited copy of a withheld document does not name its canonical path, and the
+folder counts leave out every withheld file. The routing rows into the page's section whose prefix is withheld are
+not shown (a line says how many). The command prints `withheld_cited`, `{page: how many cited paths are withheld}`
+for the pages that cite any; `wiki.py check` reports such a page as a problem, since a page must not depend on a
+document the tools may not read. The page's own text is in the prompt as it stands.
 
 The reviewer replies in JSON, as the template asks: `page`, `page_sha256` (copied from the prompt, tying the
 verdict to the version read), `lens` (`owner` or `professional`), `author`, `reviewer`, `verdict` (`accepted`, or
@@ -857,7 +876,9 @@ map's destinations and run the same map again.
 
 Lists `[page, line, path]` for every `sources:` entry and every backticked path in a page body (fenced blocks
 skipped) that cites a departed path (one a departed entry held and nothing live holds) or a migrating one (staged
-under the migrations folder, or the path it was staged from). The Log is history and is not read. Every count is
+under the migrations folder, or the path it was staged from). The report never names a withheld path: a migrating
+path, and a departed one that is withheld, is written `withheld (held for another project)` or `withheld (excluded)`
+(the page and line say where to look). The Log is history and is not read. Every count is
 reported, zero included, and any citation exits 1. After `03 Home/Lease notes .txt` leaves a folder and a re-audit
 marks it departed:
 
@@ -968,7 +989,8 @@ counted, the header on line 1) or `row N` of a JSON array (from 1).
 - Every row has a `source`: the folder-relative path of the file or folder under the root its figures come from.
   It must exist, resolve inside the root (a symbolic link out of it is refused) and lie outside the folder's reserved
   names (the wiki, `_Audit`, `.familyai`, the inbox, the migrations folder, the rulebook files and any the rulebook
-  adds): they hold the system's own files, or files not yet filed or leaving, never a document to cite.
+  adds) and outside every path the rulebook `exclude`s: they hold the system's own files, files not yet filed or
+  leaving, or files the owner excluded from reading, never a document to cite.
 - A bar, line or pie series has at least three points (fewer figures belong in a sentence), none repeating a
   label or period.
 - One unit or currency on every row. It labels the y-axis of a bar or line, and a pie's title must name it as a
