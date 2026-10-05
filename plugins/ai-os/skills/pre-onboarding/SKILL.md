@@ -144,10 +144,10 @@ interview settles what this preparation adds to the ladder, each a key of the tw
 - **Other people's personal data.** If the folder holds staff, customer or supplier papers (contracts, payslips, tax
   and bank details, contact lists), ask what may go to the cloud engines: the vision lane sends page images and the
   cards send each document's whole text to `agy` or `codex`, under the identifier policy. Record the answer in the
-  rulebook. `boundaries` is free text that no tool enforces, and `exclude` is the setting a deployment enforces once
-  the folder is onboarded: no preparation tool reads it. Until then the one hard control is a top-level folder named
-  in `reserved`, which the audit never walks, so nothing in it is extracted, carded or sent. Anything else the tools
-  find is read, and the owner should be told so.
+  rulebook. `boundaries` is free text that no tool enforces. `exclude` is the hard control: `extract.py`,
+  `vision.py` and `cards.py` skip every path it lists, so it is never read, sent or queued, and `audit.py` records it
+  without reading its content. A top-level name in `reserved` is never walked by the audit at all. Anything not
+  excluded is read, and the owner should be told so.
 
 Two things the [hand-off contract](#the-hand-off-contract) checks belong in the rulebook from the start:
 
