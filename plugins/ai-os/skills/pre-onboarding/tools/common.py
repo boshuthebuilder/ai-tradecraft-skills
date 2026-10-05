@@ -699,7 +699,7 @@ def purge_withheld(root, rb, work, manifest=None, extract_dirs=(), cards_dirs=()
             for name in sorted(os.listdir(d)):
                 m = re.match(r"([0-9a-f]{64})_\d{5}\.png$", name) if sub == "vision_queue" else \
                     re.match(r"card_err_([0-9a-f]{64})\.txt$", name)
-                if m and m.group(1) in states:
+                if m and (m.group(1) in states or m.group(1) in stale):
                     todo.append((os.path.join(d, name), what))
     cache_edit = None
     if thorough:

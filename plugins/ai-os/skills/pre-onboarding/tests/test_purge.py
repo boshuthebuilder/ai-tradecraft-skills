@@ -138,6 +138,13 @@ class PurgeTest(PurgeCase):
         self.assertFalse(any(self.has(*x) for x in ((self.audit, "extract", i + ".json"),
                                                     (self.audit, "cards", i + ".json"), (note,))))
 
+    def test_the_queued_images_and_card_error_of_a_document_whose_record_named_a_withheld_path_go_too(self):
+        i = self.add("Public/copy.pdf")
+        self.record(i, "Staff/old.pdf")
+        write(os.path.join(self.work, "vision_queue", "%s_00001.png" % i), b"\x89PNG")
+        write(os.path.join(self.work, "state", "card_err_%s.txt" % i), "failed\n")
+        self.assertEqual(dict(self.purge()[0]), {"extract record": 1, "queued page image": 1, "card error": 1})
+
     def test_each_artefact_is_judged_by_its_own_recorded_path(self):
         i = self.add("Public/a.pdf")
         j = self.add("Public/b.pdf")

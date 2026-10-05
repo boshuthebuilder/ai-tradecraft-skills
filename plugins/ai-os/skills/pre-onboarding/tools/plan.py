@@ -35,7 +35,7 @@ import common  # noqa: E402
 
 COLS = ["seq", "domain", "depth", "action", "from", "to", "evidence", "reason", "kind", "sweep", "needs_a_look",
         "approved", "approved_at", "status", "executed_at", "note"]
-IWORK = {".pages", ".numbers", ".key"}
+IWORK = set(common.PACKAGE_EXTS)
 PACK_REFUSAL = "inside a pack: copies in a pack are never deleted"
 
 
