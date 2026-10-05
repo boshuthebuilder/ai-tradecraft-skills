@@ -802,15 +802,19 @@ default that does not exist reads as `not recorded`. Line numbers count from the
   withheld path is also found anywhere in the page's text, in plain text and in a fenced block, with its percent-escapes
   decoded, wrapped across lines at any point (read joined by a space, with the lines' indentation, quote marks and breaks
   taken out, and joined by a space except at a `/` or before a `.`), with `//` and `/./` taken out, and in a `sources:`
-  entry or a backticked span. A match in the text that follows a `/` is the end of a longer path, and is a citation unless
-  that longer path is a live, included document's path or lies under a live, included folder the manifest holds:
-  `Photos/Scan 1.pdf` is that document, not the staged root stray `Scan 1.pdf`. The longer path is read from each word
-  start of the run of path characters before the match (a space does not end it, since names hold spaces; a backtick,
-  quote, bracket, `|`, `,` or `;` does) and resolved as a cited path is: from the page's folder and from the folder, a climb
-  out of the folder and back in by its name (`../../../Alex Personal/06 Work/x`), a path through the cloud drive
-  (`iCloud Drive/Alex Personal/x`) and one that spells the folder's location another way (`/tmp/..` for `/private/tmp/..`,
-  `file://`) all resolve to `06 Work/x`. One that resolves to a withheld path is a citation whatever else resolves, and so
-  is a longer path nothing live explains (`Other/Scan 1.pdf`, a web address ending in the path). A page must not depend on a document
+  entry or a backticked span. A match in the text that follows a `/` is explained, and no citation, when it ends a live,
+  included document's path (or a live, included folder's, with its `/`) that the text before it and up to the match ends
+  with, compared folded: `Photos (2024)/Scan 1.pdf` is that document, not the staged root stray `Scan 1.pdf`. It is a direct
+  suffix test with no reading of where the longer path starts, so a bracket, an apostrophe, a comma or a space in a folder
+  name, a word glued on from the line before, and a list marker or a quotation mark do not matter; a live path also
+  counts as it reads after a segment named as the folder is (`Archive/Alex Personal/Reports/x` as `Reports/x`), as a link
+  is read. A citation or a link target that, spelt as a folder-relative path and no other way, is a live document's or
+  folder's path is that document too. The text is read three ways (above) and an occurrence that any of them explains is
+  not a citation, so a path hard-wrapped at a space, at a `/` or inside a name is judged as it was written. Anything
+  else is a citation: every spelling of the withheld path itself (`/06 Work/x` in prose; a climb out of the folder and back
+  in by its name, `../../../Alex Personal/06 Work/x`; `../Alex Personal/...`; through `iCloud Drive/`; the folder's location
+  spelt another way, `/tmp/..` for `/private/tmp/..`, `file://`), and a longer path no live document ends with
+  (`Other/Scan 1.pdf`, a web address ending in the path). A page must not depend on a document
   the tools may not read, so each is a problem. The Schema page and the Log may name a withheld **folder** (a routing
   row, a history line) but not a withheld **document**: a document path is a citation on any page, those two included. A
   chart's source cell is judged as a chart source.

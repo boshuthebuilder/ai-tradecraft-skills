@@ -1170,41 +1170,38 @@ def withheld_citer(root, rb, man, ws):
     inc_paths = {common.fold(p) for e in live.values() if not common.withheld(rb, e["current_path"])
                  for p in [e["current_path"]] + [c["path"] for c in e.get("copies", [])] if not common.withheld(rb, p)}
     inc_folders = {"/".join(q.split("/")[:i]) for q in inc_paths for i in range(1, q.count("/") + 1)}
-    stops = set("`\"'()[]<>|,;*?{}")  # characters that end a path in prose (a space does not: names hold spaces)
+    live_ends = set(inc_paths) | inc_folders | {f + "/" for f in inc_folders}  # what a live path may read as
+    for q in list(live_ends):  # and as it reads after a segment named as the folder is, as `path_forms` reads a link
+        segs = q.split("/")
+        live_ends.update("/".join(segs[j + 1:]) for j, seg in enumerate(segs[:-1]) if seg == common.fold(root_name))
+    ending_with = {}
 
-    def resolves_to_withheld(f):
-        return (f in withheld_at or bool(common.withheld(rb, f))
-                or any((f + "/").startswith(folder) for folder in folders))
+    def literal(span, base=""):
+        """True when `span`, read as a folder-relative path and no other way, is a live, included document's or folder's
+        path: it is that document, whatever its folder's name makes of it as a path after that name."""
+        return any(f in inc_paths or f in inc_folders for f in path_forms(span, base))
 
-    def included(f):
-        parts = f.split("/")
-        return f in inc_paths or any("/".join(parts[:k]) in inc_folders for k in range(1, len(parts) + 1))
+    def explained(text, e, token):
+        """True when the withheld `token`, which ends at `text[e]` and follows a `/`, is the end of a live, included
+        document's path (or of a live, included folder's, with its `/`) that the text before and up to `e` ends with:
+        `Photos (2024)/Scan 1.pdf` is that document, not the staged root stray `Scan 1.pdf`. A direct suffix test, no
+        reading of where the longer path starts: a bracket, an apostrophe, a comma or a glued word before it cannot
+        matter. Anything else is a citation."""
+        if token not in ending_with:
+            ending_with[token] = [q for q in live_ends if q.endswith("/" + token)]
+        return any(text[:e].endswith(q) for q in ending_with[token])
 
-    def explained(text, i, token, base):
-        """True when the token at `text[i:]`, which follows a `/`, is the end of a longer path that is a live, included
-        document's path or lies under a live, included folder the manifest holds, so that it does not name the withheld
-        path (`Photos/Scan 1.pdf` is the live document, not the staged `Scan 1.pdf`). The longer path is read from each
-        word start of the run of path characters before the token, resolved as `path_forms` resolves a path (from the
-        page's folder and from the folder, a climb out and back in by the folder's name included). One that resolves to
-        a withheld path is a citation whatever else resolves, and so is a longer path nothing live explains."""
-        head = text[max(0, i - 400):i]
-        for k in range(len(head) - 1, -1, -1):
-            if head[k] in stops:
-                head = head[k + 1:]
-                break
-        forms = set()
-        for k in [0] + [k + 1 for k, ch in enumerate(head) if ch == " "]:
-            forms |= path_forms(head[k:] + token, base, root_name)
-        return not any(resolves_to_withheld(f) for f in forms) and any(included(f) for f in forms)
-
-    def scan(lines, base=""):
+    def scan(lines):
         """[(line number, why, kind)] for every token of `withheld_at` and `folders` in `lines`, read three ways: each
         line followed by a space (wrapped at a space); the lines' indentation, quote marks and line breaks taken out
         (wrapped after any character, a `/` included); and joined by a space except at a `/` or before a `.`. `//` and
-        `/./` are taken out of each."""
-        found = []
+        `/./` are taken out of each. An occurrence (its line and column) that a live document explains in any of the
+        three readings is not a citation, so a path hard-wrapped at a space or at a `/` is judged as it was written."""
+        seen = {}
         for variant in ("spaced", "bare", "mixed"):
-            keys = [common.fold(x if variant == "spaced" else re.sub(r"^[\s>]+", "", x).rstrip()) for x in lines]
+            tidy = [x if variant == "spaced" else re.sub(r"^[\s>]+", "", x).rstrip() for x in lines]
+            keys = [common.fold(x) for x in tidy]
+            lead = [len(x) - len(y) for x, y in zip(lines, tidy)]  # what the reading took off the front of each line
             joined, starts = "", []
             for n, k in enumerate(keys):
                 starts.append(len(joined))
@@ -1219,26 +1216,29 @@ def withheld_citer(root, rb, man, ws):
                         after = i + len(token)
                         if (i == 0 or not (text[i - 1].isalnum() or text[i - 1] == "_")) and (
                                 kind == "folder" or after >= len(text) or not (text[after].isalnum()
-                                                                              or text[after] == "_")) and not (
-                                i > 0 and text[i - 1] == "/" and explained(text, i, token, base)):
-                            found.append((bisect.bisect_right(starts, at[i]), why, kind))
+                                                                              or text[after] == "_")):
+                            line = bisect.bisect_right(starts, at[i])
+                            column = at[i] - starts[line - 1] + lead[line - 1]
+                            key = (line, column, why, kind, token)
+                            seen[key] = seen.get(key, False) or (i > 0 and text[i - 1] == "/"
+                                                                 and explained(text, after, token))
                         i = text.find(token, i + 1)
-        return found
+        return [(line, why, kind) for (line, _c, why, kind, _t), ok in seen.items() if not ok]
 
     def cites(rel, text, skip=()):
         found = set()
         for line, span in citations(text):
-            hit = None if (line, span) in skip else named(path_forms(span, "", root_name))
+            hit = None if (line, span) in skip or literal(span) else named(path_forms(span, "", root_name))
             if hit:
                 found.add((line, hit[0], hit[1]))
         base = posixpath.join(rb["wiki_dir"], posixpath.dirname(rel))
         for line, target in link_targets(text):
-            hit = named(path_forms(target, base, root_name)) if target else None
+            hit = named(path_forms(target, base, root_name)) if target and not literal(target, base) else None
             if hit and line not in {l for l, _s in skip}:
                 found.add((line, hit[0], hit[1]))
         lines = text.split("\n")
         for body in (lines, urllib.parse.unquote(text).split("\n")):
-            found.update(f for f in scan(body, base) if f[0] not in {l for l, _s in skip})
+            found.update(f for f in scan(body) if f[0] not in {l for l, _s in skip})
         if exempt(rel):
             found = {f for f in found if f[2] == "document"}
         return sorted({(line, why) for line, why, _kind in found})
