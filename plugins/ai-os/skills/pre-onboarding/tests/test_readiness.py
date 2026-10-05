@@ -21,6 +21,7 @@ import sys
 import tempfile
 import unittest
 import unittest.mock
+import urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOOLS = os.path.realpath(os.path.join(HERE, "..", "tools"))
@@ -35,6 +36,7 @@ GAP_CARD = "1; not verified for 3 document(s) whose card is malformed"
 FIXTURE_INTRO = ("_File-derived deadlines, rolled up deterministically from page frontmatter: do not hand-edit, "
                  "regenerated each run. (Calendar events live in `Coming Events`.)_")
 TAX = "20 Finance/Tax.md"
+EM = "\u2014"
 NOW = "1719748800"  # 2024-06-30T12:00:00Z, as regen_expected.py freezes it
 TERMS = "# fictional terms for the tests\nZarnwick Farm|Zarnwick\n"
 GREEN_UNVERIFIED = ["records.contamination", "isolation.canary.agy", "isolation.canary.codex"]
@@ -59,6 +61,18 @@ def run(tool, *args):
     return r.returncode, r.stdout, r.stderr
 
 
+def clear_migrations(folder):
+    """`folder` as the owner leaves it once the migrations folder is cleared by hand. The fixture stages one file in it
+    for the audit, plan and wiki tools, so the readiness tests start from the folder without that file and without
+    its extract record and card."""
+    shutil.rmtree(os.path.join(folder, "_Migrations"))
+    extracts = os.path.join(folder, "_Audit", "extract")
+    for name in os.listdir(extracts):
+        if json.loads(read(os.path.join(extracts, name)))["path"].startswith("_Migrations/"):
+            os.remove(os.path.join(extracts, name))
+            os.remove(os.path.join(folder, "_Audit", "cards", name))
+
+
 def tree_digest(root):
     h = hashlib.sha256()
     for d, ds, fs in os.walk(root):
@@ -77,6 +91,7 @@ class Prepared(unittest.TestCase):
         cls.base = os.path.realpath(tempfile.mkdtemp(prefix="readiness_template_"))
         cls.template = os.path.join(cls.base, "Alex Personal")
         shutil.copytree(FIXTURE, cls.template)
+        clear_migrations(cls.template)
         work = os.path.join(cls.base, "work")
         for tool, args in (("audit.py", []), ("settings.py", ["compile"])):
             code, _out, err = run(tool, *args, "--root", cls.template, "--work", work)
@@ -220,6 +235,258 @@ class MonthDayTest(unittest.TestCase):
         for text in ("5 Apr.", "Sept. 5", "5 Sept."):
             self.assertIsNone(readiness.month_day(text), text)
 
+COLON_BANNER_TAIL = (" likely a keying fault, not a deadline-free wiki.** Dates recorded in prose are invisible to "
+                     "this roll-up; record each forward date as a `deadline:`/`deadlines:` key, and each date that "
+                     "falls every year as a `recurring:` key, on the page that owns it (the reconcile conformance "
+                     "count names the pages to fix).")
+ONE_LINE_BANNER = "> **Roll-up found no frontmatter deadlines across %d readable pages%s" + COLON_BANNER_TAIL
+
+
+def link(page):
+    """A roll-up's link to a wiki page: its path without `.md` as the text, its path from the Deadlines page as the
+    target, percent-encoded as the roll-up encodes it."""
+    return "[%s](../%s)" % (page[:-3], urllib.parse.quote(page, safe="/&"))
+
+
+class RollUpFormsTest(unittest.TestCase):
+    """The entry forms a roll-up writes, read by `parse_entry`: the reference roll-up's dashless form, the em-dash
+    form it wrote before, and the note-only form of this suite's fixture."""
+
+    LEASE, TAX_PAGE, HOME = "05 Home/Lease.md", "20 Finance/Tax.md", "30 Home/30 Home.md"
+    BANK = "20 Finance/Bank statement (1).md"
+    PAGES = {LEASE, TAX_PAGE, HOME, BANK, "20 Finance/Tax [Q1](final).md", "20 Finance/x](y.md",
+             "10 Identity/Notes.md", "20 Finance/Notes.md"}
+
+    def entry(self, line):
+        return readiness.parse_entry(line, self.PAGES)
+
+    def test_the_dashless_form_with_a_note(self):
+        line = "- **2026-09-01**: Lease. renewal ([05 Home/Lease](../05%20Home/Lease.md))"
+        self.assertEqual(self.entry(line), ("2026-09-01", "renewal", [self.LEASE]))
+        self.assertEqual(self.entry("- **5 April**: Tax. Tax year ends (%s)" % link(self.TAX_PAGE)),
+                         ("5 April", "Tax year ends", [self.TAX_PAGE]))
+
+    def test_the_dashless_form_without_a_note(self):
+        line = "- **2026-09-02**: Lease ([05 Home/Lease](../05%20Home/Lease.md))"
+        self.assertEqual(self.entry(line), ("2026-09-02", "", [self.LEASE]))
+        self.assertEqual(self.entry("- **5 April**: Tax (%s)" % link(self.TAX_PAGE)), ("5 April", "", [self.TAX_PAGE]))
+
+    def test_a_merged_line_names_each_page_once_in_the_order_of_its_links(self):
+        both = "%s, %s" % (link(self.HOME), link(self.BANK))
+        pair = [self.HOME, self.BANK]
+        self.assertEqual(self.entry("- **28 February**: 30 Home, Bank statement (1). Call (2 calls) (%s)" % both),
+                         ("28 February", "Call (2 calls)", pair))
+        self.assertEqual(self.entry("- **28 February**: 30 Home, Bank statement (1) (%s)" % both),
+                         ("28 February", "", pair))
+        same = "%s, %s" % (link("10 Identity/Notes.md"), link("20 Finance/Notes.md"))  # one title for two pages
+        self.assertEqual(self.entry("- **5 April**: Notes. Review (%s)" % same),
+                         ("5 April", "Review", ["10 Identity/Notes.md", "20 Finance/Notes.md"]))
+        self.assertEqual(self.entry("- **5 April**: Notes (%s)" % same),
+                         ("5 April", "", ["10 Identity/Notes.md", "20 Finance/Notes.md"]))
+        self.assertEqual(self.entry("- **28 February**: Bank statement (1), 30 Home. Call (%s)" % both),
+                         ("28 February", "Bank statement (1), 30 Home. Call", pair),
+                         "the titles follow the links, so titles in another order are a note no page gives")
+
+    def test_a_page_title_holding_brackets_is_read_by_its_own_text(self):
+        for page in ("20 Finance/Tax [Q1](final).md", "20 Finance/x](y.md"):
+            title = page[:-3].split("/")[1]
+            with self.subTest(page=page):
+                self.assertEqual(self.entry("- **5 April**: %s. Note (%s)" % (title, link(page))),
+                                 ("5 April", "Note", [page]))
+                self.assertEqual(self.entry("- **5 April**: %s (%s)" % (title, link(page))), ("5 April", "", [page]))
+
+    def test_a_note_may_hold_what_the_layout_does(self):
+        for note in ("Renew. Then pay", "Tax", "x: y", "pay (twice)", "Renew ([x](y)) soon", "([a](b)",
+                     "ends 2030-01-01", ". x", "a %s b" % EM):
+            with self.subTest(note=note):
+                self.assertEqual(self.entry("- **5 April**: Tax. %s (%s)" % (note, link(self.TAX_PAGE))),
+                                 ("5 April", note, [self.TAX_PAGE]))
+
+    def test_the_em_dash_form_is_still_read(self):
+        line = "- **2026-09-01** %s Lease %s renewal ([05 Home/Lease](../05%%20Home/Lease.md))" % (EM, EM)
+        self.assertEqual(self.entry(line), ("2026-09-01", "renewal", [self.LEASE]))
+        self.assertEqual(self.entry("- **2026-09-02** %s Lease (%s)" % (EM, link(self.LEASE))),
+                         ("2026-09-02", "", [self.LEASE]))
+        both = "%s, %s" % (link(self.HOME), link(self.BANK))
+        self.assertEqual(self.entry("- **28 February** %s 30 Home, Bank statement (1) %s Call (2 calls) (%s)"
+                                    % (EM, EM, both)), ("28 February", "Call (2 calls)", [self.HOME, self.BANK]))
+        page = "20 Finance/Tax [Q1](final).md"
+        self.assertEqual(self.entry("- **5 April** %s Tax [Q1](final) %s Note (%s)" % (EM, EM, link(page))),
+                         ("5 April", "Note", [page]))
+
+    def test_the_note_only_colon_form_is_still_read(self):
+        self.assertEqual(self.entry("- **2025-04-30**: Lease ends ([30 Home](../30%20Home/30%20Home.md))"),
+                         ("2025-04-30", "Lease ends", [self.HOME]))
+        both = "%s, %s" % (link(self.HOME), link(self.BANK))
+        self.assertEqual(self.entry("- **28 February**: Call (2 calls) (%s)" % both),
+                         ("28 February", "Call (2 calls)", [self.HOME, self.BANK]))
+
+    def test_a_colon_line_is_titled_when_its_middle_is_the_titles_or_starts_with_them_and_a_full_stop(self):
+        """The two colon forms cannot always be told apart: `Lease. renewal` is a note in one and a title and a note in
+        the other. The titled reading wins, since it is what the reference roll-up writes, so a note-only line whose
+        note is a title, or starts with a title and `. `, is read as the titled form: the one such note it would
+        misread. A note that only starts with the title, or a title and no space, stays a note."""
+        page = "(%s)" % link(self.LEASE)
+        self.assertEqual(self.entry("- **5 April**: Lease %s" % page), ("5 April", "", [self.LEASE]))
+        self.assertEqual(self.entry("- **5 April**: Lease. renewal %s" % page), ("5 April", "renewal", [self.LEASE]))
+        self.assertEqual(self.entry("- **5 April**: Lease renewal %s" % page),
+                         ("5 April", "Lease renewal", [self.LEASE]))
+        self.assertEqual(self.entry("- **5 April**: Lease.renewal %s" % page),
+                         ("5 April", "Lease.renewal", [self.LEASE]))
+        self.assertEqual(self.entry("- **5 April**: Lease.  %s" % page), ("5 April", "Lease. ", [self.LEASE]),
+                         "a full stop and no note is not the titled form, which writes no full stop without a note")
+
+    def test_a_line_that_is_not_laid_out_so_is_no_entry(self):
+        good = "- **5 April**: Tax. Note (%s)" % link(self.TAX_PAGE)
+        self.assertIsNotNone(self.entry(good))
+        for line in (good[:-1], good + " x", good.replace("**:", "** :"), good.replace("**: ", "**:"),
+                     good.replace("**: ", "**; "), good.replace("Note (", "Note("), good.replace("../", ""),
+                     good.replace("Tax]", "Tax2]"), good.replace("Tax.md", "Tax.md#x"),
+                     good.replace("- **", "* **"), "- **5 April**: Tax.", "- **5 April**:", ""):
+            with self.subTest(line=line):
+                self.assertIsNone(self.entry(line))
+
+    def test_the_one_line_banner_is_read_with_a_dash_or_a_colon(self):
+        self.assertEqual(readiness.banner(ONE_LINE_BANNER % (3, ":")), 1)
+        self.assertEqual(readiness.banner(ONE_LINE_BANNER % (3, " " + EM)), 1)
+        self.assertEqual(readiness.banner("> The roll-up found no frontmatter deadlines across 11 pages."), 0)
+        for line in (ONE_LINE_BANNER % (3, ";"), ONE_LINE_BANNER % (3, " -"), ONE_LINE_BANNER % (3, ": "),
+                     ONE_LINE_BANNER % (3, ":") + " Also 5 April.", (ONE_LINE_BANNER % (3, ":")).replace("3", "x", 1),
+                     (ONE_LINE_BANNER % (3, ":")).replace("3 readable", " readable"),
+                     (ONE_LINE_BANNER % (3, ":")).replace("likely", "unlikely")):
+            with self.subTest(line=line):
+                self.assertIsNone(readiness.banner(line))
+
+    def test_the_intro_the_reference_roll_up_writes_now_is_the_one_this_suite_always_read(self):
+        intro = ("_File-derived deadlines, rolled up deterministically from page frontmatter: do not hand-edit, "
+                 "regenerated each run. (Calendar events live in `Coming Events`.)_")
+        self.assertEqual(readiness.INTRO_FIXTURE, intro)
+        self.assertIn(intro, readiness.ROLL_UP_LINES)
+        self.assertEqual(readiness.INTRO, intro.replace(": do", " %s do" % EM), "the em-dash intro is still read")
+        self.assertIn(readiness.INTRO, readiness.ROLL_UP_LINES)
+
+
+class MigrationsClearedTest(unittest.TestCase):
+    """`migrations_cleared`: the migrations folder holds no file. It lists names and never opens a file; `.DS_Store`
+    and empty folders do not count, and anything else does, an iCloud placeholder included."""
+
+    TAIL = "; a folder is onboarded only once its migrations folder is empty, so the owner clears it by hand"
+
+    def setUp(self):
+        self.root = os.path.realpath(tempfile.mkdtemp(prefix="readiness_migrations_"))
+        self.addCleanup(shutil.rmtree, self.root, True)
+
+    def put(self, *rel, name="_Migrations"):
+        write(os.path.join(self.root, name, *rel), "a staged file")
+
+    def folder(self, *rel, name="_Migrations"):
+        os.makedirs(os.path.join(self.root, name, *rel), exist_ok=True)
+
+    def check(self, name="_Migrations"):
+        return readiness.migrations_cleared(self.root, name)
+
+    def finding(self, count, parts, name="_Migrations"):
+        return "finding: %s/ holds %d file(s) (%s)%s" % (name, count, parts, self.TAIL)
+
+    def test_no_migrations_folder_is_cleared(self):
+        self.assertEqual(self.check(), "ok")
+
+    def test_an_empty_folder_is_cleared(self):
+        self.folder()
+        self.assertEqual(self.check(), "ok")
+
+    def test_ds_store_does_not_count(self):
+        self.put(".DS_Store")
+        self.put("Other Project", ".DS_Store")
+        self.put("Other Project", "02 Finance", ".DS_Store")
+        self.assertEqual(self.check(), "ok")
+
+    def test_empty_subfolders_do_not_count(self):
+        self.folder("Other Project", "02 Finance")
+        self.folder("Household")
+        self.assertEqual(self.check(), "ok")
+
+    def test_one_file_is_a_finding_naming_its_project(self):
+        self.put("Other Project", "02 Finance", "Old invoice.pdf")
+        self.assertEqual(self.check(), self.finding(1, "Other Project: 1"))
+
+    def test_the_count_is_per_first_level_subfolder_at_any_depth(self):
+        self.put("Other Project", "Old invoice.pdf")
+        self.put("Other Project", "02 Finance", "Gas.pdf")
+        self.put("Other Project", "02 Finance", ".DS_Store")
+        self.put("Household", "Water.pdf")
+        self.put("Loose.pdf")
+        self.put(".DS_Store")
+        self.folder("Empty Project", "Nothing")
+        self.assertEqual(self.check(), self.finding(4, "Household: 1; Other Project: 2; directly in the folder: 1"))
+
+    def test_an_icloud_placeholder_counts(self):
+        self.put("Other Project", ".Old invoice.pdf.icloud")
+        self.assertEqual(self.check(), self.finding(1, "Other Project: 1"))
+        self.put(".Loose.pdf.icloud")
+        self.assertEqual(self.check(), self.finding(2, "Other Project: 1; directly in the folder: 1"))
+
+    def test_only_ds_store_is_excused(self):
+        for name in (".gitkeep", ".hidden", "._Old invoice.pdf", ".DS_Store.bak", ".ds_store", "Thumbs.db"):
+            with self.subTest(name=name):
+                shutil.rmtree(os.path.join(self.root, "_Migrations"), True)
+                self.put("Other Project", name)
+                self.assertEqual(self.check(), self.finding(1, "Other Project: 1"))
+
+    def test_the_folder_is_the_one_the_settings_name(self):
+        self.put("Other Project", "Old invoice.pdf")  # the default name, not this folder's migrations folder
+        self.folder(name="_Leaving")
+        self.assertEqual(self.check("_Leaving"), "ok")
+        self.put("Household", "Water.pdf", name="_Leaving")
+        self.assertEqual(self.check("_Leaving"), self.finding(1, "Household: 1", name="_Leaving"))
+        self.assertEqual(self.check(), self.finding(1, "Other Project: 1"))
+
+    def test_the_fixture_folder_stages_a_file_so_it_fails(self):
+        self.assertEqual(readiness.migrations_cleared(FIXTURE, "_Migrations"), self.finding(1, "Other Project: 1"))
+
+    def test_a_long_list_of_projects_is_cut(self):
+        for n in range(8):
+            self.put("Project %d" % n, "File.pdf")
+        found = self.check()
+        self.assertIn("holds 8 file(s) (Project 0: 1; Project 1: 1; Project 2: 1; Project 3: 1; Project 4: 1 and 3 "
+                      "more)", found)
+
+    def test_a_link_counts_and_is_never_followed(self):
+        target = os.path.join(self.root, "elsewhere")
+        write(os.path.join(target, "A.pdf"), "a")
+        write(os.path.join(target, "B.pdf"), "b")
+        self.folder("Other Project")
+        try:
+            os.symlink(target, os.path.join(self.root, "_Migrations", "Other Project", "link"))
+        except (OSError, NotImplementedError) as e:
+            self.skipTest("no symbolic links here: %s" % e)
+        self.assertEqual(self.check(), self.finding(1, "Other Project: 1"))
+
+    def test_a_file_or_a_link_in_place_of_the_folder_is_a_finding(self):
+        write(os.path.join(self.root, "_Migrations"), "not a folder")
+        self.assertEqual(self.check(), "finding: _Migrations is not a plain folder (a file or a link)" + self.TAIL)
+
+    def test_a_folder_it_cannot_list_is_not_verified_and_never_a_pass(self):
+        if not hasattr(os, "geteuid") or os.geteuid() == 0:
+            self.skipTest("a folder cannot be made unreadable here")
+        self.folder("Other Project", "02 Finance")
+        locked = os.path.join(self.root, "_Migrations", "Other Project")
+        os.chmod(locked, 0)
+        self.addCleanup(os.chmod, locked, 0o700)
+        found = self.check()
+        self.assertEqual(found, "not verified: could not list _Migrations/Other Project (PermissionError)")
+        self.put("Household", "Water.pdf")  # a file is still a finding, and the count is a floor
+        self.assertEqual(self.check(), "finding: _Migrations/ holds 1 file(s) (Household: 1) and 1 folder(s) could "
+                                       "not be listed, so the count may be low" + self.TAIL)
+
+    def test_it_never_opens_a_file(self):
+        self.put("Other Project", "Old invoice.pdf")
+        self.put("Loose.pdf")
+        with unittest.mock.patch("builtins.open", side_effect=AssertionError("opened a file")), \
+                unittest.mock.patch("io.open", side_effect=AssertionError("opened a file")):
+            self.assertEqual(self.check(), self.finding(2, "Other Project: 1; directly in the folder: 1"))
+
+
 class GreenTest(Prepared):
     def test_the_fixture_is_green(self):
         res = self.readiness(code=0)
@@ -232,6 +499,7 @@ class GreenTest(Prepared):
                                                "pages_not_accepted": 0, "pages_not_verified": 0,
                                                "records_for_no_page": []})
         self.assertEqual(set(res["handoff_contract"].values()), {"ok"})
+        self.assertEqual(res["handoff_contract"]["migrations_folder_cleared"], "ok")
 
     def test_terms_and_passing_canaries_leave_nothing_unverified(self):
         terms = os.path.join(self.tmp, "terms.txt")
@@ -267,7 +535,7 @@ class GreenTest(Prepared):
         man = json.loads(read(self.path("_Audit", "manifest.json")))["entries"]
         self.assertEqual([e["current_path"] for e in man.values() if not e["hashed"]], ["IMG_0001.jpg"])
         res = self.readiness(code=0)
-        self.assertEqual((res["manifest"]["live_entries"], res["manifest"]["departed_entries"]), (18, 1))
+        self.assertEqual((res["manifest"]["live_entries"], res["manifest"]["departed_entries"]), (17, 1))
 
     def test_out_is_refused_inside_a_read_only_root(self):
         self.assertIn("--read-only-root", self.refused("--out", self.path("readiness.json"), "--read-only-root"))
@@ -388,6 +656,49 @@ class ContractTest(Prepared):
                            "`_Migrations/<Project>/`.\n\n## Formats and packs")
         self.assertIn("routes new files to _Migrations/ (1 line(s))",
                       self.one_finding("handoff_contract.new_files_routed_within_folder"))
+
+    MIGRATIONS = ("_Migrations", "Other Project", "02 Finance", "Old invoice.pdf")
+    UNCLEARED = ("finding: _Migrations/ holds 1 file(s) (Other Project: 1); a folder is onboarded only once its "
+                 "migrations folder is empty, so the owner clears it by hand")
+
+    def test_a_file_in_the_migrations_folder(self):
+        write(self.path(*self.MIGRATIONS), "staged for another project")
+        self.assertEqual(self.one_finding("handoff_contract.migrations_folder_cleared"), self.UNCLEARED)
+
+    def test_an_evicted_placeholder_in_the_migrations_folder_is_a_finding(self):
+        write(self.path("_Migrations", "Other Project", ".Old invoice.pdf.icloud"), "")
+        self.assertEqual(self.one_finding("handoff_contract.migrations_folder_cleared"), self.UNCLEARED)
+
+    def test_a_migrations_folder_holding_only_ds_store_and_empty_folders_is_cleared(self):
+        write(self.path("_Migrations", ".DS_Store"), "")
+        write(self.path("_Migrations", "Other Project", ".DS_Store"), "")
+        os.makedirs(self.path("_Migrations", "Household", "06 Work"))
+        res = self.readiness(code=0)
+        self.assertEqual(res["handoff_contract"]["migrations_folder_cleared"], "ok")
+
+    def test_the_migrations_folder_is_the_one_the_settings_name(self):
+        twin = self.path(".familyai", "rulebook.json")
+        write(twin, json.dumps(dict(self.json_file(".familyai", "rulebook.json"), migrations_dir="_Leaving"),
+                               ensure_ascii=False, indent=1))
+        write(self.path("_Migrations", "Stray.pdf"), "an ordinary folder now")
+        self.readiness(code=0)
+        write(self.path("_Leaving", "Other Project", "Old invoice.pdf"), "staged for another project")
+        self.assertEqual(self.one_finding("handoff_contract.migrations_folder_cleared"),
+                         self.UNCLEARED.replace("_Migrations/", "_Leaving/"))
+
+    def test_the_committed_fixture_fails_it_and_nothing_else(self):
+        """The fixture stages a file in its migrations folder for the other tools: readiness reports that one item."""
+        root = os.path.join(self.tmp, "staged", "Alex Personal")
+        shutil.copytree(FIXTURE, root)
+        work = os.path.join(self.tmp, "staged", "work")
+        for tool, args in (("audit.py", []), ("settings.py", ["compile"])):
+            code, _out, err = run(tool, *args, "--root", root, "--work", work)
+            self.assertEqual(code, 0, err)
+        code, out, err = run("readiness.py", "--root", root, "--work", work)
+        self.assertEqual(code, 1, out + err)
+        res = json.loads(out)
+        self.assertEqual(res["findings"], [["handoff_contract.migrations_folder_cleared", self.UNCLEARED]])
+        self.assertEqual(res["manifest"]["migrating"], 1)
 
     def test_rulebook_json_fresh(self):
         self.edit_rulebook("Nobody else.", "Nobody else!", pin=False)
@@ -588,6 +899,96 @@ class RollUpTest(Prepared):
                        "from the pages in a way no date shows)"], res["not_verified"])
         self.add_to_roll_up("- **2026-01-31**: renew the parking permit\n")
         self.assertIn("2026-01-31", self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written"))
+
+
+class DashlessRollUpTest(Prepared):
+    """The Deadlines page as the reference roll-up now writes it, `- **<when>**: <titles>. <note> (<links>)` or, with no
+    note, `- **<when>**: <titles> (<links>)`, passes the whitelist and the em-dash check. The form it wrote before,
+    with spaced em dashes, still passes the whitelist: a deployment that has not re-rendered still writes it."""
+
+    HOME_LINK = "[30 Home/30 Home](../30%20Home/30%20Home.md)"
+    IDENTITY_LINK = "[10 Identity/10 Identity](../10%20Identity/10%20Identity.md)"
+    TAX_LINK = "[20 Finance/Tax](../20%20Finance/Tax.md)"
+    NOTE_ONLY = ("- **2025-04-30**: Lease ends ([30 Home](../30%20Home/30%20Home.md))\n"
+                 "- **2031-07-15**: Passport P1234567 expires ([10 Identity](../10%20Identity/10%20Identity.md))\n")
+    DASHLESS = ("- **2025-04-30**: 30 Home. Lease ends (%s)\n"
+                "- **2031-07-15**: 10 Identity. Passport P1234567 expires (%s)\n" % (HOME_LINK, IDENTITY_LINK))
+    EM_DASH = ("- **2025-04-30** %s 30 Home %s Lease ends (%s)\n"
+               "- **2031-07-15** %s 10 Identity %s Passport P1234567 expires (%s)\n"
+               % (EM, EM, HOME_LINK, EM, EM, IDENTITY_LINK))
+    INTRO = "_File-derived deadlines, rolled up deterministically from page frontmatter %s do not hand-edit, " \
+            "regenerated each run. (Calendar events live in `Coming Events`.)_" % EM
+    DERIVED_KEY = "derived_pages_hold_nothing_hand_written"
+    DERIVED = "handoff_contract." + DERIVED_KEY
+
+    def roll_up(self, old, new):
+        self.edit_page(DEADLINES, old, new)
+
+    def test_the_new_form_is_clean(self):
+        self.roll_up(self.NOTE_ONLY, self.DASHLESS)
+        res = self.readiness(code=0)
+        self.assertEqual((res["handoff_contract"][self.DERIVED_KEY], res["wiki"]["em_dash_lines"]), ("ok", 0))
+
+    def test_an_entry_with_no_note_and_a_yearly_entry_naming_two_pages(self):
+        self.edit_page(TAX, "status: current\n", "status: current\nrecurring:\n  - {date: 04-05, note: Tax year ends}\n"
+                                                 "deadlines:\n  - 2031-02-01\n")
+        self.edit_page("30 Home/30 Home.md", "deadlines:\n", "recurring:\n  - {date: 04-05, note: Tax year ends}\n"
+                                                             "deadlines:\n")
+        yearly = ("\n## Every year\n\n- **5 April**: 30 Home, Tax. Tax year ends (%s, %s)\n"
+                  % (self.HOME_LINK, self.TAX_LINK))
+        p = self.page(DEADLINES)
+        write(p, read(p).replace(self.NOTE_ONLY, self.DASHLESS.replace(
+            "- **2031-07-15**", "- **2031-02-01**: Tax (%s)\n- **2031-07-15**" % self.TAX_LINK)) + yearly)
+        self.accept_again(DEADLINES)
+        res = self.readiness(code=0)
+        self.assertEqual(res["handoff_contract"]["recurring_dates_in_frontmatter"], "ok")
+
+    def test_the_note_only_form_is_still_clean(self):
+        self.assertIn(self.NOTE_ONLY, read(self.page(DEADLINES)), "the fixture's own roll-up")
+        self.readiness(code=0)
+
+    def test_the_em_dash_form_is_still_read(self):
+        self.edit(WIKI + "/" + DEADLINES, FIXTURE_INTRO, self.INTRO)
+        self.edit(WIKI + "/" + DEADLINES, self.NOTE_ONLY, self.EM_DASH)
+        self.accept_again(DEADLINES)
+        res = self.readiness()
+        self.assertEqual(res["handoff_contract"][self.DERIVED_KEY], "ok")
+        self.assertEqual([f[0] for f in res["findings"]], ["wiki.problems"], "only the em dashes the wiki check counts")
+        self.assertEqual(res["wiki"]["em_dash_lines"], 3)
+
+    def reported(self, home_entry):
+        """The Deadlines page with its first entry replaced by `home_entry`, the one line that is hand-written."""
+        self.roll_up(self.NOTE_ONLY, home_entry + self.NOTE_ONLY.splitlines(True)[1])
+        self.assertIn("hand-written content in a derived page, 1 line(s)", self.one_finding(self.DERIVED))
+
+    def test_a_note_the_pages_do_not_give_is_reported_in_the_new_form(self):
+        self.reported("- **2025-04-30**: 30 Home. Lease ended (%s)\n" % self.HOME_LINK)
+
+    def test_titles_that_are_not_the_linked_pages_are_reported_in_the_new_form(self):
+        self.reported("- **2025-04-30**: 10 Identity. Lease ends (%s)\n" % self.HOME_LINK)
+
+    def test_a_note_before_the_titles_is_reported_in_the_new_form(self):
+        self.reported("- **2025-04-30**: Lease ends. 30 Home (%s)\n" % self.HOME_LINK)
+
+    def test_a_stray_full_stop_after_the_note_is_reported_in_the_new_form(self):
+        self.reported("- **2025-04-30**: 30 Home. Lease ends. (%s)\n" % self.HOME_LINK)
+
+    def test_the_one_line_banner_of_an_empty_roll_up_is_read_with_a_colon_or_a_dash(self):
+        for page in ("10 Identity/10 Identity.md", "30 Home/30 Home.md"):
+            p = self.page(page)
+            write(p, re.sub(r"deadlines:\n(  - .*\n)+", "", read(p)))
+            self.accept_again(page)
+        p = self.page(DEADLINES)
+        write(p, read(p).split("# Deadlines")[0] + "# Deadlines\n\nNone\n")
+        self.accept_again(DEADLINES)
+        colon, dash = ONE_LINE_BANNER % (11, ":"), ONE_LINE_BANNER % (11, " " + EM)
+        self.edit_page(DEADLINES, "None\n", "%s\n\n%s\n\n## Upcoming\n\n_None._\n" % (FIXTURE_INTRO, colon))
+        res = self.readiness(code=0)
+        self.assertEqual((res["handoff_contract"][self.DERIVED_KEY], res["wiki"]["em_dash_lines"]), ("ok", 0))
+        self.edit_page(DEADLINES, colon, dash)
+        res = self.readiness()
+        self.assertEqual(res["handoff_contract"][self.DERIVED_KEY], "ok")
+        self.assertEqual([f[0] for f in res["findings"]], ["wiki.problems"], "only the em dash the wiki check counts")
 
 
 class FindingTest(Prepared):
@@ -1055,7 +1456,7 @@ class RepathTest(Prepared):
         command = [x.replace("<root>", self.root).replace("<work>", self.work) for x in shlex.split(
             self.one_finding("records.extract_paths_stale").split("repath them: ", 1)[1])]
         res = self.repath()
-        self.assertEqual(res, {"records": 18, "applied": False, "paths_changed": 1, "already_current": 17,
+        self.assertEqual(res, {"records": 17, "applied": False, "paths_changed": 1, "already_current": 16,
                                "moves": [[self.eid, self.MOVED[0], self.MOVED[1]]], "departed_left": [],
                                "not_in_manifest": []})
         self.assertEqual(read(self.record, "rb"), before, "a dry run writes nothing")

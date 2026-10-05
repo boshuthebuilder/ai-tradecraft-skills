@@ -4,6 +4,58 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v11.1.0 (2026-10-05)
+
+A **MINOR**: one new hand-off check, and a roll-up reader that follows the reference deployment's new form
+(#126). Two decisions by the reference deployment's owner drive it. A cross-project move is suggested and
+never made: during preparation the owner approves plan rows that stage files in the migrations folder, and
+after onboarding a file that belongs to another project is filed in the folder like any other while the move
+is only suggested, for the owner to make by hand. A folder is onboarded only once its migrations folder is
+empty. Its generated pages also stopped using em dashes, which `readiness.py` had to learn to read.
+
+### Added (MINOR)
+
+- **`migrations_folder_cleared`, a hand-off contract item**
+  ([`pre-onboarding`](plugins/ai-os/skills/pre-onboarding/SKILL.md#the-hand-off-contract),
+  [`readiness.py`](plugins/ai-os/skills/pre-onboarding/references/tools.md#readinesspy), #126). The folder's
+  migrations folder (`migrations_dir`, `_Migrations` by default) must hold no file. `readiness.py` lists names
+  and never opens a file; `.DS_Store` and empty folders do not count, and an evicted iCloud placeholder does.
+  The finding names the count per first-level subfolder, one for each target project. A folder it cannot list
+  is reported as not verified, never as cleared.
+- **The checkpoint in `project-onboarding` step 1**: onboarding stops while the migrations folder holds any
+  file, names the count per target project, and never moves files between projects.
+- **The roll-up reader follows the dashless form** (`readiness.py`, #126). The reference roll-up now writes
+  `- **<when>**: <titles>. <note> (<links>)`, or `- **<when>**: <titles> (<links>)` with no note, a colon where
+  it had a spaced em dash in the intro, the entries and the empty-roll-up banner. `parse_entry` and the banner
+  check read it, still read the em-dash form a deployment that has not re-rendered writes, and still read the
+  note-only colon form of the fixture. A colon line that fits both colon forms is read as titled; the rule and
+  its one misreading are in the tool reference. Each form is pinned in `tests/test_readiness.py`.
+
+### Changed
+
+- **A migration is suggested, never made, once a folder is onboarded** (`pre-onboarding`, `wiki-maintenance`,
+  #126). Staging through approved plan rows during preparation is unchanged, and the migrations folder is now
+  cleared by hand before hand-off. After onboarding, a file that belongs to another project is filed in the
+  folder like any other and the owner's user-tier synthesis only suggests the move. Where the core rule had
+  curation plans carry a migration out, the owner now makes it by hand.
+- **The fixture's report carries the new finding.** The fixture stages a file in its migrations folder for the
+  audit, plan and wiki tools, so `tests/expected/readiness.json` now reports exactly that one finding and
+  `regen_expected.py` fails on any other. The readiness tests start from the fixture with that file, its
+  extract record and its card removed.
+
+### Migrating a deployment
+
+Nothing for the parser change: a deployment that has not re-rendered its roll-ups still passes, and one that
+has passes too. The new hand-off item may now report a prepared folder whose migrations folder is not empty:
+the owner clears it by hand (each staged file collected by its project or brought back), then `readiness.py`
+runs again. A deployment's own check of the contract refuses such a folder the same way, and onboards it only
+once the folder is empty. Advance the pin as
+[*Consuming a pinned release*](plugins/ai-os/ARCHITECTURE.md#consuming-a-pinned-release) sets out.
+
+### Placeholders
+
+No placeholder was added, removed or made required.
+
 ## v11.0.0 (2026-10-04)
 
 A **MAJOR**: page contracts, until now an opt-in profile, become mandatory for every page type, and

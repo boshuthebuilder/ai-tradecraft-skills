@@ -27,8 +27,9 @@ outputs of the deterministic tools, regenerated only on purpose with `python3 ..
 | `_Audit/extract/`, `_Audit/cards/` | an extract record and a card per live document, by content id (`PREPARED`) |
 | `_Audit/wiki-acceptance.json` | every page accepted in both lenses by another model (`wiki.py accept`) |
 
-With these prepared records `readiness.py` finds nothing in the folder. They follow the files and the wiki: after
-changing a wiki page or `PREPARED`, run `python3 build.py --prepared-only` (any machine) and commit what it writes
+With these prepared records `readiness.py` finds only the file staged in the migrations folder, which a folder
+must have cleared before hand-off (the readiness tests clear it first, with its record and card). They follow the
+files and the wiki: after changing a wiki page or `PREPARED`, run `python3 build.py --prepared-only` (any machine) and commit what it writes
 with the change.
 
 The folder is about 470 KB on disk; scans are greyscale JPEG pages inside PDFs to keep it small.

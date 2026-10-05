@@ -626,11 +626,12 @@ with no inline maintainer, the scheduled passes are the primary path.
   own folder*: don't name or link another project from it. Every new item is filed inside this project
   by its own routing, and one that seems to belong elsewhere is filed or flagged here like any other;
   a project never routes an item to another project. Moving files between projects is a
-  **migration**. Once a folder is maintained, migrations are proposed by the owner's **user-tier
-  synthesis**, the one place cross-references live (it reads project wikis and never writes back into
-  them); while a folder is being prepared, a curation round may propose them too. Either way the owner
-  approves each one and the folder's approved curation plans carry it out (`folder-curation`); no
-  ingest or reconcile ever moves a file out of its project.
+  **migration**. While a folder is being prepared, a curation round (`folder-curation`) may stage one in
+  the migrations folder through plan rows the owner approves, and the folder is onboarded only once that
+  folder is empty. Once it is maintained, a file that belongs to another project stays filed here like
+  any other, and the move is only suggested, by the owner's **user-tier synthesis**, the one place
+  cross-references live (it reads project wikis and never writes back into them); the owner makes it by
+  hand. No ingest or reconcile ever moves a file out of its project.
 
 Synced-folder write safety follows
 [the architecture's write contract](../../ARCHITECTURE.md#writes-into-synced-folders).

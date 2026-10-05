@@ -32,7 +32,8 @@ pass either, and the operator reads it.
   Deadlines page holds only what the roll-up renders from the pages' frontmatter, and every other line is reported)
   and recurring dates live in page frontmatter, with any other derived page not verified (see `deadline_items`); the
   rulebook reserves the deployment's rulebook filenames and routes no new file to the migrations folder (read by
-  keyword, see `contract`); both settings twins present and fresh.
+  keyword, see `contract`); the migrations folder holds no file (names listed, never a file opened; see
+  `migrations_cleared`); both settings twins present and fresh.
 
 Numbered sections are held by `check`: a page outside every Layout section of the compiled Schema is one of its
 problems. Exit 0 when nothing is found, 1 on any finding, 2 on a tool error (a missing or malformed manifest, such
@@ -71,14 +72,14 @@ MONTHS = ("January", "February", "March", "April", "May", "June", "July", "Augus
 MONTH_NUMBER = dict([(m.lower(), n) for n, m in enumerate(MONTHS, 1)]
                     + [(m[:3].lower(), n) for n, m in enumerate(MONTHS, 1)] + [("sept", 9)])
 ORDINAL = r"(?:st|nd|rd|th)?"
-EM = "\u2014"  # the roll-up's separator, as data: `- **5 April** \u2014 Tax \u2014 note (links)`
+EM = "\u2014"  # the older roll-up's separator, as data: `- **5 April** \u2014 Tax \u2014 note (links)`
 UNREAD = "## Could not read"
 UPCOMING, EVERY_YEAR, PAST, NOTHING = "## Upcoming", "## Every year", "## Past", "_None._"
 TITLE, MARKER = "# Deadlines", "> [!warning]"
 INTRO = ("_File-derived deadlines, rolled up deterministically from page frontmatter " + EM + " do not hand-edit, "
          "regenerated each run. (Calendar events live in `Coming Events`.)_")
-# The fixture's roll-up writes no em dash (the wiki check counts a line holding one a problem), so its intro, like its
-# entries, puts a colon where the reference roll-up puts the dash.
+# A roll-up that writes no em dash (the wiki check counts a line holding one a problem) puts a colon where INTRO has
+# the dash, as its entries and banner do. The reference roll-up now writes this form too; the fixture's always did.
 INTRO_FIXTURE = INTRO.replace(" " + EM + " ", ": ")
 UNREAD_INTRO = "_These pages, or entries on them, were skipped. Fix their frontmatter so any deadline is picked up:_"
 # What the roll-up writes besides its entries, exactly: its headings, its intro, the line for an empty section, the
@@ -86,13 +87,16 @@ UNREAD_INTRO = "_These pages, or entries on them, were skipped. Fix their frontm
 ROLL_UP_LINES = frozenset((TITLE, UPCOMING, EVERY_YEAR, PAST, UNREAD, NOTHING, MARKER, INTRO, INTRO_FIXTURE,
                            UNREAD_INTRO))
 # The banner an empty roll-up carries over a wiki that has pages, with `{}` for the count of pages it read: a callout
-# of two lines (the marker, then the text) or one line.
+# of two lines (the marker, then the text) or one line, the one line written with a colon (the form of a roll-up that
+# writes no em dash) or with a spaced em dash (the older one).
+BANNER_LINE = ("> **Roll-up found no frontmatter deadlines across {} readable pages%s likely a keying fault, not a "
+               "deadline-free wiki.** Dates recorded in prose are invisible to this roll-up; record each forward date "
+               "as a `deadline:`/`deadlines:` key, and each date that falls every year as a `recurring:` key, on the "
+               "page that owns it (the reconcile conformance count names the pages to fix).")
 BANNERS = (
     "> The roll-up found no frontmatter deadlines across {} pages.",
-    "> **Roll-up found no frontmatter deadlines across {} readable pages " + EM + " likely a keying fault, not a "
-    "deadline-free wiki.** Dates recorded in prose are invisible to this roll-up; record each forward date as a "
-    "`deadline:`/`deadlines:` key, and each date that falls every year as a `recurring:` key, on the page that owns it "
-    "(the reconcile conformance count names the pages to fix).")
+    BANNER_LINE % ":",
+    BANNER_LINE % (" " + EM))
 DATE_HINT = "; write the date as MM-DD, month first, or as a day and a month name"
 KEY_HINT = "; name the date with the key `date`, as in {date: MM-DD, note: ...}"
 DAYS_IN_MONTH = (31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)  # 02-29 comes round in a leap year
@@ -132,13 +136,13 @@ def rendered_month_day(md):
 
 
 def banner(line):
-    """0 for the callout text of an empty roll-up, 1 for its one-line banner (see BANNERS), else None; the count of
-    pages in either is one number."""
+    """0 for the callout text of an empty roll-up, 1 for its one-line banner in either of its two forms (see BANNERS),
+    else None; the count of pages in any is one number."""
     for kind, template in enumerate(BANNERS):
         head, tail = template.split("{}")
         count = line[len(head):len(line) - len(tail)]
         if line.startswith(head) and line.endswith(tail) and count.isascii() and count.isdigit():
-            return kind
+            return min(kind, 1)
     return None
 
 
@@ -155,21 +159,36 @@ def says_nothing(line):
 
 
 def parse_entry(line, pages):
-    """(the date as written, the note, the pages linked) for a line laid out as the roll-up lays out an entry, else
-    None: `- **<date>**`, then the titles and the note, each after a spaced em dash (the reference roll-up), or
-    `: <note>` (the fixture's roll-up), then ` (<links>)` ending the line. The links are read from the end of the
-    line, each a page of the wiki named by its path from the roll-up and written as its path without `.md` or its
-    title, so a page name holding brackets is read by its own text; the titles are the linked pages' own, so a note
-    is never guessed at. Plain string handling, one pass over the line."""
+    """(the date as written, the note, the pages linked) for a line laid out as a roll-up lays out an entry, else
+    None: `- **<date>**`, then the titles and the note, then ` (<links>)` ending the line. Three layouts are read:
+
+    - `- **<date>**: <titles>. <note> (<links>)`, or `- **<date>**: <titles> (<links>)` with no note (the reference
+      roll-up, which writes no em dash);
+    - `- **<date>** \u2014 <titles> \u2014 <note> (<links>)`, or `- **<date>** \u2014 <titles> (<links>)` (the reference
+      roll-up before that, each separator a spaced em dash);
+    - `- **<date>**: <note> (<links>)` (the fixture's roll-up, which names no titles).
+
+    The links are read from the end of the line, each a page of the wiki named by its path from the roll-up and
+    written as its path without `.md` or its title, so a page name holding brackets is read by its own text. The
+    titles are the linked pages' own, each once, in the order of the links, joined by `, `, so a note is never
+    guessed at.
+
+    A date followed by a spaced em dash is the em-dash layout. A date followed by a colon fits both other layouts,
+    which cannot always be told apart (`Lease. renewal` is a note in one and a title and a note in the other), so
+    the rule is fixed: the line is titled when what stands between the colon and the links is the titles alone (no
+    note), or the titles, a full stop, a space and a note that is not empty; anything else, a note that merely
+    starts with the titles included, is a note-only line. The titled reading wins, so the one line misread is a
+    note-only line whose note is itself the titles, or starts with them and `. `: its note reads as the rest, which
+    differs from the note written, and the caller reports it. Plain string handling, one pass over the line."""
     if not line.startswith("- **") or not line.endswith(")"):
         return None
     close = line.find("**", 4)
     if close < 0:
         return None
     if line.startswith(" " + EM + " ", close + 2):
-        body, titled = close + 5, True
+        body, dash = close + 5, True
     elif line.startswith(": ", close + 2):
-        body, titled = close + 4, False
+        body, dash = close + 4, False
     else:
         return None
     here, linked, taken, pos = posixpath.dirname(DEADLINES), [], set(), len(line) - 1
@@ -198,12 +217,14 @@ def parse_entry(line, pages):
             return None
     linked.reverse()
     middle = line[body:cut]
-    if not titled:
-        return line[4:close], middle, linked
-    titles = ", ".join(dict.fromkeys(posixpath.basename(x)[:-3] for x in linked))
+    when, titles = line[4:close], ", ".join(dict.fromkeys(posixpath.basename(x)[:-3] for x in linked))
     if middle == titles:
-        return line[4:close], "", linked
-    return (line[4:close], middle[len(titles) + 3:], linked) if middle.startswith(titles + " " + EM + " ") else None
+        return when, "", linked
+    if dash:
+        return (when, middle[len(titles) + 3:], linked) if middle.startswith(titles + " " + EM + " ") else None
+    if middle.startswith(titles + ". ") and len(middle) > len(titles) + 2:
+        return when, middle[len(titles) + 2:], linked
+    return when, middle, linked
 
 
 def excerpt(line):
@@ -1073,6 +1094,38 @@ def deadline_items(wiki, pages, ws):
 
 # ------------------------------------------------------------------------------------ the hand-off contract
 
+def migrations_cleared(root, name):
+    """"ok", "finding: ..." or "not verified: ...": the folder's migrations folder `name` holds no file. A folder is
+    onboarded only once it is empty, so a file in it, whatever its name, is one the owner has not cleared. Names are
+    listed and no file is ever opened. `.DS_Store` and empty folders do not count; every other name does, an evicted
+    iCloud placeholder (`.<name>.icloud`) and any other hidden file included, and so does a link, which is counted and
+    never followed. The finding gives the count per first-level subfolder (one for each project the files are staged
+    for), at any depth beneath it, and the files directly in the folder apart. A folder that cannot be listed leaves
+    the count a floor: with files found it says so, and with none it is not verified, never a pass. No folder at all
+    is cleared."""
+    top = os.path.join(root, name)
+    tail = "; a folder is onboarded only once its migrations folder is empty, so the owner clears it by hand"
+    if not os.path.lexists(top):
+        return "ok"
+    if os.path.islink(top) or not os.path.isdir(top):
+        return "finding: %s is not a plain folder (a file or a link)%s" % (name, tail)
+    counts, unlisted = collections.Counter(), []
+    for here, dirs, files in os.walk(top, onerror=unlisted.append):
+        first = os.path.relpath(here, top).split(os.sep)[0]
+        held = [f for f in files if f != ".DS_Store"] + [d for d in dirs if os.path.islink(os.path.join(here, d))]
+        counts[None if first == "." else first] += len(held)
+    total = sum(counts.values())
+    cannot = sample(["%s (%s)" % (os.path.relpath(e.filename, root) if e.filename else name, type(e).__name__)
+                     for e in unlisted])
+    if not total:
+        return "not verified: could not list %s" % cannot if unlisted else "ok"
+    parts = ["%s: %d" % (k, n) for k, n in sorted((k, n) for k, n in counts.items() if k is not None and n)]
+    parts += ["directly in the folder: %d" % counts[None]] if counts[None] else []
+    return "finding: %s/ holds %d file(s) (%s)%s%s" % (
+        name, total, sample(parts),
+        " and %d folder(s) could not be listed, so the count may be low" % len(unlisted) if unlisted else "", tail)
+
+
 def contract(root, rb, settings_dir, ws, pages, rulebook_text):
     items = collections.OrderedDict()
     wiki = os.path.join(root, rb["wiki_dir"])
@@ -1097,6 +1150,7 @@ def contract(root, rb, settings_dir, ws, pages, rulebook_text):
         items["new_files_routed_within_folder"] = "ok" if not routes_out else \
             "finding: the rulebook routes new files to %s/ (%d line(s)); migrations are the owner's cross-project " \
             "synthesis to propose" % (rb["migrations_dir"], len(routes_out))
+    items["migrations_folder_cleared"] = migrations_cleared(root, rb["migrations_dir"])
     try:
         common.load_rulebook(root, settings_dir, required=True)
         items["settings_rulebook_json"] = "ok"
