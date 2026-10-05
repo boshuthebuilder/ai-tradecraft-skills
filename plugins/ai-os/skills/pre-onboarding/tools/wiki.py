@@ -23,12 +23,16 @@
                                                            migrating path
     wiki.py chart   --root R --kind K --data <rows.csv|rows.json> --title T [--out <md>]
                                                            a Mermaid chart and its data table, from cited rows
+    wiki.py deadlines --root R [--today D] [--write [--out <md>]]
+                                                           the derived `01 Deadlines` page, from the pages'
+                                                           `deadline`, `deadlines` and `recurring` frontmatter
 
 Every subcommand takes --settings-dir, --work, --manifest (default <root>/_Audit/manifest.json) and
 --read-only-root; profile and bundles also take --cards and --extract (default <root>/_Audit/cards, .../extract).
 Page paths are relative to the wiki folder, source paths to the folder. Bundles, briefs and review prompts are
-working files, never written inside the folder; profile, check and drift print JSON and write --out where
---read-only-root allows, and rationale and accept write their audit file there (default in <root>/_Audit/).
+working files, never written inside the folder, and so is every report written with --out (profile, check, drift, chart:
+they carry manifest, card or path data, are registered for a later purge, and profile, check and drift also print their
+JSON); rationale and accept write their audit file, the owner's gate record, in <root>/_Audit/ by default.
 
 Check: every page under the wiki folder (dot folders skipped). Problems, each counted: a page missing a frontmatter
 key (provenance, last-updated, status) or with `sources:` written as one value rather than a list; a `sources:`
@@ -37,8 +41,8 @@ holding a live manifest entry or copy) and that does not exist (any other such s
 Log's pages are history and not read); a link that does not resolve, or resolves to a file that is not a page (a
 link to a page the page map only plans is dead until the page is written), local links being those `move` rewrites
 (`local_link`) and a link's "title" allowed; a body line with an em dash outside inline code (lines counted from the
-page's first); a document in scope (live, outside the migrations folder) that no page names by its path or a copy's,
-in `sources:` or a backticked span, and whose own parent folder no page names in backticks, with or without the
+page's first); a document in scope (live, and not withheld: `common.withheld`) that no page names by its path or a
+copy's, in `sources:` or a backticked span, and whose own parent folder no page names in backticks, with or without the
 trailing `/` (the Schema page's routing and the Log do not count); a Mermaid block that does not parse as a kind
 `chart` renders, a chart block without its data table, or a table source `chart` would refuse (missing, outside the
 folder or reserved); a page with no single professional (`common.page_voice` refuses it); and in the rationale file
@@ -101,14 +105,18 @@ because their professional and contract cannot be read (no compiled Schema, a st
 removed; its records stay as made). Acceptance never counts as a problem and never makes the check
 pass.
 
-Bundles: each live manifest entry outside the migrations folder routes by the compiled Schema routing, its
-longest matching prefix (a note row, with no section, routes nothing). A routed entry with a card joins its
+Bundles: each live manifest entry that is not withheld (`common.withheld`: under the migrations folder, or excluded by
+the rulebook) routes by the compiled Schema routing, its longest matching prefix (a note row, with no section, routes nothing). A routed entry with a card joins its
 section's `bundle_<NN>.jsonl`; entries with no route, or routed but with no card, are listed as `unrouted` and
-`uncarded`. `bundles.json` records the manifest's sha256, a digest of the routing and section kinds the bundles
-were built by, and the non-default arguments they were built with. A consumer (`brief`, and `bundles --reuse`)
-refuses bundles whose recorded digests differ from the current manifest's and routing's: bundles go stale after any
-migration, re-audit or routing change, and are rebuilt by the command the refusal names. A rebuild removes
-bundles.json first, so one that fails part way leaves none to trust.
+`uncarded`. A withheld document is in no bundle, list or record (a `copies` list names none of its copies either) and is
+counted in the summary (`held_for_another_project`, `excluded`). `bundles.json` records the manifest's sha256, a digest of
+the routing and section kinds the bundles were built by, `common.withheld_digest` (the exclusions, the migrations folder,
+the documents then withheld and every path, copies included, they hold), and the non-default arguments they were built
+with. Every tool's start purges bundles built under another withheld set; a consumer (`brief`, and `bundles --reuse`) also
+refuses bundles whose recorded digests differ from the current withheld set, checked first (the files are removed), then
+the manifest's and the routing's: bundles go stale after any migration, re-audit, routing change or change to the
+migrations folder or `exclude`, and are rebuilt by the command the refusal names. A rebuild removes bundles.json first,
+so one that fails part way leaves none to trust.
 
 Brief: the pages' professionals, deliverables and tones (`common.page_voice`), their sections' contracts, the owner
 context from rulebook.json, the page map, the bundle paths (refused when stale), each page's rationale block to
@@ -132,6 +140,12 @@ are not read. Fences open and close as `chart_blocks` reads them; line numbers c
 Malformed input (a manifest, card, extract record or bundles.json of the wrong shape, a file where a folder must
 be) is refused by name, exit 2.
 
+Deadlines: renders `01 Deadlines/01 Deadlines.md` as a derived roll-up of the wiki pages' frontmatter, in exactly the
+form `readiness.py` reads, with that tool's own reading of the pages and its own grammar (`readiness.read_sources`,
+`parse_entry`'s layout, the intro, banner and heading lines), so the page it renders is one the readiness check of the
+Deadlines page accepts. A dry run prints the page and writes nothing; `--write` writes it, to `--out` when given,
+otherwise to the wiki's own page. See `deadlines`.
+
 Charts: `--data` is a CSV file with a header row or a JSON array of objects, rows kept in order, every row with the
 same columns: bar `label` (or `period`), `value`, `unit`, `source`; line `period`, `value`, `unit`, `source`; pie
 `label`, `value`, `unit`, `source`; gantt `label`, `start`, `end`, `source`, optional `section`; timeline `date`,
@@ -142,6 +156,7 @@ and its data table, which `check` requires beside every xychart-beta, pie, gantt
 pairing). Rules in full: references/tools.md.
 """
 import argparse
+import bisect
 import collections
 import csv
 import datetime
@@ -155,6 +170,7 @@ import posixpath
 import re
 import shlex
 import sys
+import time
 import urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -319,10 +335,7 @@ def schema_rel(root, rb, ws):
 
 def working_file(root, path, what):
     """`path`, refused when it is inside the folder: `what` is a working file, kept in the work dir or elsewhere."""
-    real = os.path.realpath(path)
-    if real == root or real.startswith(root + os.sep):
-        raise common.ToolError("%s are working files, never written inside the folder: %s" % (what, path))
-    return real
+    return common.working_file(root, path, what)
 
 
 def cards_dirs(a, root):
@@ -353,19 +366,21 @@ def profile(a):
     """Per folder, for the folder and each subfolder down to --depth: live documents (by current path), copies
     held there of documents whose current path is elsewhere or beside them, and from the documents' cards the
     categories, the doc_date span and the top parties (aliases folded to the rulebook's canonical names; each
-    document counts a party once)."""
+    document counts a party once). A document held for another project (`migrating`) or excluded (`excluded`) is
+    counted and never profiled, and no copy of one is named."""
     if a.depth < 1 or a.parties < 1:
         raise common.ToolError("--depth and --parties count from 1")
-    root, settings_dir, _work = common.resolve(a)
+    root, settings_dir, work = common.resolve(a)
+    if a.out:
+        common.working_file(root, a.out, "profile reports")
     rb = common.load_rulebook(root, settings_dir)
     _mp, man = load_manifest(root, a.manifest)
     cards_dir, _x = cards_dirs(a, root)
     names = people_names(rb)
-    migr = rb["migrations_dir"] + "/"
     rows = collections.defaultdict(lambda: {"documents": 0, "copies": 0, "copies_of": collections.Counter(),
                                             "carded": 0, "categories": collections.Counter(), "dates": [],
                                             "parties": collections.Counter()})
-    total = {"documents": 0, "carded": 0, "copies": 0, "migrating": 0, "departed": 0}
+    total = {"documents": 0, "carded": 0, "copies": 0, "migrating": 0, "excluded": 0, "departed": 0}
     categories = collections.Counter()
 
     def folders(path):
@@ -377,8 +392,9 @@ def profile(a):
         if "departed" in e.get("flags", []):
             total["departed"] += 1
             continue
-        if p.startswith(migr):
-            total["migrating"] += 1
+        why = common.withheld(rb, p)
+        if why:  # held for another project or excluded: counted, and never profiled or named
+            total["migrating" if why == "migrations" else "excluded"] += 1
             continue
         card = load_card(cards_dir, h)
         total["documents"] += 1
@@ -400,7 +416,7 @@ def profile(a):
                     r["dates"].append(card["doc_date"])
                 r["parties"].update(parties)
         for c in e.get("copies", []):
-            if c["path"] == p or c["path"].startswith(migr):
+            if c["path"] == p or common.withheld(rb, c["path"]):
                 continue
             total["copies"] += 1
             for f in folders(c["path"]):
@@ -421,6 +437,7 @@ def profile(a):
     text = json.dumps(out, ensure_ascii=False, indent=1) + "\n"
     if a.out:
         common.Writer(root if a.read_only_root else None).text(a.out, text)
+        common.register_output(root, work, rb, a.out, man)
     sys.stdout.write(text)
     return 0
 
@@ -446,8 +463,9 @@ def routing_digest(ws):
 
 BUILD_ARGS = (("settings_dir", "--settings-dir"), ("manifest", "--manifest"), ("cards", "--cards"),
               ("extract", "--extract"))
-BUNDLES_META = {"manifest_sha256": str, "routing_sha256": str, "arguments": dict, "sections": dict, "compact": dict,
-                "files": dict, "unrouted": list, "uncarded": list}
+BUNDLES_META = {"manifest_sha256": str, "routing_sha256": str, "withheld_sha256": str, "arguments": dict,
+                "sections": dict, "compact": dict, "files": dict, "unrouted": list, "uncarded": list,
+                "held_for_another_project": int, "excluded": int}
 
 
 def build_arguments(a):
@@ -468,9 +486,9 @@ def bundles_command(verb, root, bdir, arguments):
 REUSE_ARGS = ("--cards", "--extract", "--text-cap")  # what `bundles --reuse` must have been built with, as asked
 
 
-def fresh_bundles(root, bdir, mpath, ws, arguments, reuse=False):
-    """bundles.json in `bdir`, refused unless it is one `bundles` wrote, built from the current manifest and routing,
-    with every section's file there. The rebuild command repeats the arguments the bundles were built with
+def fresh_bundles(root, bdir, mpath, ws, arguments, rb, man, reuse=False):
+    """bundles.json in `bdir`, refused unless it is one `bundles` wrote, built from the current manifest, routing and
+    withheld documents, with every section's file there. The rebuild command repeats the arguments the bundles were built with
     (`arguments`, the caller's, when none are recorded). With `reuse`, the caller's --cards, --extract and
     --text-cap (defaults included) must be those the bundles were built with."""
     caller = arguments
@@ -483,8 +501,14 @@ def fresh_bundles(root, bdir, mpath, ws, arguments, reuse=False):
     if texts:
         arguments = recorded
     rebuild = bundles_command("rebuild", root, bdir, arguments)
+    if meta.get("withheld_sha256") != common.withheld_digest(rb, man):
+        remove_bundle_files(bdir)  # first, so stale files are always removed: they hold what must not be in a bundle
+        raise common.ToolError("stale bundles: %s was built when other documents were held for another project or "
+                               "excluded (the migrations folder or `exclude` in rulebook.json changed, or a re-audit "
+                               "moved what is withheld), so the bundles were removed; %s" % (meta_path, rebuild))
     bad = sorted(k for k, kind in BUNDLES_META.items() if not isinstance(meta.get(k), kind)
                  or (k in ("sections", "compact") and not all(type(v) is int for v in meta[k].values()))
+                 or (kind is int and type(meta.get(k)) is not int)
                  or (k == "arguments" and not texts))
     if bad:
         raise common.ToolError("%s is not a bundles.json that wiki.py bundles wrote (%s missing or malformed); %s"
@@ -514,7 +538,8 @@ def fresh_bundles(root, bdir, mpath, ws, arguments, reuse=False):
 
 def bundle_summary(meta):
     return {"routed": sum(meta["sections"].values()), "sections": meta["sections"], "compact": meta["compact"],
-            "unrouted": meta["unrouted"], "uncarded": meta["uncarded"]}
+            "unrouted": meta["unrouted"], "uncarded": meta["uncarded"],
+            "held_for_another_project": meta["held_for_another_project"], "excluded": meta["excluded"]}
 
 
 @os_errors
@@ -530,7 +555,7 @@ def bundles(a):
     writer = common.Writer(root)
     arguments = build_arguments(a)
     if a.reuse:
-        meta = fresh_bundles(root, out, mpath, ws, arguments, reuse=True)
+        meta = fresh_bundles(root, out, mpath, ws, arguments, rb, man, reuse=True)
         print(json.dumps(bundle_summary(meta), ensure_ascii=False))
         return 1 if meta["unrouted"] or meta["uncarded"] else 0
     meta_path = os.path.join(out, "bundles.json")
@@ -541,10 +566,14 @@ def bundles(a):
     kinds = {s["number"]: s["kind"] for s in ws["sections"]}
     cards_dir, extract_dir = cards_dirs(a, root)
     bund, unrouted, uncarded = collections.defaultdict(list), [], []
-    counts, compact = collections.Counter(), collections.Counter()
+    counts, compact, held = collections.Counter(), collections.Counter(), collections.Counter()
     for h, e in sorted(man.items(), key=lambda x: x[1]["current_path"]):
         p = e["current_path"]
-        if "departed" in e.get("flags", []) or p.startswith(rb["migrations_dir"] + "/"):
+        if "departed" in e.get("flags", []):
+            continue
+        why = common.withheld(rb, p)
+        if why:  # held for another project or excluded: counted, and in no bundle, list or record
+            held[why] += 1
             continue
         sec = route(ws, p)
         if sec is None:
@@ -555,7 +584,8 @@ def bundles(a):
             uncarded.append(p)
             continue
         xr = load_extract(extract_dir, h, os.path.join(cards_dir, h + ".json"))
-        rec = {"id": h[:12], "path": p, "copies": [x["path"] for x in e.get("copies", []) if x["path"] != p],
+        rec = {"id": h[:12], "path": p, "copies": [x["path"] for x in e.get("copies", [])
+                                                   if x["path"] != p and not common.withheld(rb, x["path"])],
                "pages": xr.get("page_count", 0), "read": xr.get("status")}
         rec.update({k: c.get(k) for k in ("title", "doc_type", "party", "parties", "doc_date", "category",
                                            "language", "sensitive")})
@@ -580,10 +610,12 @@ def bundles(a):
         if BUNDLE_FILE.fullmatch(name) and name not in files.values():
             os.remove(writer.check(os.path.join(out, name)))
     meta = collections.OrderedDict(
-        manifest_sha256=digest, routing_sha256=routing_digest(ws), arguments=arguments, text_cap=a.text_cap,
+        manifest_sha256=digest, routing_sha256=routing_digest(ws), withheld_sha256=common.withheld_digest(rb, man),
+        arguments=arguments, text_cap=a.text_cap,
         sections=dict(sorted(counts.items())), compact=dict(sorted(compact.items())), files=files,
-        unrouted=unrouted, uncarded=uncarded)
+        unrouted=unrouted, uncarded=uncarded, held_for_another_project=held["migrations"], excluded=held["excluded"])
     writer.text(meta_path, json.dumps(meta, ensure_ascii=False, indent=1) + "\n")
+    common.register_rendered(work, out, meta["withheld_sha256"], "bundles")
     print(json.dumps(bundle_summary(meta), ensure_ascii=False))
     return 1 if unrouted or uncarded else 0
 
@@ -615,9 +647,21 @@ def page_map(ws, wiki, briefed):
     return {p: "exists" if p in have else "planned" for p in sorted(have | planned | set(briefed))}
 
 
-def page_entry(p, state, sec, voice, contract, ws, bundle):
+def withheld_note(found):
+    """The line a brief gives a page that already cites a withheld document (`found`, from `withheld_citer`): where, and
+    what to do, with no path in it."""
+    why = sorted({common.WITHHELD_WHY[w] for _line, w in found})
+    return ("- Withheld citation: line%s %s cite%s a document the tools may not read (%s). Take each citation off the "
+            "page, and every fact drawn from that document with it; do not open the document, and do not name its "
+            "path." % ("" if len(found) == 1 else "s", ", ".join(str(line) for line, _w in found),
+                       "s" if len(found) == 1 else "", " or ".join(why)))
+
+
+def page_entry(p, state, sec, voice, contract, ws, bundle, rb, found=()):
     lines = ["### %s" % p, "",
-             "- Status: %s" % ("exists (revise it)" if state == "exists" else "planned (write it)"),
+             "- Status: %s" % ("exists (revise it)" if state == "exists" else "planned (write it)")]
+    lines += [withheld_note(found)] if found else []
+    lines += [
              "- Section: %s %s, %s%s" % (sec["number"], sec["name"], sec["kind"],
                                          ", derived" if sec["derived"] else ""),
              "- Professional: %s (%s)" % (voice["professional"], "the page's row in the Page professionals table"
@@ -632,9 +676,9 @@ def page_entry(p, state, sec, voice, contract, ws, bundle):
     else:
         lines.append("- Contract: the method's own, as a fixed section (`wiki-onboarding` and `wiki-maintenance` "
                      "give its shape)")
-    routes = [r for r in ws["routing"] if r["section"] == sec["number"]]
-    lines.append("- Files routed to the section:%s" % ("" if routes else " none"))
-    lines += ["  - `%s`: %s" % (r["prefix"], r["target"]) for r in routes]
+    routes, hidden = section_routes(rb, ws, sec["number"])
+    lines.append("- Files routed to the section:%s" % ("" if routes or hidden else " none"))
+    lines += route_lines(routes, hidden)
     lines.append("- Bundle: %s" % bundle)
     return "\n".join(lines)
 
@@ -680,14 +724,56 @@ def render_template(name, **fields):
     return re.sub(r"\]\((\.\.?/[^)\s]*)\)", absolute, text).format(**fields)
 
 
+def md_cell(value):
+    return " ".join(str(value).split()).replace("|", "\\|")
+
+
+def md_table(headers, rows):
+    return "\n".join(["| %s |" % " | ".join(headers), "| %s |" % " | ".join("---" for _ in headers)]
+                      + ["| %s |" % " | ".join(md_cell(c) for c in row) for row in rows])
+
+
+def schema_tables(rb, ws):
+    """The Schema's four tables as markdown, from the compiled twin, with every routing row whose prefix is withheld left
+    out (a line says how many): what a brief embeds in place of the Schema page, which lists those rows."""
+    shown = [r for r in ws["routing"] if not common.path_withheld(rb, {}, r["prefix"])]
+    hidden = len(ws["routing"]) - len(shown)
+    parts = ["### Layout", "", md_table(["Section", "Pages", "Professional lens", "Kind"], [
+        ["%s %s" % (x["number"], x["name"]), x["pages"], "; ".join(x["professionals"]),
+         x["kind"] + (", derived" if x["derived"] else "")] for x in ws["sections"]]),
+        "", "### Routing", "", md_table(["Files under", "Section and page"], [["`%s`" % r["prefix"], r["target"]]
+                                                                              for r in shown])]
+    if hidden:
+        parts += ["", "%d routing row%s into a withheld folder %s not shown." % (hidden, "" if hidden == 1 else "s",
+                                                                                 "is" if hidden == 1 else "are")]
+    parts += ["", "### Page contracts", "", md_table(
+        ["Section (professional)", "Reader", "Questions, most important first", "Fields every page carries"],
+        [["%s %s (%s)" % (c["number"], c["name"], "; ".join(c["professionals"])), c["reader"] or "",
+          " ".join("%d. %s" % (i, q) for i, q in enumerate(c["questions"], 1)), ", ".join(c["fields"])]
+         for c in ws["contracts"]])]
+    if ws["pages"]:
+        parts += ["", "### Page professionals", "", md_table(
+            ["Page", "Professional", "Deliverable", "Tone"],
+            [[p, v["professional"], v["deliverable"], v["tone"]] for p, v in sorted(ws["pages"].items())])]
+    return "\n".join(parts)
+
+
+def remove_bundle_files(bdir):
+    """Remove `bundles.json` and the section files of the bundles in `bdir`: the bundles were built before a change to
+    what is withheld, and hold documents that must not be in one."""
+    for name in sorted(os.listdir(bdir)):
+        if name == "bundles.json" or BUNDLE_FILE.fullmatch(name):
+            os.remove(os.path.join(bdir, name))
+
+
 @os_errors
 def brief(a):
     root, settings_dir, work = common.resolve(a)
     rb = common.load_rulebook(root, settings_dir)
     ws = common.load_wiki_schema(root, settings_dir)
-    mpath, _man = load_manifest(root, a.manifest)
+    mpath, man = load_manifest(root, a.manifest)
     bdir = os.path.realpath(a.bundles) if a.bundles else os.path.join(work, "bundles")
-    meta = fresh_bundles(root, bdir, mpath, ws, build_arguments(a))
+    meta = fresh_bundles(root, bdir, mpath, ws, build_arguments(a), rb, man)
     wiki = os.path.join(root, rb["wiki_dir"])
     pages = sorted(set(a.page))
     for p in pages:
@@ -697,7 +783,7 @@ def brief(a):
     voices = {p: common.page_voice(ws, p) for p in pages}
     contracts = {c["number"]: c for c in ws["contracts"]}
     pmap = page_map(ws, wiki, pages)
-    entries, skeletons = [], []
+    entries, skeletons, cites = [], [], withheld_citer(root, rb, man, ws)
     for p in pages:
         sec = section_of(ws, p)
         contract = contracts.get(sec["number"])
@@ -709,7 +795,8 @@ def brief(a):
         bundle = ("`%s` (%d document%s%s)" % (os.path.join(bdir, f), n, "" if n == 1 else "s",
                                               ", %d of them compact: listed without summary or text" % k if k else "")
                   if f else "none: no carded document routes to this section")
-        entries.append(page_entry(p, pmap[p], sec, voices[p], contract, ws, bundle))
+        found = cites(p, read_text(os.path.join(wiki, *p.split("/")))) if pmap[p] == "exists" else []
+        entries.append(page_entry(p, pmap[p], sec, voices[p], contract, ws, bundle, rb, found))
         skeletons.append(rationale_skeleton(p, pmap[p], voices[p], contract))
     checker = ["python3", os.path.join(HERE, "wiki.py"), "check", "--root", root, "--work", work]
     checker += ["--settings-dir", settings_dir] if a.settings_dir else []
@@ -720,11 +807,13 @@ def brief(a):
         "page-brief.md", folder_name=os.path.basename(root), owner_context=owner_context(root, rb),
         pages="\n\n".join(entries),
         page_map="\n".join("- `%s` (%s%s)" % (p, s, ", in this brief" if p in pages else "") for p, s in pmap.items()),
-        bundles_dir=bdir, wiki_dir=wiki, schema_path=os.path.join(root, ws["schema_path"]),
+        bundles_dir=bdir, wiki_dir=wiki, schema_tables=schema_tables(rb, ws),
         checker=" ".join(shlex.quote(x) for x in checker), return_shape=return_shape(pages),
         rationale="\n\n".join(skeletons))
     if a.out:
-        common.Writer(root).text(working_file(root, a.out, "briefs"), text)
+        target = working_file(root, a.out, "briefs")
+        common.Writer(root).text(target, text)
+        common.register_rendered(work, target, common.withheld_digest(rb, man))
     sys.stdout.write(text)
     return 0
 
@@ -974,6 +1063,192 @@ def acceptance_states(records, now):
 
 # ------------------------------------------------------------------------------------ check
 
+COLLAPSE = re.compile(r"/(?:\.?/)+|(?<=/)[^/\s]+/\.\./")  # `//` and `/./`, and `name/../`: each is the path without it
+LINK_TARGET = re.compile(r"\]\([ \t]*(<[^>\n]*>|[^)\s]*)|^[ \t]{0,3}\[[^\]\n]+\]:[ \t]*(<[^>\n]*>|\S+)", re.M)
+
+
+def path_forms(span, base="", root_name=""):
+    """The folded folder-relative spellings of a path a page names (a citation, a link's target), so that every spelling of
+    one path is the same: percent-escapes decoded (as often as they nest), `\\` read as `/`, a `file://` prefix dropped,
+    then `posixpath.normpath` (`./`, `//` and `name/../` gone, the trailing `/` dropped), leading `../` dropped, then
+    `common.fold`. With `base`, the folder a link on the page is relative to, the path resolved from it is a form too. With
+    `root_name`, the folder's own name, so is the path after any segment of that name: climbing out of the folder and back in
+    by its name (`../../../Alex Personal/06 Work/x`), a path through the cloud drive (`iCloud Drive/Alex Personal/x`) or
+    one that spells the folder's location another way (`/tmp/..` for `/private/tmp/..`, `file://`) all name `06 Work/x`."""
+    s = span.strip()
+    s = s[1:-1].strip() if s.startswith("<") and s.endswith(">") else s
+    for _ in range(4):
+        decoded = urllib.parse.unquote(s)
+        if decoded == s:
+            break
+        s = decoded
+    s = re.sub(r"^file://[^/]*", "", s.replace("\\", "/"))
+    cands = [s] + ([posixpath.join(base, s)] if base and not s.startswith("/") else [])
+    segs = s.split("/")
+    cands += ["/".join(segs[j + 1:]) for j, seg in enumerate(segs[:-1]) if root_name and common.fold(seg) == common.fold(root_name)]
+    forms = set()
+    for cand in cands:
+        n = posixpath.normpath(cand).lstrip("/") if cand else ""
+        while n.startswith("../"):
+            n = n[3:]
+        n = common.fold(n.rstrip("/"))
+        if n and n not in (".", ".."):
+            forms.add(n)
+    return forms
+
+
+def collapse(text):
+    """(`text` with `//`, `/./` and `name/../` taken out, offsets): `offsets[i]` is where `text[i]` stood in the original."""
+    at = list(range(len(text)))
+    for _ in range(8):
+        out, idx, last, hit = [], [], 0, False
+        for m in COLLAPSE.finditer(text):
+            hit = True
+            end = m.start() + (1 if m.group(0).startswith("/") else 0)
+            out.append(text[last:end])
+            idx += at[last:end]
+            last = m.end()
+        if not hit:
+            break
+        out.append(text[last:])
+        idx += at[last:]
+        text, at = "".join(out), idx
+    return text, at
+
+
+def link_targets(text):
+    """[(line, target)]: every link target in `text`, of any kind of file or none: `](target)` (a title after it is not
+    part of it), a reference definition `[name]: target`."""
+    return [(text.count("\n", 0, m.start()) + 1, m.group(1) or m.group(2)) for m in LINK_TARGET.finditer(text)]
+
+
+def withheld_citer(root, rb, man, ws):
+    """`cites(rel, text, skip=())` -> [(line, why)]: where the wiki page `rel` (its text) names a withheld document or
+    folder, the one rule `check` reports as `cites_withheld` and `review-prompts` refuses a page on. Two things count,
+    and a path is judged by `common.fold`, so a case or Unicode variant of it is the same path:
+
+    - a citation, a `sources:` entry or a backticked span (`citations`): a path a withheld entry holds (a copy at an
+      included path too), or a path under the migrating folder or an excluded path that the manifest holds as a file
+      or a folder, so a placeholder such as `_Migrations/<Project>/` that names none is not one;
+    - a withheld path anywhere in the page's text, in plain text and in fenced blocks, and in the text with its
+      percent-escapes decoded (a link's target): every path a withheld entry holds, and every withheld folder the
+      manifest holds (an excluded path, a project folder in the migrating folder), as the path with its separators.
+
+    `skip` is a set of (line, span) to leave out (a chart's source cell, judged as a chart source). The Schema page and
+    the Log may name a withheld folder, as a routing row or a history line does, but not a withheld document: only a
+    folder is let stand there. `why` is `migrations` or `excluded`; no path is returned."""
+    live = {h: e for h, e in man.items() if "departed" not in e.get("flags", [])}
+    withheld_at = common.withheld_paths(rb, man)  # {fold(path): why}, every path a withheld entry holds
+    live_paths = {common.fold(p) for e in live.values()
+                  for p in [e["current_path"]] + [c["path"] for c in e.get("copies", [])]}
+    live_folders = {"/".join(q.split("/")[:i]) for q in live_paths for i in range(1, q.count("/") + 1)}
+    folders = {}  # {fold(path) + "/": why}: the withheld folders the manifest holds, and the folders `exclude` names
+    for q in live_paths:
+        parts = q.split("/")
+        for i in range(1, len(parts)):
+            here = "/".join(parts[:i])
+            why = common.withheld(rb, here)
+            if why:
+                folders.setdefault(here + "/", why)
+    for e in rb["exclude"]:
+        k = common.fold(e).rstrip("/")
+        if k not in withheld_at:
+            folders.setdefault(k + "/", "excluded")
+    exempt = lambda rel: rel.startswith(LOG_DIR + "/") or rel == schema_rel(root, rb, ws)
+
+    def named(forms):
+        """(why, "document" | "folder") for a path as `path_forms` spells it, or None."""
+        for bare in sorted(forms):
+            if bare in withheld_at:
+                return withheld_at[bare], "document"
+            why = common.withheld(rb, bare)
+            if why and (bare in live_paths or bare in live_folders):
+                return why, "folder"
+        return None
+
+    root_name = os.path.basename(root)
+    inc_paths = {common.fold(p) for e in live.values() if not common.withheld(rb, e["current_path"])
+                 for p in [e["current_path"]] + [c["path"] for c in e.get("copies", [])] if not common.withheld(rb, p)}
+    inc_folders = {"/".join(q.split("/")[:i]) for q in inc_paths for i in range(1, q.count("/") + 1)}
+    live_ends = set(inc_paths) | inc_folders | {f + "/" for f in inc_folders}  # what a live path may read as
+    for q in list(live_ends):  # and as it reads after a segment named as the folder is, as `path_forms` reads a link
+        segs = q.split("/")
+        live_ends.update("/".join(segs[j + 1:]) for j, seg in enumerate(segs[:-1]) if seg == common.fold(root_name))
+    ending_with = {}
+
+    def literal(span, base=""):
+        """True when `span`, read as a folder-relative path and no other way, is a live, included document's or folder's
+        path: it is that document, whatever its folder's name makes of it as a path after that name."""
+        return any(f in inc_paths or f in inc_folders for f in path_forms(span, base))
+
+    def explained(text, e, token):
+        """True when the withheld `token`, which ends at `text[e]` and follows a `/`, is the end of a live, included
+        document's path (or of a live, included folder's, with its `/`) that the text before and up to `e` ends with:
+        `Photos (2024)/Scan 1.pdf` is that document, not the staged root stray `Scan 1.pdf`. A direct suffix test, no
+        reading of where the longer path starts: a bracket, an apostrophe, a comma or a glued word before it cannot
+        matter. The live path must start a path segment, though: the character before it is no letter, digit, `-`, `_`
+        or `.`, so `MyPhotos/Scan 1.pdf` is not `Photos/Scan 1.pdf`. Anything else is a citation."""
+        if token not in ending_with:
+            ending_with[token] = [q for q in live_ends if q.endswith("/" + token)]
+        return any(text[:e].endswith(q) and (e == len(q) or not (text[e - len(q) - 1].isalnum()
+                                                                or text[e - len(q) - 1] in "_-."))
+                   for q in ending_with[token])
+
+    def scan(lines):
+        """[(line number, why, kind)] for every token of `withheld_at` and `folders` in `lines`, read three ways: each
+        line followed by a space (wrapped at a space); the lines' indentation, quote marks and line breaks taken out
+        (wrapped after any character, a `/` included); and joined by a space except at a `/` or before a `.`. `//` and
+        `/./` are taken out of each; a blank line and a heading line (`#`) are joined to the next with a space in the
+        second and third readings, since no path is wrapped across a paragraph. An occurrence (its line and column) that a live document explains in any of the
+        three readings is not a citation, so a path hard-wrapped at a space or at a `/` is judged as it was written."""
+        seen = {}
+        for variant in ("spaced", "bare", "mixed"):
+            tidy = [x if variant == "spaced" else re.sub(r"^[\s>]+", "", x).rstrip() for x in lines]
+            keys = [common.fold(x) for x in tidy]
+            lead = [len(x) - len(y) for x, y in zip(lines, tidy)]  # what the reading took off the front of each line
+            joined, starts = "", []
+            for n, k in enumerate(keys):
+                starts.append(len(joined))
+                follows = keys[n + 1] if n + 1 < len(keys) else ""
+                joined += k + ("" if (variant == "bare" or variant == "mixed" and (k.endswith("/") or follows[:1] in "/."))
+                               and k and follows and not k.startswith("#") else " ")
+            text, at = collapse(joined)
+            for tokens, kind in ((withheld_at, "document"), (folders, "folder")):
+                for token, why in tokens.items():
+                    i = text.find(token)
+                    while i >= 0:
+                        after = i + len(token)
+                        if (i == 0 or not (text[i - 1].isalnum() or text[i - 1] == "_")) and (
+                                kind == "folder" or after >= len(text) or not (text[after].isalnum()
+                                                                              or text[after] == "_")):
+                            line = bisect.bisect_right(starts, at[i])
+                            column = at[i] - starts[line - 1] + lead[line - 1]
+                            key = (line, column, why, kind, token)
+                            seen[key] = seen.get(key, False) or (i > 0 and text[i - 1] == "/"
+                                                                 and explained(text, after, token))
+                        i = text.find(token, i + 1)
+        return [(line, why, kind) for (line, _c, why, kind, _t), ok in seen.items() if not ok]
+
+    def cites(rel, text, skip=()):
+        found = set()
+        for line, span in citations(text):
+            hit = None if (line, span) in skip or literal(span) else named(path_forms(span, "", root_name))
+            if hit:
+                found.add((line, hit[0], hit[1]))
+        base = posixpath.join(rb["wiki_dir"], posixpath.dirname(rel))
+        for line, target in link_targets(text):
+            hit = named(path_forms(target, base, root_name)) if target and not literal(target, base) else None
+            if hit and line not in {l for l, _s in skip}:
+                found.add((line, hit[0], hit[1]))
+        lines = text.split("\n")
+        for body in (lines, urllib.parse.unquote(text).split("\n")):
+            found.update(f for f in scan(body) if f[0] not in {l for l, _s in skip})
+        if exempt(rel):
+            found = {f for f in found if f[2] == "document"}
+        return sorted({(line, why) for line, why, _kind in found})
+    return cites
+
+
 def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptance_path=None, only=None):
     """The wiki checks as a dict; every item a count (zero included) or a named not-verified state. The compiled
     Schema is read from `settings_dir` (default <root>/.familyai), the rationale file and acceptance record from
@@ -991,7 +1266,7 @@ def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptan
     ws, ws_why = schema_for_check(root, settings_dir)
     live = {h: e for h, e in man.items() if "departed" not in e.get("flags", [])}
     tops = live_top_folders(man)
-    reserved = common.reserved_names(rb)
+    reserved = chart_reserved(rb, man)
     pages = wiki_pages(wiki)
     in_map = set(pages)  # a link to a page the map only plans resolves to nothing: dead until the page is written
     if only is not None:
@@ -1005,6 +1280,7 @@ def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptan
     fm_bad, dead_src, dead_links, outside, em, unchecked, dls, sup = [], [], [], [], [], 0, [], 0
     charts, unpaired, unrenderable, bad_chart_src = 0, [], [], []
     cited, shas = set(), {}
+    cites_withheld, cites = [], withheld_citer(root, rb, man, ws)
     for rel in pages:
         if only is not None and rel not in only:
             continue  # a sibling's page is never opened: it may be mid-write
@@ -1024,7 +1300,8 @@ def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptan
         if fm.get("status") == "superseded":
             sup += 1
         for s in fm.get("sources") if isinstance(fm.get("sources"), list) else []:
-            if isinstance(s, str) and not os.path.exists(os.path.join(root, s)):
+            # spelt exactly as its folder lists it: a case variant opens the file on macOS and would pass for it
+            if isinstance(s, str) and common.named_exactly(root, s.rstrip("/")) is None:
                 dead_src.append([rel, s])
         for d in fm.get("deadlines") or []:
             if isinstance(d, dict):
@@ -1045,6 +1322,8 @@ def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptan
                 except common.ToolError:
                     bad_chart_src.append([rel, line, src])
         spans = citations(t)
+        # the page must not depend on a document the tools may not read; the path stays out of the report
+        cites_withheld += [[rel, line, why] for line, why in cites(rel, t, in_tables)]
         if rel not in not_covering:
             cited.update(span for _line, span in spans)
         if not rel.startswith(LOG_DIR + "/"):
@@ -1073,7 +1352,8 @@ def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptan
         return (any(x in cited for x in [pth] + [c["path"] for c in e.get("copies", [])])
                 or folder is not None and (folder + "/" in cited or folder in cited))
 
-    in_scope = sorted((e for e in live.values() if not e["current_path"].startswith(rb["migrations_dir"] + "/")),
+    withheld = collections.Counter(common.withheld(rb, e["current_path"]) for e in live.values())
+    in_scope = sorted((e for e in live.values() if not common.withheld(rb, e["current_path"])),
                       key=lambda e: e["current_path"])
     scope = [e["current_path"] for e in in_scope]
     uncovered = [e["current_path"] for e in in_scope if not covered(e)] if only is None else []
@@ -1091,10 +1371,14 @@ def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptan
                em_dash_where=em[:10], chart_blocks=charts, charts_without_data_table=unpaired,
                charts_not_renderable=unrenderable, chart_sources_bad=bad_chart_src,
                deadlines=sorted(map(list, {tuple(x) for x in dls})),
-               documents_in_scope=len(scope), documents_not_covered=len(uncovered), not_covered_sample=uncovered[:20],
+               cites_withheld=cites_withheld,
+               documents_in_scope=len(scope), documents_held_for_another_project=withheld["migrations"],
+               documents_excluded=withheld["excluded"], documents_not_covered=len(uncovered),
+               not_covered_sample=uncovered[:20],
                pages_without_single_professional=no_voice)
     problems = (len(fm_bad) + len(dead_src) + len(dead_links) + len(outside) + len(em) + len(uncovered)
-                + len(unpaired) + len(unrenderable) + len(bad_chart_src) + (len(no_voice) if ws else 0))
+                + len(unpaired) + len(unrenderable) + len(bad_chart_src) + len(cites_withheld)
+                + (len(no_voice) if ws else 0))
     if only is not None:
         whole = "not checked: scoped to %d page(s); the coordinator's whole-wiki check judges it" % len(only)
         res.update(frontmatter_conforming="%d/%d" % (len(only) - len(fm_bad), len(only)),
@@ -1129,7 +1413,9 @@ def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptan
 
 @os_errors
 def check(a):
-    root, settings_dir, _work = common.resolve(a)
+    root, settings_dir, work = common.resolve(a)
+    if a.out:
+        common.working_file(root, a.out, "check reports")
     rb = common.load_rulebook(root, settings_dir)
     _mp, man = load_manifest(root, a.manifest)
     res = check_result(root, rb, man, settings_dir=settings_dir,
@@ -1139,6 +1425,7 @@ def check(a):
     out = json.dumps(res, ensure_ascii=False, indent=1)
     if a.out:
         common.Writer(root if a.read_only_root else None).text(a.out, out)
+        common.register_output(root, work, rb, a.out, man)
     print(out)
     return 1 if res["problems"] else 0
 
@@ -1220,25 +1507,36 @@ def fact_sample(page, facts, k):
     return [facts[i] for i in sorted((s + j * n // k) % n for j in range(k))]
 
 
-def held_paths(man):
-    """{path: entry id} for every path a live entry holds: its current path and its copies'."""
+def held_paths(rb, man):
+    """({path: entry id} for every path a live entry that is not withheld holds, its current path and its copies', bar
+    a copy under a withheld path; {path: why} for every path a live withheld entry holds). A withheld document
+    (`common.withheld`) is never indexed as one a prompt may open, load a card for or count."""
     held = {}
     for h, e in sorted(man.items()):
-        if "departed" not in e.get("flags", []):
-            held[e["current_path"]] = h
-            for c in e.get("copies", []):
+        if "departed" in e.get("flags", []) or common.withheld(rb, e["current_path"]):
+            continue
+        held[e["current_path"]] = h
+        for c in e.get("copies", []):
+            if not common.withheld(rb, c["path"]):
                 held.setdefault(c["path"], h)
-    return held
+    return held, common.withheld_paths(rb, man)
 
 
-def page_sources(text, man, held, cards_dir):
-    """(the lines listing what the page cites, its facts): documents with their card's title, folders with the
-    paths held directly in them, anything else holding `/` as not in the manifest; facts as in fact_sample, each
-    under its document's current path, so a document cited by two of its paths gives its facts once."""
+def page_sources(text, man, held, cards_dir, rb, withheld_at):
+    """(the lines listing what the page cites, its facts, how many cited paths are withheld): documents with their
+    card's title, folders with the paths held directly in them, anything else holding `/` as not in the manifest;
+    facts as in fact_sample, each under its document's current path, so a document cited by two of its paths gives its
+    facts once. A cited path that is withheld (`common.path_withheld`) is named as withheld and nothing else: no
+    card, title, fact or canonical path is read, and no folder count includes it."""
     by_folder = collections.Counter(p.rsplit("/", 1)[0] for p in held if "/" in p)
-    lines, facts = [], set()
+    lines, facts, hidden = [], set(), 0
     for path in sorted({span for _l, span in citations(text)}):
-        if path in held:
+        why = common.path_withheld(rb, withheld_at, path)
+        if why:
+            hidden += 1
+            lines.append("- `%s`: withheld (%s); not to be opened, and the page is not checked against it"
+                         % (path, common.WITHHELD_WHY[why]))
+        elif path in held:
             h = held[path]
             card = load_card(cards_dir, h)
             current = man[h]["current_path"]
@@ -1253,7 +1551,27 @@ def page_sources(text, man, held, cards_dir):
             lines.append("- `%s`: a folder, %d file%s directly in it" % (path, n, "" if n == 1 else "s"))
         elif "/" in path:
             lines.append("- `%s`: not a document or folder in the manifest" % path)
-    return lines, sorted(facts)
+    return lines, sorted(facts), hidden
+
+
+def section_routes(rb, ws, number):
+    """(the routing rows into section `number` a brief or a prompt may show, how many it hides): a row whose prefix is
+    a withheld path, such as the migrations folder or an excluded folder, would name it to a model."""
+    shown, hidden = [], 0
+    for r in ws["routing"]:
+        if r["section"] != number:
+            continue
+        if common.path_withheld(rb, {}, r["prefix"]):
+            hidden += 1
+        else:
+            shown.append(r)
+    return shown, hidden
+
+
+def route_lines(routes, hidden):
+    lines = ["  - `%s`: %s" % (r["prefix"], r["target"]) for r in routes]
+    return lines + (["  - %d route%s to a withheld folder, not shown" % (hidden, "" if hidden == 1 else "s")]
+                    if hidden else [])
 
 
 def contract_lines(voice, contract):
@@ -1297,8 +1615,9 @@ def review_prompts(a):
     if os.path.exists(cards_dir) and not os.path.isdir(cards_dir):
         raise common.ToolError("--cards %s is a file, not a folder of card records" % cards_dir)
     contracts = {c["number"]: c for c in ws["contracts"]}
-    held = held_paths(man)
-    writer, written = common.Writer(root), []
+    held, withheld_at = held_paths(rb, man)
+    cites = withheld_citer(root, rb, man, ws)
+    writer, written, withheld_cited, refused = common.Writer(root), [], {}, []
     for p in pages:
         voice, sec = common.page_voice(ws, p), section_of(ws, p)
         contract = contracts.get(sec["number"])
@@ -1307,17 +1626,27 @@ def review_prompts(a):
                                    "against one" % (sec["number"], sec["name"], p))
         path = os.path.join(wiki, *p.split("/"))
         text = read_text(path)
+        found = cites(p, text)
+        if found:  # the page depends on a document the tools may not read: no prompt, and none left from before
+            refused += [[p, line, why] for line, why in found]
+            for lens in ("owner", "professional"):
+                stale = os.path.join(out, *p[:-3].split("/")) + ".%s.md" % lens
+                if os.path.lexists(stale):
+                    os.remove(writer.check(stale))
+            continue
         reader = contract["reader"] if contract and contract["reader"] else "the owner"
         questions = ("\n".join("%d. %s" % (i, q) for i, q in enumerate(contract["questions"], 1)) if contract else
                      "None in the Schema: the section is fixed, so its shape is the method's (`wiki-onboarding` and "
                      "`wiki-maintenance`). Judge whether %s can use the page for what that shape is for." % reader)
-        sources, facts = page_sources(text, man, held, cards_dir)
+        sources, facts, hidden = page_sources(text, man, held, cards_dir, rb, withheld_at)
+        if hidden:
+            withheld_cited[p] = hidden
         sample = fact_sample(p, facts, a.sample)
-        routes = [r for r in ws["routing"] if r["section"] == sec["number"]]
+        routes, hidden_routes = section_routes(rb, ws, sec["number"])
         scope = "\n".join(["- Section: %s %s, %s%s" % (sec["number"], sec["name"], sec["kind"],
                                                        ", derived" if sec["derived"] else ""),
-                           "- Files routed to the section:%s" % ("" if routes else " none")]
-                          + ["  - `%s`: %s" % (r["prefix"], r["target"]) for r in routes])
+                           "- Files routed to the section:%s" % ("" if routes or hidden_routes else " none")]
+                          + route_lines(routes, hidden_routes))
         fields = dict(page=p, page_sha256=common.sha256_file(path), author_model=author, reviewer_model=reviewer,
                       wiki_dir=rb["wiki_dir"], page_text=fenced(text))
         owner = render_template("review-owner.md", reader=reader, questions=questions, **fields)
@@ -1330,8 +1659,15 @@ def review_prompts(a):
         base = os.path.join(out, *p[:-3].split("/"))
         for lens, body in (("owner", owner), ("professional", prof)):
             writer.text(base + ".%s.md" % lens, body)
+            common.register_rendered(work, base + ".%s.md" % lens, common.withheld_digest(rb, man))
         written.append([p, base + ".owner.md", base + ".professional.md"])
-    print(json.dumps({"prompts": written}, ensure_ascii=False, indent=1))
+    print(json.dumps({"prompts": written, "withheld_cited": withheld_cited, "refused": refused}, ensure_ascii=False,
+                     indent=1))
+    if refused:
+        raise common.ToolError("refused to render %d page(s) that cite a withheld document, no prompt written for "
+                               "them: %s; take each citation off the page (`wiki.py check` lists them as "
+                               "cites_withheld)" % (len({r[0] for r in refused}),
+                                                    "; ".join("%s line %d" % (r[0], r[1]) for r in refused)))
     return 0
 
 
@@ -1617,25 +1953,30 @@ def move(a):
 # ------------------------------------------------------------------------------------ drift
 
 def drift_paths(rb, man):
-    """{folder-relative path: "departed" | "migrating"}: see the module docstring."""
+    """{fold(folder-relative path): "departed" | "migrating"}: see the module docstring. A path is compared as
+    `common.fold` compares, and the paths a withheld document held before it moved come from the one source `check` uses
+    (`common.prior_paths`, part of `common.withheld_paths`): the path a staged document was staged from and the
+    placements in its history are migrating, those of an excluded one departed."""
     live = set()
     for e in man.values():
         if "departed" not in e.get("flags", []):
-            live.add(e["current_path"])
-            live.update(c["path"] for c in e.get("copies", []))
-    migr = rb["migrations_dir"] + "/"
+            live.add(common.fold(e["current_path"]))
+            live.update(common.fold(c["path"]) for c in e.get("copies", []))
     out = {}
     for e in man.values():
         held = [e["current_path"]] + [c["path"] for c in e.get("copies", [])]
         if "departed" in e.get("flags", []):
-            out.update({p: "departed" for p in held if p not in live and p not in out})
+            out.update({common.fold(p): "departed" for p in held if common.fold(p) not in live
+                        and common.fold(p) not in out})
         elif "migrating" in e.get("flags", []):
-            for p in held:
-                if p.startswith(migr):
-                    out[p] = "migrating"
-                    staged_from = p[len(migr):].split("/", 1)[1:]
-                    if staged_from and staged_from[0] not in live:
-                        out[staged_from[0]] = "migrating"
+            for raw in held:
+                if common.in_migrations(rb, raw):
+                    out[common.fold(raw)] = "migrating"
+                    origin = common.staged_origin(rb, raw)
+                    if origin and common.fold(origin) not in live:
+                        out[common.fold(origin)] = "migrating"
+    for p, why in common.prior_paths(rb, man).items():
+        out.setdefault(p, "migrating" if why == "migrations" else "departed")
     return out
 
 
@@ -1695,18 +2036,29 @@ def citations(text):
 
 @os_errors
 def drift(a):
-    root, settings_dir, _work = common.resolve(a)
+    root, settings_dir, work = common.resolve(a)
+    if a.out:
+        common.working_file(root, a.out, "drift reports")
     rb = common.load_rulebook(root, settings_dir)
     _mp, man = load_manifest(root, a.manifest)
     wiki = os.path.join(root, rb["wiki_dir"])
     paths = drift_paths(rb, man)
+    at = common.withheld_paths(rb, man)
     kinds = collections.Counter(paths.values())
     pages = [p for p in wiki_pages(wiki) if not p.startswith(LOG_DIR + "/")]
     cited = {"departed": [], "migrating": []}
+
+    def shown(path, kind):
+        """The path as the report names it: a path that is withheld, and every path of a migrating document (staged for
+        another project, and the path it left), is named as withheld and no more."""
+        why = "migrations" if kind == "migrating" else next(
+            (w for f in sorted(path_forms(path, "", os.path.basename(root))) for w in [common.path_withheld(rb, at, f)] if w), None)
+        return "withheld (%s)" % common.WITHHELD_WHY[why] if why else path
     for p in pages:
         for line, path in citations(read_text(os.path.join(wiki, *p.split("/")))):
-            if path in paths:
-                cited[paths[path]].append([p, line, path])
+            kind = next((paths[f] for f in sorted(path_forms(path, "", os.path.basename(root))) if f in paths), None)
+            if kind:
+                cited[kind].append([p, line, shown(path, kind)])
     res = collections.OrderedDict(
         wiki=rb["wiki_dir"], pages_read=len(pages), departed_paths=kinds["departed"],
         migrating_paths=kinds["migrating"], citing_departed=len(cited["departed"]),
@@ -1716,8 +2068,90 @@ def drift(a):
     text = json.dumps(res, ensure_ascii=False, indent=1) + "\n"
     if a.out:
         common.Writer(root if a.read_only_root else None).text(a.out, text)
+        common.register_output(root, work, rb, a.out, man)
     sys.stdout.write(text)
     return 1 if res["citing_departed"] or res["citing_migrating"] else 0
+
+
+# ------------------------------------------------------------------------------------ deadlines
+
+def deadline_lines(r, groups, when):
+    """The roll-up's lines for `groups`, {(date, note): [pages]} in order: `- **<when>**: <titles>. <note> (<links>)`,
+    or `- **<when>**: <titles> (<links>)` with no note. The titles are the linked pages' own, each once, in the order
+    of the links; a link's text is its page's path without `.md` and its target the path from the Deadlines page,
+    percent-encoded with `/` and `&` literal, so the line reads back as `parse_entry` reads it."""
+    lines = []
+    for (key, note), pages in groups:
+        titles = ", ".join(dict.fromkeys(posixpath.basename(p)[:-3] for p in pages))
+        links = ", ".join("[%s](%s)" % (p[:-3], link_to(r.DEADLINES, p)) for p in pages)
+        lines.append("- **%s**: %s%s (%s)" % (when(key), titles, ". " + note if note else "", links))
+    return lines
+
+
+def render_deadlines(r, src, today):
+    """The derived Deadlines page for what `readiness.read_sources` read (`src`), built on the day `today`. Dated
+    entries go under Upcoming from `today` on and under Past before it, yearly ones under Every year in calendar order,
+    a line apart for each (date, note) with every page that gives it named in the one line, ordered by title; what
+    could not be read goes under Could not read, and a wiki whose readable pages give no date says so in the banner."""
+    groups = collections.defaultdict(list)
+    for key, note, page in src.entries:
+        groups[(key, note)].append(page)
+    ordered = sorted((k, sorted(ps, key=lambda p: (posixpath.basename(p)[:-3], p))) for k, ps in groups.items())
+    dated = [g for g in ordered if r.ISO_DAY.fullmatch(g[0][0])]  # the others are MM-DD, a date every year
+    upcoming = [g for g in dated if g[0][0] >= today]
+    past = [g for g in dated if g[0][0] < today]
+    yearly = [g for g in ordered if not r.ISO_DAY.fullmatch(g[0][0])]
+    blocks = ["---\nprovenance: derived\nlast-updated: %s\nstatus: current\n---" % today, r.TITLE, r.INTRO_FIXTURE]
+    if not src.entries and src.scanned:
+        blocks.append((r.BANNER_LINE % ":").replace("{}", str(src.scanned)))
+    blocks.append("\n\n".join([r.UPCOMING] + ["\n".join(deadline_lines(r, upcoming, lambda d: d)) or r.NOTHING]))
+    for heading, rows, when in ((r.EVERY_YEAR, yearly, r.rendered_month_day), (r.PAST, past, lambda d: d)):
+        if rows:
+            blocks.append("\n\n".join([heading, "\n".join(deadline_lines(r, rows, when))]))
+    if src.unread_lines:
+        blocks.append("\n\n".join([r.UNREAD, r.UNREAD_INTRO, "\n".join(src.unread_lines)]))
+    return "\n\n".join(blocks) + "\n", (len(upcoming), len(yearly), len(past))
+
+
+@os_errors
+def deadlines(a):
+    import readiness as r  # here, not above: readiness imports this module, and holds the roll-up's grammar
+    root, settings_dir, _work = common.resolve(a)
+    rb = common.load_rulebook(root, settings_dir)
+    wiki = os.path.join(root, rb["wiki_dir"])
+    if not os.path.isdir(wiki):
+        raise common.ToolError("no wiki folder: %s" % wiki)
+    clock_day = datetime.date.fromtimestamp(common.clock()).isoformat()
+    today = clock_day if a.today is None else a.today
+    if not r.real_day(today):
+        raise common.ToolError("--today %r is not a day written YYYY-MM-DD" % today)
+    if today > clock_day:
+        raise common.ToolError("--today %s is after today (%s): the page's last-updated is a build stamp, never after "
+                               "today, and readiness reports one that is" % (today, clock_day))
+    if a.out and not a.write:
+        raise common.ToolError("--out names where --write puts the page; without --write nothing is written")
+    src = r.read_sources(wiki, r.roll_up_pages(wiki))
+    if src.outside:
+        raise common.ToolError("cannot render: what the roll-up writes for %d page(s) is not known, since their "
+                               "frontmatter uses YAML this tool does not read (%s); rewrite each within the subset "
+                               "readiness.py reads (references/tools.md, the frontmatter subset), quoting a value "
+                               "that YAML would read as anything but text"
+                               % (len(src.outside), "; ".join(x[len("not verified: "):] for x in src.outside)))
+    page, (upcoming, yearly, past) = render_deadlines(r, src, today)
+    target = a.out or os.path.join(wiki, *r.DEADLINES.split("/"))
+    if a.write:
+        common.Writer(root if a.read_only_root else None).text(target, page)
+    else:
+        sys.stdout.write(page)
+    print("deadlines: %d upcoming, %d every year, %d past, %d could not read; %s %s"
+          % (upcoming, yearly, past, len(src.unread_lines), "wrote" if a.write else "would write (a dry run: --write "
+             "writes it)", os.path.relpath(target, root)), file=sys.stderr)
+    fix = [("deadline entries not a real YYYY-MM-DD", src.bad_days),
+           ("recurring entries not {date, note} with a date as MM-DD or a day and a month name", src.bad)]
+    for what, items in fix:
+        if items:
+            print("fix in the pages' frontmatter, %d %s (%s)" % (len(items), what, r.sample(items)), file=sys.stderr)
+    return 1 if src.unread_lines or src.bad_days or src.bad else 0
 
 
 # ------------------------------------------------------------------------------------ chart
@@ -1850,6 +2284,15 @@ def chart_text(value, what, where, uncarried=""):
     return value
 
 
+def chart_reserved(rb, man=None):
+    """The names under which a chart's source may not lie: the folder's reserved names, every path the owner excluded
+    from reading, and with the manifest every path (a copy's too) of a document it withholds (the figures of a chart
+    come from its sources, so they must be ones the tools may read). Compared as `common.fold` compares."""
+    names = common.reserved_names(rb)
+    held = list(common.withheld_paths(rb, man)) if man else []
+    return names + [e for e in rb["exclude"] + held if e not in names]
+
+
 def chart_source(root, value, where, reserved):
     """Refuse a source that is not a file or folder inside the folder being prepared (`root`, a real path), or that
     lies under one of its reserved names (the wiki, _Audit, the settings, the inbox and the like), which are not
@@ -1867,11 +2310,11 @@ def chart_source(root, value, where, reserved):
     if not real.startswith(root + os.sep):
         raise common.ToolError("%s: source %r resolves to %s, outside %s" % (where, value, real, root))
     for rel in (value.rstrip("/"), os.path.relpath(real, root).replace(os.sep, "/")):
-        name = next((n for n in reserved if rel.casefold() == n.casefold()
-                     or rel.casefold().startswith(n.casefold() + "/")), None)
+        name = next((n for n in reserved if common.fold(rel) == common.fold(n).rstrip("/")
+                     or common.fold(rel).startswith(common.fold(n).rstrip("/") + "/")), None)
         if name:
-            raise common.ToolError("%s: source %r is under %s, which the folder reserves; cite the document itself"
-                                   % (where, value, name))
+            raise common.ToolError("%s: source %r is under %s, which the folder reserves or the owner excluded from "
+                                   "reading; cite a document the tools may read" % (where, value, name))
 
 
 def chart_row_date(row, col, where):
@@ -2044,12 +2487,16 @@ def chart_blocks(text):
 
 
 def chart(a):
-    root, settings_dir, _work = common.resolve(a)
-    reserved = common.reserved_names(common.load_rulebook(root, settings_dir))
+    root, settings_dir, work = common.resolve(a)
+    if a.out:
+        common.working_file(root, a.out, "charts")
+    rb = common.load_rulebook(root, settings_dir)
+    reserved = chart_reserved(rb)
     rows, places = chart_rows(a.data)
     out = render_chart(root, a.kind, a.title, rows, os.path.basename(a.data), places, reserved)
     if a.out:
         common.Writer(root if a.read_only_root else None).text(a.out, out)
+        common.register_output(root, work, rb, a.out)
     sys.stdout.write(out)
     return 0
 
@@ -2110,6 +2557,11 @@ def main():
     p.add_argument("--map", required=True)
     p = common_args(sub.add_parser("drift"))
     p.add_argument("--out")
+    p = common_args(sub.add_parser("deadlines"))
+    p.add_argument("--today", help="the day the page is built for, YYYY-MM-DD (default the local date); a dated "
+                   "entry before it is Past, and it is the page's last-updated, which is never after today")
+    p.add_argument("--write", action="store_true", help="write the page (default: print it, change nothing)")
+    p.add_argument("--out", help="where --write puts the page (default <root>/<wiki>/01 Deadlines/01 Deadlines.md)")
     p = common_args(sub.add_parser("chart"))
     p.add_argument("--kind", required=True, choices=list(CHART_COLUMNS))
     p.add_argument("--data", required=True)
@@ -2117,7 +2569,8 @@ def main():
     p.add_argument("--out")
     a = ap.parse_args()
     return {"profile": profile, "bundles": bundles, "brief": brief, "check": check, "rationale": rationale,
-            "review-prompts": review_prompts, "accept": accept, "move": move, "drift": drift, "chart": chart}[a.cmd](a)
+            "review-prompts": review_prompts, "accept": accept, "move": move, "drift": drift, "chart": chart,
+            "deadlines": deadlines}[a.cmd](a)
 
 
 if __name__ == "__main__":

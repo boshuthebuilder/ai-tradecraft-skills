@@ -181,8 +181,10 @@ say), repair what it moved rather than read anything again. Once the round's re-
 `extract.py repath --root "<folder>"` lists each extract record whose path it would rewrite to its document's
 current path, matched by content hash, with nothing read again; run it again with `--apply` to write them. It
 refuses a move to a path that is not in the folder, so it runs only on a manifest the re-audit has made current
-([`repath`](references/tools.md#repath)). Then rebuild the bundles and run `wiki.py drift` (step 7). Cards hold no
-path, only their document's id, so they need nothing.
+([`repath`](references/tools.md#repath)). Then rebuild the bundles and run `wiki.py drift` (step 7). A card holds its
+document's id and `card_meta.path`, the path it was carded at, which only records how it was made, so a card that moved
+between included paths needs nothing; a card (or record) whose path is withheld is discarded by every tool's start, and its
+document is read again ([withheld means purged](references/tools.md#common-flags)).
 
 ### 4. Extract the text
 

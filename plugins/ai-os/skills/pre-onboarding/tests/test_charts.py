@@ -15,15 +15,18 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import unicodedata
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOOLS = os.path.join(HERE, "..", "tools")
+TIMEOUT = 600  # seconds: a tool that hangs fails its test instead of the run
 FIXTURE = os.path.join(HERE, "fixture", "Alex Personal")
 WIKI = os.path.join(FIXTURE, "Alex Personal Wiki")
 GOLDEN = os.path.join(HERE, "golden", "charts")
 PROBE = os.path.join(HERE, "probe", "render-probe.md")
 sys.path.insert(0, TOOLS)
+import common  # noqa: E402
 import wiki  # noqa: E402
 
 CASES = [  # kind, golden input, title, the fixture wiki page that carries the chart (None: synthetic input)
@@ -61,7 +64,7 @@ def write(path, text):
 
 def run(tool, *args):
     r = subprocess.run([sys.executable, os.path.join(TOOLS, tool)] + list(args), capture_output=True, text=True,
-                       encoding="utf-8")
+                       encoding="utf-8", timeout=TIMEOUT)
     return r.returncode, r.stdout, r.stderr
 
 
@@ -175,7 +178,7 @@ class GoldenTest(Charts):
         inside = os.path.join(self.root, "chart.md")
         code, _out, err = self.chart(kind, os.path.join(GOLDEN, data), title, "--out", inside)
         self.assertEqual(code, 2)
-        self.assertIn("--read-only-root", err)
+        self.assertIn("charts are working files, never written inside the folder", err)  # read-only or not
         self.assertFalse(os.path.exists(inside))
 
 
@@ -281,6 +284,37 @@ class RefusalTest(Charts):
             with self.subTest(src=src):
                 self.refused("bar", "r.csv", self.rows(("a", "1"), ("b", "2"), ("c", "3"), src=src), "t",
                              "r.csv line 2: source %r" % src, why, root=root)
+
+    def test_a_source_the_owner_excluded_is_refused(self):
+        root = self.own_copy()
+        for sub in ("extract", "cards"):  # the tool runs read-only, and refuses to purge the records of excluded documents
+            shutil.rmtree(os.path.join(root, "_Audit", sub))
+        twin = os.path.join(root, ".familyai", "rulebook.json")
+        write(twin, json.dumps(dict(json.loads(read(twin)), exclude=["02 Finance/Tax", "02 Finance/Bank statement 2024-03.pdf"]),
+                               ensure_ascii=False, indent=1))
+        for src in ("02 Finance/Tax", "02 Finance/Tax/", "02 Finance/Tax/Tax return 2023.pdf",
+                    "02 Finance/Bank statement 2024-03.pdf"):
+            with self.subTest(src=src):
+                err = self.refused("bar", "x.csv", self.rows(("a", "1"), ("b", "2"), ("c", "3"), src=src), "t",
+                                   "x.csv line 2: source %r" % src, "which the folder reserves or the owner excluded "
+                                   "from reading", root=root)
+                self.assertNotIn("Traceback", err)
+        self.assertIn("(GBP)", self.rendered("bar", self.data("ok.csv", self.rows(
+            ("a", "1"), ("b", "2"), ("c", "3"), src="02 Finance/Bank statement 2024-03 (1).pdf")), "t (GBP)", root=root))
+
+    def test_a_source_is_compared_to_the_reserved_names_as_a_name_is_on_disk(self):
+        """A reserved name and a source that differ only in letter case or in Unicode form are one path: as `common.fold`
+        compares them, not by `casefold` alone, which leaves a composed and a decomposed accent apart."""
+        root = os.path.realpath(self.own_copy())
+        accented = "05 Archive/Cours de fran\u00e7ais.pdf"
+        self.assertTrue(os.path.exists(os.path.join(root, accented)))
+        for reserved in ("05 ARCHIVE/COURS DE FRAN\u00c7AIS.PDF", unicodedata.normalize("NFD", accented),
+                         "05 archive/"):
+            with self.subTest(reserved=reserved):
+                with self.assertRaises(common.ToolError) as caught:
+                    wiki.chart_source(root, accented, "x.csv line 2", [reserved])
+                self.assertIn("which the folder reserves or the owner excluded from reading", str(caught.exception))
+        wiki.chart_source(root, accented, "x.csv line 2", ["05 Archive/Cours de fran\u00e7ais.pdf2"])
 
     def test_a_series_needs_three_points(self):
         for kind, key in (("bar", "label"), ("line", "period"), ("pie", "label")):

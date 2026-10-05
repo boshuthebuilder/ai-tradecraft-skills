@@ -16,10 +16,13 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import unicodedata
 import unittest
+import urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOOLS = os.path.realpath(os.path.join(HERE, "..", "tools"))
+TIMEOUT = 600  # seconds: a tool that hangs fails its test instead of the run
 FIXTURE = os.path.join(HERE, "fixture", "Alex Personal")
 MANIFEST = os.path.join(HERE, "expected", "manifest.json")
 WIKI = "Alex Personal Wiki"
@@ -27,6 +30,7 @@ RATIONALE = os.path.join("_Audit", "wiki-rationale.md")
 ACCEPTANCE = os.path.join("_Audit", "wiki-acceptance.json")
 TAX = "20 Finance/Tax.md"
 sys.path.insert(0, TOOLS)
+import common  # noqa: E402
 import wiki  # noqa: E402
 
 CARDS = {  # path: title and key_facts of a synthetic card; the Tax page cites all three and Budget.numbers
@@ -45,7 +49,7 @@ TAX_FACTS = sorted([  # what the Tax page's cards hold, as (path, kind, value); 
     ("06 Work/Contract.docx", "dates", "2022-05-01"),
     ("06 Work/Contract.docx", "amounts", "one month's notice"),
     ("06 Work/Essay.docx", "dates", "2023-11")])
-PROBLEM_LISTS = ("frontmatter_bad", "dead_source_paths", "dead_page_links", "links_outside_page_map",
+PROBLEM_LISTS = ("frontmatter_bad", "dead_source_paths", "cites_withheld", "dead_page_links", "links_outside_page_map",
                  "charts_without_data_table", "charts_not_renderable", "chart_sources_bad",
                  "pages_without_single_professional")
 
@@ -63,7 +67,7 @@ def write(path, text):
 
 def run(tool, *args):
     r = subprocess.run([sys.executable, os.path.join(TOOLS, tool)] + list(args), capture_output=True, text=True,
-                       encoding="utf-8")
+                       encoding="utf-8", timeout=TIMEOUT)
     return r.returncode, r.stdout, r.stderr
 
 
@@ -359,6 +363,420 @@ class CheckTest(Copy):
         self.assertEqual((res["problems"], res["documents_not_covered"]), (0, 0))
         edit(study, "| `04 Study` | 5 |", "| 04 Study | 5 |")  # a folder named without backticks does not
         self.assertEqual(self.check()["not_covered_sample"], ["04 Study/Notes.rtf", "04 Study/Slides.pptx"])
+
+    def exclude(self, *paths, root=None):
+        """The rulebook's `exclude` set to `paths`: the twin only (its pin is of CLAUDE.md, which is not touched)."""
+        twin = os.path.join(root or self.root, ".familyai", "rulebook.json")
+        write(twin, json.dumps(dict(json.loads(read(twin)), exclude=list(paths)), ensure_ascii=False, indent=1))
+
+    def test_an_excluded_document_is_never_required_by_coverage_and_never_named(self):
+        """No page names it, and none need: it is counted, never listed, so its path is in no output."""
+        plant = [d for d in DEFECTS if d[0] == "a document no page covers"][0][3]
+        plant(self.root, self.work)
+        self.assertEqual(self.check()["not_covered_sample"], ["03 Home/Lease notes .txt"])
+        self.exclude("03 Home/Lease notes .txt")
+        res = self.check()
+        self.assertEqual((res["problems"], res["documents_not_covered"], res["not_covered_sample"]), (0, 0, []))
+        self.assertEqual((res["documents_in_scope"], res["documents_excluded"],
+                          res["documents_held_for_another_project"]), (16, 1, 1))
+        self.assertNotIn("Lease notes", json.dumps(res))
+
+    def test_an_excluded_folder_takes_everything_under_it_out_of_scope(self):
+        study = sum(e["current_path"].startswith("04 Study/") for e in json.loads(read(MANIFEST))["entries"].values())
+        self.assertEqual(study, 4)
+        self.exclude("04 Study")
+        res = self.check()
+        self.assertEqual((res["documents_in_scope"], res["documents_excluded"]), (17 - study, study))
+
+    def test_a_document_held_for_another_project_is_counted_apart(self):
+        res = self.check()
+        self.assertEqual((res["documents_in_scope"], res["documents_held_for_another_project"],
+                          res["documents_excluded"]), (17, 1, 0))
+        self.assertEqual(self.check("--page", TAX)["documents_held_for_another_project"], 1)
+
+    def cites(self, *excluded, cite=(), page=TAX):
+        twin = os.path.join(self.root, ".familyai", "rulebook.json")
+        write(twin, json.dumps(dict(json.loads(read(twin)), exclude=list(excluded)), ensure_ascii=False, indent=1))
+        if cite:
+            write(self.page(page), read(self.page(page)) + "\n" + "".join("Also see `%s`.\n" % c for c in cite))
+        return self.check()
+
+    def test_a_page_citing_an_excluded_document_is_a_problem_and_names_no_path(self):
+        res = self.cites("06 Work")
+        found = res["cites_withheld"]  # the `sources:` entry and the two spans of the body that name it
+        self.assertEqual([[p, why] for p, _line, why in found], [[TAX, "excluded"]] * 3)
+        self.assertEqual((res["problems"], findings(res)), (3, {"cites_withheld": 3}))
+        text = read(self.page(TAX)).split("\n")
+        self.assertEqual([text[line - 1].count("06 Work") > 0 for _p, line, _w in found], [True, True, True])
+        self.assertNotIn("06 Work", json.dumps(found))
+
+    def test_a_page_citing_a_copy_of_a_withheld_document_or_a_staged_one_is_a_problem_too(self):
+        res = self.cites("06 Work", cite=["05 Archive/Essay.docx", "_Migrations/Other Project/02 Finance/Old invoice.pdf",
+                                          "_Migrations/Other Project/02 Finance/"])
+        self.assertEqual(sorted(why for _p, _l, why in res["cites_withheld"]),
+                         ["excluded"] * 4 + ["migrations"] * 2)
+
+    def test_only_a_citation_of_a_withheld_document_counts(self):
+        res = self.cites("06 Work", cite=["_Migrations/<Project>/", "_Migrations/", "06 Work/Nothing.docx", "06 Workshop/x.pdf",
+                                          "05 Archive/", "04 Study/Notes.rtf"])
+        self.assertEqual(len(res["cites_withheld"]), 4, "the three the Tax page already has, and a file under the "
+                         "excluded folder; not the placeholder, the bare migrations folder or the near names")
+
+    def test_the_schema_and_the_log_may_name_a_withheld_folder_but_not_a_withheld_document(self):
+        res = self.cites("06 Work")
+        pages = {p for p, _l, _w in res["cites_withheld"]}
+        self.assertEqual(pages, {TAX})
+        self.assertIn("06 Work/", read(os.path.join(self.root, WIKI, "90 Schema", "90 Schema.md")))
+        log = os.path.join(self.root, WIKI, "91 Log", "91 Log.md")
+        write(log, read(log) + "\n## [2024-07-01] ingest | `06 Work/Contract.docx` (the nanny's contract)\n")
+        schema = os.path.join(self.root, WIKI, "90 Schema", "90 Schema.md")
+        write(schema, read(schema) + "\nA worked example: `06 Work/Essay.docx`.\n")
+        compile_schema(self.root, self.work)
+        res = self.check()
+        self.assertEqual(sorted({p for p, _l, _w in res["cites_withheld"]}),
+                         [TAX, "90 Schema/90 Schema.md", "91 Log/91 Log.md"])
+        self.assertEqual(len([c for c in res["cites_withheld"] if c[0] != TAX]), 2)
+
+    def test_a_case_or_unicode_variant_of_a_withheld_path_is_still_a_citation(self):
+        text = read(self.page(TAX)).replace("06 Work/", "06 work/")
+        write(self.page(TAX), text)
+        self.assertEqual(len(self.cites("06 Work")["cites_withheld"]), 3, "the variants a macOS path opens")
+        man = os.path.join(self.root, "_Audit", "manifest.json")
+        m = json.loads(read(man))
+        accented = unicodedata.normalize("NFD", "06 Work/Caf\u00e9 menu.txt")  # as the file system stores it
+        next(iter(m["entries"].values()))["copies"] = []
+        m["entries"]["f" * 64] = {"id": "f" * 64, "current_path": accented, "class": "document", "hashed": True,
+                                  "flags": [], "size": 1, "mtime": "2024-06-01T00:00:00Z"}
+        write(man, json.dumps(m))
+        page = self.page("40 Study/40 Study.md")
+        write(page, read(page) + "\nThe menu is `%s`.\n" % unicodedata.normalize("NFC", "06 Work/Caf\u00e9 menu.txt"))
+        found = [c for c in self.check()["cites_withheld"] if c[0] == "40 Study/40 Study.md"]
+        self.assertEqual([c[2] for c in found], ["excluded"])
+        code, out, err = self.wiki("review-prompts", "--page", "40 Study/40 Study.md", "--author-model", "a",
+                                   "--reviewer-model", "b", "--out", os.path.join(self.tmp, "q"))
+        self.assertEqual(code, 2, out + err)
+        self.assertNotIn("Caf", err)
+
+    def test_a_withheld_path_in_plain_text_a_fence_or_a_link_is_a_citation(self):
+        self.exclude("06 Work")
+        edits = {"plain text": "The contract is 06 Work/Contract.docx, signed in May.\n",
+                 "a fence": "```text\n06 Work/Contract.docx\n```\n",
+                 "a link": "See [the contract](../../06%20Work/Contract.docx).\n",
+                 "other case": "See 06 WORK/contract.DOCX.\n"}
+        page = self.page("40 Study/40 Study.md")
+        base = read(page)
+        for name, text in edits.items():
+            with self.subTest(name):
+                write(page, base + "\n" + text)
+                found = [c for c in self.check()["cites_withheld"] if c[0] == "40 Study/40 Study.md"]
+                self.assertEqual([c[2] for c in found], ["excluded"], name)
+        write(page, base + "\nWorkshop 06 Workshop/x and the Work/Contract.docx idea.\n")
+        self.assertEqual([c for c in self.check()["cites_withheld"] if c[0] == "40 Study/40 Study.md"], [])
+
+    LOG = "91 Log/91 Log.md"
+
+    def test_a_page_citing_a_staged_document_by_the_path_it_was_staged_from_is_a_problem(self):
+        """`_Migrations/Other Project/02 Finance/Old invoice.pdf` was staged from `02 Finance/Old invoice.pdf`: the page
+        still names the old path, which no live document holds, and drift already treats it as staged."""
+        page = "40 Study/40 Study.md"
+        self.base = {page: read(self.page(page))}
+        self.assertEqual([c[2] for c in self.appended(page, "The invoice is `02 Finance/Old invoice.pdf`.\n")],
+                         ["migrations"])
+        self.assertEqual([c[2] for c in self.appended(page, "See 02 Finance/Old\ninvoice.pdf for it.\n")],
+                         ["migrations"])
+        code, out, err = self.wiki("review-prompts", "--page", page, "--author-model", "a", "--reviewer-model", "b",
+                                   "--out", os.path.join(self.tmp, "q"))
+        self.assertEqual(code, 2, out + err)
+        self.assertNotIn("Old invoice", err)
+
+    LIVE_FOLDERS = ("Photos", "Photos (2024)", "Alex's Scans", "Receipts, 2024", "Scans [old]")  # each holds a live `Scan 1.pdf`
+    PRIVATE = "Alex's Scans/Private [old]/Secret, 2024.pdf"  # excluded, and its names hold an apostrophe, brackets, a comma
+
+    def live_paths(self):
+        return ["%s/Scan 1.pdf" % f for f in self.LIVE_FOLDERS] + ["Backups/%s/Scan 1.pdf" % os.path.basename(self.root),
+                                                                    "Old (2019)/06 Work/Contract.docx",
+                                                                    "05 Archive/06 Work/Contract.docx"]
+
+    def live_inside_a_copy_of_the_folder(self):
+        """A live document under a folder that is a copy of this one: a page may name it from the copy's own name."""
+        return "Archive/%s/Reports/Scan 1.pdf" % os.path.basename(self.root)
+
+    def stage_a_root_stray(self):
+        """`_Migrations/Other Project/Scan 1.pdf` staged from the root (its history names `Scan 1.pdf`), `06 Work/Contract.docx`
+        and the private folder excluded, and different live documents named `Scan 1.pdf` in folders whose names hold
+        brackets, an apostrophe, a comma, and one that is the folder's own name; the page to append to."""
+        man = os.path.join(self.root, "_Audit", "manifest.json")
+        m = json.loads(read(man))
+        entries = [("_Migrations/Other Project/Scan 1.pdf", ["migrating"]), (self.PRIVATE, [])]
+        entries += [(path, []) for path in self.live_paths() + [self.live_inside_a_copy_of_the_folder(), "Backups/Staff/pay.pdf"]]
+        for path, flags in entries:
+            i = hashlib.sha256(path.encode()).hexdigest()
+            m["entries"][i] = {"id": i, "current_path": path, "class": "document", "hashed": True, "flags": flags,
+                               "copies": [], "size": 1, "mtime": "2024-06-01T00:00:00Z",
+                               "rename_history": [{"path": "Scan 1.pdf" if flags else path, "at": "2024-06-01T00:00:00Z",
+                                                   "run_id": "x"}]}
+        write(man, json.dumps(m))
+        os.makedirs(os.path.join(self.root, *self.PRIVATE.split("/")[:-1]))
+        os.makedirs(os.path.join(self.root, "Staff"))
+        self.exclude("06 Work/Contract.docx", "Alex's Scans/Private [old]", "Staff")
+        page = "40 Study/40 Study.md"
+        self.base = {page: read(self.page(page))}
+        return page
+
+    def spellings_of_the_folder(self):
+        """The folder's location spelt as a page might: its real path, the same without the leading /private a macOS
+        temporary folder has, another volume's host form, and through the cloud drive."""
+        out = [self.root, "file://" + self.root, "file://localhost" + self.root, "iCloud Drive/" + os.path.basename(self.root)]
+        if self.root.startswith("/private/"):
+            out.append(self.root[len("/private"):])
+        return out
+
+    @staticmethod
+    def layouts(path):
+        """The ways a page may carry `path`, whatever its names hold: in a citation, in prose, in links, in a list, in a
+        quotation, starting a line (the line before ends in a word), indented, and hard-wrapped at a slash and at a space."""
+        head, _slash, tail = path.rpartition("/")
+        out = {"cited": "See `%s`." % path, "in prose": "See %s for it." % path,
+               "a link": "See [s](%s)." % urllib.parse.quote(path), "a link in angle brackets": "See [s](<%s>)." % path,
+               "a list item": "- %s" % path, "a numbered item": "1. %s here" % path, "a blockquote": "> %s" % path,
+               "a nested quotation": "> > %s" % path, "indented": "  %s" % path,
+               "starting a line": "Some words ahead\n%s here" % path,
+               "starting a line after a long word": "Documentation\n%s" % path,
+               "wrapped at a space": path.replace(" ", "\n", 1) if " " in path else path.replace(".", "\n.", 1),
+               "wrapped inside a name": path[:3] + "\n" + path[3:]}
+        if head:
+            out.update({"wrapped at a slash": "%s/\n%s" % (head, tail), "wrapped at a slash in a list": "- %s/\n  %s" % (head, tail),
+                        "wrapped at a slash in a quotation": "> %s/\n> %s" % (head, tail)})
+        return out
+
+    def test_a_withheld_path_is_a_citation_in_every_form_that_resolves_to_it_and_not_for_a_live_document_of_the_same_tail(self):
+        """A match of a withheld path that follows a `/` is explained, and no citation, when it ends a live, included
+        document's path that the text before it ends with: `Photos (2024)/Scan 1.pdf` is that document, not the staged root
+        stray `Scan 1.pdf`, whatever brackets, apostrophes or commas its names hold and however the page lays it out; every
+        spelling of the withheld path itself, a climb out of the folder and back in by its name included, is flagged."""
+        page = self.stage_a_root_stray()
+        name = os.path.basename(self.root)
+        for what, doc, why in (("the excluded document", "06 Work/Contract.docx", "excluded"),
+                               ("the staged document", "_Migrations/Other Project/Scan 1.pdf", "migrations"),
+                               ("the path it was staged from", "Scan 1.pdf", "migrations"),
+                               ("an excluded document with brackets, an apostrophe and a comma", self.PRIVATE, "excluded")):
+            quoted = urllib.parse.quote(doc)
+            forms = {"in prose, after a slash": "See /%s for it." % doc, "in prose after the folder's name":
+                     "See %s/%s for it." % (name, doc),
+                     "a link climbing out and back in by the folder's name":
+                     "See [x](../../../%s/%s)." % (urllib.parse.quote(name), quoted),
+                     "text climbing out and back in by the folder's name": "See ../../../%s/%s here." % (name, doc),
+                     "a link by ../ and the folder's name": "See [x](../%s/%s)." % (urllib.parse.quote(name), quoted),
+                     "text by ../ and the folder's name": "See ../%s/%s here." % (name, doc),
+                     "a link climbing to the folder": "See [x](../../%s)." % quoted,
+                     "a wrapped path after the folder's name": "See %s/\n%s here." % (name, doc)}
+            for n, where in enumerate(self.spellings_of_the_folder()):
+                forms["the folder spelt another way (%d) in prose" % n] = "See %s/%s here." % (where, doc)
+                forms["the folder spelt another way (%d) in a citation" % n] = "See `%s/%s`." % (where, doc)
+                forms["the folder spelt another way (%d) in a link" % n] = "See [x](%s/%s)." % (urllib.parse.quote(
+                    where, safe="/:"), quoted)
+            forms.update({"laid out: " + k: v for k, v in self.layouts(doc).items()})
+            for form, text in forms.items():
+                with self.subTest(what=what, form=form):
+                    found = self.appended(page, text + "\n")
+                    self.assertEqual({c[2] for c in found}, {why}, text)
+        live = {}
+        for path in self.live_paths():
+            live.update({"%s: %s" % (path, k): v for k, v in self.layouts(path).items()})
+        live.update({"climbing out and back in by the folder's name, linked": "See [s](../../../%s/Photos/Scan%%201.pdf)." %
+                     urllib.parse.quote(name),
+                     "climbing out and back in by the folder's name": "See ../../../%s/Photos (2024)/Scan 1.pdf here." % name,
+                     "through the cloud drive": "See iCloud Drive/%s/Receipts, 2024/Scan 1.pdf here." % name,
+                     "after the folder's name": "See %s/Scans [old]/Scan 1.pdf here." % name,
+                     "after the folder's name, a live document of that name": "See Backups/%s/Scan 1.pdf here." % name,
+                     "the folder spelt another way": "See `%s/Alex's Scans/Scan 1.pdf`." % self.spellings_of_the_folder()[-1],
+                     "a longer path that ends in a live document's": "See `20 Finance/Photos (2024)/Scan 1.pdf`.",
+                     "named from a copy of the folder's own name, as a link reads it": "See %s/Reports/Scan 1.pdf here." % name,
+                     "the same in a link": "See [s](../../../%s/Reports/Scan%%201.pdf)." % urllib.parse.quote(name)})
+        for form, text in live.items():
+            with self.subTest(live=form):
+                self.assertEqual(self.appended(page, text + "\n"), [], text)
+        blockers = {
+            # a name that only ends in a live folder's name is no path that starts a segment there
+            "a folder that is not live, ending in a live one's name": ("See `Household (2019)/06 Work/Contract.docx`.", "excluded"),
+            "the same in prose": ("See Household (2019)/06 Work/Contract.docx here.", "excluded"),
+            "MyPhotos": ("See MyPhotos/Scan 1.pdf here.", "migrations"),
+            "Family-Photos": ("See Family-Photos/Scan 1.pdf here.", "migrations"),
+            "Old_Photos": ("See `Old_Photos/Scan 1.pdf`.", "migrations"),
+            "Old.Photos": ("See Old.Photos/Scan 1.pdf here.", "migrations"),
+            "NotBackups, the withheld folder": ("See `NotBackups/Staff/pay.pdf`.", "excluded"),
+            "OldBackups, the withheld folder": ("See OldBackups/Staff/pay.pdf here.", "excluded"),
+            "TaxReports, as the copy's Reports": ("See TaxReports/Scan 1.pdf here.", "migrations"),
+            # a live folder at the end of one paragraph, a withheld path opening the next
+            "a list of folders, then a blank line": ("Folders reviewed: 02 Finance/, Photos/\n\nScan 1.pdf was staged for another "
+                                                     "project.", "migrations"),
+            "a slash and the path, after a blank line": ("Everything else is in Photos\n\n/Scan 1.pdf was staged.", "migrations"),
+            "a quotation, then a blank line": ("> Kept in Photos/\n\nScan 1.pdf was staged.", "migrations"),
+            "an indented path after a blank line": ("Folders: Photos/\n\n    Scan 1.pdf was staged.", "migrations"),
+            "the excluded document after a blank line": ("Older papers: Old (2019)/\n\n06 Work/Contract.docx is the contract.",
+                                                         "excluded"),
+            "the withheld folder after a blank line": ("Copies are in Backups/\n\nStaff/pay.pdf is the payroll.", "excluded"),
+            "a heading, with no blank line": ("## Photos/\nScan 1.pdf was staged for another project.", "migrations"),
+            "a heading before the excluded document": ("## Old (2019)/\n06 Work/Contract.docx is the contract.", "excluded")}
+        for form, (text, why) in blockers.items():
+            with self.subTest(blocker=form):
+                self.assertEqual({c[2] for c in self.appended(page, text + "\n")}, {why}, text)
+                code, out, err = self.wiki("review-prompts", "--page", page, "--author-model", "a", "--reviewer-model", "b",
+                                           "--out", os.path.join(self.tmp, "q"))
+                self.assertEqual(code, 2, "review-prompts rendered a page that cites a withheld document: " + text + err)
+        with self.subTest(live="a live folder explains a withheld folder of the same tail"):
+            for text in ("See `Backups/Staff/pay.pdf`.", "See Backups/Staff/pay.pdf here.", "See [s](Backups/Staff/pay.pdf).",
+                         "- Backups/Staff/pay.pdf", "> Backups/\nStaff/pay.pdf"):
+                self.assertEqual(self.appended(page, text + "\n"), [], text)
+        with self.subTest(unexplained="the withheld folder itself"):
+            for text in ("See Staff/pay.pdf here.", "See `Staff/pay.pdf`.", "See /Staff/pay.pdf here.",
+                         "See %s/Staff/pay.pdf here." % name, "See Other/Staff/pay.pdf here."):
+                self.assertEqual({c[2] for c in self.appended(page, text + "\n")}, {"excluded"}, text)
+        for form, text in {"an unknown longer path": "See Other/Scan 1.pdf here.",
+                           "a web address": "See https://example.org/Scan 1.pdf here.",
+                           "the folder's name as a live document is not": "See Archive/%s/Scan 1.pdf here." % name}.items():
+            with self.subTest(unexplained=form):
+                self.assertEqual([c[2] for c in self.appended(page, text + "\n")], ["migrations"], text)
+
+    def test_a_document_moved_by_a_round_and_then_staged_is_withheld_at_the_path_it_started_at(self):
+        """`04 Study/Notes.rtf` is moved to `04 Study/Class notes.rtf`, then staged from there. The audits that saw it do
+        the work: the first placement must be in `rename_history`, or the page that still cites the first path passes
+        (the manifest here is one an audit made before it recorded the first placement)."""
+        man = os.path.join(self.root, "_Audit", "manifest.json")
+        m = json.loads(read(man))
+        for e in m["entries"].values():
+            e["rename_history"] = []
+        write(man, json.dumps(m))
+        audit = lambda: self.assertEqual(run("audit.py", "--root", self.root, "--work", self.work)[0], 0)
+        os.rename(os.path.join(self.root, "04 Study", "Notes.rtf"), os.path.join(self.root, "04 Study", "Class notes.rtf"))
+        audit()
+        staged = os.path.join(self.root, "_Migrations", "Other Project", "04 Study")
+        os.makedirs(staged)
+        os.rename(os.path.join(self.root, "04 Study", "Class notes.rtf"), os.path.join(staged, "Class notes.rtf"))
+        audit()
+        page = "40 Study/40 Study.md"
+        self.base = {page: read(self.page(page))}
+        for cited in ("04 Study/Notes.rtf", "04 Study/Class notes.rtf"):
+            with self.subTest(cited=cited):
+                found = self.appended(page, "The notes are `%s`.\n" % cited)
+                self.assertIn("migrations", [c[2] for c in found])
+                self.assertIn(len(self.base[page].split("\n")) + 1, [c[1] for c in found])
+        self.appended(page, "The notes are `04 Study/Notes.rtf`.\n")  # the page now cites only the first path, A
+        code, out, err = self.wiki("review-prompts", "--page", page, "--author-model", "a", "--reviewer-model", "b",
+                                   "--out", os.path.join(self.tmp, "q"))
+        self.assertEqual(code, 2, out + err)
+        self.assertIn("refused to render 1 page(s) that cite a withheld document", err)
+        self.assertNotIn("Notes.rtf", err)
+
+    def test_the_paths_a_withheld_document_held_before_it_moved_are_withheld_for_check_and_for_drift(self):
+        man = os.path.join(self.root, "_Audit", "manifest.json")
+        m = json.loads(read(man))
+        contract = next(e for e in m["entries"].values() if e["current_path"] == "06 Work/Contract.docx")
+        contract["rename_history"] = [{"path": "Drafts/Contract draft.docx", "at": "2024-01-01T00:00:00Z", "run_id": "x"},
+                                      {"path": "06 Work/Contract.docx", "at": "2024-02-01T00:00:00Z", "run_id": "y"}]
+        write(man, json.dumps(m))
+        self.exclude("06 Work")
+        page = "40 Study/40 Study.md"
+        self.base = {page: read(self.page(page))}
+        found = self.appended(page, "The draft is `Drafts/Contract draft.docx`.\n")
+        self.assertEqual([c[2] for c in found], ["excluded"])
+        code, out, err = self.wiki("drift")
+        self.assertEqual(code, 1, out + err)
+        cited = json.loads(out)["departed"]
+        self.assertEqual([c[:1] + c[2:] for c in cited if c[0] == page], [[page, "withheld (excluded)"]])
+        self.assertNotIn("Contract draft", out, "drift names a path an excluded document held")
+        # a live document that is not withheld holds that path now: it names that document, not the withheld one
+        m["entries"]["e" * 64] = {"id": "e" * 64, "current_path": "Drafts/Contract draft.docx", "class": "document",
+                                  "hashed": True, "flags": [], "copies": [], "size": 1, "mtime": "2024-06-01T00:00:00Z"}
+        write(man, json.dumps(m))
+        self.assertEqual(self.appended(page, "The draft is `Drafts/Contract draft.docx`.\n"), [])
+
+    def appended(self, page, text):
+        """The check's `cites_withheld` entries for `page` after `text` is added to the end of its text."""
+        write(self.page(page), self.base[page] + "\n" + text)
+        return [c for c in self.check()["cites_withheld"] if c[0] == page]
+
+    def test_a_withheld_document_wrapped_across_lines_at_any_point_is_a_citation(self):
+        """Only the one file is excluded, so the folder `06 Work` is not withheld and naming it is no citation: the
+        page is caught by the whole path, joined however the line was broken. The Log may name a folder, never a file."""
+        self.exclude("06 Work/Contract.docx")
+        self.base = {p: read(self.page(p)) for p in ("40 Study/40 Study.md", self.LOG)}
+        wraps = {"after the slash": "The contract is 06 Work/\nContract.docx, signed in May.\n",
+                 "before the slash": "The contract is 06 Work\n/Contract.docx, signed in May.\n",
+                 "inside the folder name": "The contract is 06 Wo\nrk/Contract.docx, signed in May.\n",
+                 "inside the file name": "The contract is 06 Work/Contr\nact.docx, signed in May.\n",
+                 "before the extension": "The contract is 06 Work/Contract\n.docx, signed in May.\n",
+                 "indented in a list": "- The contract is 06 Work/\n  Contract.docx, signed in May.\n",
+                 "in a quotation": "> The contract is 06 Work/\n> Contract.docx, signed in May.\n",
+                 "over three lines": "The contract is 06\nWork/\nContract.docx, signed in May.\n"}
+        for page in self.base:
+            for name, text in wraps.items():
+                with self.subTest(page=page, wrap=name):
+                    self.assertEqual([c[2] for c in self.appended(page, text)], ["excluded"])
+            with self.subTest(page=page, wrap="a longer name"):
+                self.assertEqual(self.appended(page, "The contract is 06 Work/\nContract.docx2 and more.\n"), [])
+        self.assertEqual(self.appended("40 Study/40 Study.md", "Work and 06 Work/\nOther.docx are not it.\n"), [])
+
+    def test_a_withheld_path_spelt_with_dots_doubled_slashes_or_escapes_is_the_same_path(self):
+        self.exclude("06 Work/Contract.docx")
+        self.base = {"40 Study/40 Study.md": read(self.page("40 Study/40 Study.md"))}
+        page = "40 Study/40 Study.md"
+        spellings = {"a dot segment": "See `06 Work/./Contract.docx`.", "a doubled slash": "See `06 Work//Contract.docx`.",
+                     "a parent segment": "See `06 Work/Other/../Contract.docx`.",
+                     "a leading dot": "See `./06 Work/Contract.docx`.", "percent escapes": "See `06%20Work/Contract.docx`.",
+                     "escaped twice": "See `06%2520Work/Contract.docx`.",
+                     "in plain text": "See 06 Work/./Contract.docx for it.", "in a fence": "```\n06 Work//Contract.docx\n```",
+                     "a backslash": "See `06 Work\\Contract.docx`."}
+        for name, text in spellings.items():
+            with self.subTest(name):
+                self.assertEqual([c[2] for c in self.appended(page, text)], ["excluded"])
+
+    def test_a_link_to_a_withheld_document_of_any_kind_spelt_any_way_is_a_citation(self):
+        """A link's target is resolved from the page (`../` goes up), decoded, normalised and folded, for a file of any
+        extension, an angle-bracketed target, a reference definition and a folder."""
+        page = "40 Study/40 Study.md"
+        links = {"a docx": ("06 Work/Contract.docx", "[c](../06%20Work/Contract.docx)"),
+                 "a dot segment": ("06 Work/Contract.docx", "[c](../06%20Work/./Contract.docx)"),
+                 "doubled escapes": ("06 Work/Contract.docx", "[c](../06%2520Work/Contract.docx)"),
+                 "an angle target": ("06 Work/Contract.docx", "[c](<../06 Work//Contract.docx> \"the contract\")"),
+                 "a reference": ("06 Work/Contract.docx", "[c]: ../06 work/CONTRACT.docx"),
+                 "from the folder root": ("06 Work/Contract.docx", "[c](06%20Work/Contract.docx)"),
+                 "up and down": ("06 Work/Contract.docx", "[c](../40%20Study/../06%20Work/Contract.docx)"),
+                 "a folder": ("06 Work", "[w](../06%20Work)"),
+                 "a folder with a slash": ("06 Work", "[w](../06%20Work/)")}
+        self.base = {page: read(self.page(page))}
+        for name, (excluded, link) in links.items():
+            with self.subTest(name):
+                self.exclude(excluded)
+                self.assertEqual([c[2] for c in self.appended(page, "See " + link + ".")], ["excluded"])
+        self.exclude("06 Work/Contract.docx")
+        self.assertEqual(self.appended(page, "See [c](../06%20Work/Other.docx) and [d](../06%20Work/Contract.docx2).\n"),
+                         [], "a link to other files")
+
+    def test_a_sources_entry_spelt_in_another_case_is_dead(self):
+        """It opens the file on macOS, so a test of existence would pass for it."""
+        edit(self.page(TAX), '  - "06 Work/Contract.docx"', '  - "06 work/Contract.docx"')
+        self.assertEqual(self.check()["dead_source_paths"], [[TAX, "06 work/Contract.docx"]])
+
+    def test_a_chart_whose_source_is_excluded_is_a_problem(self):
+        res = self.cites("03 Home/Lease renewal.pdf")
+        self.assertEqual(len(res["chart_sources_bad"]), 1)
+        self.assertEqual(res["chart_sources_bad"][0][0], "30 Home/30 Home.md")
+
+    def test_a_chart_whose_source_is_a_copy_of_an_excluded_document_is_a_problem(self):
+        """`04 Study/Essay.docx` is an included path, but a copy of the excluded `06 Work/Essay.docx`: the figures of a
+        chart drawn from it come from a document the tools may not read, and the chart's source cell is judged by the
+        chart rule, so only the chart check can refuse it."""
+        edit(self.page("30 Home/30 Home.md"), "Lease renewed to 2025-04-30 | `03 Home/Lease renewal.pdf`",
+             "Lease renewed to 2025-04-30 | `04 Study/Essay.docx`")
+        self.assertEqual(self.check()["chart_sources_bad"], [], "not withheld yet")
+        res = self.cites("06 Work")
+        self.assertEqual([c[0] for c in res["chart_sources_bad"]], ["30 Home/30 Home.md"])
+
+    def test_a_scoped_check_reports_the_citations_of_its_pages_only(self):
+        self.exclude("06 Work")
+        self.assertEqual(len(self.check("--page", TAX)["cites_withheld"]), 3)
+        self.assertEqual(self.check("--page", "00 Index/00 Index.md")["cites_withheld"], [])
 
     def test_live_top_folders(self):
         man = {"a": {"current_path": "07 Old/x.pdf", "flags": ["departed"], "copies": [{"path": "09 Gone/x.pdf"}]},
@@ -718,6 +1136,173 @@ class ReviewPromptsTest(Copy):
         self.assertRegex(tax, r"- `02 Finance/Tax`: a folder, \d+ files? directly in it")
         self.assertNotIn("`02 Finance/Tax`: not a document or folder", tax)
 
+    OTHER = "_Migrations/Other Project/02 Finance/Old invoice.pdf"
+
+    def withhold(self, *excluded, cite=(), card_for=None):
+        """The rulebook `exclude`s `excluded`; the Tax page cites `cite` as well; `card_for` (a path) is given a card
+        with a title and key facts, as a document carded before it was staged or excluded would have."""
+        twin = os.path.join(self.root, ".familyai", "rulebook.json")
+        write(twin, json.dumps(dict(json.loads(read(twin)), exclude=list(excluded)), ensure_ascii=False, indent=1))
+        if cite:
+            write(self.page(TAX), read(self.page(TAX)) + "\n" + "".join("Also see `%s`.\n" % c for c in cite))
+        if card_for:
+            ids = {e["current_path"]: h for h, e in json.loads(read(MANIFEST))["entries"].items()}
+            write(os.path.join(self.root, "_Audit", "cards", ids[card_for] + ".json"), json.dumps(
+                {"id": ids[card_for], "title": "Invoice 2022-117 from the other project", "key_facts": {
+                    "dates": ["2022-03-01"], "amounts": ["GBP 800.00"], "reference_numbers": ["INV 2022/117"]}}))
+
+    def review(self, page=TAX):
+        """The professional prompt of `page`, and the command's output."""
+        out = os.path.join(self.tmp, "p")
+        res = self.prompts(page, out=out)
+        return read(os.path.join(out, *(page[:-3] + ".professional.md").split("/"))), res
+
+    @staticmethod
+    def sections(prompt):
+        """The model-facing parts built from the manifest and the cards: the scope, the sources and the facts."""
+        scope = prompt.split("## Its scope")[1].split("## The page")[0]
+        return scope + prompt.split("## Its sources")[1].split("## Judge")[0]
+
+    def sources_of(self, text, *excluded):
+        """`page_sources` for `text` against the fixture's manifest and cards, with the rulebook excluding `excluded`: the
+        defence of the prompt itself, whatever `review-prompts` lets through."""
+        rb = dict(common.DEFAULTS, exclude=list(excluded))
+        man = json.loads(read(MANIFEST))["entries"]
+        held, at = wiki.held_paths(rb, man)
+        return wiki.page_sources(text, man, held, os.path.join(self.root, "_Audit", "cards"), rb, at)
+
+    def test_a_cited_excluded_document_is_named_only_as_withheld(self):
+        lines, facts, hidden = self.sources_of("`06 Work/Contract.docx` and `06 Work/Essay.docx`", "06 Work")
+        self.assertEqual(lines, ["- `06 Work/Contract.docx`: withheld (excluded); not to be opened, and the page is "
+                                 "not checked against it",
+                                 "- `06 Work/Essay.docx`: withheld (excluded); not to be opened, and the page is not "
+                                 "checked against it"])
+        self.assertEqual((facts, hidden), ([], 2), "no card was read: no title, no fact")
+        lines, facts, _hidden = self.sources_of("`06 Work/Contract.docx`")  # nothing excluded: its card is read
+        self.assertEqual((lines, facts), (["- `06 Work/Contract.docx`: Employment contract"],
+                                          [("06 Work/Contract.docx", "amounts", "one month's notice"),
+                                           ("06 Work/Contract.docx", "dates", "2022-05-01")]))
+
+    def test_a_cited_document_staged_for_another_project_is_named_only_as_withheld(self):
+        ids = {e["current_path"]: h for h, e in json.loads(read(MANIFEST))["entries"].items()}
+        write(os.path.join(self.root, "_Audit", "cards", ids[self.OTHER] + ".json"), json.dumps(
+            {"id": ids[self.OTHER], "title": "Invoice 2022-117 from the other project", "key_facts": {
+                "dates": ["2022-03-01"], "amounts": ["GBP 800.00"], "reference_numbers": ["INV 2022/117"]}}))
+        lines, facts, hidden = self.sources_of("`%s`" % self.OTHER)
+        self.assertEqual(lines, ["- `%s`: withheld (held for another project); not to be opened, and the page is not "
+                                 "checked against it" % self.OTHER])
+        self.assertEqual((facts, hidden), ([], 1))
+
+    def test_a_cited_copy_of_a_withheld_document_does_not_name_its_canonical_path(self):
+        """06 Work/Essay.docx is the canonical copy: with it excluded, its copy in 05 Archive is as withheld, and the
+        line names neither its title nor `06 Work/Essay.docx`."""
+        lines, facts, hidden = self.sources_of("`05 Archive/Essay.docx`", "06 Work")
+        self.assertEqual(lines, ["- `05 Archive/Essay.docx`: withheld (excluded); not to be opened, and the page is not "
+                                 "checked against it"])
+        self.assertEqual((facts, hidden), ([], 1))
+        lines, _facts, _hidden = self.sources_of("`05 Archive/Essay.docx`")  # not excluded: the old line, with its leak
+        self.assertEqual(lines, ["- `05 Archive/Essay.docx`: Essay: why learn a third language, a copy of "
+                                 "`06 Work/Essay.docx`"])
+
+    def test_a_cited_withheld_folder_is_named_as_withheld_and_counts_no_file(self):
+        lines, _facts, hidden = self.sources_of("`05 Archive/` `_Migrations/Other Project/02 Finance/` `04 Study/`",
+                                                "05 Archive")
+        self.assertEqual(hidden, 2)
+        self.assertEqual(lines[0], "- `04 Study/`: a folder, 5 files directly in it")
+        self.assertEqual([x.split(":")[1].strip(" ") .split(";")[0] for x in lines[1:]],
+                         ["withheld (excluded)", "withheld (held for another project)"])
+        lines, _f, _h = self.sources_of("`05 Archive/`")  # not excluded: the count a withheld folder must not give
+        self.assertEqual(lines, ["- `05 Archive/`: a folder, 4 files directly in it"])
+
+    def test_a_placeholder_for_the_migrations_folder_renders_as_withheld(self):
+        """The one withheld citation `check` lets stand, since it names no document: the prompt still withholds it."""
+        write(self.page(TAX), read(self.page(TAX)).replace("`06 Work/Contract.docx`", "`02 Finance/Tax/Budget.numbers`")
+              .replace('  - "06 Work/Contract.docx"\n', "").replace("`06 Work/Essay.docx`", "`_Migrations/<Project>/`"))
+        prompt, res = self.review()
+        self.assertIn("- `_Migrations/<Project>/`: withheld (held for another project); not to be opened", prompt)
+        self.assertEqual(res["withheld_cited"], {TAX: 1})
+        self.assertEqual(res["refused"], [])
+
+    def withhold_and_prompt(self, *excluded, cite=(), pages=(TAX, "00 Index/00 Index.md"), out=None):
+        self.withhold(*excluded, cite=cite)
+        args = [x for p in pages for x in ("--page", p)]
+        return self.wiki("review-prompts", *args, "--author-model", "model-a", "--reviewer-model", "model-b",
+                         "--out", out or os.path.join(self.tmp, "p"))
+
+    def test_a_page_citing_a_withheld_document_is_refused_by_page_and_line_never_by_path(self):
+        out = os.path.join(self.tmp, "p")
+        code, stdout, err = self.withhold_and_prompt("06 Work", out=out)
+        self.assertEqual(code, 2, stdout + err)
+        res = json.loads(stdout)
+        lines = [n for n, line in enumerate(read(self.page(TAX)).split("\n"), 1) if "06 Work" in line]
+        self.assertEqual(res["refused"], [[TAX, n, "excluded"] for n in lines])
+        self.assertEqual([p[0] for p in res["prompts"]], ["00 Index/00 Index.md"], "the other page still renders")
+        self.assertIn("refused to render 1 page(s) that cite a withheld document, no prompt written for them: "
+                      "%s" % "; ".join("%s line %d" % (TAX, n) for n in lines), err)
+        self.assertNotIn("06 Work", err + json.dumps(res["refused"]), "a withheld path is named")
+        self.assertNotIn("Contract", err)
+        self.assertEqual(sorted(self.texts(out)), ["00 Index/00 Index.owner.md", "00 Index/00 Index.professional.md"])
+
+    def test_a_prompt_written_before_the_page_cited_a_withheld_document_is_removed(self):
+        out = os.path.join(self.tmp, "p")
+        self.prompts(TAX, out=out)  # carries the title and the facts of the documents the page cites
+        self.assertEqual(len(self.texts(out)), 2)
+        code, _stdout, err = self.withhold_and_prompt("06 Work", pages=(TAX,), out=out)
+        self.assertEqual(code, 2, err)
+        self.assertEqual(self.texts(out), {}, "a prompt built from a withheld document's card was left behind")
+
+    def test_every_citation_check_flags_is_refused_and_a_page_it_does_not_flag_renders(self):
+        for cite, why in (("05 Archive/Essay.docx", "excluded"), ("05 Archive/", None), ("04 Study/Notes.rtf", None)):
+            with self.subTest(cite=cite):
+                self.setUp()
+                bank = "20 Finance/Bank accounts.md"
+                self.withhold("06 Work")
+                write(self.page(bank), read(self.page(bank)) + "\nSee `%s`.\n" % cite)
+                flagged = self.check()["cites_withheld"]
+                code, stdout, err = self.wiki("review-prompts", "--page", bank, "--author-model", "a",
+                                              "--reviewer-model", "b", "--out", os.path.join(self.tmp, "q"))
+                self.assertEqual(code, 2 if why else 0, stdout + err)
+                self.assertEqual([[p, l, w] for p, l, w in flagged if p == bank], json.loads(stdout)["refused"],
+                                 "check and review-prompts disagree")
+
+    def test_the_schema_and_the_log_are_not_refused_for_naming_a_withheld_folder(self):
+        code, stdout, err = self.withhold_and_prompt("06 Work", pages=("90 Schema/90 Schema.md", "91 Log/91 Log.md"))
+        self.assertEqual(code, 0, stdout + err)
+        self.assertEqual(json.loads(stdout)["refused"], [])
+
+    def test_the_log_naming_a_withheld_document_is_refused_and_its_prompt_names_none(self):
+        log = os.path.join(self.root, WIKI, "91 Log", "91 Log.md")
+        write(log, read(log) + "\n- Filed `06 Work/Contract.docx` (the nanny's contract).\n")
+        out = os.path.join(self.tmp, "p")
+        code, stdout, err = self.withhold_and_prompt("06 Work", pages=("91 Log/91 Log.md", "00 Index/00 Index.md"),
+                                                     out=out)
+        self.assertEqual(code, 2, stdout + err)
+        refused = json.loads(stdout)["refused"]
+        self.assertEqual([r[0] for r in refused], ["91 Log/91 Log.md"])
+        self.assertNotIn("Contract", err)
+        self.assertEqual(sorted(self.texts(out)), ["00 Index/00 Index.owner.md", "00 Index/00 Index.professional.md"])
+
+    def test_the_routes_into_a_withheld_folder_are_not_shown(self):
+        self.withhold("06 Work")
+        prompt, _res = self.review("20 Finance/Bank accounts.md")
+        scope = prompt.split("## Its scope")[1].split("## The page")[0]
+        self.assertNotIn("06 Work", scope)
+        self.assertIn("  - 1 route to a withheld folder, not shown", scope)
+        self.assertIn("  - `02 Finance/`: 20 Bank accounts and Cash position", scope, "a route to an included folder is shown")
+
+    def test_a_folder_holding_one_excluded_file_still_counts_the_others(self):
+        before = self.review()[0]
+        self.withhold("04 Study/Notes.rtf", cite=["04 Study/"])
+        prompt, _res = self.review()
+        self.assertRegex(prompt, r"- `04 Study/`: a folder, [34] files? directly in it")
+        self.assertIn("04 Study/", prompt)
+        self.assertNotIn("withheld", prompt.split("## Its sources")[1].split("04 Study/")[0])
+
+    def test_a_page_citing_nothing_withheld_is_unchanged_and_counts_none(self):
+        prompt, res = self.review()
+        self.assertEqual(res["withheld_cited"], {})
+        self.assertNotIn("withheld", prompt)
+
     def test_a_file_given_as_the_cards_folder_is_refused(self):
         cards = os.path.join(self.tmp, "cards.json")
         write(cards, "{}")
@@ -749,7 +1334,7 @@ class ReviewPromptsTest(Copy):
         self.addCleanup(setattr, wiki, "load_card", saved)
         wiki.load_card = lambda _d, _h: {"title": "t", "key_facts": {"dates": "2022-05-01", "amounts": ["12"]}}
         self.assertEqual(wiki.page_sources("`06 Work/Contract.docx`", {"h": {"current_path": "06 Work/Contract.docx"}},
-                                           {"06 Work/Contract.docx": "h"}, "cards")[1],
+                                           {"06 Work/Contract.docx": "h"}, "cards", dict(common.DEFAULTS), {})[1],
                          [("06 Work/Contract.docx", "amounts", "12")])
 
     def test_fixed_page(self):
@@ -961,7 +1546,7 @@ class AcceptTest(Copy):
                      self.work, "--reply", self.reply(page, lens), "--author-model", "a", "--reviewer-model", "b"],
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE))
         for r in runs:
-            _out, err = r.communicate()
+            _out, err = r.communicate(timeout=TIMEOUT)
             self.assertEqual(r.returncode, 0, err)
         self.assertEqual(len(self.records()), 12)
         self.assertEqual(sorted((r["page"], r["lens"]) for r in self.records()),

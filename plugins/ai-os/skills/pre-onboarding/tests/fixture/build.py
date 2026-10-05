@@ -748,12 +748,6 @@ PREPARED = {
         card("Photo", "Unknown", [], "", "Beach photo", "A photo of a beach; the only text in it is the word Beach.",
              ([], [], []), "Photos", "none", False, look="A stray at the top of the folder: decide where it belongs.",
              proposed_name="Unknown - Photo Beach.jpg", confidence="low")),
-    "_Migrations/Other Project/02 Finance/Old invoice.pdf": (
-        [("text_layer", "Invoice 2022-117 from Robin Trading Ltd to Alex Example\n"
-                        "Consulting, February 2022, GBP 800.00\nPaid 2022-03-01")],
-        card("Invoice", "Robin Trading Ltd", ["Alex Example"], "2022-02", "Consulting invoice 2022-117",
-             "An invoice from Robin Trading Ltd to Alex for consulting in February 2022, GBP 800.00, paid on "
-             "2022-03-01.", (["paid 2022-03-01"], ["GBP 800.00"], ["invoice 2022-117"]), "Business", "en", False)),
 }
 
 

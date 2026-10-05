@@ -23,6 +23,7 @@ from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOOLS = os.path.join(HERE, "..", "tools")
+TIMEOUT = 600  # seconds: a tool that hangs fails its test instead of the run
 FIXTURE = os.path.join(HERE, "fixture", "Alex Personal")
 EXPECTED = os.path.join(HERE, "expected", "extract.json")
 NOW = 1719748800
@@ -64,7 +65,7 @@ def run(tool, *args, now=NOW):
     """Run a tool with a frozen clock and every ResourceWarning an error; a file it leaves open fails the test."""
     env = dict(os.environ, PRE_ONBOARDING_NOW=str(now), PYTHONWARNINGS="error::ResourceWarning")
     r = subprocess.run([sys.executable, os.path.join(TOOLS, tool)] + list(args), capture_output=True, text=True,
-                       env=env)
+                       env=env, timeout=TIMEOUT)
     if "ResourceWarning" in r.stderr:
         raise AssertionError("%s left a file open:\n%s" % (tool, r.stderr[-2000:]))
     return r.returncode, r.stdout, r.stderr
@@ -528,7 +529,32 @@ class FixtureRun:
 class FixtureRunTest(FixtureRun, unittest.TestCase):
     def test_the_folder_is_untouched(self):
         self.assertEqual(tree_digest(self.root), self.before)
-        self.assertEqual(len(self.records), 18)
+        self.assertEqual(len(self.records), 17, "the 18th live entry is staged for another project")
+
+    def test_the_file_staged_for_another_project_is_not_read(self):
+        staged = "_Migrations/Other Project/02 Finance/Old invoice.pdf"
+        self.assertTrue(os.path.exists(os.path.join(self.root, staged)))
+        self.assertNotIn(staged, self.records)
+        self.assertEqual([p for p in self.records if p.startswith("_Migrations/")], [])
+        log = read(os.path.join(self.work, "logs", "extract_main0.log"))
+        # how many documents are read, and how many of those fail, depends on the readers the host has: only the held
+        # count, and that every document taken is processed, are what this change is about
+        todo = re.search(r"start lane=main worker=0/1 todo=(\d+) held_for_another_project=1 excluded=0\n", log)
+        done = re.search(r"finished done=(\d+) failed=(\d+) skipped=0 held_for_another_project=1 excluded=0 in ", log)
+        self.assertTrue(todo and done, log)
+        self.assertEqual(int(done.group(1)), int(todo.group(1)), "every document taken was processed")
+        self.assertLessEqual(int(done.group(2)), int(done.group(1)), "the failed are among the processed")
+
+    def test_the_workers_count_the_held_file_once_between_them(self):
+        work, held = os.path.join(self.tmp, "work-held"), []
+        for w in ("0/2", "1/2"):
+            code, _o, err = run("extract.py", "--root", self.root, "--work", work, "--manifest", self.manifest,
+                                "--out", os.path.join(self.tmp, "held" + w[0]), "--read-only-root", "--lane", "main",
+                                "--worker", w)
+            self.assertIn(code, (0, 1), err)  # 1: a record failed, as it does where a reader is missing; never a refusal
+            held.append(int(re.search(r"held_for_another_project=(\d+) excluded=0\n",
+                                      read(os.path.join(work, "logs", "extract_main%s.log" % w[0]))).group(1)))
+        self.assertEqual(sorted(held), [0, 1])
 
     def test_office_iwork_plain_and_photo_records_match_expected(self):
         exp = expected()
@@ -542,7 +568,7 @@ class FixtureRunTest(FixtureRun, unittest.TestCase):
     @unittest.skipIf(POPPLER, "PDF text-layer tier is installed here; its records are compared instead")
     def test_pdfs_fail_naming_poppler_when_it_is_missing(self):
         pdfs = {p: r for p, r in self.records.items() if p.endswith(".pdf")}
-        self.assertEqual(len(pdfs), 8)
+        self.assertEqual(len(pdfs), 7)
         for rel, r in pdfs.items():
             with self.subTest(rel):
                 self.assertEqual((r["status"], r["error"], r["pages"]),
@@ -610,7 +636,8 @@ class FixtureRunTest(FixtureRun, unittest.TestCase):
 
 
 class ResumeTest(FixtureRun, unittest.TestCase):
-    """An existing record is never rewritten, unless it failed and --retry-failed is given."""
+    """An existing record is never rewritten, unless it failed, or was read while a local OCR tier was missing (its notes
+    say so), and --retry-failed is given."""
 
     def test_resume(self):
         before = {f: read(os.path.join(self.out, f), "rb") for f in os.listdir(self.out)}
@@ -621,8 +648,176 @@ class ResumeTest(FixtureRun, unittest.TestCase):
             self.extract(self.out, "--lane", lane, "--retry-failed", now=NOW + 60)
         for rel, r in self.load(self.out).items():
             with self.subTest(rel):
-                redone = self.records[rel]["status"] == "failed"
+                redone = self.records[rel]["status"] == "failed" or any(
+                    n.startswith(extract.OCR_MISSING) for n in self.records[rel].get("notes", []))
                 self.assertEqual(r["extracted_at"] != self.records[rel]["extracted_at"], redone)
+
+
+# ------------------------------------------------------------------------ the owner's exclusions
+
+class ExcludedTest(Tmp):
+    """A path the rulebook `exclude`s, and everything under it, is never read, whatever the manifest says of it."""
+
+    def folder(self):
+        root = os.path.join(self.tmp, "Alex Papers")
+        rulebook = "# Rules\n\nThe owner's rules for this folder.\n"
+        files = {"CLAUDE.md": rulebook, "Notes.txt": "Robin's notes on the move.",
+                 "Staff/pay.txt": "Salary for the nanny, GBP 2,400 a month.",
+                 "Staff/2024/review.txt": "Annual review of the nanny.", "Letters/Private.txt": "A private letter.",
+                 "Letters/Kept.txt": "A letter the owner is happy to share.",
+                 "Staffing/Agency.txt": "Not under Staff: a different folder with a similar name."}
+        for rel, data in files.items():
+            write(os.path.join(root, rel), data)
+        pin = hashlib.sha256(rulebook.encode()).hexdigest()
+        write(os.path.join(root, ".familyai", "rulebook.json"),
+              json.dumps({"version": 1, "rulebook_sha256": pin, "exclude": ["Staff", "Letters/Private.txt"]}))
+        return root
+
+    def audit_and_extract(self, root, out, edit=None, work=None):
+        work = work or os.path.join(self.tmp, "work")
+        audit_out = os.path.join(self.tmp, "audit")
+        code, _o, err = run("audit.py", "--root", root, "--work", work, "--out", audit_out, "--read-only-root")
+        self.assertEqual(code, 0, err)
+        manifest = os.path.join(audit_out, "manifest.json")
+        if edit:
+            m = json.loads(read(manifest))
+            edit(m["entries"])
+            write(manifest, json.dumps(m))
+        code, _o, err = run("extract.py", "--root", root, "--work", work, "--manifest", manifest, "--out", out,
+                            "--lane", "main", "--read-only-root")
+        self.assertEqual(code, 0, err)
+        return work, {json.loads(read(os.path.join(out, f)))["path"] for f in os.listdir(out)}
+
+    def test_an_excluded_path_and_what_is_under_it_is_never_read(self):
+        root = self.folder()
+        work, read_paths = self.audit_and_extract(root, os.path.join(self.tmp, "extract"))
+        self.assertEqual(read_paths, {"Notes.txt", "Letters/Kept.txt", "Staffing/Agency.txt"})
+        log = read(os.path.join(work, "logs", "extract_main0.log"))
+        self.assertIn("start lane=main worker=0/1 todo=3 held_for_another_project=0 excluded=3\n", log)
+        self.assertIn("finished done=3 failed=0 skipped=0 held_for_another_project=0 excluded=3 in ", log)
+        self.assertNotIn("nanny", "".join(read(os.path.join(self.tmp, "extract", f))
+                                          for f in os.listdir(os.path.join(self.tmp, "extract"))))
+
+    def test_a_manifest_that_still_hashes_an_excluded_file_does_not_let_it_through(self):
+        """A manifest an earlier audit made, which read every file: the path, not the flags, decides."""
+        def hashed(entries):
+            for e in entries.values():
+                if e["current_path"].startswith("Staff/") or e["current_path"] == "Letters/Private.txt":
+                    e["hashed"], e["flags"] = True, ["migrating"]
+                    e.pop("synthetic_id", None)
+        _work, read_paths = self.audit_and_extract(self.folder(), os.path.join(self.tmp, "extract"), edit=hashed)
+        self.assertEqual(read_paths, {"Notes.txt", "Letters/Kept.txt", "Staffing/Agency.txt"})
+
+    def test_excluded_and_staged_documents_are_counted_apart(self):
+        root = self.folder()
+        write(os.path.join(root, "_Migrations", "Other Project", "Invoice.txt"), "Invoice for the other project.")
+        work, read_paths = self.audit_and_extract(root, os.path.join(self.tmp, "extract"))
+        self.assertEqual(read_paths, {"Notes.txt", "Letters/Kept.txt", "Staffing/Agency.txt"})
+        self.assertIn("todo=3 held_for_another_project=1 excluded=3\n",
+                      read(os.path.join(work, "logs", "extract_main0.log")))
+
+
+NO_LOCAL_OCR = """
+import sys
+sys.path.insert(0, sys.argv[1])
+import extract
+real = extract.which
+extract.which = lambda name, explicit=None: None if name in ("page-ocr", "tesseract") and not explicit else \
+    real(name, explicit)
+sys.argv = ["extract.py"] + sys.argv[2:]
+extract.common.run_main(extract.main)
+"""
+FAKE_PAGE_OCR = """#!/usr/bin/env python3
+import json
+import sys
+for line in sys.stdin:
+    path = line.rstrip("\\n").split("|", 1)[-1]
+    print(json.dumps({"file": path, "text": "A letter from the council about the rent review for the flat, "
+                      "dated the first of May, asking for a reply within 28 days.", "confidence": 0.95, "lines": 2}),
+          flush=True)
+"""
+
+
+class OcrHelperTest(Tmp):
+    """A missing or bad OCR helper is never silent: `--ocr-bin` must be an executable file, an image read with no helper
+    names the missing tier in its record, and `--retry-failed` reads such a record again once the helper works."""
+
+    def setUp(self):
+        super().setUp()
+        self.root = os.path.join(self.tmp, "Alex Papers")
+        write(os.path.join(self.root, "Scans", "Letter.jpg"), b"\xff\xd8\xff\xe0 a scan of a letter, not a photo")
+        write(os.path.join(self.root, "Notes.txt"), "Robin's notes on the move.")
+        self.work, self.audit_out, self.out = (os.path.join(self.tmp, n) for n in ("work", "audit", "extract"))
+        code, _o, err = run("audit.py", "--root", self.root, "--work", self.work, "--out", self.audit_out,
+                            "--read-only-root")
+        self.assertEqual(code, 0, err)
+        self.helper = os.path.join(self.tmp, "page-ocr")
+        write(self.helper, FAKE_PAGE_OCR)
+        os.chmod(self.helper, 0o755)
+
+    def extract(self, *extra, now=NOW, without_helper=False):
+        args = ["--root", self.root, "--work", self.work, "--manifest", os.path.join(self.audit_out, "manifest.json"),
+                "--out", self.out, "--lane", "main", "--read-only-root"] + list(extra)
+        if not without_helper:
+            return run("extract.py", *args, now=now)
+        env = dict(os.environ, PRE_ONBOARDING_NOW=str(now))
+        r = subprocess.run([sys.executable, "-c", NO_LOCAL_OCR, TOOLS] + args, capture_output=True, text=True, env=env, timeout=TIMEOUT)
+        return r.returncode, r.stdout, r.stderr
+
+    def record(self, rel):
+        return next(r for r in (json.loads(read(os.path.join(self.out, f))) for f in os.listdir(self.out))
+                    if r["path"] == rel)
+
+    def test_a_helper_path_that_is_not_an_executable_file_is_refused_at_the_start(self):
+        notexec = os.path.join(self.tmp, "not-executable")
+        write(notexec, "#!/bin/sh\n")
+        os.chmod(notexec, 0o644)
+        for what, path in (("missing", os.path.join(self.tmp, "no-such-page-ocr")), ("a folder", self.tmp),
+                           ("not executable", notexec)):
+            with self.subTest(what):
+                code, out, err = self.extract("--ocr-bin", path)
+                self.assertEqual(code, 2, out + err)
+                self.assertIn("error: --ocr-bin %s is not an executable file" % path, err)
+                self.assertNotIn("Traceback", err)
+                self.assertFalse(os.path.exists(self.out), "a record was written before the refusal")
+
+    def test_an_image_read_with_no_helper_names_the_missing_tier(self):
+        code, _o, err = self.extract(without_helper=True)
+        self.assertEqual(code, 0, err)
+        rec = self.record("Scans/Letter.jpg")
+        self.assertEqual((rec["status"], rec["pages"][0]["tier"]), ("photo", "photo"))
+        self.assertEqual(len(rec["notes"]), 1)
+        self.assertRegex(rec["notes"][0], "^local OCR tier not available here: page-ocr, tesseract$")
+        self.assertNotIn("notes", self.record("Notes.txt"))
+
+    def test_retry_failed_reads_again_a_record_made_with_no_helper_once_the_helper_works(self):
+        self.extract(without_helper=True)
+        stuck = self.record("Scans/Letter.jpg")
+        notes = self.record("Notes.txt")
+        code, _o, err = self.extract("--ocr-bin", self.helper, now=NOW + 60)  # no --retry-failed: never rewritten
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.record("Scans/Letter.jpg"), stuck)
+        code, _o, err = self.extract("--retry-failed", "--ocr-bin", self.helper, now=NOW + 120)
+        self.assertEqual(code, 0, err)
+        rec = self.record("Scans/Letter.jpg")
+        self.assertEqual((rec["status"], rec["pages"][0]["tier"], rec["pages"][0]["engine"]),
+                         ("ok", "local_ocr", "vision"))
+        self.assertIn("rent review", rec["pages"][0]["text"])
+        self.assertNotIn("notes", rec)
+        self.assertEqual(self.record("Notes.txt"), notes, "a record with nothing wrong is not read again")
+        log = read(os.path.join(self.work, "logs", "extract_main0.log"))
+        self.assertIn("done=1 failed=0 skipped=1", log.split("\n")[-2])
+
+    def test_retry_failed_still_reads_a_failed_record_again_and_leaves_an_unmarked_photo_alone(self):
+        self.extract("--ocr-bin", self.helper)  # a real reading: the scan is a letter
+        scan = self.record("Scans/Letter.jpg")
+        self.assertEqual((scan["status"], "notes" in scan), ("ok", False))
+        path = os.path.join(self.out, self.record("Notes.txt")["id"] + ".json")
+        write(path, json.dumps(dict(self.record("Notes.txt"), status="failed", error="disk full", pages=[])))
+        code, _o, err = self.extract("--retry-failed", "--ocr-bin", self.helper, now=NOW + 60)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.record("Notes.txt")["status"], "ok")
+        self.assertEqual(self.record("Scans/Letter.jpg"), scan, "a record with no missing tier is not read again")
 
 
 # ------------------------------------------------------------------------ statuses on a synthetic folder
@@ -645,6 +840,9 @@ class StatusTest(unittest.TestCase):
             "Docs/Blank.pages/Index/Document.iwa": b"\x00\x05\x00\x00hello",
             "Docs/Blank.pages/preview.jpg": preview,
             "Docs/Empty.numbers": zip_bytes([("Index/Document.iwa", b"\x00\x05\x00\x00hello")]),
+            "_Migrations/Other Project/Docs/Staged.md": "Staged for another project.\n",
+            "_Migrations/Other Project/Docs/Unflagged.md": "Staged for another project, its flag lost.\n",
+            "_Migrations/Other Project/Docs/Sheet.numbers": zip_bytes([("Index/Document.iwa", b"\x00\x05\x00\x00hello again")]),
         }
         for rel, data in files.items():
             write(os.path.join(cls.root, rel), data)
@@ -659,6 +857,9 @@ class StatusTest(unittest.TestCase):
                 e["hashed"] = False
             if e["current_path"] == "Docs/Gone.md":
                 e["flags"] = ["departed"]
+            if e["current_path"] == "_Migrations/Other Project/Docs/Unflagged.md":
+                assert "migrating" in e["flags"], "the audit flags a staged file"
+                e["flags"] = []  # held whatever its flags: a flag lost or never set must not let it be read
         write(manifest, json.dumps(m))
         cls.out = os.path.join(cls.tmp, "extract")
         for lane in ("main", "apps"):
@@ -666,6 +867,7 @@ class StatusTest(unittest.TestCase):
                 "--lane", lane, "--read-only-root")
         cls.records = {r["path"]: r for r in (json.loads(read(os.path.join(cls.out, f)))
                                               for f in os.listdir(cls.out))}
+        cls.work = work
 
     @classmethod
     def tearDownClass(cls):
@@ -701,6 +903,20 @@ class StatusTest(unittest.TestCase):
         if not (HAVE["page-ocr"] or HAVE["tesseract"]):
             self.assertEqual(r["pages"][0]["tier"], "blank")
             self.assertEqual(r["notes"], ["local OCR tier not available here: page-ocr, tesseract"])
+
+    def test_a_document_staged_for_another_project_is_held_and_counted_whatever_its_flags(self):
+        """Staged under the migrations folder, flagged `migrating` or not, in either lane: never read, never queued
+        for the model, and counted as held for another project in each lane's log."""
+        staged = [p for p in self.records if p.startswith("_Migrations/")]
+        self.assertEqual(staged, [], "a document staged for another project was read")
+        for lane, held in (("main0", 2), ("apps0", 1)):
+            log = read(os.path.join(self.work, "logs", "extract_%s.log" % lane))
+            self.assertIn("held_for_another_project=%d" % held, log, lane)
+            self.assertEqual(log.count("held_for_another_project="), 2, "counted at the start and at the end")
+        for name in os.listdir(os.path.join(self.work, "index")):
+            self.assertNotIn("_Migrations", read(os.path.join(self.work, "index", name)))
+        self.assertFalse(os.path.isdir(os.path.join(self.work, "vision_queue"))
+                         and os.listdir(os.path.join(self.work, "vision_queue")), "a page was queued")
 
     def test_unhashed_and_departed_entries_are_left_alone(self):
         self.assertEqual(sorted(self.records), ["Docs/Blank.pages", "Docs/Broken.docx", "Docs/Empty.numbers",

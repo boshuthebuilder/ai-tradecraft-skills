@@ -24,11 +24,11 @@ outputs of the deterministic tools, regenerated only on purpose with `python3 ..
 | `CLAUDE.md`, `AGENTS.md`, `.familyai/rulebook.json` | the rulebook, its identical copy and its settings twin |
 | `Alex Personal Wiki/` | a small wiki: Schema with Layout, Page professionals, Routing and Page contracts (with a Reader column) tables; pages by different professionals (a CFO's cash note beside personal pages); Mermaid `gantt`, `xychart-beta` bar, `pie` and `timeline`, each rendered by `wiki.py chart` from figures its cited file states, with its data table beside it (no line chart: no file here states three dated figures); a callout with its marker alone on its line |
 | `_Audit/wiki-rationale.md` | one five-line rationale block per page, naming its professional and its questions |
-| `_Audit/extract/`, `_Audit/cards/` | an extract record and a card per live document, by content id (`PREPARED`) |
+| `_Audit/extract/`, `_Audit/cards/` | an extract record and a card per live document the tools may read (not the one staged for another project), by content id (`PREPARED`) |
 | `_Audit/wiki-acceptance.json` | every page accepted in both lenses by another model (`wiki.py accept`) |
 
 With these prepared records `readiness.py` finds only the file staged in the migrations folder, which a folder
-must have cleared before hand-off (the readiness tests clear it first, with its record and card). They follow the
+must have cleared before hand-off (the readiness tests clear it first). It has no extract record or card: a document staged for another project is read by no tool. They follow the
 files and the wiki: after changing a wiki page or `PREPARED`, run `python3 build.py --prepared-only` (any machine) and commit what it writes
 with the change.
 
