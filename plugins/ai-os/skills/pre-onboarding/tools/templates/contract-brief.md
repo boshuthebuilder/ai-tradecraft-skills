@@ -1,5 +1,10 @@
-<!-- Stage 4, the page contract. Filled by the coordinating agent: replace every field in braces; doubled braces
-are literal. -->
+<!-- Stage 4, the page contract. Filled by the coordinating agent and given to a subagent: replace every field in
+braces; doubled braces are literal. Save the filled brief as `<work>/briefs/contract-<NN>.md`, so that it is scanned.
+`section`: the section's number and name as the Layout has them (`20 Finance`). `professional`: the professional or
+professionals the Layout names for it. `owner_context`, `readers`: as in `structure-brief.md`. `section_rows`: the
+section's Layout row and any Page professionals rows under it, copied as they stand with their header rows.
+`routing`: the Routing rows that target the section, copied the same way. `bundle`: the path of the section's
+`bundle_<NN>.jsonl` in the bundles folder, which the subagent opens; not its contents. -->
 # Contract brief: {section}
 
 The first half of the page-writing stage of
@@ -33,7 +38,8 @@ Its evidence, one JSON line per document (from `wiki.py bundles`): `{bundle}`
 - **Questions, most important first**: what this reader needs answered, in the order you would answer it; your
   row in [the professional catalogue](../../../wiki-maintenance/references/professionals.md) gives a first draft.
 - **Fields every page carries**: what each page of the section shows; one with no evidence will read
-  **not on file**, so ask only for what the owner's files can hold or should.
+  **not on file**, so ask only for what the owner's files can hold or should. A section that holds money names its
+  period convention here (a financial year, a VAT period or a tax year) and whether amounts are net or gross of VAT.
 
 ## Reply
 

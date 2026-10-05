@@ -30,6 +30,12 @@ The bundles in `{bundles_dir}` hold one JSON line per document routed to a secti
 against the current manifest and routing before this brief was made. Open a source file itself when a bundle line
 is not enough.
 
+## What you may read
+
+This brief, the Schema page, the core wiki rule, the bundles above and the source files they list or your pages
+cite. Read nothing else: not the manifest or `AUDIT.md`, nothing else under `_Audit/`, and nothing outside this
+folder.
+
 ## What to do
 
 1. Read the Schema page, `{schema_path}`, and the core wiki rule: its page contracts, rich pages, outside
@@ -47,6 +53,28 @@ is not enough.
 
 ```json
 {return_shape}
+```
+
+## What the checks read
+
+The checker, and later the hand-off check, read every page as plain text, so write to these rules:
+
+- **No em dash** in the body outside inline code. A source title, supplier name or menu name that holds one goes
+  inside backticks; elsewhere use a comma, a colon or two sentences.
+- **Frontmatter** is plain `key: value` pairs at the left edge between `---` fences. Quote every `note` and
+  `deadline_note`: an unquoted value with a colon and a space in it, a bare `yes`, `no`, `on` or `off`, or a time such
+  as `12:30` is read as something other than text, and the page cannot be verified.
+- **Dates.** A forward date goes in `deadlines:` as `YYYY-MM-DD`, or as a date with a quoted note. A date that comes
+  round every year goes in `recurring:`, written as the day and the month name in full: a reader who writes the day
+  first reads it right, where `04-05` reads either way round.
+
+```yaml
+deadlines:
+  - date: 2026-04-05
+    note: "VAT return due"
+recurring:
+  - date: 5 April
+    note: "Year end for the accounts"
 ```
 
 ## The rationale blocks

@@ -320,9 +320,15 @@ rules to the evidence before aggregating; keep extracted amounts intact for prov
 8. **Historical copies are not this period's spend.** Exclude copies in `old`, `previous`,
    `superseded` or `archive` folders from the current-period total; previous owners' invoices do
    not become the current owner's costs.
+9. **VAT is net, gross or shown apart, never mixed.** Where documents carry VAT, state whether a table is
+   net or gross of it and show the VAT as a column of its own rather than folded into either; a table does not
+   mix net and gross rows. A credit note is a negative against the invoice it credits, never added as spend or
+   counted as income. A net or gross figure a document does not state is a computation, labelled as one.
 
-Print the basis beneath every rendered money table: period, attribution, what was counted and
-excluded, and any matching or currency policy. Label whether it counts incurred costs or evidenced
+Name the **period convention** the table uses: the financial year, the VAT period or the tax year, with its
+start and end dates, and never put two conventions in one total. Print the basis beneath every rendered
+money table: period (and its convention), attribution, what was counted and excluded, whether amounts are net
+or gross of VAT, and any matching or currency policy. Label whether it counts incurred costs or evidenced
 payments; an invoice alone does not establish payment. A page and its folder note must use the same
 basis for the same question. Show unresolved counting matches rather than presenting their total as
 settled.
@@ -667,7 +673,7 @@ are a contract, not a style choice. The first three are **required on every deri
 | `entities` | optional | Schema-defined facet lists | hub/facet index generation |
 | `source` *(single)* / `sources` *(list)* | when file-derived | **project-root-relative** path(s) to the source file(s) — never absolute, so a folder rename or machine move is a no-op — or, for a cross-project synthesis, the source **pages** | the orphan sweep |
 | `deadline` *(single)* / `deadlines` *(list)* | when a forward date exists | `YYYY-MM-DD` (or `{date, note}`) | the Deadlines roll-up |
-| `recurring` *(list)* | when a date comes round every year | `{date, note}`, the date as `MM-DD`, month first (`04-05` is 5 April), or a day and a month name (`5 April`, `April 5th`, `5 Sept`: the name in full, its first three letters or `sept`, in any case); never another numeric form (`6/4` reads either way round) | the Deadlines roll-up, which shows it as a day and a month name, so a date written the wrong way round is visible |
+| `recurring` *(list)* | when a date comes round every year | `{date, note}`, the date as `MM-DD`, month first (`04-05` is 5 April), or a day and a month name (`5 April`, `April 5th`, `5 Sept`: the name in full, its first three letters or `sept`, in any case); never another numeric form (`6/4` reads either way round). Prefer the day and month name, which a reader who writes the day first (a UK reader) reads as written | the Deadlines roll-up, which shows it as a day and a month name, so a date written the wrong way round is visible |
 
 (A cross-project user-tier page is `provenance: derived` with `last-updated`/`status` but need carry no
 `source:` path and no deadline; a `provenance: manual` note carries no `source:` at all.)

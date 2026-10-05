@@ -24,6 +24,10 @@ In the owner's lens, as the rule's *Acceptance* sets it out:
 2. Can they act on what it says: what is due, by when, what to do next?
 3. Is anything unclear, buried, contradictory or missing, as they would see it?
 
+For a fixed page (the Index, Deadlines, the Schema or the Log) judge it for what it is for, as
+[`wiki-onboarding`, step 6](../../../wiki-onboarding/SKILL.md#6-reader-acceptance-the-owners-lens-and-the-professionals)
+sets out.
+
 ## Reply
 
 JSON only. The verdict is `accepted`, or `changes` with at least one finding; every finding says where on the page

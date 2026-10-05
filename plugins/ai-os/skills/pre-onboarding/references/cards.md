@@ -21,14 +21,14 @@ output schema in `tools/schemas/` requires:
 | Field | Type | What it holds |
 | --- | --- | --- |
 | `id` | text | copied from the input item; the tool then replaces it with the entry id |
-| `doc_type` | text | a short English type in Title Case, such as Bank Statement or Tenancy Agreement; `Unknown` when unclear |
+| `doc_type` | text | a short English type in Title Case, such as Bank Statement, Tenancy Agreement or Purchase Invoice; `Unknown` when unclear |
 | `party` | text | the main person or organisation the document is about or addressed to, by the canonical name the rulebook gives; `Unknown` if none |
 | `parties` | list of text | up to five other people or organisations involved |
 | `doc_date` | text | the document's own date as `YYYY-MM-DD`, `YYYY-MM` or `YYYY`; empty when there is none, never invented |
 | `title` | text | a descriptive title of at most 12 words |
 | `summary` | text | two or three sentences, at most 70 words: what the document is, what matters in it, why it is in the folder |
 | `key_facts` | object | `dates`, `amounts` and `reference_numbers`, each a list of labelled text; reference numbers as the identifier rule below says |
-| `category` | text | exactly one of the rulebook's `card_categories` |
+| `category` | text | exactly one of the rulebook's `card_categories`; one outside the list becomes `Other`, which `readiness.py` reports as a `bad_category` unless the list holds `Other` |
 | `language` | text | `en`, `zh`, `fr`, `mixed`, `none`, or another two-letter code |
 | `sensitive` | true or false | true for identity numbers, medical or immigration detail, police or legal matters, or credentials |
 | `confidence` | text | `high`, `medium` or `low` (low when there was no text or it was garbled) |
@@ -177,8 +177,12 @@ fails is retried halved, never applied in part. `cards.py` holds it so:
 ### The terms file
 
 The operator supplies it at run time (`--terms <file>`): never committed, never inside the folder, never shown to a
-model. It lists every name that must not reach a model working on the folder, the operator's own identifiers from
-other use of the engines included ([the skill](../SKILL.md#before-you-start)). One term per line, optionally
+model. The operator writes it, in their own editor, and gives the session its path alone. It lists every name that
+must not reach a model working on the folder, the operator's own identifiers from other use of the engines included
+([the skill](../SKILL.md#before-you-start)), and only names distinct to the other projects: never the owner's own
+name, the folder's own organisation or an identifier the folder shares with the operator's other affairs (a home
+address, a tax reference). The folder's own settings (`.familyai/rulebook.json` lists its people) are scanned for
+every term, so a shared name would fail every scan. One term per line, optionally
 followed by markers, `Term|marker|marker`: shorter forms whose presence in a
 document's own text shows the term is genuine content of that document. Blank lines and lines starting with `#`
 are ignored. A missing or empty file is refused. `cards.py work` needs `--terms`, or `--no-isolation-terms` to
@@ -197,8 +201,10 @@ card's own source, the full text of its extract record, carries the term or one 
 marker made only of letters, digits, spaces, `.`, `&` and `-` must stand as a whole word, any other may appear
 anywhere). Every card of a batch is checked before any is written: the first contaminated card writes
 `<work>/state/ALERT`, naming the card and how many terms, no card of that batch is written, and its worker stops
-(exit 2); every `cards.py work` worker and the vision lane then stop at their next batch while the file is there
-(exit 3). Cards written by earlier batches stay; find where the term came from before removing the file.
+(exit 2, as any refusal does, with `error:` on standard error); every other `cards.py work` worker and the vision
+lane then stop at their next batch while the file is there (exit 3, the exit code that means "stopped by an alert").
+A worker started while the file exists exits 3 at its first batch. Cards written by earlier batches stay; find where
+the term came from before removing the file.
 
 ### At hand-off
 

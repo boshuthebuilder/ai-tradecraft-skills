@@ -22,23 +22,23 @@ An unknown version, an unknown key or a value of the wrong shape fails loud.
 | --- | --- | --- | --- |
 | `version` | `1` | required | the format version of `rulebook.json` |
 | `rulebook_sha256` | sha256 hex | required | the sha256 of `CLAUDE.md` when this twin was last reviewed against it; absent or empty means unpinned |
-| `inbox` | folder name | `_Inbox` | the drop point at the top of the folder |
+| `inbox` | folder name | `_Inbox` | the drop point at the top of the folder; onboarding sets it up, so preparation does not create it |
 | `migrations_dir` | folder name | `_Migrations` | where files the owner approved for another project wait |
 | `wiki_dir` | folder name | `<folder name> Wiki` | the wiki folder; must be exactly `<folder name> Wiki` |
-| `reserved` | list of names | `[]` | top-level names reserved beyond the fixed set below |
+| `reserved` | list of names | `[]` | top-level names reserved beyond the fixed set below; the audit never walks one, so nothing in a reserved folder is extracted, carded or sent |
 | `depth` | `light`, `medium` or `full` | `light` | the reorganisation depth the owner chose ([`folder-curation`'s ladder](../../folder-curation/SKILL.md#the-depth-ladder)) |
-| `packs` | list of folder paths | `[]` | submission records, whose copies are never deleted, in addition to the folders the audit's pack keywords match; each an existing folder, relative and named exactly, or the tools refuse to run |
+| `packs` | list of folder paths | `[]` | submission records, whose copies are never deleted, in addition to the folders the audit's pack keywords match; each an existing folder, relative and named exactly, or the tools refuse to run. Audit again after changing `packs`, `pack_keywords` or `reserved`, before any plan is proposed |
 | `working_formats` | list of extensions | `[]` | formats the owner keeps working in, such as `.pages` |
 | `active`, `finished` | lists of folder paths | `[]` | live matters, and closed matters ingested once as history |
 | `people` | list of `{name, also, who}` | `[]` | each person or organisation: canonical name, every other name or script it appears under, and one line on who they are |
 | `identifiers` | `stated`, `last-four` or `home-only` | `stated` | [`wiki-maintenance`'s identifier policy](../../wiki-maintenance/SKILL.md#identifiers-series-and-derived-views): reference numbers in full unless the owner restricts them; passwords are never written under any policy |
 | `boundaries` | list | `[]` | access boundaries inside the folder, as the owner described them |
-| `card_categories` | list of names | a generic set | the categories a document card may carry |
+| `card_categories` | list of names | `Identity & Immigration`, `Health`, `Education`, `Work & Career`, `Business`, `Finance & Tax`, `Home & Household`, `Travel`, `Language Study`, `Photos`, `Reference & Reading`, `Legal & Correspondence`, `Other` | the categories a document card may carry, a personal set that a company replaces with its own; a card whose category is outside the list becomes `Other` (the engine's word kept as `category_raw`), and `readiness.py` reports `Other` as a `bad_category` unless the list holds it, so list `Other` if it is to be allowed |
 | `folder_description` | text | `""` | one line on what the folder holds, for the card engine's brief |
-| `exclude` | list of paths | `[]` | paths the owner excluded from reading |
+| `exclude` | list of paths | `[]` | paths the owner excluded from reading; a deployment enforces it once the folder is onboarded, and no preparation tool reads it (to keep a top-level folder from the tools, name it in `reserved`) |
 | `keep_empty_folders` | `true` or `false` | `true` | whether emptied folders stay (the owner declines the [`rmdir` rows](../../folder-curation/references/move-plan-schema.md#rmdir-and-the-bin) among their own folders) |
-| `image_cap_mb`, `pack_keywords` | number, list of patterns | `25`; `application`, `passport`, `renew`, `visa`, `submission`, `evidence` | audit tunables; a folder whose packs go by other words lists its own patterns, each a valid regular expression that matches part of a folder's name (one that can match without consuming any text is refused, and a folder name that makes one do so stops the audit); an empty list turns keyword packs off |
-| `ocr_languages` | list of BCP 47 codes | `["en-GB"]` | the languages local OCR reads in, most likely first; it knows `en`, `fr`, `de` and `es` in any region, `zh-Hans` (or `zh-CN`, `zh-SG`) and `zh-Hant` (or `zh-TW`, `zh-HK`, `zh-MO`), in any letter case, and any other code fails loud |
+| `image_cap_mb`, `pack_keywords` | number, list of patterns | `25`; `application`, `passport`, `renew`, `visa`, `submission`, `evidence` | audit tunables; a folder whose packs go by other words lists its own patterns, each a valid regular expression that matches part of a folder's path, ignoring case (one that can match without consuming any text is refused, and a folder name that makes one do so stops the audit); an empty list turns keyword packs off. The defaults are a personal set, and a company's packs go by other words: `year-end` or `accounts pack` for a year-end accounts pack, `payroll` for a payroll year, beside or instead of the defaults, each specific enough not to match folders that are not packs |
+| `ocr_languages` | list of BCP 47 codes | `["en-GB"]` | the languages local OCR reads in, most likely first; tesseract needs each one's data installed (`tesseract --list-langs` lists it), or it reads nothing and says nothing; it knows `en`, `fr`, `de` and `es` in any region, `zh-Hans` (or `zh-CN`, `zh-SG`) and `zh-Hant` (or `zh-TW`, `zh-HK`, `zh-MO`), in any letter case, and any other code fails loud |
 
 **Reserved names.** The rulebook must name every top-level name the system reserves: `CLAUDE.md`, `AGENTS.md`,
 `GEMINI.md`, `.familyai`, `_Audit`, the inbox, the migrations folder, the wiki folder, then anything in `reserved`.
@@ -56,14 +56,16 @@ review defeats the point.
 folder; `09 Schema/09 Schema.md` is read for a wiki laid out before the meta pages moved to the 90s). Each is the
 one table under a `## ` heading of its name (a remark in brackets or after a colon may follow, as in
 `## Layout (sections)`), with every row starting with `|`; tables in fenced code are ignored, and the page may carry
-any other sections and tables. Headers are fixed, word for word:
+any other sections and tables. It should: beside the four tables the Schema records, as ordinary `##` sections, who
+reads the wiki and for what, each section's purpose and trigger documents, and the identifier, currency, date and unit
+policy (an absent one stated as absent). Headers are fixed, word for word:
 
 | Table | Headers | Required |
 | --- | --- | --- |
 | Layout | `Section \| Pages \| Professional lens \| Kind` | yes |
 | Routing | `Files under \| Section and page` | yes |
 | Page contracts | `Section (professional) \| Reader \| Questions, most important first \| Fields every page carries` | yes |
-| Page professionals | `Page \| Professional \| Deliverable \| Tone` | no |
+| Page professionals | `Page \| Professional \| Deliverable \| Tone` | no, but every page of a section that names several professionals needs a row, folder notes included |
 
 A Page contracts table written before the Reader column (`Section (professional) \| Questions, most important
 first \| Fields every page carries`) still compiles, with no reader; `check` reports it until the column is added.
@@ -72,10 +74,15 @@ What each cell holds:
 
 - **Section** (Layout): a two-digit number, a space and the name, such as `20 Finance`; each number once.
   **Professional lens**: one professional, or several separated by `;`. **Kind**: `active`, `history` or `fixed`,
-  optionally followed by `, derived` for a page generated from other pages that holds nothing hand-written.
+  optionally followed by `, derived` for a page generated from other pages that holds nothing hand-written. The four
+  fixed pages are sections of their own, listed as `fixed` (`01 Deadlines` as `fixed, derived`): `00 Index`,
+  `01 Deadlines`, `90 Schema` and `91 Log`, each a folder note, `<NN Name>/<NN Name>.md`; a page in no Layout section
+  is a problem.
 - **Files under** (Routing): one or more folder prefixes, each in backticks and ending in `/`; each prefix routed
   once. **Section and page**: starts with the target section's two-digit number and a space, or is a note with no
-  number, which routes nothing (`_Inbox/`, filed by the routing above).
+  number, which routes nothing (`_Inbox/`, filed by the routing above). Routing is by folder prefix alone, the longest
+  match winning, and never by a card's category, so a folder that mixes several responsibilities routes to one section;
+  a rule the table cannot hold, such as dated documents routing with their time folder, is written as prose beside it.
 - **Section (professional)** (Page contracts): a Layout section by number and name, with its professionals in
   brackets (left out, the Layout's are used); one contract per section. **Reader**: who reads these pages.
   **Questions**: numbered `1. … 2. …` from the start of the cell, in priority order (a single question is `1. …`
@@ -92,8 +99,11 @@ above fails loud, naming the table and the row. Nothing is guessed.
 
 | Section | Pages | Professional lens | Kind |
 | --- | --- | --- | --- |
+| 00 Index | what needs attention, and what the wiki holds | chief of staff | fixed |
 | 01 Deadlines | every forward date, rolled up | chief of staff | fixed, derived |
 | 20 Finance | Bank accounts; Tax | private banker; chartered tax adviser | active |
+| 90 Schema | the wiki's constitution | librarian | fixed |
+| 91 Log | what was changed, and when | librarian | fixed |
 
 ## Routing
 
@@ -112,6 +122,7 @@ above fails loud, naming the table and the row. Nothing is guessed.
 
 | Page | Professional | Deliverable | Tone |
 | --- | --- | --- | --- |
+| 20 Finance/20 Finance.md | private banker | accounts overview | measured, discreet |
 | 20 Finance/Tax.md | chartered tax adviser | annual tax position letter | exact, dated |
 ```
 
@@ -136,8 +147,10 @@ they read it, so a twin of another version or shape is refused as invalid rather
 A page is written in the voice of one professional, tone only: the rule's home is
 [the core wiki rule](../../wiki-maintenance/SKILL.md#the-core-wiki-rule). The tools read that professional from the
 Schema: the page's row in Page professionals when it has one; otherwise its section's professional, when the
-section names exactly one. A page in a section that names several must be listed: `common.page_voice`, the one
-reading of this rule, refuses it rather than pick one. Deliverable and tone come only from the page's own row.
+section names exactly one. A page in a section that names several must be listed, its folder note (`<NN Name>/<NN
+Name>.md`) included: `common.page_voice`, the one reading of this rule, refuses it rather than pick one. Deliverable
+and tone come only from the page's own row, so list a page in a section with one professional too where its
+deliverable and tone are to be recorded.
 
 ## Stale twins
 

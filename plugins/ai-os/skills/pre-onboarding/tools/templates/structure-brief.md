@@ -1,5 +1,9 @@
 <!-- Stages: the structure and each page's professional, after the readers interview in pre-onboarding (SKILL.md
-step 7). Filled by the coordinating agent: replace every field in braces; doubled braces are literal. -->
+step 7). Filled by the coordinating agent and given to a subagent: replace every field in braces; doubled braces are
+literal. Save the filled brief as `<work>/briefs/structure.md`, so that it is scanned. `folder_name`: the folder's own
+name. `owner_context`: as in `readers-interview.md`. `readers`: the readers interview's JSON reply, as recorded.
+`profile`: the JSON `wiki.py profile` wrote (`<work>/profile.json`), in full. `current_schema`: the Schema page's text
+as it stands, or `none yet` on a first run. -->
 # Structure brief: {folder_name}
 
 The wiki stages after the readers interview in [`pre-onboarding`](../../SKILL.md#7-build-the-wiki), under
