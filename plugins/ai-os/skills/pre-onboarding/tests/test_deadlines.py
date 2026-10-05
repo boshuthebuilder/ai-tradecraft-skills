@@ -21,6 +21,7 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOOLS = os.path.realpath(os.path.join(HERE, "..", "tools"))
+TIMEOUT = 600  # seconds: a tool that hangs fails its test instead of the run
 ROLLUPS = os.path.join(HERE, "rollups")
 FIXTURE = os.path.join(HERE, "fixture", "Alex Personal")
 sys.path.insert(0, TOOLS)
@@ -48,7 +49,7 @@ def write(path, text):
 
 def run(*args, now=NOW):
     r = subprocess.run([sys.executable, os.path.join(TOOLS, "wiki.py"), "deadlines"] + list(args), capture_output=True,
-                       text=True, encoding="utf-8", env=dict(os.environ, PRE_ONBOARDING_NOW=now))
+                       text=True, encoding="utf-8", env=dict(os.environ, PRE_ONBOARDING_NOW=now), timeout=TIMEOUT)
     return r.returncode, r.stdout, r.stderr
 
 
@@ -357,11 +358,11 @@ class FixtureTest(unittest.TestCase):
         for tool, args in (("audit.py", []), ("settings.py", ["compile"])):
             got = subprocess.run([sys.executable, os.path.join(TOOLS, tool)] + args + ["--root", self.root, "--work",
                                  self.work], capture_output=True, text=True, env=dict(os.environ,
-                                 PRE_ONBOARDING_NOW=NOW))
+                                 PRE_ONBOARDING_NOW=NOW), timeout=TIMEOUT)
             self.assertEqual(got.returncode, 0, got.stderr)
         env = dict(os.environ, PRE_ONBOARDING_NOW=NOW)
         r = subprocess.run([sys.executable, os.path.join(TOOLS, "readiness.py"), "--root", self.root, "--work",
-                            self.work], capture_output=True, text=True, env=env)
+                            self.work], capture_output=True, text=True, env=env, timeout=TIMEOUT)
         self.assertEqual([f[0] for f in json.loads(r.stdout)["findings"]],
                          ["wiki_handoff.pages_not_accepted", "handoff_contract.migrations_folder_cleared"],
                          "the page is new text, so its acceptance of an earlier version no longer stands")
@@ -371,10 +372,10 @@ class FixtureTest(unittest.TestCase):
             got = subprocess.run([sys.executable, os.path.join(TOOLS, "wiki.py"), "accept", "--root", self.root,
                                   "--work", self.work, "--reply", reply, "--author-model", "model-a",
                                   "--reviewer-model", "model-b", "--date", "2024-07-01"], capture_output=True,
-                                 text=True, env=env)
+                                 text=True, env=env, timeout=TIMEOUT)
             self.assertEqual(got.returncode, 0, got.stderr)
         r = subprocess.run([sys.executable, os.path.join(TOOLS, "readiness.py"), "--root", self.root, "--work",
-                            self.work], capture_output=True, text=True, env=env)
+                            self.work], capture_output=True, text=True, env=env, timeout=TIMEOUT)
         report = json.loads(r.stdout)
         self.assertEqual(report["handoff_contract"]["derived_pages_hold_nothing_hand_written"], "ok")
         self.assertEqual(report["handoff_contract"]["recurring_dates_in_frontmatter"], "ok")

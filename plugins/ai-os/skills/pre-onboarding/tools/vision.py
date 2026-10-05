@@ -10,9 +10,11 @@ text kept. Worker k of N owns the ids that hash to k. Exits when extraction has 
 
 A queued image is sent only when the manifest holds its document live (not `departed`) and not withheld: one whose
 current path is under the migrations folder (held for another project) or is one the rulebook `exclude`s (excluded), a
-departed one, and an id the manifest does not hold (not live) are never sent, whatever the document's flags. They stay
-in the queue and out of the share that has to be empty, and the lane's log counts the documents of each kind. The
-manifest is read again before each batch, so a round that stages or excludes a document while the lane runs is seen.
+departed one, and an id the manifest does not hold (not live) are never sent, whatever the document's flags. The images
+and records of a withheld document are purged (`common.purge_withheld`) at the start and again before each batch, so they
+are out of the share that has to be empty, and the lane's log counts the documents of each kind by the manifest. The
+settings and the manifest are read again before each batch, so a round that stages or excludes a document while the lane
+runs is seen.
 
     python3 vision.py --root R --model <vision model id> [--worker 0/2]
 """
@@ -49,7 +51,7 @@ def main():
     ap.add_argument("--lanes", default="extract_main0,extract_apps0",
                     help="done markers in <work>/state that mean extraction has finished")
     a = ap.parse_args()
-    root, settings_dir, work = common.resolve(a)
+    root, settings_dir, work = common.resolve(a, extract=a.out)
     rb = common.load_rulebook(root, settings_dir)
     out = os.path.realpath(a.out) if a.out else os.path.join(root, "_Audit", "extract")
     writer = common.Writer(root if a.read_only_root else None)
@@ -82,9 +84,11 @@ def main():
             log("ALERT present, stopping")
             return 3
         os.makedirs(queue, exist_ok=True)
+        rb = common.load_rulebook(root, settings_dir)  # read again, with the manifest: an exclusion made while it runs
+        common.purge_withheld(root, rb, work, a.manifest, extract_dirs=[out], read_only=a.read_only_root, thorough=False)
+        states = common.manifest_states(root, rb, a.manifest)
         files = sorted(f for f in os.listdir(queue) if re.match(r"[0-9a-f]{64}_\d{5}\.png$", f)
                        and int(f[:8], 16) % wn == wi)
-        states = common.manifest_states(root, rb, a.manifest)
         ready, recs = [], {}
         for f in files:
             eid = f[:64]
@@ -170,8 +174,9 @@ def main():
             json.dump(tries, f)
         log("batch %d images %s" % (len(ready), "ok" if got is not None else "FAILED"))
     count = collections.Counter(held_seen.values())
+    withheld = collections.Counter(states.values())  # by the manifest: the images of these documents were purged
     log("finished; held for another project: %d; excluded: %d; not live: %d"
-        % (count["migrations"], count["excluded"], count["departed"] + count["unknown"]))
+        % (withheld["migrations"], withheld["excluded"], count["departed"] + count["unknown"]))
     with open(os.path.join(state, "vision%d.done" % wi), "w", encoding="utf-8") as f:
         f.write(common.now_local())
     return 0

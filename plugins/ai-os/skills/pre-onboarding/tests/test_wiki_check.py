@@ -21,6 +21,7 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOOLS = os.path.realpath(os.path.join(HERE, "..", "tools"))
+TIMEOUT = 600  # seconds: a tool that hangs fails its test instead of the run
 FIXTURE = os.path.join(HERE, "fixture", "Alex Personal")
 MANIFEST = os.path.join(HERE, "expected", "manifest.json")
 WIKI = "Alex Personal Wiki"
@@ -65,7 +66,7 @@ def write(path, text):
 
 def run(tool, *args):
     r = subprocess.run([sys.executable, os.path.join(TOOLS, tool)] + list(args), capture_output=True, text=True,
-                       encoding="utf-8")
+                       encoding="utf-8", timeout=TIMEOUT)
     return r.returncode, r.stdout, r.stderr
 
 
@@ -458,7 +459,6 @@ class CheckTest(Copy):
     def test_a_withheld_path_in_plain_text_a_fence_or_a_link_is_a_citation(self):
         self.exclude("06 Work")
         edits = {"plain text": "The contract is 06 Work/Contract.docx, signed in May.\n",
-                 "wrapped": "The contract is 06 Work/\nContract.docx, signed in May.\n",
                  "a fence": "```text\n06 Work/Contract.docx\n```\n",
                  "a link": "See [the contract](../../06%20Work/Contract.docx).\n",
                  "other case": "See 06 WORK/contract.DOCX.\n"}
@@ -472,6 +472,70 @@ class CheckTest(Copy):
         write(page, base + "\nWorkshop 06 Workshop/x and the Work/Contract.docx idea.\n")
         self.assertEqual([c for c in self.check()["cites_withheld"] if c[0] == "40 Study/40 Study.md"], [])
 
+    LOG = "91 Log/91 Log.md"
+
+    def appended(self, page, text):
+        """The check's `cites_withheld` entries for `page` after `text` is added to the end of its text."""
+        write(self.page(page), self.base[page] + "\n" + text)
+        return [c for c in self.check()["cites_withheld"] if c[0] == page]
+
+    def test_a_withheld_document_wrapped_across_lines_at_any_point_is_a_citation(self):
+        """Only the one file is excluded, so the folder `06 Work` is not withheld and naming it is no citation: the
+        page is caught by the whole path, joined however the line was broken. The Log may name a folder, never a file."""
+        self.exclude("06 Work/Contract.docx")
+        self.base = {p: read(self.page(p)) for p in ("40 Study/40 Study.md", self.LOG)}
+        wraps = {"after the slash": "The contract is 06 Work/\nContract.docx, signed in May.\n",
+                 "before the slash": "The contract is 06 Work\n/Contract.docx, signed in May.\n",
+                 "inside the folder name": "The contract is 06 Wo\nrk/Contract.docx, signed in May.\n",
+                 "inside the file name": "The contract is 06 Work/Contr\nact.docx, signed in May.\n",
+                 "before the extension": "The contract is 06 Work/Contract\n.docx, signed in May.\n",
+                 "indented in a list": "- The contract is 06 Work/\n  Contract.docx, signed in May.\n",
+                 "in a quotation": "> The contract is 06 Work/\n> Contract.docx, signed in May.\n",
+                 "over three lines": "The contract is 06\nWork/\nContract.docx, signed in May.\n"}
+        for page in self.base:
+            for name, text in wraps.items():
+                with self.subTest(page=page, wrap=name):
+                    self.assertEqual([c[2] for c in self.appended(page, text)], ["excluded"])
+            with self.subTest(page=page, wrap="a longer name"):
+                self.assertEqual(self.appended(page, "The contract is 06 Work/\nContract.docx2 and more.\n"), [])
+        self.assertEqual(self.appended("40 Study/40 Study.md", "Work and 06 Work/\nOther.docx are not it.\n"), [])
+
+    def test_a_withheld_path_spelt_with_dots_doubled_slashes_or_escapes_is_the_same_path(self):
+        self.exclude("06 Work/Contract.docx")
+        self.base = {"40 Study/40 Study.md": read(self.page("40 Study/40 Study.md"))}
+        page = "40 Study/40 Study.md"
+        spellings = {"a dot segment": "See `06 Work/./Contract.docx`.", "a doubled slash": "See `06 Work//Contract.docx`.",
+                     "a parent segment": "See `06 Work/Other/../Contract.docx`.",
+                     "a leading dot": "See `./06 Work/Contract.docx`.", "percent escapes": "See `06%20Work/Contract.docx`.",
+                     "escaped twice": "See `06%2520Work/Contract.docx`.",
+                     "in plain text": "See 06 Work/./Contract.docx for it.", "in a fence": "```\n06 Work//Contract.docx\n```",
+                     "a backslash": "See `06 Work\\Contract.docx`."}
+        for name, text in spellings.items():
+            with self.subTest(name):
+                self.assertEqual([c[2] for c in self.appended(page, text)], ["excluded"])
+
+    def test_a_link_to_a_withheld_document_of_any_kind_spelt_any_way_is_a_citation(self):
+        """A link's target is resolved from the page (`../` goes up), decoded, normalised and folded, for a file of any
+        extension, an angle-bracketed target, a reference definition and a folder."""
+        page = "40 Study/40 Study.md"
+        links = {"a docx": ("06 Work/Contract.docx", "[c](../06%20Work/Contract.docx)"),
+                 "a dot segment": ("06 Work/Contract.docx", "[c](../06%20Work/./Contract.docx)"),
+                 "doubled escapes": ("06 Work/Contract.docx", "[c](../06%2520Work/Contract.docx)"),
+                 "an angle target": ("06 Work/Contract.docx", "[c](<../06 Work//Contract.docx> \"the contract\")"),
+                 "a reference": ("06 Work/Contract.docx", "[c]: ../06 work/CONTRACT.docx"),
+                 "from the folder root": ("06 Work/Contract.docx", "[c](06%20Work/Contract.docx)"),
+                 "up and down": ("06 Work/Contract.docx", "[c](../40%20Study/../06%20Work/Contract.docx)"),
+                 "a folder": ("06 Work", "[w](../06%20Work)"),
+                 "a folder with a slash": ("06 Work", "[w](../06%20Work/)")}
+        self.base = {page: read(self.page(page))}
+        for name, (excluded, link) in links.items():
+            with self.subTest(name):
+                self.exclude(excluded)
+                self.assertEqual([c[2] for c in self.appended(page, "See " + link + ".")], ["excluded"])
+        self.exclude("06 Work/Contract.docx")
+        self.assertEqual(self.appended(page, "See [c](../06%20Work/Other.docx) and [d](../06%20Work/Contract.docx2).\n"),
+                         [], "a link to other files")
+
     def test_a_sources_entry_spelt_in_another_case_is_dead(self):
         """It opens the file on macOS, so a test of existence would pass for it."""
         edit(self.page(TAX), '  - "06 Work/Contract.docx"', '  - "06 work/Contract.docx"')
@@ -481,6 +545,16 @@ class CheckTest(Copy):
         res = self.cites("03 Home/Lease renewal.pdf")
         self.assertEqual(len(res["chart_sources_bad"]), 1)
         self.assertEqual(res["chart_sources_bad"][0][0], "30 Home/30 Home.md")
+
+    def test_a_chart_whose_source_is_a_copy_of_an_excluded_document_is_a_problem(self):
+        """`04 Study/Essay.docx` is an included path, but a copy of the excluded `06 Work/Essay.docx`: the figures of a
+        chart drawn from it come from a document the tools may not read, and the chart's source cell is judged by the
+        chart rule, so only the chart check can refuse it."""
+        edit(self.page("30 Home/30 Home.md"), "Lease renewed to 2025-04-30 | `03 Home/Lease renewal.pdf`",
+             "Lease renewed to 2025-04-30 | `04 Study/Essay.docx`")
+        self.assertEqual(self.check()["chart_sources_bad"], [], "not withheld yet")
+        res = self.cites("06 Work")
+        self.assertEqual([c[0] for c in res["chart_sources_bad"]], ["30 Home/30 Home.md"])
 
     def test_a_scoped_check_reports_the_citations_of_its_pages_only(self):
         self.exclude("06 Work")
@@ -1255,7 +1329,7 @@ class AcceptTest(Copy):
                      self.work, "--reply", self.reply(page, lens), "--author-model", "a", "--reviewer-model", "b"],
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE))
         for r in runs:
-            _out, err = r.communicate()
+            _out, err = r.communicate(timeout=TIMEOUT)
             self.assertEqual(r.returncode, 0, err)
         self.assertEqual(len(self.records()), 12)
         self.assertEqual(sorted((r["page"], r["lens"]) for r in self.records()),

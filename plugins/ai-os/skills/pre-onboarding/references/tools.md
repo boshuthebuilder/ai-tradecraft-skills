@@ -38,6 +38,33 @@ Stated once here; each tool's section below lists only its own.
 it reads or writes anything, except `settings.py` (`compile` is the remedy, `check` the diagnosis) and
 `readiness.py`, which report it ([stale twins](settings.md#stale-twins)).
 
+**Withheld means purged.** Every tool that takes `--root` also runs, at its start and before it reads or sends
+anything (`common.resolve`; `plan.py` through `common.purge_at_start`), one function, `common.purge_withheld`. It computes
+what is withheld from the settings and the manifest (a document staged for another project under the migrations folder,
+or one the owner excluded: [the decision](#held-for-another-project-and-excluded)) and discards every derived artefact
+that could carry such a document or its path:
+
+- the extract record, the card, the cached section notes (`<work>/sections`), the queued page images
+  (`<work>/vision_queue`) and the card error (`<work>/state`) of a document the manifest withholds;
+- an extract record whose stored `path`, a card whose `card_meta.path`, or a cached note whose first line (`[path] <path>`)
+  is a withheld path though its document is live (the canonical copy moved into an excluded folder, and an identical copy
+  is the document now): it goes with that document's other artefacts, and the document is read again from the path that
+  is included. A record or card that only moved between included paths stays: `extract.py repath` brings a record up
+  to date, and its old path names nothing withheld;
+- the hash cache's lines for withheld paths (`<work>/hashcache.json`);
+- every bundles folder (`<work>/bundles`, and each folder a `bundles` run registered in `<work>/state/rendered.json`) whose
+  `bundles.json` records a `withheld_sha256` other than the current one, and every rendered brief or review prompt
+  registered under another digest (a review prompt in `<work>/reviews/` that nothing registered goes too). The digest,
+  `common.withheld_digest`, covers the folded, sorted `exclude`, the migrations folder, the ids the manifest withholds
+  and why, and every path, copies included, that a withheld document holds.
+
+It prints counts, never a path (`purged what withheld documents left behind: 2 cards, 2 extract records`), once on
+standard error, and nothing when there is nothing to purge. `cards.py work` and `vision.py` read the settings and the
+manifest again and purge again before every batch, so an exclusion or a staging made while one runs holds from its next
+batch. With `--read-only-root`, a purge that has to remove something inside the folder is refused (exit 2, `refused:
+--read-only-root, but <n> artefact(s) of withheld documents inside the folder must be purged first`), never skipped: run
+the tool once without it. `readiness.py` and `settings.py` purge as well, when they can read the settings.
+
 **Exit codes.** `0`: done, nothing to act on. `1`: the tool ran and reports something to act on (a finding, a
 failed row, a problem). `2`: refused, with `error: <why>` on standard error (a stale twin, a bad argument, a guard).
 `3`: a worker stopped because another worker's alert stands, `<work>/state/ALERT` existing: `cards.py work` and
@@ -203,7 +230,14 @@ destination: the owner must choose one before approving`, as `execute` refuses i
 deferred is never run, so it is not refused. A row whose `from` or `to` is a path the rulebook excludes (or under one)
 fails, before any hashing, with `the from path is excluded from reading by the rulebook: no tool opens, hashes or moves
 it; the owner moves it by hand`, and `execute` refuses it the same way; `migrate` and `return` list such a path as
-`MISSING`. A destination that already exists is seen only by `execute`.
+`MISSING`. A `delete` row is refused, before either file is hashed, when the document the manifest holds the copy of
+(its current path), the copy, or the canonical copy the row would open to prove the bytes equal is withheld, staged for
+another project (`... is held for another project: no tool opens, hashes or moves it; the owner decides it by hand`) or
+excluded (`... is excluded: ...`), whether or not the manifest was audited before the exclusion: the plan tools never open
+a withheld path, and `light` proposes nothing for a copy, or a copy of a document, that is withheld. A `move` or `rename`
+whose `from` or `to` is staged, rather than excluded, is still run: `migrate` and `return` rows stage a file under the
+migrations folder and bring it back, which is the owner's approved act. A destination that already exists is seen only
+by `execute`.
 
 ### `execute`
 
@@ -272,8 +306,9 @@ Every comparison, here and in the wiki tools, is by whole path part, in Unicode 
 
 Such a document is never read and never queued for the vision lane, and the run's log counts each kind on its `start`
 and `finished` lines (`held_for_another_project=<n> excluded=<n>`), over the entries the lane and worker take, so the
-workers' counts add up to the folder's. A record made before the document was staged or excluded stays where it is,
-never rewritten or read again. A path both staged and excluded is counted as held for another project. A document is
+workers' counts add up to the folder's. A record made before the document was staged or excluded is **purged** at the next tool's start
+([withheld means purged](#common-flags)), and the counts come from the manifest, so they stay right once the records are
+gone. A path both staged and excluded is counted as held for another project. A document is
 read, carded and sent only when the manifest holds it **live** (not `departed`) and not withheld, so a document moved
 into an excluded folder (its old entry departed at its old, included path, and the file has a new, unhashed entry in the
 excluded folder) is never sent from the old entry's record.
@@ -345,7 +380,9 @@ than the folder: re-audit first. `--apply` writes every repathed record to a tem
 guarded writer (with `--read-only-root`, records inside the folder are refused; `--out` names records kept
 elsewhere), and only then replaces the records. Whatever stops it part way, no temporary file stays: an OS error
 or a refusal exits 2 naming the records already replaced, and anything else (an interrupt) is raised again once
-the temporary files are gone. Cards need no repair: they hold no path, only their document's id.
+the temporary files are gone. Cards need no repair: a card holds its document's id and `card_meta.path`, the path it was carded at, which records how
+it was made and is no path a tool reads. A record, a card or a cached note whose path is withheld is purged at every
+tool's start, so before `repath` runs: it meets only records that moved between included paths.
 
 ## `iwa.py` and `page_ocr.swift`
 
@@ -374,11 +411,12 @@ unread. A page whose batch fails three times is marked `unread`, its local text 
 
 **Held for another project, and excluded.** An image whose document's current path in the manifest (`--manifest`,
 default `<root>/_Audit/manifest.json`, required) is under the migrations folder or is one the rulebook `exclude`s
-([the decision](#held-for-another-project-and-excluded)) is never sent, whatever the document's flags: it stays in the
-queue and out of the share that has to be empty, so the lane still ends, and the log's last line counts the documents
-of each kind (`finished; held for another project: <n>; excluded: <n>`). The manifest is read again before each batch, so a round
-that stages a document while the lane runs is seen, and a missing or malformed manifest stops the lane (exit 2) rather
-than read as nothing held.
+([the decision](#held-for-another-project-and-excluded)) is never sent, whatever the document's flags: its images and its record are purged ([withheld means
+purged](#common-flags)), so they are out of the share that has to be empty and the lane still ends, and the log's last
+line counts the documents of each kind by the manifest (`finished; held for another project: <n>; excluded: <n>`). The
+settings and the manifest are read again, and the purge run again, before each batch, so a round that stages or excludes a
+document while the lane runs is seen, and a missing or malformed manifest stops the lane (exit 2) rather than read as
+nothing held.
 
 It sleeps through quota, stops (exit 3) while `<work>/state/ALERT` exists, and stops (exit 2) on a credential file or
 a setup problem, which is not counted as a failed try. It exits once every done marker named in `--lanes` (default
@@ -520,12 +558,14 @@ One card per live document. What a card holds, how it is written and joined, and
 
 **Held for another project, and excluded.** A document whose current path in the manifest is under the migrations
 folder or is one the rulebook `exclude`s ([the decision](#held-for-another-project-and-excluded)) is never carded,
-whatever its flags and wherever its extract record says it was read: `build` plans no batch for its record and counts
-it (`build: <n> new batches, <n> records still waiting for extraction, <n> held for another project, <n> excluded`, a
-withheld record not counted as waiting), and `work` drops it from a batch planned before it was staged or excluded and
-from a `--redo` file, so it is never sent to the engine and no card is written for it; the worker's last log line counts
-the ones it held (`worker finished; held for another project: <n>; excluded: <n>`). A missing or malformed manifest is
-refused (exit 2).
+whatever its flags and wherever its extract record says it was read: its record, card and cached notes are purged
+([withheld means purged](#common-flags)), `build` plans no batch for it and counts the documents by the manifest
+(`build: <n> new batches, <n> records still waiting for extraction, <n> held for another project, <n> excluded, <n> not
+live`, a withheld record not counted as waiting), and `work` reads the settings and the manifest and purges again
+before every batch, then drops it from a batch planned before it was staged or excluded and from a `--redo` file, so it
+is never sent to the engine and no card is written for it; the worker's last log line counts the ones it held
+(`worker finished; held for another project: <n>; excluded: <n>; not live: <n>`). A missing or malformed manifest is
+refused (exit 2). Each card records `card_meta.path`, the manifest's path of its document when it was written.
 
 `--redo` plans each id as a first run would (its size decides: a long document is read in sections, reusing the
 cached notes), and refuses an id with no extract record. Batches go in `<work>/batches/`, section notes in
@@ -614,8 +654,9 @@ in no bundle, in neither the `unrouted` nor the `uncarded` list, and in no `copi
 under a withheld path is left out too); it is counted in the summary the command prints and `bundles.json` keeps
 (`held_for_another_project`, `excluded`).
 
-`bundles.json` records `manifest_sha256`, `routing_sha256` (the routing rows and section kinds), `withheld_sha256` (a
-digest of which documents were withheld, by id and why), `arguments` (the
+`bundles.json` records `manifest_sha256`, `routing_sha256` (the routing rows and section kinds), `withheld_sha256` (the
+digest `common.withheld_digest` gives: the exclusions, the migrations folder, which documents are withheld and every
+path, copies included, that they hold), `arguments` (the
 non-default `--settings-dir`, `--manifest`, `--cards`, `--extract` and `--text-cap` it was built with), `text_cap`,
 the counts per section, the files, the withheld counts, and the `unrouted` and `uncarded` paths; either list non-empty
 exits 1. A
@@ -627,9 +668,12 @@ bundles whose recorded `manifest_sha256` differs from the current manifest's, wh
 the current Schema's, whose `withheld_sha256` differs from the withheld set now (the migrations folder or `exclude` in
 `rulebook.json` changed, which the manifest alone does not show: a bundle built before an exclusion would hold the
 excluded document), or whose files are missing, and name the command that rebuilds them with the recorded
-`arguments`. When the withheld set is what differs, the bundle files are **removed** from the bundles folder before the
-refusal, since they hold documents that must not be in one (a brief rendered earlier, kept by whoever asked for `--out`,
-still points at them: render it again). `--reuse` also refuses bundles built with other `--cards`, `--extract` or `--text-cap` than the ones
+`arguments`. Every tool's start already purges bundles built under another withheld set ([withheld means
+purged](#common-flags)), so the refusal then reads `no bundles in <dir>`. A bundles folder the purge has not been told
+about (built before it, or moved) is judged by the consumer: the withheld digest is checked **before** the manifest's,
+so a re-audit never leaves stale bundles on disk, and when it differs the bundle files are **removed** before the
+refusal, since they hold documents that must not be in one (a brief rendered earlier, kept by whoever asked for
+`--out`, still points at them: render it again). `--reuse` also refuses bundles built with other `--cards`, `--extract` or `--text-cap` than the ones
 it is given. Every curation round ends in a re-audit that rewrites the manifest, so bundles built before it are
 refused rather than read.
 
@@ -649,12 +693,16 @@ the Schema fixes filled in; the JSON a drafting agent returns, which is what [wi
 4a](../../wiki-onboarding/SKILL.md#4a-draft-the-pages-when-every-document-has-been-read) names (`pages`, each with its
 `path`, `text`, `rationale` and `index_entry`, then `open_questions` and `check_result`); and the checker command
 every drafting agent runs, `python3 <tools>/wiki.py check --root <root> --work <work> --page <page> ...`, scoped to
-the pages briefed. The brief tells the author to open a source file only when a bundle line names it, and that a path the
+the pages briefed. A page that already exists and cites a withheld document (`cites_withheld`, below) carries a line in its
+entry (`- Withheld citation: lines <n>, <n> cite a document the tools may not read (excluded). Take each citation off
+the page, and every fact drawn from that document with it; do not open the document, and do not name its path.`), with
+the lines and the kind of withholding and no path. The brief tells the author to open a source file only when a bundle line names it, and that a path the
 brief marks withheld, any path under the migrations folder and any path the owner excluded is never opened, read or
 cited. The page map is every page
 under the wiki folder, every page in the Schema's Page professionals table, each Layout section's folder note (`<NN
 Name>/<NN Name>.md`) and the pages briefed, each marked `exists` or `planned`. It refuses stale bundles, and writes
-`--out` only outside the folder. The same inputs render the same bytes.
+`--out` only outside the folder; the file is registered in `<work>/state/rendered.json` under the withheld digest, so a
+later purge removes it once the withheld set changes. The same inputs render the same bytes.
 
 ### The stage templates
 
@@ -726,9 +774,14 @@ default that does not exist reads as `not recorded`. Line numbers count from the
   ([`common.withheld`](#held-for-another-project-and-excluded)): a path a withheld entry holds (a copy at an included
   path of a withheld document too), or a path under the migrations folder or an excluded path that the manifest holds
   as a file or a folder (so a placeholder such as `_Migrations/<Project>/` is not one). `why` is `migrations` or
-  `excluded`, and the report names no path. Paths are compared as `common.fold` does (case and Unicode form ignored),
-  and a withheld path is found anywhere in the page, in plain text and in a fenced block and with its percent-escapes
-  decoded (a link's target), as well as in a `sources:` entry or a backticked span. A page must not depend on a document
+  `excluded`, and the report names no path. A candidate path is normalised before it is judged: percent-escapes
+  decoded (as often as they nest), `\` read as `/`, `posixpath.normpath` (`./`, `//` and `name/../` gone, the trailing
+  `/` dropped), leading `../` dropped, then `common.fold` (case and Unicode form ignored). A link's target of any
+  kind of file, a reference definition and an angle-bracketed target are candidates too, resolved from the page's own
+  folder as well as from the folder's root, so `[x](../06%20Work/./Contract.docx)` is a citation. A withheld path is also
+  found anywhere in the page's text, in plain text and in a fenced block, with its percent-escapes decoded, wrapped across
+  lines at any point (read joined by a space, with the lines' indentation, quote marks and breaks taken out, and joined by a
+  space except at a `/` or before a `.`), and with `//` and `/./` taken out; and in a `sources:` entry or a backticked span. A page must not depend on a document
   the tools may not read, so each is a problem. The Schema page and the Log may name a withheld **folder** (a routing
   row, a history line) but not a withheld **document**: a document path is a citation on any page, those two included. A
   chart's source cell is judged as a chart source.
@@ -802,7 +855,9 @@ pages that cite any.
 that [`check`](#check-1) reports under `cites_withheld` (by the one helper, `withheld_citer`, which both use) is
 refused: no prompt is written for it, and one left from an earlier run is removed. The other pages still render. The
 command prints `refused`, `[page, line, why]` for each citation, then exits 2 with an error naming each page and line,
-never a path. Take each citation off the page (or stop excluding the document), then render again.
+never a path. Take each citation off the page (or stop excluding the document), then render again. Each prompt is
+registered in `<work>/state/rendered.json` under the withheld digest, so a later purge removes it once the withheld set
+changes.
 
 The reviewer replies in JSON, as the template asks: `page`, `page_sha256` (copied from the prompt, tying the
 verdict to the version read), `lens` (`owner` or `professional`), `author`, `reviewer`, `verdict` (`accepted`, or
@@ -913,7 +968,9 @@ map's destinations and run the same map again.
 
 Lists `[page, line, path]` for every `sources:` entry and every backticked path in a page body (fenced blocks
 skipped) that cites a departed path (one a departed entry held and nothing live holds) or a migrating one (staged
-under the migrations folder, or the path it was staged from). The report never names a withheld path: a migrating
+under the migrations folder, or the path it was staged from). A cited path is normalised as `check` normalises one, and
+compared as `common.fold` compares, so another letter case, a dot segment or percent-escapes name the same path; a
+staged path is one `common.in_migrations` says is. The report never names a withheld path: a migrating
 path, and a departed one that is withheld, is written `withheld (held for another project)` or `withheld (excluded)`
 (the page and line say where to look). The Log is history and is not read. Every count is
 reported, zero included, and any citation exits 1. After `03 Home/Lease notes .txt` leaves a folder and a re-audit
@@ -1002,7 +1059,8 @@ again before `readiness.py` reports it `accepted`.
 
 Prints a fenced Mermaid block, a blank line, then its data table: the same rows, each with its source in backticks.
 Both go into the page together, so the page cites the data its chart is drawn from; the same input always gives
-the same bytes. Chart pairing, in `wiki.py check`: it counts every `xychart-beta`, `pie`, `gantt` and `timeline`
+the same bytes. A source may not lie under a reserved name or an excluded path, compared as `common.fold` compares (and
+`check`, which reads the manifest, also refuses a source that is a copy, at an included path, of a withheld document). Chart pairing, in `wiki.py check`: it counts every `xychart-beta`, `pie`, `gantt` and `timeline`
 block (`chart_blocks`) and names each one whose next non-blank line does not start that table, with a backticked
 source on every row (`charts_without_data_table`, page and line; each is a problem). Only a block opened at the
 outermost level with the info string `mermaid` counts; one quoted inside another fenced block or an indented code
@@ -1133,9 +1191,11 @@ same way, which is not a finding and not a pass either, and does not change the 
   `settings_rulebook_json` and `settings_wiki_schema_json` (present and fresh).
 
 **Routing new files to the migrations folder.** `new_files_routed_within_folder` reads the rulebook strictly, by keyword:
-a statement (a list item or a paragraph, with the lines it wraps over joined; a heading, a table row and a line of a fenced
-block stand alone) that names the migrations folder (`_Migrations/`) together with "new file", "drop" (`dropped`, a drop
-point), "goes to" or "go to", in any case, is a finding, **whatever else it says**. A negation is deliberately not read:
+a statement (a list item or a paragraph, with the lines it wraps over joined, and a list item read with the line that
+ends in `:` and leads its list; a heading, a table row and a line of a fenced block stand alone) that names the migrations
+folder (`_Migrations`, with or without the trailing `/`, in any letter case and Unicode form, and as a whole name: `_Migrations2`
+and `my_Migrations` are other names) together with "new file", "drop" (`dropped`, a drop point), "goes to" or "go to", in
+any case, is a finding, **whatever else it says**. A negation is deliberately not read:
 "new files that do not belong here go to `_Migrations/`" holds one and still routes. A missed route is not safe where a
 false finding is, since the operator rewords the line; the finding says how: describe staging only through approved plan
 rows, say that new files are filed in this folder by the wiki's routing, and keep those words off any line that names
@@ -1323,7 +1383,9 @@ top-level name a rulebook must reserve), `pack_matcher`, `withheld` (the one dec
 staged for another project, under the migrations folder, or excluded by the rulebook's `exclude`, compared in Unicode
 NFC; built on `in_migrations` and `is_excluded`), `withheld_ids` (the manifest's entries it withholds, as `{id: why}`; a
 missing or malformed manifest is refused, never read as nothing withheld), `named_exactly` and `check_excluded` (an
-`exclude` entry that names no path under the folder fails loud), `page_voice` (the one reading of
+`exclude` entry that names no path under the folder, or one inside a package (an iWork `.pages`, `.numbers` or `.key`
+folder, which the audit reads as one item: exclude the whole package), fails loud), `purge_withheld`, `purge_at_start`,
+`withheld_digest` and `register_rendered` ([withheld means purged](#common-flags)), `page_voice` (the one reading of
 [a page's professional](settings.md#a-pages-professional)), JSON parsing of model replies, the token estimate and
 `sha256_package`. `sha256_package` is the manifest's package hash rule
 ([`manifest-schema.md`](../../file-preprocessing/references/manifest-schema.md#added-in-2)), which the audit, the

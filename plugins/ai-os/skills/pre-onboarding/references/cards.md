@@ -40,7 +40,7 @@ The tool adds:
 | Field | What it holds |
 | --- | --- |
 | `category_raw` | the engine's category, when it was not one of `card_categories`; the card's `category` is then `Other` |
-| `card_meta` | `model` (the `--model` given, or `cli-default`), `via` (the engine), `batch` and `created_at`; `refs.py --apply` appends to its `fixes` |
+| `card_meta` | `model` (the `--model` given, or `cli-default`), `via` (the engine), `batch`, `created_at` and `path` (the manifest's path of the document when the card was written; a purge reads it, no card consumer does); `refs.py --apply` appends to its `fixes` |
 
 A password or an activation code is never written on a card, under any identifier policy.
 
@@ -60,7 +60,7 @@ One prompt per call, in three parts:
 | Key | What it holds |
 | --- | --- |
 | `id` | a short id the call issues: `d1`, `d2` and so on |
-| `path` | the document's path in the folder, from its extract record |
+| `path` | the document's path in the folder, from the manifest (`current_path`), never from its extract record |
 | `class` | its manifest class |
 | `page_count` | its page count |
 | `read` | how its text was obtained: `text_layer`, `local_ocr`, `vision`, `mixed`, `sectioned` or `none` |

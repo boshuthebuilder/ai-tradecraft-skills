@@ -1160,8 +1160,9 @@ def migrations_cleared(root, name):
 
 
 # The rulebook's prose, read by keyword, strictly: a statement (a list item or a paragraph, the lines it wraps over
-# joined) that names the migrations folder together with a ROUTES word reads as routing new files there, whatever else it
-# says. A negation ("never", "not", "no") is not read: a sentence can hold one and still route ("new files that do not
+# joined, a list item read with the line ending in `:` that leads its list) that names the migrations folder, with or
+# without the trailing `/` and in any letter case, together with a ROUTES word reads as routing new files there,
+# whatever else it says. A negation ("never", "not", "no") is not read: a sentence can hold one and still route ("new files that do not
 # belong here go to `_Migrations/`"), and a missed route is not safe where a false finding is, since the operator
 # rewords the line.
 ROUTES = re.compile(r"(?i)new file|drop|goes to|go to")
@@ -1170,33 +1171,52 @@ LIST_ITEM = re.compile(r"(?:[-*+]|[0-9]+[.)])\s")
 
 def statements(text):
     """The rulebook's statements as a reader takes them: each list item and each paragraph is one, with a line it
-    wraps onto joined to it; a heading, a table row and a line of a fenced block stand alone."""
-    out, open_, fence = [], False, False
+    wraps onto joined to it, and a list item under a paragraph that ends with `:` is read together with it; a heading,
+    a table row and a line of a fenced block stand alone."""
+    out, open_, fence, lead = [], False, False, None
     for line in text.splitlines():
         s = line.strip()
         item = LIST_ITEM.match(s)
         if s.startswith(("```", "~~~")):
-            fence, open_ = not fence, False
+            fence, open_, lead = not fence, False, None
             out.append(s)
         elif fence or s.startswith(("#", "|")):
             out.append(s)  # a line of code, a heading or a table row stands alone
-            open_ = False
+            open_, lead = False, None
         elif not s:
-            open_ = False
+            open_, lead = False, None
         elif open_ and not item:
             out[-1] += " " + s
         else:
-            out.append(s[item.end():].lstrip() if item else s)
+            body = s[item.end():].lstrip() if item else s
+            if item and lead is not None and out[lead].endswith(":"):
+                body = out[lead] + " " + body
+            out.append(body)
             open_ = True
+            if not item:
+                lead = len(out) - 1
     return out
+
+
+def names_folder(statement, folder):
+    """True when `statement` names the folder `folder` as a whole name, with or without a `/` after it and in any letter
+    case or Unicode form (`common.fold`): not as part of a longer name."""
+    key, text = common.fold(folder).rstrip("/"), common.fold(statement)
+    at = text.find(key)
+    while at >= 0:
+        end = at + len(key)
+        if (at == 0 or not (text[at - 1].isalnum() or text[at - 1] == "_")) and (
+                end >= len(text) or not (text[end].isalnum() or text[end] == "_")):
+            return True
+        at = text.find(key, at + 1)
+    return False
 
 
 def routes_new_files_out(text, folder):
     """The statements of the rulebook `text` that read as routing new files to the migrations folder `folder`: those that
-    name `<folder>/` together with `new file`, `drop` (`dropped`, a drop point), `goes to` or `go to`, in any case, and
-    whatever else they say."""
-    named = folder + "/"
-    return [statement for statement in statements(text) if named in statement and ROUTES.search(statement)]
+    name it (`names_folder`: with or without the trailing `/`, in any case) together with `new file`, `drop` (`dropped`,
+    a drop point), `goes to` or `go to`, in any case, and whatever else they say."""
+    return [statement for statement in statements(text) if names_folder(statement, folder) and ROUTES.search(statement)]
 
 
 def contract(root, rb, settings_dir, ws, pages, rulebook_text):

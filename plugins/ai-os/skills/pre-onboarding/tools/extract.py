@@ -512,7 +512,7 @@ def main():
     if a.ocr_bin and not (os.path.isfile(a.ocr_bin) and os.access(a.ocr_bin, os.X_OK)):
         raise common.ToolError("--ocr-bin %s is not an executable file; build the helper (`swiftc -O page_ocr.swift "
                                "-o page-ocr`) and give its path, or leave --ocr-bin out" % a.ocr_bin)
-    root, settings_dir, work = common.resolve(a)
+    root, settings_dir, work = common.resolve(a, extract=a.out)
     rb = common.load_rulebook(root, settings_dir)
     langs = rb["ocr_languages"]
     ocr_codes(langs, TESSERACT_LANGS)   # an unknown code fails loud before anything is written
@@ -628,7 +628,7 @@ def repath(argv):
     ap.add_argument("--out", help="the extract records (default <root>/_Audit/extract)")
     ap.add_argument("--apply", action="store_true", help="write the repathed records (default: a dry run)")
     a = ap.parse_args(argv)
-    root, _settings_dir, _work = common.resolve(a)
+    root, _settings_dir, _work = common.resolve(a, extract=a.out)
     records = os.path.realpath(a.out) if a.out else os.path.join(root, "_Audit", "extract")
     _mpath, entries = wiki.load_manifest(root, a.manifest)
     try:

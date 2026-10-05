@@ -18,6 +18,7 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOOLS = os.path.join(HERE, "..", "tools")
+TIMEOUT = 600  # seconds: a tool that hangs fails its test instead of the run
 FIXTURE = os.path.join(HERE, "fixture", "Alex Personal")
 EXPECTED = os.path.join(HERE, "expected")
 NOW = 1719748800            # 2024-06-30T12:00:00Z, the frozen clock of expected/
@@ -94,7 +95,7 @@ def run(tool, *args, now=NOW, script=None):
     open fails the test."""
     env = dict(os.environ, PRE_ONBOARDING_NOW=str(now), PYTHONWARNINGS="error::ResourceWarning")
     cmd = [sys.executable, "-c", script, TOOLS] if script else [sys.executable, os.path.join(TOOLS, tool)]
-    r = subprocess.run(cmd + list(args), capture_output=True, text=True, env=env)
+    r = subprocess.run(cmd + list(args), capture_output=True, text=True, env=env, timeout=TIMEOUT)
     if "ResourceWarning" in r.stderr:
         raise AssertionError("%s left a file open:\n%s" % (tool, r.stderr[-2000:]))
     return r.returncode, r.stdout, r.stderr

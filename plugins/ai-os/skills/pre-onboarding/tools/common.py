@@ -5,6 +5,7 @@ in one place: with it set, any write under the folder being prepared is refused 
 """
 import argparse
 import atexit
+import collections
 import datetime
 import functools
 import hashlib
@@ -22,6 +23,7 @@ RULEBOOK_FILES = ("CLAUDE.md", "AGENTS.md", "GEMINI.md")
 RULEBOOK_SOURCE = "CLAUDE.md"
 SETTINGS_DIRNAME = ".familyai"
 DEPTHS = ("light", "medium", "full")
+PACKAGE_EXTS = (".pages", ".numbers", ".key")  # a folder with one of these extensions is one item, a package (iWork)
 IDENTIFIER_POLICIES = ("stated", "last-four", "home-only")
 
 
@@ -149,22 +151,31 @@ def base_args(description, writes=True):
     return ap
 
 
-def resolve(args, verify=True):
+def default_work(root):
+    """The default work directory of the folder at `root`: `~/.ai-os-pre-onboarding/` and the folder's name, each run of
+    characters other than the ASCII letters, digits, `.`, `_` and `-` written as one `-`."""
+    return os.path.join(os.path.expanduser("~/.ai-os-pre-onboarding"), re.sub(r"[^A-Za-z0-9._-]+", "-",
+                                                                               os.path.basename(root)))
+
+
+def resolve(args, verify=True, extract=None, cards=None, manifest=None):
     """Normalise the common arguments; returns (root, settings_dir, work). A stale twin is refused here, so every
     tool refuses it, unless `verify` is off: only for settings.py (compile is the remedy, check the diagnosis) and
     readiness.py (which reports the twins' freshness as hand-off findings). A malformed twin fails loud either way
-    when it is read."""
+    when it is read. Every tool's start also purges what the withheld documents left behind (`purge_withheld`),
+    before the tool reads or sends anything; `extract` and `cards` name the folders of extract records and cards when
+    they are not the folder's own, and `manifest` the manifest when it is not the argument's."""
     root = os.path.realpath(args.root)
     if not os.path.isdir(root):
         raise ToolError("root missing: %s" % root)
     settings_dir = settings_dir_for(root, args.settings_dir)
-    work = os.path.realpath(args.work) if args.work else os.path.join(
-        os.path.expanduser("~/.ai-os-pre-onboarding"), re.sub(r"[^A-Za-z0-9._-]+", "-", os.path.basename(root)))
+    work = os.path.realpath(args.work) if args.work else default_work(root)
     if work == root or work.startswith(root + os.sep):
         raise ToolError("--work must be outside the folder: %s" % work)
     if verify:
         verify_twins(root, settings_dir)
     os.makedirs(work, exist_ok=True)
+    purge_at_start(root, settings_dir, work, args, verify, extract, cards, manifest)
     return root, settings_dir, work
 
 
@@ -539,9 +550,248 @@ def check_excluded(root, rb):
     word. `load_rulebook` calls it, so every tool that reads the settings refuses such an entry before it reads
     anything."""
     for p in rb["exclude"]:
-        if named_loosely(root, p) is None:
+        found = named_loosely(root, p)
+        if found is None:
             raise ToolError("%s: exclude entry %r is not a path under %s (ignoring case and Unicode form); update "
                             "rulebook.json exclude" % (rb.get("_source") or "rulebook.json", p, root))
+        parts = p.split("/")
+        for i in range(1, len(parts)):  # a package is one item to the audit: it is excluded whole or not at all
+            if os.path.splitext(parts[i - 1])[1].lower() in PACKAGE_EXTS and os.path.isdir(
+                    named_loosely(root, "/".join(parts[:i])) or ""):
+                raise ToolError("%s: exclude entry %r lies inside the package %r, which the audit reads as one item; "
+                                "exclude the whole package: %r" % (rb.get("_source") or "rulebook.json", p,
+                                                                   "/".join(parts[:i]), "/".join(parts[:i])))
+
+
+# ------------------------------------------------------------------------------------ withheld means purged
+
+def withheld_digest(rb, entries):
+    """The digest of what is withheld: the folded, sorted `exclude` and the folded migrations folder, the ids the
+    manifest's entries withhold and why, and every path, copies included, that a withheld live entry holds. A change to
+    any of them changes it, so an artefact built under another digest may carry a document that must not be in it."""
+    basis = {"exclude": sorted(fold(e).rstrip("/") for e in rb["exclude"]),
+             "migrations": fold(rb["migrations_dir"]).rstrip("/"),
+             "ids": sorted(withheld_in(rb, entries).items()), "paths": sorted(withheld_paths(rb, entries).items())}
+    return hashlib.sha256(json.dumps(basis, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+RENDERED = "rendered.json"  # <work>/state: the files and bundle folders tools rendered, each with the digest it was built under
+STORED_PATH = re.compile(r'"path"\s*:\s*("(?:[^"\\]|\\.)*")')
+
+
+def register_rendered(work, path, digest, kind="file"):
+    """Record that a tool wrote `path` (a rendered file, or a folder of bundles with `kind` `bundles`) under the withheld
+    set `digest`, so a later purge can remove it when the set has changed."""
+    reg = os.path.join(work, "state", RENDERED)
+    try:
+        with open(reg, encoding="utf-8") as f:
+            items = json.load(f)
+    except (OSError, ValueError):
+        items = []
+    items = [i for i in items if isinstance(i, dict) and i.get("path") != path] + [
+        {"path": path, "sha": digest, "kind": kind}]
+    os.makedirs(os.path.dirname(reg), exist_ok=True)
+    with open(reg, "w", encoding="utf-8") as f:
+        json.dump(items, f, indent=1)
+
+
+def stored_path(file):
+    """The `path` an extract record holds, read from the start of the file (where the writers put it), or None."""
+    try:
+        with open(file, "rb") as f:
+            head = f.read(8192).decode("utf-8", "replace")
+        m = STORED_PATH.search(head)
+        if m:
+            return json.loads(m.group(1))
+        with open(file, encoding="utf-8") as f:
+            data = json.load(f)
+        return data.get("path") if isinstance(data, dict) and isinstance(data.get("path"), str) else None
+    except (OSError, ValueError, RecursionError):
+        return None
+
+
+def note_path(file):
+    """The path a cached section note was read at, from its `[path] ` first line, or None (a note made before it was
+    written)."""
+    try:
+        with open(file, encoding="utf-8") as f:
+            first = f.readline().rstrip("\n")
+    except (OSError, UnicodeDecodeError):
+        return None
+    return first[len("[path] "):] if first.startswith("[path] ") else None
+
+
+def _existing(default, extra):
+    out = []
+    for d in [default] + [x for x in extra if x]:
+        d = os.path.realpath(d)
+        if os.path.isdir(d) and d not in out:
+            out.append(d)
+    return out
+
+
+def _bundle_files(d):
+    return [n for n in os.listdir(d) if n == "bundles.json" or re.fullmatch(r"bundle_.+\.jsonl", n)]
+
+
+def purge_withheld(root, rb, work, manifest=None, extract_dirs=(), cards_dirs=(), read_only=False, thorough=True):
+    """Discard every derived artefact that could carry a withheld document or path, and say how many (never which).
+    Run by every tool's start (`resolve`, before it reads or sends anything) and by the workers before each batch
+    (`thorough` off: not the hash cache, the bundles or the rendered files). What goes:
+
+    - the extract records, cards, cached section notes, queued page images and card errors of a document the manifest
+      withholds (staged for another project, or excluded);
+    - an extract record whose stored path is withheld, and the cards and notes of that document (a document read, or
+      carded, while its canonical copy sat in a folder that is excluded now: it is re-derived from the included path);
+      a card whose `card_meta.path` is withheld; a cached note whose first line records a withheld path;
+    - (`thorough`) the hash cache's entries for withheld paths, every bundle folder whose recorded digest is not the
+      withheld digest now, and every rendered file registered under another digest, or in the folder's review prompts
+      without one.
+
+    A record or card that only moved between included paths is kept: `extract.py repath` brings a record up to date and
+    its old included path names nothing withheld. With `read_only` (`--read-only-root`) a purge inside the folder is
+    refused, loud, rather than skipped."""
+    mpath = manifest or os.path.join(root, "_Audit", "manifest.json")
+    entries = None
+    if os.path.exists(mpath):
+        try:
+            entries = _manifest_entries(root, mpath)
+        except ToolError:
+            entries = None  # a tool that needs the manifest says so itself
+    states = {h: withheld(rb, e["current_path"]) for h, e in (entries or {}).items()}
+    states = {h: why for h, why in states.items() if why}
+    audit = os.path.join(root, "_Audit")
+    todo, stale, ids = [], set(), set(states)  # (path, what)
+    for d in _existing(os.path.join(audit, "extract"), extract_dirs):
+        for name in sorted(n for n in os.listdir(d) if n.endswith(".json")):
+            i, full = name[:-5], os.path.join(d, name)
+            ids.add(i)
+            path = stored_path(full)
+            if i in states or (path and withheld(rb, path)):
+                todo.append((full, "extract record"))
+                if i not in states:
+                    stale.add(i)
+    for d in _existing(os.path.join(audit, "cards"), cards_dirs):
+        for name in sorted(n for n in os.listdir(d) if n.endswith(".json")):
+            i, full = name[:-5], os.path.join(d, name)
+            ids.add(i)
+            meta = None
+            if i not in states and i not in stale:
+                try:
+                    with open(full, encoding="utf-8") as f:
+                        card = json.load(f)
+                    meta = (card.get("card_meta") or {}).get("path") if isinstance(card, dict) else None
+                except (OSError, ValueError, AttributeError, RecursionError):
+                    meta = None
+            if i in states or i in stale or (isinstance(meta, str) and withheld(rb, meta)):
+                todo.append((full, "card"))
+    by16 = {i[:16]: i for i in ids}
+    sections = os.path.join(work, "sections")
+    if os.path.isdir(sections):
+        for name in sorted(os.listdir(sections)):
+            i, full = by16.get(name.split("_")[0]), os.path.join(sections, name)
+            recorded = note_path(full)
+            if (i and (i in states or i in stale)) or (recorded and withheld(rb, recorded)):
+                todo.append((full, "cached section note"))
+    for sub, what in (("vision_queue", "queued page image"), ("state", "card error")):
+        d = os.path.join(work, sub)
+        if os.path.isdir(d):
+            for name in sorted(os.listdir(d)):
+                m = re.match(r"([0-9a-f]{64})_\d{5}\.png$", name) if sub == "vision_queue" else \
+                    re.match(r"card_err_([0-9a-f]{64})\.txt$", name)
+                if m and m.group(1) in states:
+                    todo.append((os.path.join(d, name), what))
+    cache_edit = None
+    if thorough:
+        digest = withheld_digest(rb, entries or {})
+        cache = os.path.join(work, "hashcache.json")
+        if os.path.exists(cache):
+            try:
+                with open(cache, encoding="utf-8") as f:
+                    data = json.load(f)
+                kept = {k: v for k, v in data.items() if not withheld(rb, k.split("|")[0])}
+                if len(kept) != len(data):
+                    cache_edit = (cache, kept, len(data) - len(kept))
+            except (OSError, ValueError, AttributeError, RecursionError):
+                pass
+        reg = os.path.join(work, "state", RENDERED)
+        try:
+            with open(reg, encoding="utf-8") as f:
+                items = [i for i in json.load(f) if isinstance(i, dict) and isinstance(i.get("path"), str)]
+        except (OSError, ValueError):
+            items = []
+        keep_items = []
+        bundle_dirs = [os.path.join(work, "bundles")] + [i["path"] for i in items if i.get("kind") == "bundles"]
+        for d in dict.fromkeys(os.path.realpath(x) for x in bundle_dirs):
+            if not os.path.isdir(d):
+                continue
+            files = _bundle_files(d)
+            try:
+                with open(os.path.join(d, "bundles.json"), encoding="utf-8") as f:
+                    recorded = json.load(f).get("withheld_sha256")
+            except (OSError, ValueError, AttributeError, RecursionError):
+                recorded = None
+            if files and recorded != digest:
+                todo += [(os.path.join(d, n), "bundle file") for n in files]
+        registered = set()
+        for i in items:
+            if i.get("kind") == "bundles":
+                keep_items.append(i)
+                continue
+            registered.add(os.path.realpath(i["path"]))
+            if i.get("sha") != digest:
+                if os.path.lexists(i["path"]):
+                    todo.append((i["path"], "rendered file"))
+            else:
+                keep_items.append(i)
+        reviews = os.path.join(work, "reviews")
+        for d, _ds, fs in os.walk(reviews) if os.path.isdir(reviews) else ():
+            for n in fs:
+                full = os.path.join(d, n)
+                if n.endswith(".md") and os.path.realpath(full) not in registered:
+                    todo.append((full, "rendered file"))
+    if not todo and not cache_edit:
+        return {}
+    protected = Writer(root if read_only else None)
+    inside = [t for t in todo if os.path.realpath(t[0]).startswith(os.path.realpath(root) + os.sep)]
+    if read_only and inside:
+        raise ToolError("refused: --read-only-root, but %d artefact(s) of withheld documents inside the folder must be "
+                        "purged first (run the tool without --read-only-root)" % len(inside))
+    counts = collections.Counter()
+    for path, what in todo:
+        protected.check(path)
+        try:
+            os.remove(path)
+            counts[what] += 1
+        except OSError:
+            pass
+    if cache_edit:
+        with open(cache_edit[0], "w", encoding="utf-8") as f:
+            json.dump(cache_edit[1], f)
+        counts["hash cache entry"] += cache_edit[2]
+    if thorough:
+        os.makedirs(os.path.dirname(reg), exist_ok=True)
+        with open(reg, "w", encoding="utf-8") as f:
+            json.dump(keep_items, f, indent=1)
+    print("purged what withheld documents left behind: %s" % ", ".join(
+        "%d %s%s" % (n, what, "" if n == 1 else "s") for what, n in sorted(counts.items())), file=sys.stderr)
+    return counts
+
+
+def purge_at_start(root, settings_dir, work, args, verify, extract=None, cards=None, manifest=None):
+    """`purge_withheld` as every tool's start runs it: the settings are read as the tool reads them (a diagnosis that does
+    not trust them skips the purge when they cannot be read), and the folders the tool names are purged beside the
+    folder's own."""
+    try:
+        rb = load_rulebook(root, settings_dir, verify=verify)
+    except ToolError:
+        if verify:
+            raise
+        return
+    purge_withheld(root, rb, work, manifest or getattr(args, "manifest", None),
+                   extract_dirs=[extract or getattr(args, "extract", None)],
+                   cards_dirs=[cards or getattr(args, "cards", None)],
+                   read_only=bool(getattr(args, "read_only_root", False)))
 
 
 def pack_matcher(root, rb):

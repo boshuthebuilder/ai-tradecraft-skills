@@ -17,7 +17,9 @@ holds nothing but `.DS_Store`, deletes only of copies the manifest marks `redund
 after every other approved row is done and the manifest was regenerated after them, deleted items moved to the Bin
 (never unlinked).
 A path the rulebook excludes is proposed nothing, and a row whose `from` or `to` is one is refused by `check` and
-`execute` before any hashing: the plan tools never open an excluded file.
+`execute` before any hashing: the plan tools never open an excluded file. A `delete` row is refused, before either file
+is hashed, when its copy, the canonical copy it would open to prove the bytes equal, or the document the manifest holds
+the copy of is withheld (excluded, or staged for another project), even in a manifest audited before the exclusion.
 Two-phase undo log: an `intent` line before each change and a `done` line with its reverse after. A failed row stops
 its domain. A `convert` row is the owner's or the deployment's: the executor names it, leaves it pending and goes on.
 """
@@ -223,6 +225,7 @@ def execute(a):
                 canon = [p for p, k in kinds.items() if k == "canonical"]
                 if not canon or canon[0] == r["from"]:
                     raise ValueError("no separate canonical copy")
+                refuse_withheld_delete(rb, e, r, canon[0])
                 src, keep = guard.inside(r["from"]), guard.inside(canon[0])
                 if not is_item(src) or not is_item(keep):
                     raise ValueError("copy or canonical missing on disk")
@@ -267,6 +270,18 @@ def refuse_excluded(rb, r):
             raise ValueError(EXCLUDED % ("the %s path" % key))
 
 
+def refuse_withheld_delete(rb, e, r, keep):
+    """Refuse a delete row before it hashes anything when the document it removes a copy of is withheld (its current path
+    staged for another project or excluded: a copy of it at an included path is as withheld as it), or the copy, or
+    the canonical copy `keep` it would open to prove the bytes equal, is. The plan tools never open a withheld path."""
+    for what, path in (("the document the manifest holds this copy of", e["current_path"]), ("the copy", r["from"]),
+                       ("the canonical copy", keep)):
+        why = common.withheld(rb, path)
+        if why:
+            raise ValueError("%s is %s: no tool opens, hashes or moves it; the owner decides it by hand"
+                             % (what, common.WITHHELD_WHY[why]))
+
+
 NO_DESTINATION = "no destination: the owner must choose one before approving"
 
 
@@ -296,6 +311,7 @@ def check(a):
                 if r["kind"] != "redundant" or kinds.get(r["from"]) != "redundant":
                     raise ValueError("not redundant")
                 canon = [p for p, k in kinds.items() if k == "canonical"][0]
+                refuse_withheld_delete(rb, e, r, canon)
                 src, keep = guard.inside(r["from"]), guard.inside(canon)
                 if not (is_item(src) and is_item(keep)):
                     raise ValueError("missing on disk")
@@ -365,7 +381,6 @@ def light(a):
     live = {h: e for h, e in entries.items()
             if "departed" not in e.get("flags", []) and not common.withheld(rb, e["current_path"])}
     in_pack = common.pack_matcher(root, rb)
-    migr = rb["migrations_dir"]
     redundant, allpaths = {}, {}
     for h, e in live.items():
         for c in e.get("copies", []):
@@ -381,7 +396,7 @@ def light(a):
                                 reason="root stray", needs_a_look="choose the folder it belongs in"))
         folder_fix = {}
         for p, h in sorted(allpaths.items()):
-            if p.startswith(migr + "/") or p in redundant:
+            if common.in_migrations(rb, p) or p in redundant:
                 continue
             parts = p.split("/")
             for i, seg in enumerate(parts[:-1]):
@@ -621,7 +636,9 @@ def main():
         root = os.path.realpath(a.root)
         if not os.path.isdir(root):
             raise common.ToolError("root missing: %s" % root)
-        common.verify_twins(root, common.settings_dir_for(root, a.settings_dir))
+        settings_dir = common.settings_dir_for(root, a.settings_dir)
+        common.verify_twins(root, settings_dir)
+        common.purge_at_start(root, settings_dir, common.default_work(root), a, True)
     return {"light": light, "migrate": migrate, "return": return_, "approve": approve, "rmdirs": rmdirs,
             "check": check, "execute": execute, "prove": prove}[a.cmd](a)
 

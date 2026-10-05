@@ -17,6 +17,7 @@ import unittest.mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOOLS = os.path.join(HERE, "..", "tools")
+TIMEOUT = 600  # seconds: a tool that hangs fails its test instead of the run
 FIXTURE = os.path.join(HERE, "fixture", "Alex Personal")
 EXPECTED_SCHEMA = os.path.join(HERE, "expected", "wiki-schema.json")
 SCHEMA = os.path.join("Alex Personal Wiki", "90 Schema", "90 Schema.md")
@@ -31,7 +32,7 @@ def read(path, mode="r"):
 
 
 def run(tool, *args):
-    r = subprocess.run([sys.executable, os.path.join(TOOLS, tool)] + list(args), capture_output=True, text=True)
+    r = subprocess.run([sys.executable, os.path.join(TOOLS, tool)] + list(args), capture_output=True, text=True, timeout=TIMEOUT)
     return r.returncode, r.stdout, r.stderr
 
 
@@ -476,19 +477,21 @@ class ExcludeEverywhereTest(FixtureCopy):
     """`exclude` is checked in the one loader: an entry that names no path stops every tool that reads the settings, before
     it reads or writes anything."""
 
+    def every_tool(self):
+        """(tool, arguments) for each tool that reads the settings, each run on this folder."""
+        folder = ["--root", self.root, "--work", self.work(self.root)]
+        manifest = os.path.join(self.root, "_Audit", "manifest.json")
+        return (("audit.py", folder), ("extract.py", folder + ["--lane", "main", "--manifest", manifest]),
+                ("cards.py", ["build"] + folder), ("vision.py", folder + ["--model", "m"]),
+                ("wiki.py", ["profile"] + folder), ("wiki.py", ["check"] + folder),
+                ("wiki.py", ["bundles"] + folder), ("plan.py", ["light", "--root", self.root, "--out",
+                                                                  os.path.join(self.tmp, "plan")]),
+                ("readiness.py", folder), ("settings.py", ["compile"] + folder), ("refs.py", folder))
+
     def test_every_tool_refuses_an_exclude_entry_that_names_no_path(self):
         self.rulebook_json(self.root, exclude=["Nowhere"])
         before = tree_digest(self.root)
-        work = self.work(self.root)
-        folder = ["--root", self.root, "--work", work]
-        manifest = os.path.join(self.root, "_Audit", "manifest.json")
-        for name, args in (("audit.py", folder), ("extract.py", folder + ["--lane", "main", "--manifest", manifest]),
-                           ("cards.py", ["build"] + folder), ("vision.py", folder + ["--model", "m"]),
-                           ("wiki.py", ["profile"] + folder), ("wiki.py", ["check"] + folder),
-                           ("wiki.py", ["bundles"] + folder), ("plan.py", ["light", "--root", self.root, "--out",
-                                                                             os.path.join(self.tmp, "plan")]),
-                           ("readiness.py", folder), ("settings.py", ["compile"] + folder),
-                           ("refs.py", folder)):
+        for name, args in self.every_tool():
             with self.subTest(tool=name, args=args[:1]):
                 code, out, err = run(name, *args)
                 self.assertEqual(code, 2, out + err)
@@ -500,7 +503,36 @@ class ExcludeEverywhereTest(FixtureCopy):
         self.assertEqual(found["status"]["rulebook_json"], "invalid")
         self.assertTrue(any("exclude entry 'Nowhere' is not a path under" in f for f in found["findings"]))
 
+    def test_every_tool_refuses_an_exclude_entry_inside_a_package_and_accepts_the_whole_package(self):
+        """The audit reads an iWork package as one item, and never lists what is inside it: an entry inside one would
+        exclude nothing, and every tool would read the document."""
+        write_file = os.path.join(self.root, "Notes.pages", "Data", "image.png")
+        os.makedirs(os.path.dirname(write_file))
+        with open(write_file, "wb") as f:
+            f.write(b"\x89PNG")
+        for entry in ("Notes.pages/Data", "notes.PAGES/Data/image.png", "Notes.pages/Data/"):
+            self.rulebook_json(self.root, exclude=[entry])
+            before = tree_digest(self.root)
+            for name, args in self.every_tool():
+                with self.subTest(entry=entry, tool=name):
+                    code, out, err = run(name, *args)
+                    self.assertEqual(code, 2, out + err)
+                    self.assertIn("lies inside the package 'Notes.pages', which the audit reads as one item; exclude the "
+                                  "whole package: 'Notes.pages'", err.replace("'notes.PAGES'", "'Notes.pages'"))
+                    self.assertNotIn("Traceback", err)
+            self.assertEqual(tree_digest(self.root), before, "a tool wrote into the folder before refusing")
+        self.rulebook_json(self.root, exclude=["Notes.pages"])
+        for sub in ("extract", "cards"):  # the audit runs read-only, and refuses to purge the records of excluded documents
+            shutil.rmtree(os.path.join(self.root, "_Audit", sub), True)
+        code, _out, err = self.audit(self.root)
+        self.assertEqual(code, 0, err)
+        entries = json.loads(read(os.path.join(self.tmp, "out", "manifest.json")))["entries"]
+        package = [e for e in entries.values() if e["current_path"].startswith("Notes.pages")]
+        self.assertTrue(package and all(e["hashed"] is False for e in package))
+
     def test_a_case_variant_of_a_real_path_is_accepted_and_the_audit_leaves_it_unread(self):
+        for sub in ("extract", "cards"):  # the audit runs read-only, and refuses to purge the records of excluded documents
+            shutil.rmtree(os.path.join(self.root, "_Audit", sub))
         self.rulebook_json(self.root, exclude=["06 work"])
         code, _out, err = self.audit(self.root)
         self.assertEqual(code, 0, err)

@@ -32,7 +32,7 @@ BASE_RESERVED = {"AGENTS.md", "CLAUDE.md", "GEMINI.md", ".familyai", "Outbox", "
 IMG = {".jpg", ".jpeg", ".png", ".heic", ".tif", ".tiff", ".gif", ".bmp", ".webp"}
 DOC = {".pdf", ".doc", ".docx", ".odt", ".rtf", ".txt", ".md", ".html", ".htm", ".xlsx", ".xls",
        ".csv", ".pptx", ".ppt", ".pot", ".potx", ".pps", ".ppsx"}
-IWORK = {".pages", ".numbers", ".key"}
+IWORK = set(common.PACKAGE_EXTS)
 EMAIL = {".eml", ".msg", ".emlx"}
 ARCH = {".zip", ".rar", ".7z", ".tgz", ".gz", ".tar"}
 EXPORTS = {".pdf", ".docx", ".doc", ".xlsx", ".xls", ".csv", ".pptx", ".ppt"}
@@ -92,7 +92,8 @@ def main():
     ap.add_argument("--dataless", choices=["fail", "read"], default="fail",
                     help="iCloud files not on this machine: fail (default, lists them) or read (downloads them)")
     a = ap.parse_args()
-    root, settings_dir, work = common.resolve(a)
+    root, settings_dir, work = common.resolve(
+        a, manifest=os.path.join(os.path.realpath(a.out), "manifest.json") if a.out else None)
     rb = common.load_rulebook(root, settings_dir)
     out = os.path.realpath(a.out) if a.out else os.path.join(root, "_Audit")
     writer = common.Writer(root if a.read_only_root else None)

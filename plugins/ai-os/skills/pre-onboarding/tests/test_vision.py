@@ -168,17 +168,19 @@ class VisionTest(unittest.TestCase):
     STAGED = "_Migrations/Other Project/01 Identity/Scan.pdf"
 
     def test_a_document_staged_for_another_project_is_never_sent(self):
-        """Held whatever its flags: it stays in the queue, out of the share that must empty, so the lane still ends."""
+        """Held whatever its flags: its record and queued images are purged before anything is read or sent, so the lane
+        still ends, and the log counts the document."""
         for flags in (["migrating"], []):
             with self.subTest(flags=flags):
                 self.setUp()
                 self.stage(self.eid, self.STAGED, flags)
-                before = self.record()
                 code, _out, err = self.vision()
                 self.assertEqual(code, 0, err)
                 self.assertEqual(self.fakes.calls("agy"), [], "a page of another project's document was sent")
-                self.assertEqual(self.record(), before)
-                self.assertEqual(len(os.listdir(self.queue)), 2, "a held image was taken out of the queue")
+                self.assertFalse(os.path.exists(os.path.join(self.out, self.eid + ".json")), "its record was kept")
+                self.assertEqual(os.listdir(self.queue), [], "a held image was left in the queue")
+                self.assertIn("purged what withheld documents left behind: 1 extract record, 2 queued page images", err)
+                self.assertNotIn("Scan", err, "the purge names counts, never paths")
                 self.assertIn("finished; held for another project: 1; excluded: 0; not live: 0", err)
                 self.assertTrue(os.path.exists(os.path.join(self.work, "state", "vision0.done")))
 
@@ -197,12 +199,11 @@ class VisionTest(unittest.TestCase):
             with self.subTest(paths):
                 self.setUp()
                 self.exclude(*paths)
-                before = self.record()
                 code, _out, err = self.vision()
                 self.assertEqual(code, 0, err)
                 self.assertEqual(self.fakes.calls("agy"), [], "a page of an excluded document was sent")
-                self.assertEqual(self.record(), before)
-                self.assertEqual(len(os.listdir(self.queue)), 2)
+                self.assertFalse(os.path.exists(os.path.join(self.out, self.eid + ".json")), "its record was kept")
+                self.assertEqual(os.listdir(self.queue), [])
                 self.assertIn("finished; held for another project: 0; excluded: 1; not live: 0", err)
 
     def test_staged_and_excluded_documents_are_counted_apart(self):
@@ -229,7 +230,7 @@ class VisionTest(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertEqual(self.fakes.calls("agy"), [], "pages of a document moved into an excluded folder were sent")
         self.assertEqual(self.record(), before)
-        self.assertIn("finished; held for another project: 0; excluded: 0; not live: 1", err)
+        self.assertIn("finished; held for another project: 0; excluded: 1; not live: 1", err)
 
     def test_an_image_of_an_id_the_manifest_does_not_hold_is_not_sent(self):
         del self.entries[self.eid]
@@ -253,8 +254,8 @@ class VisionTest(unittest.TestCase):
         call, = self.fakes.calls("agy")
         self.assertEqual(call["cwd_listing"], ["p1.png"], "only the live document's image is sent")
         self.assertEqual(json.loads(read(os.path.join(self.out, other + ".json")))["pages"][0]["tier"], "vision")
-        self.assertEqual([p["tier"] for p in self.record()["pages"]], ["pending_vision", "pending_vision", "text_layer"])
-        self.assertEqual(sorted(os.listdir(self.queue)), ["%s_00001.png" % self.eid, "%s_00002.png" % self.eid])
+        self.assertFalse(os.path.exists(os.path.join(self.out, self.eid + ".json")), "the staged document's record")
+        self.assertEqual(os.listdir(self.queue), [], "the staged document's images were left in the queue")
         self.assertIn("finished; held for another project: 1; excluded: 0; not live: 0", err)
 
     def test_a_round_that_stages_a_document_while_the_lane_runs_is_seen(self):
@@ -276,8 +277,9 @@ class VisionTest(unittest.TestCase):
         self.assertEqual(code, 0, err)
         call, = self.fakes.calls("agy")
         self.assertEqual(call["cwd_listing"], ["p%d.png" % n for n in range(1, 7)])
-        tiers = [p["tier"] for p in json.loads(read(os.path.join(self.out, many + ".json")))["pages"]]
-        self.assertEqual(tiers, ["vision"] * 6 + ["pending_vision"] * 2, "the staged document's last pages were sent")
+        self.assertFalse(os.path.exists(os.path.join(self.out, many + ".json")),
+                         "the record of a document staged while the lane ran was kept")
+        self.assertEqual(os.listdir(self.queue), [], "the staged document's last two images were left in the queue")
         self.assertIn("finished; held for another project: 2; excluded: 0; not live: 0", err)
 
     def test_a_missing_manifest_stops_the_lane(self):

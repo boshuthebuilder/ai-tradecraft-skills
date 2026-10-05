@@ -40,10 +40,11 @@ its card is written.
 
 A document is carded only when the manifest holds it live (not `departed`) and not withheld: one whose current path is
 under the migrations folder is held for another project, one the rulebook `exclude`s is excluded, a departed one or an id
-the manifest does not hold is not live, and an extract record that still carries a withheld path (made before the
-exclusion) is not sent until `extract.py repath` has brought it up to date. `build` plans no batch for any of them, `work`
-sends none (a batch planned earlier and a --redo id alike), and both count each kind, whatever the document's flags. The
-path a call names a document by is the manifest's, never the record's.
+the manifest does not hold is not live. Every start purges the records, cards and cached notes a withheld document (or a
+withheld path) left (`common.purge_withheld`), and `work` reads the settings and the manifest again and purges again
+before every batch. `build` plans no batch for any of them, `work` sends none (a batch planned earlier and a --redo id
+alike), and both count each kind from the manifest, whatever the document's flags. The path a call names a document by is
+the manifest's, never the record's, and each card records it as `card_meta.path`.
 """
 import collections
 import glob
@@ -148,8 +149,10 @@ def instructions(rb):
 
 class Run:
     def __init__(self, a):
-        self.root, settings_dir, self.work = common.resolve(a)
-        self.rb = common.load_rulebook(self.root, settings_dir)
+        self.manifest = getattr(a, "manifest", None)
+        self.read_only = bool(getattr(a, "read_only_root", False))
+        self.root, self.settings_dir, self.work = common.resolve(a, extract=a.extract, cards=a.out)
+        self.rb = common.load_rulebook(self.root, self.settings_dir)
         self.extract = os.path.realpath(a.extract) if a.extract else os.path.join(self.root, "_Audit", "extract")
         self.cards = os.path.realpath(a.out) if a.out else os.path.join(self.root, "_Audit", "cards")
         self.batches = os.path.join(self.work, "batches")
@@ -158,7 +161,15 @@ class Run:
         self.alert = os.path.join(self.state, "ALERT")
         self.writer = common.Writer(self.root if getattr(a, "read_only_root", False) else None)
         self.budget = Budget(a)
-        self.states, self.paths = common.manifest_view(self.root, self.rb, getattr(a, "manifest", None))
+        self.states, self.paths = common.manifest_view(self.root, self.rb, self.manifest)
+
+    def refresh(self):
+        """Read the settings and the manifest again and purge again, as the start of the run did: an exclusion or a staging
+        made while the worker runs (or sleeps on quota) takes effect at the next batch."""
+        self.rb = common.load_rulebook(self.root, self.settings_dir)
+        common.purge_withheld(self.root, self.rb, self.work, self.manifest, extract_dirs=[self.extract],
+                              cards_dirs=[self.cards], read_only=self.read_only, thorough=False)
+        self.states, self.paths = common.manifest_view(self.root, self.rb, self.manifest)
 
     def record(self, eid):
         return load_json(os.path.join(self.extract, eid + ".json"))
@@ -190,14 +201,15 @@ def build(a):
     planned = {it["id"] for f in glob.glob(os.path.join(run.batches, "*.json"))
                for it in load_json(f)["items"]}
     buckets = {0: [], 1: [], 2: [], 3: []}
-    waiting, held = 0, collections.Counter()
+    waiting = 0
+    held = collections.Counter(why for why in run.states.values() if why in ("migrations", "excluded"))  # by the manifest
     for f in sorted(os.listdir(run.extract)):
         if not f.endswith(".json"):
             continue
         eid = f[:-5]
         why = run.unsendable(eid) if run.states.get(eid, "unknown") != "ok" else None
         if why:
-            held[why] += 1
+            held[why] += 1 if why not in ("migrations", "excluded") else 0
             continue
         if eid in planned or os.path.exists(os.path.join(run.cards, eid + ".json")):
             continue
@@ -234,9 +246,8 @@ def build(a):
             cur.append(it)
             cur_chars += it["chars"]
     print("build: %d new batches, %d records still waiting for extraction, %d held for another project, %d excluded, "
-          "%d not live, %d with a withheld stored path (run extract.py repath)"
-          % (made, waiting, held["migrations"], held["excluded"], held["departed"] + held["unknown"],
-             held["stale_path"]))
+          "%d not live" % (made, waiting, held["migrations"], held["excluded"],
+                           held["departed"] + held["unknown"] + held["stale_path"]))
     return 0
 
 
@@ -500,6 +511,8 @@ def cached_note(path, k, n):
     if not os.path.exists(path):
         return None
     note = read_text(path)
+    if note.startswith("[path] "):  # the path the section was read at, which a purge reads; not part of the note
+        note = note.split("\n", 1)[1] if "\n" in note else ""
     head = "[section %d of %d]" % (k, n)
     return note if note.startswith(head) and note[len(head):].strip() else None
 
@@ -532,7 +545,7 @@ def sections_text(run, engine_light, eid, log, engine_name):
         if note is None:
             unread.append("section %d of %d: %s" % (k, len(chunks), why))
             continue
-        run.writer.text(cp, note)
+        run.writer.text(cp, "[path] %s\n%s" % (it["path"], note))
         notes.append(note)
     if unread:
         raise SectionsUnread("%d of %d sections not read, so no card is written from the rest (rerun once the cause "
@@ -555,7 +568,7 @@ def write_cards(run, cards, batch_name, evidence, meta, log):
             log("ALERT: card %s names isolation terms absent from its source" % eid[:12])
             raise common.ToolError("contamination alert; no card of this batch written; every worker stops")
     for eid, c in cards.items():
-        c["card_meta"] = dict(meta, batch=batch_name, created_at=common.now_local())
+        c["card_meta"] = dict(meta, batch=batch_name, created_at=common.now_local(), path=run.paths[eid])
         run.writer.json(os.path.join(run.cards, eid + ".json"), c, indent=1)
         stale = os.path.join(run.state, "card_err_%s.txt" % eid)
         if os.path.exists(stale):
@@ -565,6 +578,8 @@ def write_cards(run, cards, batch_name, evidence, meta, log):
 def redo_mode(run, eid):
     """A redone document is sent as a first run would send it (its size decides: a long one in sections, with their
     cached notes), never whole in one call: that is what a document with sections left to read cannot survive."""
+    if run.states.get(eid) in ("migrations", "excluded"):
+        return "single"  # withheld: its record is purged, and its batch is refused and counted, never sent
     path = os.path.join(run.extract, eid + ".json")
     if not os.path.exists(path):
         raise common.ToolError("--redo names %s, which has no extract record in %s" % (eid, run.extract))
@@ -621,6 +636,7 @@ def work(a):
         if os.path.exists(run.alert):
             log("ALERT present, stopping")
             return 3
+        run.refresh()
         todo = []
         for it in bt["items"]:
             why = run.unsendable(it["id"])
@@ -660,8 +676,8 @@ def work(a):
     with open(os.path.join(run.state, ("redo%d" if a.redo else "cards%d") % wi + ".done"), "w", encoding="utf-8") as f:
         f.write(common.now_local())
     count = collections.Counter(held.values())
-    log("worker finished; held for another project: %d; excluded: %d; not live: %d; withheld stored path: %d"
-        % (count["migrations"], count["excluded"], count["departed"] + count["unknown"], count["stale_path"]))
+    log("worker finished; held for another project: %d; excluded: %d; not live: %d"
+        % (count["migrations"], count["excluded"], count["departed"] + count["unknown"] + count["stale_path"]))
     return 0
 
 

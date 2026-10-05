@@ -25,6 +25,7 @@ import urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOOLS = os.path.realpath(os.path.join(HERE, "..", "tools"))
+TIMEOUT = 600  # seconds: a tool that hangs fails its test instead of the run
 sys.path.insert(0, TOOLS)
 import common  # noqa: E402
 import extract  # noqa: E402
@@ -57,7 +58,7 @@ def write(path, text):
 
 def run(tool, *args):
     r = subprocess.run([sys.executable, os.path.join(TOOLS, tool)] + list(args), capture_output=True, text=True,
-                       encoding="utf-8", env=dict(os.environ, PRE_ONBOARDING_NOW=NOW))
+                       encoding="utf-8", env=dict(os.environ, PRE_ONBOARDING_NOW=NOW), timeout=TIMEOUT)
     return r.returncode, r.stdout, r.stderr
 
 
@@ -445,6 +446,26 @@ class RoutesNewFilesOutTest(unittest.TestCase):
                 "## Rules\ngo to `_Migrations/`\n")
         self.assertEqual(self.routing(text), ["New files never go to `_Migrations/`.", "go to `_Migrations/`"])
 
+    def test_the_folder_is_named_with_or_without_its_slash_and_in_any_letter_case(self):
+        for sentence in ("New files go to _Migrations.", "New files go to `_migrations`", "Drop new files in _MIGRATIONS",
+                         "New files go to `_Migrations`, then wait", "Go to (_migrations) with new files",
+                         "- new files: _Migrations"):
+            with self.subTest(sentence=sentence):
+                self.assertEqual(len(self.routing(sentence)), 1)
+        self.assertEqual(len(self.routing("New files go to `_Leaving`.", "_leaving")), 1)
+
+    def test_a_longer_name_is_not_the_folder(self):
+        for sentence in ("New files go to `_Migrations2/`.", "New files go to `my_Migrations/`.",
+                         "New files go to `x_Migrations_old`.", "New files go to the migrations folder."):
+            with self.subTest(sentence=sentence):
+                self.assertEqual(self.routing(sentence), [])
+
+    def test_a_list_item_is_read_with_the_lead_in_that_ends_with_a_colon(self):
+        text = "New files go to:\n- `_Migrations`\n- `_Inbox/`\n"
+        self.assertEqual(self.routing(text), ["New files go to: `_Migrations`"])
+        self.assertEqual(self.routing("New files go to:\n\n- `_Migrations`\n"), [], "a blank line ends the lead-in")
+        self.assertEqual(self.routing("Approved files wait in:\n- `_Migrations/<Project>/`\n"), [])
+
     def test_a_table_row_a_heading_and_a_line_of_code_stand_alone(self):
         text = "## New files\n| a | go to `_Migrations/` |\n| b | filed here |\n"
         self.assertEqual(self.routing(text), ["| a | go to `_Migrations/` |"])
@@ -807,8 +828,10 @@ class ContractTest(Prepared):
                   if e["current_path"] == "06 Work/Contract.docx" and "departed" not in e["flags"]]
         self.assertEqual((entry["hashed"], entry["synthetic_id"]), (False, True))
         res = self.readiness()
-        self.assertEqual((res["records"]["missing_extracts"], res["records"]["missing_cards"]), (0, 0))
-        self.assertNotIn("records.missing_extracts", [f[0] for f in res["findings"]])
+        # `06 Work/Essay.docx` is excluded with its folder, and its record named that path, so the purge discarded the
+        # record and card with it: its identical copy at an included path is the document now, read again from there
+        self.assertEqual((res["records"]["missing_extracts"], res["records"]["missing_cards"]), (1, 1))
+        self.assertNotIn("Contract", json.dumps(res["findings"]), "the excluded document is named as missing")
 
     def test_an_excluded_document_a_manifest_still_hashes_needs_no_record_either(self):
         """A manifest an earlier audit made, which read the file: the path decides, not whether it was hashed."""
@@ -1796,7 +1819,7 @@ class FixtureBuildTest(unittest.TestCase):
         for rel in PREPARED:
             (shutil.rmtree if os.path.isdir(os.path.join(root, rel)) else os.remove)(os.path.join(root, rel))
         r = subprocess.run([sys.executable, os.path.join(HERE, "fixture", "build.py"), "--prepared-only", "--out", tmp],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, timeout=TIMEOUT)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(tree_digest(root), tree_digest(FIXTURE), "run build.py --prepared-only and commit the result")
 

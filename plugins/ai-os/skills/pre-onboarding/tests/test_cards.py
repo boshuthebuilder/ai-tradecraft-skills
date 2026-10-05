@@ -16,6 +16,7 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOOLS = os.path.join(HERE, "..", "tools")
+TIMEOUT = 600  # seconds: a tool that hangs fails its test instead of the run
 sys.path.insert(0, TOOLS)
 sys.path.insert(0, HERE)
 import cards  # noqa: E402
@@ -31,6 +32,29 @@ CUT_STREAM = os.path.join(HERE, "fixtures", "agy", "agy-1.2.16-cut-stream.redact
 CUT_STDERR = os.path.join(HERE, "fixtures", "agy", "agy-1.2.16-cut-stderr.redacted.txt")
 CUT = {"kind": "replay", "stdout": CUT_STREAM, "stderr": CUT_STDERR}
 TERMS = "# isolation terms for the tests (fictional)\nZarnwick Farm|Zarnwick\nOther Project\n"
+
+
+# cards.py run with the first engine call followed by the owner excluding a folder, as when the settings are edited while
+# the worker runs: `TEST_EXCLUDE_AFTER_FIRST_CALL` is `<twin>|<folder>`.
+EXCLUDE_AFTER_FIRST_CALL = (
+    "import json, os, runpy, sys\n"
+    "sys.path.insert(0, %r)\n"
+    "import engines\n"
+    "first = engines.Codex.__call__\n"
+    "def hooked(self, *args, **kwargs):\n"
+    "    got = first(self, *args, **kwargs)\n"
+    "    engines.Codex.__call__ = first\n"
+    "    twin, folder = os.environ['TEST_EXCLUDE_AFTER_FIRST_CALL'].split('|')\n"
+    "    os.makedirs(os.path.join(os.path.dirname(os.path.dirname(twin)), folder), exist_ok=True)\n"
+    "    with open(twin, encoding='utf-8') as f:\n"
+    "        data = json.load(f)\n"
+    "    data['exclude'] = [folder]\n"
+    "    with open(twin, 'w', encoding='utf-8') as f:\n"
+    "        json.dump(data, f)\n"
+    "    return got\n"
+    "engines.Codex.__call__ = hooked\n"
+    "sys.argv = sys.argv[1:]\n"
+    "runpy.run_path(sys.argv[0], run_name='__main__')\n") % os.path.realpath(TOOLS)
 
 
 def read(path):
@@ -445,7 +469,7 @@ class CardsCliCase(unittest.TestCase):
     def cards_py(self, *args):
         cmd = [sys.executable, os.path.join(TOOLS, "cards.py")] + list(args[:1]) + [
             "--root", self.root, "--work", self.work, "--extract", self.extract, "--out", self.cards] + list(args[1:])
-        r = subprocess.run(cmd, capture_output=True, text=True, env=self.env)
+        r = subprocess.run(cmd, capture_output=True, text=True, env=self.env, timeout=TIMEOUT)
         self.assertNotIn("ResourceWarning", r.stderr, "cards.py left a file or process open")
         return r.returncode, r.stdout, r.stderr
 
@@ -778,6 +802,30 @@ class HeldForAnotherProjectTest(CardsCliCase):
                 self.assertEqual(sorted(self.written()), [] if extra else [own])
                 self.assertIn("worker finished; held for another project: 0; excluded: 1", err)
 
+    def test_an_exclusion_made_while_the_worker_runs_takes_effect_before_the_next_batch(self):
+        """The worker reads the settings and the manifest again, and purges again, before each batch: the second batch
+        (a document with next to no text, so a batch of its own) is not sent, its record is discarded, and it is counted."""
+        own = self.record("03 Home/Rent.pdf", ["Rent for the flat, paid monthly by standing order."])
+        private = self.record("Staff/pay.pdf", ["x"])
+        code, _out, err = self.cards_py("build")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(sorted(len(bt["items"]) for bt in self.batches().values()), [1, 1])
+        self.rulebook(exclude=[])
+        twin = os.path.join(self.root, ".familyai", "rulebook.json")
+        cmd = [sys.executable, "-c", EXCLUDE_AFTER_FIRST_CALL, os.path.join(TOOLS, "cards.py"), "work", "--root", self.root,
+               "--work", self.work, "--extract", self.extract, "--out", self.cards, "--terms", self.terms,
+               "--engine", "codex", "--model", "fake-model"]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=TIMEOUT,
+                           env=dict(self.env, TEST_EXCLUDE_AFTER_FIRST_CALL="%s|Staff" % twin))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual([item_count(c) for c in self.fakes.calls("codex")], [1])
+        self.assertNotIn("pay.pdf", self.fakes.calls("codex")[0]["prompt"])
+        self.assertEqual(sorted(self.written()), [own])
+        self.assertFalse(os.path.exists(os.path.join(self.extract, private + ".json")), "the record was kept")
+        self.assertIn("purged what withheld documents left behind: 1 extract record", r.stderr)
+        self.assertIn("worker finished; held for another project: 0; excluded: 1", r.stderr)
+        self.assertNotIn("Staff", r.stderr, "the purge names counts, never paths")
+
     def stage_synthetic(self, i, current_path):
         """The manifest entry an audit makes for an excluded path: a synthetic id, `hashed` false, no content."""
         self.entries[i] = {"id": i, "current_path": current_path, "class": "document", "hashed": False,
@@ -825,25 +873,30 @@ class HeldForAnotherProjectTest(CardsCliCase):
         self.assertEqual(self.fakes.calls("codex"), [])
         self.assertIn("not live: 2", err)
 
-    def test_a_record_made_before_an_exclusion_is_not_sent_until_it_is_repathed(self):
+    def test_a_record_made_before_an_exclusion_is_purged_and_the_document_read_again_from_its_included_path(self):
         """`Staff/Nanny dismissal.txt` and an identical `Public/Payslip copy.txt`: the first name was canonical when
-        the record was made. The owner excludes `Staff`, and the entry is now live at the other name, not withheld."""
+        the record was made. The owner excludes `Staff`, and the entry is now live at the other name, not withheld:
+        its record still carries the excluded path, so every start discards it, and nothing is sent from it."""
         i = self.record("Staff/Nanny dismissal.txt", ["Dismissal of the nanny, reference 98765432."],
                         now_at="Public/Payslip copy.txt")
         self.rulebook(exclude=["Staff"])
         code, out, err = self.cards_py("build")
         self.assertEqual(code, 0, err)
+        self.assertIn("purged what withheld documents left behind: 1 extract record", err)
+        self.assertNotIn("Staff", err + out, "the purge names counts, never paths")
         self.assertIn("build: 0 new batches", out)
-        self.assertIn("1 with a withheld stored path (run extract.py repath)", out)
+        self.assertFalse(os.path.exists(os.path.join(self.extract, i + ".json")))
         self.assertEqual(self.batches(), {})
         redo = os.path.join(self.tmp, "redo.txt")
         write(redo, i + "\n")
         code, _out, err = self.work_run("codex", "--terms", self.terms, "--redo", redo)
-        self.assertEqual(code, 0, err)
+        self.assertEqual(code, 2, err)
+        self.assertIn("has no extract record", err)
         self.assertEqual(self.fakes.calls("codex"), [], "a record carrying an excluded path was sent")
-        self.assertIn("withheld stored path: 1", err)
-        rec = os.path.join(self.extract, i + ".json")  # repathed, as `extract.py repath --apply` does
-        write(rec, json.dumps(dict(json.loads(read(rec)), path="Public/Payslip copy.txt")))
+        text = "Dismissal of the nanny, reference 98765432."  # read again, at the included path, as extract.py does
+        write(os.path.join(self.extract, i + ".json"), json.dumps({
+            "id": i, "path": "Public/Payslip copy.txt", "class": "document", "status": "ok", "page_count": 1,
+            "tiers": {"text_layer": 1}, "chars": len(text), "pages": [{"n": 1, "tier": "text_layer", "text": text}]}))
         code, out, err = self.cards_py("build")
         self.assertIn("build: 1 new batches", out)
         code, _out, err = self.work_run("codex", "--terms", self.terms)

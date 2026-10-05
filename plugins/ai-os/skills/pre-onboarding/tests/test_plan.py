@@ -18,6 +18,7 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOOLS = os.path.join(HERE, "..", "tools")
+TIMEOUT = 600  # seconds: a tool that hangs fails its test instead of the run
 FIXTURE = os.path.join(HERE, "fixture", "Alex Personal")
 EXPECTED = os.path.join(HERE, "expected")
 PAST = 1719748800           # 2024-06-30T12:00:00Z: the frozen clock of a move phase, so its order is not left to luck
@@ -130,7 +131,7 @@ class PlanCase(unittest.TestCase):
         if now is not None:
             env["PRE_ONBOARDING_NOW"] = str(now)
         cmd = [sys.executable, "-c", script, TOOLS] if script else [sys.executable, os.path.join(TOOLS, tool)]
-        r = subprocess.run(cmd + list(args), capture_output=True, text=True, env=env)
+        r = subprocess.run(cmd + list(args), capture_output=True, text=True, env=env, timeout=TIMEOUT)
         self.assertNotIn("ResourceWarning", r.stderr, "%s left a file open" % tool)
         return r.returncode, r.stdout, r.stderr
 
@@ -1095,12 +1096,45 @@ common.run_main(plan.main)
 """
 
 
+def never_hash(*names):
+    """A runner script for plan.py that raises when any path containing one of `names` is hashed."""
+    return NEVER_HASH_NAMES % (names,)
+
+
+NEVER_HASH_NAMES = """
+import sys
+sys.path.insert(0, sys.argv[1])
+import common
+import plan
+NAMES = %r
+real_file, real_id = common.sha256_file, common.content_id
+
+
+def guarded(real):
+    def hashed(path, *args):
+        if any(n in path for n in NAMES):
+            raise AssertionError("hashed " + path)
+        return real(path, *args)
+    return hashed
+
+
+common.sha256_file = guarded(real_file)
+common.content_id = guarded(real_id)
+sys.argv = ["plan.py"] + sys.argv[2:]
+common.run_main(plan.main)
+"""
+
+
 class ExcludedPlanTest(PlanCase):
     """A path the rulebook excludes is proposed nothing, and a row that names one is refused before any hashing."""
 
     EXCLUDED = ("IMG_0001.jpg", "03 Home/Lease notes .txt", "05 Archive/Slides.pptx")
 
-    def prepare(self):
+    def setUp(self):
+        super().setUp()
+        # the exclusion is made AFTER the audit, as an owner makes it: the manifest still holds every excluded item (and
+        # `05 Archive/Slides.pptx` as a redundant copy) as an ordinary entry, so only the plan tools' own filters keep
+        # them out of a proposal
         twin = os.path.join(self.root, ".familyai", "rulebook.json")
         write(twin, json.dumps(dict(json.loads(read(twin)), exclude=list(self.EXCLUDED)), ensure_ascii=False))
 
@@ -1153,6 +1187,105 @@ class ExcludedPlanTest(PlanCase):
         self.assertNotIn("Lease notes", read(os.path.join(out, "move-plan.csv")))
         self.assertTrue(rows and all(not r["from"].startswith("IMG_0001") for r in rows))
         self.assertIn("MISSING\tIMG_0001.jpg", read(os.path.join(out, "review.tsv")))
+
+
+class ExcludedAfterTheAuditPlanTest(PlanCase):
+    """A manifest audited BEFORE the owner excluded a path still holds that path's document, and its copies, as ordinary
+    entries: the plan tools must leave all of it alone without waiting for a fresh audit."""
+
+    COURS = "05 Archive/Cours de fran\u00e7ais.pdf"
+    COURS_CANON = "04 Study/Cours de fran\u00e7ais.pdf"
+
+    def exclude(self, *paths):
+        twin = os.path.join(self.root, ".familyai", "rulebook.json")
+        write(twin, json.dumps(dict(json.loads(read(twin)), exclude=list(paths)), ensure_ascii=False))
+
+    def light(self):
+        code, _o, err = self.run_plan("light", "--root", self.root, "--out", os.path.dirname(self.plan))
+        self.assertEqual(code, 0, err)
+        return [(r["action"], r["from"]) for r in self.rows().values()]
+
+    def test_light_proposes_no_delete_for_a_redundant_copy_excluded_after_the_audit(self):
+        self.assertIn(("delete", self.COURS), self.light())
+        self.exclude(self.COURS)
+        proposed = self.light()
+        self.assertNotIn("Cours de fran", read(self.plan), "the excluded copy is named in a row")
+        self.assertIn(("delete", "05 Archive/Slides.pptx"), proposed, "the other redundant copies are still proposed")
+        self.exclude("05 Archive")
+        proposed = self.light()
+        self.assertEqual([f for a, f in proposed if a == "delete"], [BANK_COPY], "nothing in the excluded folder")
+
+    def test_light_proposes_nothing_for_the_copies_of_a_document_whose_canonical_copy_is_excluded(self):
+        self.exclude(self.COURS_CANON)
+        proposed = self.light()
+        self.assertNotIn("Cours de fran", read(self.plan), "the copy of an excluded document is named in a row")
+        self.assertIn(("delete", "05 Archive/Slides.pptx"), proposed)
+
+    def delete_row(self, path, evidence_of):
+        return row(1, "delete", path, "", self.ids[evidence_of], kind="redundant")
+
+    def test_check_and_execute_never_hash_the_canonical_copy_of_an_excluded_document(self):
+        """The row removes an included copy of a document whose canonical copy the owner has since excluded: proving the
+        copy equals the canonical copy would open the excluded file, so the row is refused before anything is hashed."""
+        self.exclude(self.COURS_CANON)
+        write_rows(self.plan, [self.delete_row(self.COURS, self.COURS_CANON)])
+        guard = never_hash("Cours de fran")
+        code, out, err = self.run_plan("check", "--root", self.root, "--plan", self.plan, script=guard)
+        self.assertEqual(code, 1, out + err)
+        self.assertIn("is excluded: no tool opens, hashes or moves it", out)
+        self.assertNotIn("04 Study", out + err, "the refusal names the excluded canonical copy")
+        before = tree_digest(self.root)
+        code, out, err = self.execute("--phase", "deletes", script=guard)
+        self.assertEqual(code, 1, out + err)
+        self.assertNotIn("Traceback", err)
+        self.assertEqual(self.status(1)[0], "failed")
+        self.assertIn("is excluded: no tool opens, hashes or moves it", self.status(1)[1])
+        self.assertEqual(tree_digest(self.root), before, "a refused row changed the folder")
+        self.assertEqual(self.bin_names(), [])
+
+    def test_a_delete_row_whose_copy_or_canonical_copy_is_staged_for_another_project_is_refused_before_hashing(self):
+        man = json.loads(read(self.manifest_path))
+        slides = next(h for h, e in man["entries"].items() if e["current_path"] == "04 Study/Slides.pptx")
+        entry = man["entries"][slides]
+        staged = "_Migrations/Other Project/Slides.pptx"
+        entry["current_path"] = staged
+        entry["copies"] = [{"path": staged, "kind": "canonical"}, {"path": "05 Archive/Slides.pptx", "kind": "redundant"}]
+        write(self.manifest_path, json.dumps(man))
+        write_rows(self.plan, [row(1, "delete", "05 Archive/Slides.pptx", "", slides, kind="redundant")])
+        guard = never_hash("Slides")
+        code, out, err = self.run_plan("check", "--root", self.root, "--plan", self.plan, script=guard)
+        self.assertEqual(code, 1, out + err)
+        self.assertIn("is held for another project: no tool opens, hashes or moves it", out)
+        code, out, err = self.execute("--phase", "deletes", script=guard)
+        self.assertEqual(code, 1, out + err)
+        self.assertIn("is held for another project", self.status(1)[1])
+        self.assertTrue(os.path.exists(self.path("05 Archive/Slides.pptx")))
+
+    def test_every_kind_of_row_naming_an_excluded_path_is_refused_by_check_and_by_both_phases(self):
+        self.exclude("03 Home")
+        rows = [row(1, "create", "", "03 Home/New/"), row(2, "rmdir", "03 Home/Utilities /"),
+                row(3, "rename", "03 Home/Utilities /", "03 Home/Utilities/"),
+                row(4, "move", "03 Home/Lease renewal.pdf", "04 Study/Lease.pdf", self.ids["03 Home/Lease renewal.pdf"]),
+                row(5, "delete", "03 Home/Lease notes .txt", "", "d" * 64, kind="redundant")]
+        write_rows(self.plan, rows)
+        guard = never_hash("Lease", "Electricity")
+        code, out, err = self.run_plan("check", "--root", self.root, "--plan", self.plan, script=guard)
+        self.assertEqual(code, 1, out + err)
+        self.assertEqual(sorted(line.split()[1] for line in out.splitlines() if line.startswith("FAIL")),
+                         ["1", "2", "3", "4", "5"])
+        before = tree_digest(self.root)
+        code, out, err = self.execute(script=guard)
+        self.assertNotIn("Traceback", err)
+        self.assertEqual(code, 1, out + err)
+        self.assertEqual({r["status"] for r in self.rows().values() if r["seq"] != "5"} - {"failed", "skipped"}, set())
+        self.assertEqual(self.status(1)[0], "failed", "a row's domain stops at its first failure")
+        self.assertIn("excluded from reading", self.status(1)[1])
+        self.assertEqual(tree_digest(self.root), before)
+        write_rows(self.plan, [rows[4]])
+        code, out, err = self.execute("--phase", "deletes", script=guard)
+        self.assertEqual(code, 1, out + err)
+        self.assertIn("the from path is excluded", self.status(5)[1])
+        self.assertEqual(tree_digest(self.root), before)
 
 
 # ---------------------------------------------------------------------------------------------- migrations

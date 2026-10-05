@@ -23,6 +23,7 @@ from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOOLS = os.path.join(HERE, "..", "tools")
+TIMEOUT = 600  # seconds: a tool that hangs fails its test instead of the run
 FIXTURE = os.path.join(HERE, "fixture", "Alex Personal")
 EXPECTED = os.path.join(HERE, "expected", "extract.json")
 NOW = 1719748800
@@ -64,7 +65,7 @@ def run(tool, *args, now=NOW):
     """Run a tool with a frozen clock and every ResourceWarning an error; a file it leaves open fails the test."""
     env = dict(os.environ, PRE_ONBOARDING_NOW=str(now), PYTHONWARNINGS="error::ResourceWarning")
     r = subprocess.run([sys.executable, os.path.join(TOOLS, tool)] + list(args), capture_output=True, text=True,
-                       env=env)
+                       env=env, timeout=TIMEOUT)
     if "ResourceWarning" in r.stderr:
         raise AssertionError("%s left a file open:\n%s" % (tool, r.stderr[-2000:]))
     return r.returncode, r.stdout, r.stderr
@@ -755,7 +756,7 @@ class OcrHelperTest(Tmp):
         if not without_helper:
             return run("extract.py", *args, now=now)
         env = dict(os.environ, PRE_ONBOARDING_NOW=str(now))
-        r = subprocess.run([sys.executable, "-c", NO_LOCAL_OCR, TOOLS] + args, capture_output=True, text=True, env=env)
+        r = subprocess.run([sys.executable, "-c", NO_LOCAL_OCR, TOOLS] + args, capture_output=True, text=True, env=env, timeout=TIMEOUT)
         return r.returncode, r.stdout, r.stderr
 
     def record(self, rel):
