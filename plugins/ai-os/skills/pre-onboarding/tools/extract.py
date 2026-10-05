@@ -6,7 +6,8 @@ then Apple Vision through `page-ocr`, then tesseract, both in the languages the 
 `ocr_languages` (`vision_passes` says how Vision is routed). A page none of them reads cleanly is queued for the model
 vision lane (`vision.py`) and marked `pending_vision`. Office zip formats are parsed directly, rtf/doc/odt/html through
 `textutil`, iWork through the `.iwa` reader (`iwa.py`) with the preview image as a fallback, legacy .ppt/.xls through
-LibreOffice when it is installed. Resumable: an existing record is never rewritten unless `--retry-failed`.
+LibreOffice when it is installed. Resumable: an existing record is never rewritten unless `--retry-failed`, which reads
+again a record that failed, or that was read while a local OCR tier was missing (its `notes` say so).
 
 A document whose current path is under the migrations folder is held for another project, and one the rulebook
 `exclude`s (a listed path, or under one) is excluded: neither is ever read or queued, whatever its flags, and the run's
@@ -478,16 +479,39 @@ def process(ctx, e):
     return rec
 
 
+OCR_MISSING = "local OCR tier not available here"  # the start of the note `process` records for a missing OCR tool
+
+
+def retryable(path):
+    """Whether `--retry-failed` reads the record at `path` again: it failed, it cannot be read, or the only thing wrong
+    with it is a local OCR tier that was missing when it was read (its notes say so), so a corrected `--ocr-bin` or an
+    installed tesseract recovers it."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            rec = json.load(f)
+    except (OSError, ValueError):
+        return True
+    if not isinstance(rec, dict):
+        return True
+    notes = rec.get("notes")
+    return rec.get("status") == "failed" or isinstance(notes, list) and any(
+        isinstance(n, str) and n.startswith(OCR_MISSING) for n in notes)
+
+
 def main():
     ap = common.base_args("Full-text extraction, local tools only")
     ap.add_argument("--lane", choices=["main", "apps"], default="main",
                     help="apps = iWork, legacy office and packages; main = everything else")
     ap.add_argument("--worker", default="0/1")
-    ap.add_argument("--retry-failed", action="store_true")
+    ap.add_argument("--retry-failed", action="store_true",
+                    help="read again a record that failed, or that was read while a local OCR tier was missing")
     ap.add_argument("--manifest", help="default <root>/_Audit/manifest.json")
     ap.add_argument("--out", help="default <root>/_Audit/extract")
-    ap.add_argument("--ocr-bin", help="path to the built page-ocr binary")
+    ap.add_argument("--ocr-bin", help="path to the built page-ocr binary (refused unless an executable file)")
     a = ap.parse_args()
+    if a.ocr_bin and not (os.path.isfile(a.ocr_bin) and os.access(a.ocr_bin, os.X_OK)):
+        raise common.ToolError("--ocr-bin %s is not an executable file; build the helper (`swiftc -O page_ocr.swift "
+                               "-o page-ocr`) and give its path, or leave --ocr-bin out" % a.ocr_bin)
     root, settings_dir, work = common.resolve(a)
     rb = common.load_rulebook(root, settings_dir)
     langs = rb["ocr_languages"]
@@ -526,15 +550,9 @@ def main():
     t0 = time.time()
     for i, e in enumerate(todo):
         outp = os.path.join(out, e["id"] + ".json")
-        if os.path.exists(outp):
-            try:
-                with open(outp, encoding="utf-8") as f:
-                    st = json.load(f).get("status")
-            except (OSError, ValueError):
-                st = "failed"
-            if st != "failed" or not a.retry_failed:
-                skipped += 1
-                continue
+        if os.path.exists(outp) and not (a.retry_failed and retryable(outp)):
+            skipped += 1
+            continue
         ctx.cur = e["id"]
         t1 = time.time()
         try:

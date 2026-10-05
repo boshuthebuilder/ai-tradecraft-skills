@@ -2,6 +2,7 @@
 
     python3 -m unittest discover plugins/ai-os/skills/pre-onboarding/tests
 """
+import argparse
 import hashlib
 import json
 import os
@@ -12,6 +13,7 @@ import sys
 import tempfile
 import unicodedata
 import unittest
+import unittest.mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOOLS = os.path.join(HERE, "..", "tools")
@@ -591,6 +593,58 @@ class RulebookValidationTest(FixtureCopy):
         self.assertEqual(common.load_rulebook(self.root, settings_dir)["depth"], "light")
         with self.assertRaisesRegex(common.ToolError, "missing folder settings"):
             common.load_rulebook(self.root, settings_dir, required=True)
+
+
+class WorkDefaultTest(unittest.TestCase):
+    """The default work directory: `~/.ai-os-pre-onboarding/` and the folder's name, each run of one or more characters
+    that are not an ASCII letter, a digit, `.`, `_` or `-` written as one `-`."""
+
+    def setUp(self):
+        self.tmp = os.path.realpath(tempfile.mkdtemp(prefix="work_default_"))
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        patcher = unittest.mock.patch.dict(os.environ, {"HOME": os.path.join(self.tmp, "home")})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def work_for(self, name, **given):
+        root = os.path.join(self.tmp, "folders", name)
+        os.makedirs(root, exist_ok=True)
+        args = argparse.Namespace(root=root, settings_dir=None, work=given.get("work"))
+        got = common.resolve(args)[2]
+        self.assertTrue(os.path.isdir(got), "the work directory is made")
+        return os.path.relpath(got, os.path.join(self.tmp, "home", ".ai-os-pre-onboarding")) \
+            if not given else got
+
+    def test_a_run_of_other_characters_becomes_one_hyphen(self):
+        for name, want in (("Alex Personal", "Alex-Personal"), ("Alex  &  Robin (2024)", "Alex-Robin-2024-"),
+                           ("Alex_Personal.v2-final", "Alex_Personal.v2-final"), (" Alex ", "-Alex-"),
+                           ("Alex\tPersonal", "Alex-Personal")):
+            with self.subTest(name):
+                self.assertEqual(self.work_for(name), want)
+
+    def test_a_letter_that_is_not_ascii_is_replaced_too(self):
+        for name, want in (("Caf\u00e9", "Caf-"), ("\u4e2d\u6587\u8bfe\u7a0b", "-"), ("Alex \u4e2d\u6587", "Alex-")):
+            with self.subTest(name):
+                self.assertEqual(self.work_for(name), want)
+
+    def test_folders_whose_names_differ_only_in_those_characters_share_one_work_directory(self):
+        self.assertEqual({self.work_for(n) for n in ("Alex Personal", "Alex  Personal", "Alex-Personal",
+                                                     "Alex/Personal".replace("/", "+"))}, {"Alex-Personal"})
+
+    def test_the_name_is_that_of_the_folders_real_path(self):
+        real = os.path.join(self.tmp, "folders", "Real Name")
+        os.makedirs(real)
+        link = os.path.join(self.tmp, "folders", "Link Name")
+        os.symlink(real, link)
+        got = common.resolve(argparse.Namespace(root=link, settings_dir=None, work=None))[2]
+        self.assertEqual(os.path.basename(got), "Real-Name")
+
+    def test_a_given_work_directory_is_used_as_it_is_and_never_inside_the_folder(self):
+        given = os.path.join(self.tmp, "my work")
+        self.assertEqual(self.work_for("Alex Personal", work=given), given)
+        root = os.path.join(self.tmp, "folders", "Alex Personal")
+        with self.assertRaisesRegex(common.ToolError, "--work must be outside the folder"):
+            common.resolve(argparse.Namespace(root=root, settings_dir=None, work=os.path.join(root, "work")))
 
 
 class WithheldTest(unittest.TestCase):

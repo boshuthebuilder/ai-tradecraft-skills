@@ -14,7 +14,7 @@ Stated once here; each tool's section below lists only its own.
 | --- | --- | --- |
 | `--root <folder>` | the folder being prepared; required wherever it is taken | none |
 | `--settings-dir <dir>` | where `rulebook.json` and `wiki-schema.json` live | `<root>/.familyai` |
-| `--work <dir>` | working state outside the folder: logs, caches, batches, queues, bundles, briefs; refused inside the folder | `~/.ai-os-pre-onboarding/<folder name>`, each run of characters other than letters, digits, `.`, `_` and `-` replaced by `-` |
+| `--work <dir>` | working state outside the folder: logs, caches, batches, queues, bundles, briefs; refused inside the folder | `~/.ai-os-pre-onboarding/<folder name>`, where `<folder name>` is the last part of the folder's real path (a link is followed), with each run of one or more characters other than the ASCII letters `A`-`Z` and `a`-`z`, the digits, `.`, `_` and `-` written as one `-` (see below) |
 | `--out <path>` | where the tool writes its result; each tool's own default is in its section | per tool |
 | `--read-only-root` | refuse any write inside `--root`; with `--out` elsewhere, it proves a tool against a real folder without changing it | off |
 
@@ -49,13 +49,17 @@ error; every other worker exits 3 at its next batch.
 renamed into place, so no reader sees half a file; with `--read-only-root`, a path inside the folder is refused
 before anything is written. State files in the work directory are written directly.
 
+**The default work directory.** `~/.ai-os-pre-onboarding/` and the name of the folder being prepared, taken from the last part of its real path, with every run of one or more characters that are not an ASCII letter, a digit, `.`, `_` or `-` replaced by a single `-`. So a space, an ampersand, a bracket, a tab, an accented letter and a Chinese character are all replaced: `Alex Personal` gives `Alex-Personal`, `Alex  &  Robin (2024)` gives `Alex-Robin-2024-`, `Café` gives `Caf-` and a name of nothing but Chinese characters gives `-`. Two folders whose names differ only in such characters (`Alex Personal`, `Alex  Personal`, `Alex-Personal`) therefore share one work directory, and so does a folder named `-`; give each its own `--work` where that can happen. The directory is made if it is missing, and a `--work` that is given is used as it is (`~` and variables are not expanded by the tool) and refused inside the folder.
+
 **The clock.** `PRE_ONBOARDING_NOW` (seconds since the epoch) freezes the clock for the tests, so their outputs
 compare byte for byte; nothing else should set it.
 
 ## Before the first run
 
 - **The OCR helper.** Build it once in the tools folder: `swiftc -O page_ocr.swift -o page-ocr` (macOS 13 or later),
-  or give its path with `extract.py --ocr-bin`.
+  or give its path with `extract.py --ocr-bin`, which must be an executable file: any other path (missing, a folder,
+  not executable) is refused at the start (exit 2, naming it) and nothing is read, since a helper that is not there
+  would otherwise read every scan as a photo.
 - **Local readers** `extract.py` finds on the `PATH` or in the usual install folders: `pdftotext`, `pdfinfo` and
   `pdftoppm` (poppler; needed for PDFs), `tesseract` (the second OCR tier), `textutil` and `sips` (macOS; `.doc`,
   `.rtf`, `.odt` and `.html`, and resizing queued page images), `soffice` (LibreOffice; legacy `.ppt` and `.xls`).
@@ -236,7 +240,10 @@ and again, on the same before-manifest, after the delete phase's.
 
 The full text of every live, hashed document in the manifest (images over the size cap are not read, and nor is a
 document held for another project: see below), every page, with local tools only. Records go to `--out` (default `<root>/_Audit/extract`), one
-`<id>.json` per document. An existing record is never rewritten, except a `failed` one with `--retry-failed`.
+`<id>.json` per document. An existing record is never rewritten, except with `--retry-failed`, which reads again a record
+that `failed` and one whose `notes` say a local OCR tier was missing when it was read (`local OCR tier not available
+here: ...`), so a corrected `--ocr-bin`, or an installed tesseract, recovers the scans and photos read without it. A
+record with nothing wrong is never read again.
 
 ### Held for another project, and excluded
 

@@ -630,7 +630,8 @@ class FixtureRunTest(FixtureRun, unittest.TestCase):
 
 
 class ResumeTest(FixtureRun, unittest.TestCase):
-    """An existing record is never rewritten, unless it failed and --retry-failed is given."""
+    """An existing record is never rewritten, unless it failed, or was read while a local OCR tier was missing (its notes
+    say so), and --retry-failed is given."""
 
     def test_resume(self):
         before = {f: read(os.path.join(self.out, f), "rb") for f in os.listdir(self.out)}
@@ -641,7 +642,8 @@ class ResumeTest(FixtureRun, unittest.TestCase):
             self.extract(self.out, "--lane", lane, "--retry-failed", now=NOW + 60)
         for rel, r in self.load(self.out).items():
             with self.subTest(rel):
-                redone = self.records[rel]["status"] == "failed"
+                redone = self.records[rel]["status"] == "failed" or any(
+                    n.startswith(extract.OCR_MISSING) for n in self.records[rel].get("notes", []))
                 self.assertEqual(r["extracted_at"] != self.records[rel]["extracted_at"], redone)
 
 
@@ -709,23 +711,107 @@ class ExcludedTest(Tmp):
                       read(os.path.join(work, "logs", "extract_main0.log")))
 
 
-class ImageWithoutOcrTest(Tmp):
-    """An image read with no OCR helper names the missing tier in its record, as a PDF page does."""
+NO_LOCAL_OCR = """
+import sys
+sys.path.insert(0, sys.argv[1])
+import extract
+real = extract.which
+extract.which = lambda name, explicit=None: None if name in ("page-ocr", "tesseract") and not explicit else \
+    real(name, explicit)
+sys.argv = ["extract.py"] + sys.argv[2:]
+extract.common.run_main(extract.main)
+"""
+FAKE_PAGE_OCR = """#!/usr/bin/env python3
+import json
+import sys
+for line in sys.stdin:
+    path = line.rstrip("\\n").split("|", 1)[-1]
+    print(json.dumps({"file": path, "text": "A letter from the council about the rent review for the flat, "
+                      "dated the first of May, asking for a reply within 28 days.", "confidence": 0.95, "lines": 2}),
+          flush=True)
+"""
 
-    def test_a_scan_is_not_recorded_as_a_photo_without_a_word(self):
-        root = os.path.join(self.tmp, "Alex Papers")
-        write(os.path.join(root, "Scans", "Letter.jpg"), b"\xff\xd8\xff\xe0 a scan of a letter, not a photo")
-        work, audit_out, out = (os.path.join(self.tmp, n) for n in ("work", "audit", "extract"))
-        code, _o, err = run("audit.py", "--root", root, "--work", work, "--out", audit_out, "--read-only-root")
+
+class OcrHelperTest(Tmp):
+    """A missing or bad OCR helper is never silent: `--ocr-bin` must be an executable file, an image read with no helper
+    names the missing tier in its record, and `--retry-failed` reads such a record again once the helper works."""
+
+    def setUp(self):
+        super().setUp()
+        self.root = os.path.join(self.tmp, "Alex Papers")
+        write(os.path.join(self.root, "Scans", "Letter.jpg"), b"\xff\xd8\xff\xe0 a scan of a letter, not a photo")
+        write(os.path.join(self.root, "Notes.txt"), "Robin's notes on the move.")
+        self.work, self.audit_out, self.out = (os.path.join(self.tmp, n) for n in ("work", "audit", "extract"))
+        code, _o, err = run("audit.py", "--root", self.root, "--work", self.work, "--out", self.audit_out,
+                            "--read-only-root")
         self.assertEqual(code, 0, err)
-        code, _o, err = run("extract.py", "--root", root, "--work", work, "--manifest",
-                            os.path.join(audit_out, "manifest.json"), "--out", out, "--lane", "main",
-                            "--ocr-bin", os.path.join(self.tmp, "no-such-page-ocr"), "--read-only-root")
+        self.helper = os.path.join(self.tmp, "page-ocr")
+        write(self.helper, FAKE_PAGE_OCR)
+        os.chmod(self.helper, 0o755)
+
+    def extract(self, *extra, now=NOW, without_helper=False):
+        args = ["--root", self.root, "--work", self.work, "--manifest", os.path.join(self.audit_out, "manifest.json"),
+                "--out", self.out, "--lane", "main", "--read-only-root"] + list(extra)
+        if not without_helper:
+            return run("extract.py", *args, now=now)
+        env = dict(os.environ, PRE_ONBOARDING_NOW=str(now))
+        r = subprocess.run([sys.executable, "-c", NO_LOCAL_OCR, TOOLS] + args, capture_output=True, text=True, env=env)
+        return r.returncode, r.stdout, r.stderr
+
+    def record(self, rel):
+        return next(r for r in (json.loads(read(os.path.join(self.out, f))) for f in os.listdir(self.out))
+                    if r["path"] == rel)
+
+    def test_a_helper_path_that_is_not_an_executable_file_is_refused_at_the_start(self):
+        notexec = os.path.join(self.tmp, "not-executable")
+        write(notexec, "#!/bin/sh\n")
+        os.chmod(notexec, 0o644)
+        for what, path in (("missing", os.path.join(self.tmp, "no-such-page-ocr")), ("a folder", self.tmp),
+                           ("not executable", notexec)):
+            with self.subTest(what):
+                code, out, err = self.extract("--ocr-bin", path)
+                self.assertEqual(code, 2, out + err)
+                self.assertIn("error: --ocr-bin %s is not an executable file" % path, err)
+                self.assertNotIn("Traceback", err)
+                self.assertFalse(os.path.exists(self.out), "a record was written before the refusal")
+
+    def test_an_image_read_with_no_helper_names_the_missing_tier(self):
+        code, _o, err = self.extract(without_helper=True)
         self.assertEqual(code, 0, err)
-        rec, = (json.loads(read(os.path.join(out, f))) for f in os.listdir(out))
-        self.assertEqual((rec["path"], rec["status"], rec["pages"][0]["tier"]), ("Scans/Letter.jpg", "photo", "photo"))
+        rec = self.record("Scans/Letter.jpg")
+        self.assertEqual((rec["status"], rec["pages"][0]["tier"]), ("photo", "photo"))
         self.assertEqual(len(rec["notes"]), 1)
-        self.assertRegex(rec["notes"][0], "^local OCR tier not available here: page-ocr(, tesseract)?$")
+        self.assertRegex(rec["notes"][0], "^local OCR tier not available here: page-ocr, tesseract$")
+        self.assertNotIn("notes", self.record("Notes.txt"))
+
+    def test_retry_failed_reads_again_a_record_made_with_no_helper_once_the_helper_works(self):
+        self.extract(without_helper=True)
+        stuck = self.record("Scans/Letter.jpg")
+        notes = self.record("Notes.txt")
+        code, _o, err = self.extract("--ocr-bin", self.helper, now=NOW + 60)  # no --retry-failed: never rewritten
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.record("Scans/Letter.jpg"), stuck)
+        code, _o, err = self.extract("--retry-failed", "--ocr-bin", self.helper, now=NOW + 120)
+        self.assertEqual(code, 0, err)
+        rec = self.record("Scans/Letter.jpg")
+        self.assertEqual((rec["status"], rec["pages"][0]["tier"], rec["pages"][0]["engine"]),
+                         ("ok", "local_ocr", "vision"))
+        self.assertIn("rent review", rec["pages"][0]["text"])
+        self.assertNotIn("notes", rec)
+        self.assertEqual(self.record("Notes.txt"), notes, "a record with nothing wrong is not read again")
+        log = read(os.path.join(self.work, "logs", "extract_main0.log"))
+        self.assertIn("done=1 failed=0 skipped=1", log.split("\n")[-2])
+
+    def test_retry_failed_still_reads_a_failed_record_again_and_leaves_an_unmarked_photo_alone(self):
+        self.extract("--ocr-bin", self.helper)  # a real reading: the scan is a letter
+        scan = self.record("Scans/Letter.jpg")
+        self.assertEqual((scan["status"], "notes" in scan), ("ok", False))
+        path = os.path.join(self.out, self.record("Notes.txt")["id"] + ".json")
+        write(path, json.dumps(dict(self.record("Notes.txt"), status="failed", error="disk full", pages=[])))
+        code, _o, err = self.extract("--retry-failed", "--ocr-bin", self.helper, now=NOW + 60)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.record("Notes.txt")["status"], "ok")
+        self.assertEqual(self.record("Scans/Letter.jpg"), scan, "a record with no missing tier is not read again")
 
 
 # ------------------------------------------------------------------------ statuses on a synthetic folder
