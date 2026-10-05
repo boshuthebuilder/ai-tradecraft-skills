@@ -18,6 +18,7 @@ import sys
 import tempfile
 import unicodedata
 import unittest
+import urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOOLS = os.path.realpath(os.path.join(HERE, "..", "tools"))
@@ -488,37 +489,75 @@ class CheckTest(Copy):
         self.assertEqual(code, 2, out + err)
         self.assertNotIn("Old invoice", err)
 
-    def test_a_withheld_path_is_matched_only_as_a_whole_root_relative_path_never_as_the_tail_of_another(self):
-        """A root stray staged at the top of its project (`_Migrations/Other Project/Scan 1.pdf`) was staged from the bare
-        name `Scan 1.pdf`. A page citing the different live document `Photos/Scan 1.pdf` must not be flagged for it; a page
-        naming the stray by its whole path, or by a longer path that resolves to it, is."""
+    def stage_a_root_stray(self):
+        """`_Migrations/Other Project/Scan 1.pdf` staged from the root (its history names `Scan 1.pdf`), `06 Work/Contract.docx`
+        excluded, and a different live document `Photos/Scan 1.pdf`; the page to append to, and the folder's name."""
         man = os.path.join(self.root, "_Audit", "manifest.json")
         m = json.loads(read(man))
         for path, flags in (("_Migrations/Other Project/Scan 1.pdf", ["migrating"]), ("Photos/Scan 1.pdf", [])):
-            m["entries"][hashlib.sha256(path.encode()).hexdigest()] = {
-                "id": hashlib.sha256(path.encode()).hexdigest(), "current_path": path, "class": "document",
-                "hashed": True, "flags": flags, "copies": [], "size": 1, "mtime": "2024-06-01T00:00:00Z",
-                "rename_history": [{"path": "Scan 1.pdf" if flags else path, "at": "2024-06-01T00:00:00Z", "run_id": "x"}]}
+            i = hashlib.sha256(path.encode()).hexdigest()
+            m["entries"][i] = {"id": i, "current_path": path, "class": "document", "hashed": True, "flags": flags,
+                               "copies": [], "size": 1, "mtime": "2024-06-01T00:00:00Z",
+                               "rename_history": [{"path": "Scan 1.pdf" if flags else path, "at": "2024-06-01T00:00:00Z",
+                                                   "run_id": "x"}]}
         write(man, json.dumps(m))
+        self.exclude("06 Work/Contract.docx")
         page = "40 Study/40 Study.md"
         self.base = {page: read(self.page(page))}
-        whole = {"cited": "See `Scan 1.pdf`.", "in text": "See Scan 1.pdf for it.", "after a climb": "See ../Scan 1.pdf here.",
-                 "after two": "See ../../Scan 1.pdf here.", "after the folder's name": "See Alex Personal/Scan 1.pdf here.",
-                 "after the folder's path": "See %s/Scan 1.pdf here." % self.root, "in a link": "See [s](../../Scan%201.pdf).",
-                 "wrapped": "See Scan\n1.pdf here.", "in a fence": "```\nScan 1.pdf\n```"}
-        for name, text in whole.items():
-            with self.subTest(name):
-                self.assertEqual([c[2] for c in self.appended(page, text + "\n")], ["migrations"], name)
-        tails = {"cited": "See `Photos/Scan 1.pdf`.", "in text": "See Photos/Scan 1.pdf for it.",
-                 "other folder": "See Other/Scan 1.pdf here.", "a link": "See [s](Photos/Scan%201.pdf).",
-                 "deeper": "See `20 Finance/Photos/Scan 1.pdf`.", "an address": "See https://example.org/Scan 1.pdf here.",
-                 "after a name": "See Archive/Alex Personal/Scan 1.pdf here."}
-        for name, text in tails.items():
-            with self.subTest(name):
-                self.assertEqual(self.appended(page, text + "\n"), [], name)
-        self.exclude("06 Work/Contract.docx")
-        self.assertEqual([c[2] for c in self.appended(page, "See Alex Personal/06 Work/Contract.docx.\n")], ["excluded"])
-        self.assertEqual(self.appended(page, "See Archive/06 Work/Contract.docx.\n"), [])
+        return page
+
+    def spellings_of_the_folder(self):
+        """The folder's location spelt as a page might: its real path, the same without the leading /private a macOS
+        temporary folder has, another volume's host form, and through the cloud drive."""
+        out = [self.root, "file://" + self.root, "file://localhost" + self.root, "iCloud Drive/" + os.path.basename(self.root)]
+        if self.root.startswith("/private/"):
+            out.append(self.root[len("/private"):])
+        return out
+
+    def test_a_withheld_path_is_a_citation_in_every_form_that_resolves_to_it_and_not_for_a_live_document_of_the_same_tail(self):
+        """A match of a withheld path is a citation unless the longer path it ends is a live, included document's path or lies
+        under a live, included folder: `Photos/Scan 1.pdf` is that document, not the staged root stray `Scan 1.pdf`; every
+        spelling of the withheld path itself, a climb out of the folder and back in by its name included, is flagged."""
+        page = self.stage_a_root_stray()
+        for what, doc, why in (("the excluded document", "06 Work/Contract.docx", "excluded"),
+                               ("the staged document", "_Migrations/Other Project/Scan 1.pdf", "migrations"),
+                               ("the path it was staged from", "Scan 1.pdf", "migrations")):
+            quoted = urllib.parse.quote(doc)
+            forms = {"in prose, after a slash": "See /%s for it." % doc, "in prose after the folder's name":
+                     "See %s/%s for it." % (os.path.basename(self.root), doc),
+                     "a link climbing out and back in by the folder's name":
+                     "See [x](../../../%s/%s)." % (urllib.parse.quote(os.path.basename(self.root)), quoted),
+                     "text climbing out and back in by the folder's name": "See ../../../%s/%s here." % (
+                         os.path.basename(self.root), doc),
+                     "a link by ../ and the folder's name": "See [x](../%s/%s)." % (
+                         urllib.parse.quote(os.path.basename(self.root)), quoted),
+                     "text by ../ and the folder's name": "See ../%s/%s here." % (os.path.basename(self.root), doc),
+                     "a link climbing to the folder": "See [x](../../%s)." % quoted,
+                     "a wrapped path after the folder's name": "See %s/\n%s here." % (os.path.basename(self.root), doc)}
+            for n, where in enumerate(self.spellings_of_the_folder()):
+                forms["the folder spelt another way (%d) in prose" % n] = "See %s/%s here." % (where, doc)
+                forms["the folder spelt another way (%d) in a citation" % n] = "See `%s/%s`." % (where, doc)
+                forms["the folder spelt another way (%d) in a link" % n] = "See [x](%s/%s)." % (urllib.parse.quote(
+                    where, safe="/:"), quoted)
+            for name, text in forms.items():
+                with self.subTest(what=what, form=name):
+                    self.assertEqual([c[2] for c in self.appended(page, text + "\n")], [why], text)
+        live = {"cited": "See `Photos/Scan 1.pdf`.", "in text": "See Photos/Scan 1.pdf for it.",
+                "a link": "See [s](Photos/Scan%201.pdf).", "a link from the page": "See [s](../Photos/Scan%201.pdf).",
+                "climbing out and back in by the folder's name": "See [s](../../../%s/Photos/Scan%%201.pdf)." % (
+                    urllib.parse.quote(os.path.basename(self.root))),
+                "text climbing out and back in": "See ../../../%s/Photos/Scan 1.pdf here." % os.path.basename(self.root),
+                "through the cloud drive": "See iCloud Drive/%s/Photos/Scan 1.pdf here." % os.path.basename(self.root),
+                "after the folder's name": "See %s/Photos/Scan 1.pdf here." % os.path.basename(self.root),
+                "the folder spelt another way": "See `%s/Photos/Scan 1.pdf`." % self.spellings_of_the_folder()[-1]}
+        for name, text in live.items():
+            with self.subTest(live=name):
+                self.assertEqual(self.appended(page, text + "\n"), [], text)
+        for name, text in {"an unknown longer path": "See Other/Scan 1.pdf here.",
+                           "a web address": "See https://example.org/Scan 1.pdf here.",
+                           "a longer path in no live folder": "See `20 Finance/Photos/Scan 1.pdf`."}.items():
+            with self.subTest(unexplained=name):
+                self.assertEqual([c[2] for c in self.appended(page, text + "\n")], ["migrations"], text)
 
     def test_a_document_moved_by_a_round_and_then_staged_is_withheld_at_the_path_it_started_at(self):
         """`04 Study/Notes.rtf` is moved to `04 Study/Class notes.rtf`, then staged from there. The audits that saw it do
@@ -543,9 +582,12 @@ class CheckTest(Copy):
                 found = self.appended(page, "The notes are `%s`.\n" % cited)
                 self.assertIn("migrations", [c[2] for c in found])
                 self.assertIn(len(self.base[page].split("\n")) + 1, [c[1] for c in found])
+        self.appended(page, "The notes are `04 Study/Notes.rtf`.\n")  # the page now cites only the first path, A
         code, out, err = self.wiki("review-prompts", "--page", page, "--author-model", "a", "--reviewer-model", "b",
                                    "--out", os.path.join(self.tmp, "q"))
         self.assertEqual(code, 2, out + err)
+        self.assertIn("refused to render 1 page(s) that cite a withheld document", err)
+        self.assertNotIn("Notes.rtf", err)
 
     def test_the_paths_a_withheld_document_held_before_it_moved_are_withheld_for_check_and_for_drift(self):
         man = os.path.join(self.root, "_Audit", "manifest.json")

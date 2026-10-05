@@ -87,6 +87,14 @@ def is_dataless(path):
         return False
 
 
+def within(root_real, path_real):
+    """True when the resolved real path `path_real` is `root_real` or lies inside it, both folded as `fold` folds them: on a
+    case-insensitive volume (macOS) `ALEX PERSONAL/x` is inside `Alex Personal`, so spelling does not decide it. (On a
+    case-sensitive one a different folder whose name differs only in case is refused too: the safe side.)"""
+    r, p = fold(root_real), fold(path_real)
+    return p == r or p.startswith(r + os.sep)
+
+
 class Writer:
     """The one place tools write files. With `protect` set to the folder root, any write inside it is refused."""
 
@@ -97,7 +105,7 @@ class Writer:
         if self.protect:
             real = os.path.realpath(os.path.dirname(os.path.abspath(path)) or ".")
             target = os.path.join(real, os.path.basename(path))
-            if target == self.protect or target.startswith(self.protect + os.sep):
+            if within(self.protect, target):
                 raise ToolError("refused: %s is inside the protected folder (--read-only-root)" % path)
         return path
 
@@ -170,7 +178,7 @@ def resolve(args, verify=True, extract=None, cards=None, manifest=None):
         raise ToolError("root missing: %s" % root)
     settings_dir = settings_dir_for(root, args.settings_dir)
     work = os.path.realpath(args.work) if args.work else default_work(root)
-    if work == root or work.startswith(root + os.sep):
+    if within(root, work):
         raise ToolError("--work must be outside the folder: %s" % work)
     if verify:
         verify_twins(root, settings_dir)
@@ -630,8 +638,8 @@ def register_rendered(work, path, digest, kind="file"):
 def working_file(root, path, what):
     """The real path of `path`, refused when it is `root` or inside it: `what` are working files (a report, a rendered brief
     or prompt, bundles), which carry manifest, card or path data and so are kept outside the folder."""
-    root, real = os.path.realpath(root), os.path.realpath(path)
-    if real == root or real.startswith(root + os.sep):
+    real = os.path.realpath(path)
+    if within(os.path.realpath(root), real):
         raise ToolError("%s are working files, never written inside the folder: %s" % (what, path))
     return real
 
@@ -811,7 +819,7 @@ def purge_withheld(root, rb, work, manifest=None, extract_dirs=(), cards_dirs=()
     if not todo and not cache_edit:
         return {}
     protected = Writer(root if read_only else None)
-    inside = [t for t in todo if os.path.realpath(t[0]).startswith(os.path.realpath(root) + os.sep)]
+    inside = [t for t in todo if within(os.path.realpath(root), os.path.realpath(t[0]))]
     if read_only and inside:
         raise ToolError("refused: --read-only-root, but %d artefact(s) of withheld documents inside the folder must be "
                         "purged first (run the tool without --read-only-root)" % len(inside))

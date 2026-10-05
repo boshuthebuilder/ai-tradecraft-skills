@@ -30,8 +30,9 @@
 Every subcommand takes --settings-dir, --work, --manifest (default <root>/_Audit/manifest.json) and
 --read-only-root; profile and bundles also take --cards and --extract (default <root>/_Audit/cards, .../extract).
 Page paths are relative to the wiki folder, source paths to the folder. Bundles, briefs and review prompts are
-working files, never written inside the folder; profile, check and drift print JSON and write --out where
---read-only-root allows, and rationale and accept write their audit file there (default in <root>/_Audit/).
+working files, never written inside the folder, and so is every report written with --out (profile, check, drift, chart:
+they carry manifest, card or path data, are registered for a later purge, and profile, check and drift also print their
+JSON); rationale and accept write their audit file, the owner's gate record, in <root>/_Audit/ by default.
 
 Check: every page under the wiki folder (dot folders skipped). Problems, each counted: a page missing a frontmatter
 key (provenance, last-updated, status) or with `sources:` written as one value rather than a list; a `sources:`
@@ -1066,11 +1067,14 @@ COLLAPSE = re.compile(r"/(?:\.?/)+|(?<=/)[^/\s]+/\.\./")  # `//` and `/./`, and 
 LINK_TARGET = re.compile(r"\]\([ \t]*(<[^>\n]*>|[^)\s]*)|^[ \t]{0,3}\[[^\]\n]+\]:[ \t]*(<[^>\n]*>|\S+)", re.M)
 
 
-def path_forms(span, base=""):
+def path_forms(span, base="", root_name=""):
     """The folded folder-relative spellings of a path a page names (a citation, a link's target), so that every spelling of
-    one path is the same: percent-escapes decoded (as often as they nest), `\\` read as `/`, then `posixpath.normpath`
-    (`./`, `//` and `name/../` gone, the trailing `/` dropped), leading `../` dropped, then `common.fold`. With `base`,
-    the folder a link on the page is relative to, the path resolved from it is a form too."""
+    one path is the same: percent-escapes decoded (as often as they nest), `\\` read as `/`, a `file://` prefix dropped,
+    then `posixpath.normpath` (`./`, `//` and `name/../` gone, the trailing `/` dropped), leading `../` dropped, then
+    `common.fold`. With `base`, the folder a link on the page is relative to, the path resolved from it is a form too. With
+    `root_name`, the folder's own name, so is the path after any segment of that name: climbing out of the folder and back in
+    by its name (`../../../Alex Personal/06 Work/x`), a path through the cloud drive (`iCloud Drive/Alex Personal/x`) or
+    one that spells the folder's location another way (`/tmp/..` for `/private/tmp/..`, `file://`) all name `06 Work/x`."""
     s = span.strip()
     s = s[1:-1].strip() if s.startswith("<") and s.endswith(">") else s
     for _ in range(4):
@@ -1078,9 +1082,12 @@ def path_forms(span, base=""):
         if decoded == s:
             break
         s = decoded
-    s = s.replace("\\", "/")
+    s = re.sub(r"^file://[^/]*", "", s.replace("\\", "/"))
+    cands = [s] + ([posixpath.join(base, s)] if base and not s.startswith("/") else [])
+    segs = s.split("/")
+    cands += ["/".join(segs[j + 1:]) for j, seg in enumerate(segs[:-1]) if root_name and common.fold(seg) == common.fold(root_name)]
     forms = set()
-    for cand in [s] + ([posixpath.join(base, s)] if base and not s.startswith("/") else []):
+    for cand in cands:
         n = posixpath.normpath(cand).lstrip("/") if cand else ""
         while n.startswith("../"):
             n = n[3:]
@@ -1159,25 +1166,38 @@ def withheld_citer(root, rb, man, ws):
                 return why, "folder"
         return None
 
-    root_forms = (common.fold(root).rstrip("/") + "/", common.fold(os.path.basename(root)) + "/")
+    root_name = os.path.basename(root)
+    inc_paths = {common.fold(p) for e in live.values() if not common.withheld(rb, e["current_path"])
+                 for p in [e["current_path"]] + [c["path"] for c in e.get("copies", [])] if not common.withheld(rb, p)}
+    inc_folders = {"/".join(q.split("/")[:i]) for q in inc_paths for i in range(1, q.count("/") + 1)}
+    stops = set("`\"'()[]<>|,;*?{}")  # characters that end a path in prose (a space does not: names hold spaces)
 
-    def whole(text, i):
-        """True when the token at `text[i:]` is a whole root-relative path, not the tail of another document's: it starts
-        the text, or follows a character that is no part of a path, or follows only `./` and `../` segments (a link
-        climbing to the folder), or the folder's own path or name. A token after any other directory is the tail of a
-        longer path that does not resolve to it, as `Photos/Scan 1.pdf` is not `Scan 1.pdf`."""
-        if i == 0:
-            return True
-        if text[i - 1] != "/":
-            return not (text[i - 1].isalnum() or text[i - 1] == "_")
+    def resolves_to_withheld(f):
+        return (f in withheld_at or bool(common.withheld(rb, f))
+                or any((f + "/").startswith(folder) for folder in folders))
+
+    def included(f):
+        parts = f.split("/")
+        return f in inc_paths or any("/".join(parts[:k]) in inc_folders for k in range(1, len(parts) + 1))
+
+    def explained(text, i, token, base):
+        """True when the token at `text[i:]`, which follows a `/`, is the end of a longer path that is a live, included
+        document's path or lies under a live, included folder the manifest holds, so that it does not name the withheld
+        path (`Photos/Scan 1.pdf` is the live document, not the staged `Scan 1.pdf`). The longer path is read from each
+        word start of the run of path characters before the token, resolved as `path_forms` resolves a path (from the
+        page's folder and from the folder, a climb out and back in by the folder's name included). One that resolves to
+        a withheld path is a citation whatever else resolves, and so is a longer path nothing live explains."""
         head = text[max(0, i - 400):i]
-        if re.search(r"(?<![\w.\-])(?:\.\.?/)+$", head):
-            return True
-        absolute, name = root_forms
-        return head.endswith(absolute) or (head.endswith(name) and (
-            len(head) == len(name) or not (head[-len(name) - 1].isalnum() or head[-len(name) - 1] in "_/.-")))
+        for k in range(len(head) - 1, -1, -1):
+            if head[k] in stops:
+                head = head[k + 1:]
+                break
+        forms = set()
+        for k in [0] + [k + 1 for k, ch in enumerate(head) if ch == " "]:
+            forms |= path_forms(head[k:] + token, base, root_name)
+        return not any(resolves_to_withheld(f) for f in forms) and any(included(f) for f in forms)
 
-    def scan(lines):
+    def scan(lines, base=""):
         """[(line number, why, kind)] for every token of `withheld_at` and `folders` in `lines`, read three ways: each
         line followed by a space (wrapped at a space); the lines' indentation, quote marks and line breaks taken out
         (wrapped after any character, a `/` included); and joined by a space except at a `/` or before a `.`. `//` and
@@ -1197,8 +1217,10 @@ def withheld_citer(root, rb, man, ws):
                     i = text.find(token)
                     while i >= 0:
                         after = i + len(token)
-                        if whole(text, i) and (kind == "folder" or after >= len(text)
-                                               or not (text[after].isalnum() or text[after] == "_")):
+                        if (i == 0 or not (text[i - 1].isalnum() or text[i - 1] == "_")) and (
+                                kind == "folder" or after >= len(text) or not (text[after].isalnum()
+                                                                              or text[after] == "_")) and not (
+                                i > 0 and text[i - 1] == "/" and explained(text, i, token, base)):
                             found.append((bisect.bisect_right(starts, at[i]), why, kind))
                         i = text.find(token, i + 1)
         return found
@@ -1206,17 +1228,17 @@ def withheld_citer(root, rb, man, ws):
     def cites(rel, text, skip=()):
         found = set()
         for line, span in citations(text):
-            hit = None if (line, span) in skip else named(path_forms(span))
+            hit = None if (line, span) in skip else named(path_forms(span, "", root_name))
             if hit:
                 found.add((line, hit[0], hit[1]))
         base = posixpath.join(rb["wiki_dir"], posixpath.dirname(rel))
         for line, target in link_targets(text):
-            hit = named(path_forms(target, base)) if target else None
+            hit = named(path_forms(target, base, root_name)) if target else None
             if hit and line not in {l for l, _s in skip}:
                 found.add((line, hit[0], hit[1]))
         lines = text.split("\n")
         for body in (lines, urllib.parse.unquote(text).split("\n")):
-            found.update(f for f in scan(body) if f[0] not in {l for l, _s in skip})
+            found.update(f for f in scan(body, base) if f[0] not in {l for l, _s in skip})
         if exempt(rel):
             found = {f for f in found if f[2] == "document"}
         return sorted({(line, why) for line, why, _kind in found})
@@ -2026,11 +2048,11 @@ def drift(a):
         """The path as the report names it: a path that is withheld, and every path of a migrating document (staged for
         another project, and the path it left), is named as withheld and no more."""
         why = "migrations" if kind == "migrating" else next(
-            (w for f in sorted(path_forms(path)) for w in [common.path_withheld(rb, at, f)] if w), None)
+            (w for f in sorted(path_forms(path, "", os.path.basename(root))) for w in [common.path_withheld(rb, at, f)] if w), None)
         return "withheld (%s)" % common.WITHHELD_WHY[why] if why else path
     for p in pages:
         for line, path in citations(read_text(os.path.join(wiki, *p.split("/")))):
-            kind = next((paths[f] for f in sorted(path_forms(path)) if f in paths), None)
+            kind = next((paths[f] for f in sorted(path_forms(path, "", os.path.basename(root))) if f in paths), None)
             if kind:
                 cited[kind].append([p, line, shown(path, kind)])
     res = collections.OrderedDict(

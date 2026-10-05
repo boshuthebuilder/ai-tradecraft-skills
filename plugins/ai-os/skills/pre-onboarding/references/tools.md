@@ -615,9 +615,12 @@ rulebook's facts, exit 1 on any finding. Formats, rules and findings: [the setti
 The tools for building and checking the wiki, in the stages of
 [the core wiki rule](../../wiki-maintenance/SKILL.md#the-core-wiki-rule) as
 [`wiki-onboarding`](../../wiki-onboarding/SKILL.md) applies them. Every subcommand takes `--manifest`; page paths
-are relative to the wiki folder, source paths to the folder. Bundles, briefs and review prompts are working files,
-refused inside the folder; `profile`, `check` and `drift` print JSON and write `--out` where `--read-only-root`
-allows; `rationale` and `accept` write their audit file (default in `<root>/_Audit/`) the same way.
+are relative to the wiki folder, source paths to the folder. Bundles, briefs, review prompts and every report written
+with `--out` (`profile`, `check`, `drift`, `chart`, and `readiness.py`'s) carry manifest, card or path data, so they are
+working files, refused inside the folder (a resolved real path folded as `common.fold` folds it, so a different letter case
+on a case-insensitive volume is still inside) and registered for a later purge; `profile`, `check` and `drift` also print
+their JSON. `rationale` and `accept` write their audit file (default in `<root>/_Audit/`, or `--out`), which is the
+owner's gate record and is kept, where `--read-only-root` allows.
 
 | Subcommand | Does |
 | --- | --- |
@@ -794,10 +797,20 @@ default that does not exist reads as `not recorded`. Line numbers count from the
   decoded (as often as they nest), `\` read as `/`, `posixpath.normpath` (`./`, `//` and `name/../` gone, the trailing
   `/` dropped), leading `../` dropped, then `common.fold` (case and Unicode form ignored). A link's target of any
   kind of file, a reference definition and an angle-bracketed target are candidates too, resolved from the page's own
-  folder as well as from the folder's root, so `[x](../06%20Work/./Contract.docx)` is a citation. A withheld path is also
-  found anywhere in the page's text, but only as a whole root-relative path: at the start of the text or after a character that is no part of a path, or after only `./` and `../` segments, the folder's own name or its path. A path after any other directory is the tail of another document's path and no match (`Photos/Scan 1.pdf` is not the staged `Scan 1.pdf`), as a web address ending in the path is none. In plain text and in a fenced block, with its percent-escapes decoded, wrapped across
-  lines at any point (read joined by a space, with the lines' indentation, quote marks and breaks taken out, and joined by a
-  space except at a `/` or before a `.`), and with `//` and `/./` taken out; and in a `sources:` entry or a backticked span. A page must not depend on a document
+  folder as well as from the folder's root, so `[x](../06%20Work/./Contract.docx)` is a citation; with the folder's name
+  (the last part of its real path), the path after any segment of that name is a form too, and `file://` is dropped. A
+  withheld path is also found anywhere in the page's text, in plain text and in a fenced block, with its percent-escapes
+  decoded, wrapped across lines at any point (read joined by a space, with the lines' indentation, quote marks and breaks
+  taken out, and joined by a space except at a `/` or before a `.`), with `//` and `/./` taken out, and in a `sources:`
+  entry or a backticked span. A match in the text that follows a `/` is the end of a longer path, and is a citation unless
+  that longer path is a live, included document's path or lies under a live, included folder the manifest holds:
+  `Photos/Scan 1.pdf` is that document, not the staged root stray `Scan 1.pdf`. The longer path is read from each word
+  start of the run of path characters before the match (a space does not end it, since names hold spaces; a backtick,
+  quote, bracket, `|`, `,` or `;` does) and resolved as a cited path is: from the page's folder and from the folder, a climb
+  out of the folder and back in by its name (`../../../Alex Personal/06 Work/x`), a path through the cloud drive
+  (`iCloud Drive/Alex Personal/x`) and one that spells the folder's location another way (`/tmp/..` for `/private/tmp/..`,
+  `file://`) all resolve to `06 Work/x`. One that resolves to a withheld path is a citation whatever else resolves, and so
+  is a longer path nothing live explains (`Other/Scan 1.pdf`, a web address ending in the path). A page must not depend on a document
   the tools may not read, so each is a problem. The Schema page and the Log may name a withheld **folder** (a routing
   row, a history line) but not a withheld **document**: a document path is a citation on any page, those two included. A
   chart's source cell is judged as a chart source.

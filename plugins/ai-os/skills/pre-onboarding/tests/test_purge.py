@@ -255,6 +255,38 @@ class RemovalFailureTest(PurgeCase):
         with open(os.path.join(self.work, "state", "rendered.json"), encoding="utf-8") as f:
             self.assertEqual([i["path"] for i in json.load(f)], [outside])
 
+    def test_inside_the_folder_is_decided_on_resolved_real_paths_folded_so_a_letter_case_cannot_get_out(self):
+        """On a case-insensitive volume `ALEX PERSONAL/x` is `Alex Personal/x`: every check of a path against the folder
+        compares resolved real paths folded as `common.fold` folds them."""
+        shouted = os.path.join(self.tmp, "ALEX PERSONAL")
+        link = os.path.join(self.tmp, "link-to-the-folder")
+        os.symlink(self.root, link)
+        self.addCleanup(os.remove, link)
+        for where in (shouted, os.path.join(shouted, "_Audit"), os.path.join(self.root.upper(), "_AUDIT"), link,
+                      os.path.join(link, "_audit")):
+            out = os.path.join(where, "report.json")
+            with self.subTest(out=os.path.relpath(out, self.tmp)):
+                with self.assertRaises(common.ToolError) as caught:
+                    common.working_file(self.root, out, "reports")
+                self.assertIn("are working files, never written inside the folder", str(caught.exception))
+                with self.assertRaises(common.ToolError):
+                    common.register_output(self.root, self.work, dict(RB, exclude=[]), out)
+                with self.assertRaises(common.ToolError) as caught:
+                    common.Writer(self.root).check(out)
+                self.assertIn("--read-only-root", str(caught.exception))
+        self.assertEqual(common.working_file(self.root, os.path.join(self.tmp, "elsewhere", "r.json"), "reports"),
+                         os.path.join(self.tmp, "elsewhere", "r.json"))
+        self.assertTrue(common.within(self.root, os.path.join(self.root.upper(), "x")))
+        self.assertFalse(common.within(self.root, self.root + " copy"), "a sibling that shares a prefix is not inside")
+
+    def test_a_work_folder_spelt_in_another_case_is_still_inside_the_folder(self):
+        env = dict(os.environ, HOME=os.path.join(self.tmp, "home"))
+        shouted = os.path.join(self.tmp, "ALEX PERSONAL", "work")
+        r = subprocess.run([sys.executable, os.path.join(TOOLS, "settings.py"), "compile", "--root", self.root, "--work",
+                            shouted], capture_output=True, text=True, env=env, timeout=TIMEOUT)
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("--work must be outside the folder", r.stderr)
+
     def test_the_message_says_where_the_artefacts_that_stayed_are_without_naming_one(self):
         a = eid(self.PAY)
         self.record(a, self.PAY)

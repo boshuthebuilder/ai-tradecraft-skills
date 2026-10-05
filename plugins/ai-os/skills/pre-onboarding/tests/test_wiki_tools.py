@@ -1213,7 +1213,9 @@ class RenderedOutputsTest(Copy):
                           ("chart", ["--kind", "bar", "--data", rows, "--title", "t"]),
                           ("brief", ["--page", BRIEF_PAGES[0]]),
                           ("review-prompts", ["--page", BRIEF_PAGES[0], "--author-model", "a", "--reviewer-model", "b"])):
-            for inside in (os.path.join(self.root, "_Audit", cmd + ".out"), os.path.join(self.root, cmd + ".out")):
+            shouted = os.path.join(os.path.dirname(self.root), os.path.basename(self.root).upper())  # as a macOS volume opens it
+            for inside in (os.path.join(self.root, "_Audit", cmd + ".out"), os.path.join(self.root, cmd + ".out"),
+                           os.path.join(shouted, "_Audit", cmd + ".out"), os.path.join(shouted, cmd + ".out")):
                 with self.subTest(cmd=cmd, out=os.path.relpath(inside, self.root)):
                     if cmd in ("brief", "review-prompts"):
                         self.ok("bundles", code=1)

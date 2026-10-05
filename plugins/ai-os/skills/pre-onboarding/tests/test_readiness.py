@@ -835,7 +835,9 @@ class ContractTest(Prepared):
 
     def test_the_result_is_never_written_inside_the_folder(self):
         before = tree_digest(self.root)
-        for inside in (self.path("_Audit", "readiness.json"), self.path("readiness.json")):
+        shouted = os.path.join(os.path.dirname(self.root), os.path.basename(self.root).upper())  # as a macOS volume opens it
+        for inside in (self.path("_Audit", "readiness.json"), self.path("readiness.json"),
+                       os.path.join(shouted, "_Audit", "readiness.json"), os.path.join(shouted, "readiness.json")):
             got, out, err = run("readiness.py", "--root", self.root, "--work", self.work, "--out", inside)
             self.assertEqual(got, 2, out + err)
             self.assertIn("readiness reports are working files, never written inside the folder", err)
