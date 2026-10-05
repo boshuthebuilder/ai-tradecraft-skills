@@ -763,9 +763,15 @@ that folder) is listed under "Its sources" as `` - `<path>`: withheld (held for 
 the page is not checked against it`` (or `withheld (excluded)`), and nothing else: its card is not loaded, so no
 title or fact reaches the sample, a cited copy of a withheld document does not name its canonical path, and the
 folder counts leave out every withheld file. The routing rows into the page's section whose prefix is withheld are
-not shown (a line says how many). The command prints `withheld_cited`, `{page: how many cited paths are withheld}`
-for the pages that cite any; `wiki.py check` reports such a page as a problem, since a page must not depend on a
-document the tools may not read. The page's own text is in the prompt as it stands.
+not shown (a line says how many). What the prompt lists this way is only what `check` lets stand, such as a placeholder
+for the migrations folder: the command prints `withheld_cited`, `{page: how many cited paths are withheld}`, for the
+pages that cite any.
+
+**A page that cites a withheld document gets no prompt.** The page's own text is in the prompt as it stands, so a page
+that [`check`](#check-1) reports under `cites_withheld` (by the one helper, `withheld_citer`, which both use) is
+refused: no prompt is written for it, and one left from an earlier run is removed. The other pages still render. The
+command prints `refused`, `[page, line, why]` for each citation, then exits 2 with an error naming each page and line,
+never a path. Take each citation off the page (or stop excluding the document), then render again.
 
 The reviewer replies in JSON, as the template asks: `page`, `page_sha256` (copied from the prompt, tying the
 verdict to the version read), `lens` (`owner` or `professional`), `author`, `reviewer`, `verdict` (`accepted`, or

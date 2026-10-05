@@ -1008,6 +1008,35 @@ def acceptance_states(records, now):
 
 # ------------------------------------------------------------------------------------ check
 
+def withheld_citer(root, rb, man, ws):
+    """`cites(rel, text, skip=())` -> [(line, why)]: the citations on the wiki page `rel` (its text) that name a
+    withheld document, the one rule `check` reports as `cites_withheld` and `review-prompts` refuses a page on. A
+    citation is a `sources:` entry or a backticked span (`citations`), and names a withheld document when it is a path
+    a withheld entry holds (a copy at an included path too), or a path under the migrating folder or an excluded path
+    that the manifest holds as a file or a folder, so a placeholder such as `_Migrations/<Project>/` that names none is
+    not one. `skip` is a set of (line, span) to leave out (a chart's source cell, judged as a chart source). The
+    Schema page and the Log are not read for it. `why` is `migrations` or `excluded`; no path is returned."""
+    live = {h: e for h, e in man.items() if "departed" not in e.get("flags", [])}
+    withheld_at = common.withheld_paths(rb, man)
+    live_paths = {p for e in live.values() for p in [e["current_path"]] + [c["path"] for c in e.get("copies", [])]}
+    live_folders = {"/".join(q.split("/")[:i]) for q in live_paths for i in range(1, q.count("/") + 1)}
+    exempt_schema = schema_rel(root, rb, ws)
+
+    def names(span):
+        bare = span.rstrip("/")
+        if bare in withheld_at:
+            return withheld_at[bare]
+        why = common.withheld(rb, bare)
+        return why if why and (bare in live_paths or bare in live_folders) else None
+
+    def cites(rel, text, skip=()):
+        if rel.startswith(LOG_DIR + "/") or rel == exempt_schema:
+            return []
+        return [(line, why) for line, span in citations(text) if (line, span) not in skip
+                for why in [names(span)] if why]
+    return cites
+
+
 def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptance_path=None, only=None):
     """The wiki checks as a dict; every item a count (zero included) or a named not-verified state. The compiled
     Schema is read from `settings_dir` (default <root>/.familyai), the rationale file and acceptance record from
@@ -1039,20 +1068,7 @@ def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptan
     fm_bad, dead_src, dead_links, outside, em, unchecked, dls, sup = [], [], [], [], [], 0, [], 0
     charts, unpaired, unrenderable, bad_chart_src = 0, [], [], []
     cited, shas = set(), {}
-    cites_withheld = []
-    withheld_at = common.withheld_paths(rb, man)
-    live_paths = {p for e in live.values() for p in [e["current_path"]] + [c["path"] for c in e.get("copies", [])]}
-    live_folders = {"/".join(q.split("/")[:i]) for q in live_paths for i in range(1, q.count("/") + 1)}
-
-    def cites_a_withheld_document(span):
-        """Why `span` names a withheld document or folder, or None: a path a withheld entry holds, or a path withheld by
-        its place (under the migrations folder or an excluded path) that the manifest holds as a file or a folder, so a
-        placeholder such as `_Migrations/<Project>/` that names none is not a citation."""
-        bare = span.rstrip("/")
-        if bare in withheld_at:
-            return withheld_at[bare]
-        why = common.withheld(rb, bare)
-        return why if why and (bare in live_paths or bare in live_folders) else None
+    cites_withheld, cites = [], withheld_citer(root, rb, man, ws)
     for rel in pages:
         if only is not None and rel not in only:
             continue  # a sibling's page is never opened: it may be mid-write
@@ -1093,12 +1109,10 @@ def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptan
                 except common.ToolError:
                     bad_chart_src.append([rel, line, src])
         spans = citations(t)
+        # the page must not depend on a document the tools may not read; the path stays out of the report
+        cites_withheld += [[rel, line, why] for line, why in cites(rel, t, in_tables)]
         if rel not in not_covering:
             cited.update(span for _line, span in spans)
-            for line, span in spans:
-                why = None if (line, span) in in_tables else cites_a_withheld_document(span)
-                if why:  # the page must not depend on a document the tools may not read; the path stays out of the report
-                    cites_withheld.append([rel, line, why])
         if not rel.startswith(LOG_DIR + "/"):
             for line, span in spans:
                 if line <= fm_lines or "/" not in span or (line, span) in in_tables:
@@ -1386,7 +1400,8 @@ def review_prompts(a):
         raise common.ToolError("--cards %s is a file, not a folder of card records" % cards_dir)
     contracts = {c["number"]: c for c in ws["contracts"]}
     held, withheld_at = held_paths(rb, man)
-    writer, written, withheld_cited = common.Writer(root), [], {}
+    cites = withheld_citer(root, rb, man, ws)
+    writer, written, withheld_cited, refused = common.Writer(root), [], {}, []
     for p in pages:
         voice, sec = common.page_voice(ws, p), section_of(ws, p)
         contract = contracts.get(sec["number"])
@@ -1395,6 +1410,14 @@ def review_prompts(a):
                                    "against one" % (sec["number"], sec["name"], p))
         path = os.path.join(wiki, *p.split("/"))
         text = read_text(path)
+        found = cites(p, text)
+        if found:  # the page depends on a document the tools may not read: no prompt, and none left from before
+            refused += [[p, line, why] for line, why in found]
+            for lens in ("owner", "professional"):
+                stale = os.path.join(out, *p[:-3].split("/")) + ".%s.md" % lens
+                if os.path.lexists(stale):
+                    os.remove(writer.check(stale))
+            continue
         reader = contract["reader"] if contract and contract["reader"] else "the owner"
         questions = ("\n".join("%d. %s" % (i, q) for i, q in enumerate(contract["questions"], 1)) if contract else
                      "None in the Schema: the section is fixed, so its shape is the method's (`wiki-onboarding` and "
@@ -1421,7 +1444,13 @@ def review_prompts(a):
         for lens, body in (("owner", owner), ("professional", prof)):
             writer.text(base + ".%s.md" % lens, body)
         written.append([p, base + ".owner.md", base + ".professional.md"])
-    print(json.dumps({"prompts": written, "withheld_cited": withheld_cited}, ensure_ascii=False, indent=1))
+    print(json.dumps({"prompts": written, "withheld_cited": withheld_cited, "refused": refused}, ensure_ascii=False,
+                     indent=1))
+    if refused:
+        raise common.ToolError("refused to render %d page(s) that cite a withheld document, no prompt written for "
+                               "them: %s; take each citation off the page (`wiki.py check` lists them as "
+                               "cites_withheld)" % (len({r[0] for r in refused}),
+                                                    "; ".join("%s line %d" % (r[0], r[1]) for r in refused)))
     return 0
 
 
