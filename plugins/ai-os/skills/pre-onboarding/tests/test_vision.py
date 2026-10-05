@@ -179,7 +179,7 @@ class VisionTest(unittest.TestCase):
                 self.assertEqual(self.fakes.calls("agy"), [], "a page of another project's document was sent")
                 self.assertEqual(self.record(), before)
                 self.assertEqual(len(os.listdir(self.queue)), 2, "a held image was taken out of the queue")
-                self.assertIn("finished; held for another project: 1", err)
+                self.assertIn("finished; held for another project: 1; excluded: 0; not live: 0", err)
                 self.assertTrue(os.path.exists(os.path.join(self.work, "state", "vision0.done")))
 
     def exclude(self, *paths):
@@ -187,6 +187,10 @@ class VisionTest(unittest.TestCase):
         pin = hashlib.sha256(b"# Rules\n").hexdigest()
         write(os.path.join(self.root, ".familyai", "rulebook.json"),
               json.dumps({"version": 1, "rulebook_sha256": pin, "exclude": list(paths)}))
+        for entry in paths:  # an `exclude` entry must name a path: make each one
+            os.makedirs(os.path.dirname(os.path.join(self.root, entry)), exist_ok=True)
+            write(os.path.join(self.root, entry), b"") if entry.endswith(".pdf") else \
+                os.makedirs(os.path.join(self.root, entry), exist_ok=True)
 
     def test_an_excluded_document_is_never_sent_and_is_counted_apart(self):
         for paths in (["01 Identity"], ["01 Identity/Scan.pdf"]):
@@ -199,7 +203,7 @@ class VisionTest(unittest.TestCase):
                 self.assertEqual(self.fakes.calls("agy"), [], "a page of an excluded document was sent")
                 self.assertEqual(self.record(), before)
                 self.assertEqual(len(os.listdir(self.queue)), 2)
-                self.assertIn("finished; held for another project: 0; excluded: 1", err)
+                self.assertIn("finished; held for another project: 0; excluded: 1; not live: 0", err)
 
     def test_staged_and_excluded_documents_are_counted_apart(self):
         other = hashlib.sha256(b"02 Finance/Statement.pdf").hexdigest()
@@ -213,7 +217,27 @@ class VisionTest(unittest.TestCase):
         code, _out, err = self.vision()
         self.assertEqual(code, 0, err)
         self.assertEqual(self.fakes.calls("agy"), [])
-        self.assertIn("finished; held for another project: 1; excluded: 1", err)
+        self.assertIn("finished; held for another project: 1; excluded: 1; not live: 0", err)
+
+    def test_a_document_moved_into_an_excluded_folder_after_extraction_is_never_sent(self):
+        """Its old entry is `departed` at the old included path; the file has a synthetic entry in the excluded folder."""
+        self.entries[self.eid]["flags"] = ["departed"]
+        self.stage(hashlib.sha256(b"Private/Scan.pdf").hexdigest(), "Private/Scan.pdf")
+        self.exclude("Private")
+        before = self.record()
+        code, _out, err = self.vision()
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.fakes.calls("agy"), [], "pages of a document moved into an excluded folder were sent")
+        self.assertEqual(self.record(), before)
+        self.assertIn("finished; held for another project: 0; excluded: 0; not live: 1", err)
+
+    def test_an_image_of_an_id_the_manifest_does_not_hold_is_not_sent(self):
+        del self.entries[self.eid]
+        self.stage(hashlib.sha256(b"Other/Doc.pdf").hexdigest(), "Other/Doc.pdf")
+        code, _out, err = self.vision()
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.fakes.calls("agy"), [])
+        self.assertIn("not live: 1", err)
 
     def test_only_the_document_that_is_not_held_is_sent(self):
         other = hashlib.sha256(b"02 Finance/Statement.pdf").hexdigest()
@@ -231,7 +255,7 @@ class VisionTest(unittest.TestCase):
         self.assertEqual(json.loads(read(os.path.join(self.out, other + ".json")))["pages"][0]["tier"], "vision")
         self.assertEqual([p["tier"] for p in self.record()["pages"]], ["pending_vision", "pending_vision", "text_layer"])
         self.assertEqual(sorted(os.listdir(self.queue)), ["%s_00001.png" % self.eid, "%s_00002.png" % self.eid])
-        self.assertIn("finished; held for another project: 1", err)
+        self.assertIn("finished; held for another project: 1; excluded: 0; not live: 0", err)
 
     def test_a_round_that_stages_a_document_while_the_lane_runs_is_seen(self):
         """The manifest is read again before each batch: six images go in a call, so the document's seventh and
@@ -254,7 +278,7 @@ class VisionTest(unittest.TestCase):
         self.assertEqual(call["cwd_listing"], ["p%d.png" % n for n in range(1, 7)])
         tiers = [p["tier"] for p in json.loads(read(os.path.join(self.out, many + ".json")))["pages"]]
         self.assertEqual(tiers, ["vision"] * 6 + ["pending_vision"] * 2, "the staged document's last pages were sent")
-        self.assertIn("finished; held for another project: 2", err)
+        self.assertIn("finished; held for another project: 2; excluded: 0; not live: 0", err)
 
     def test_a_missing_manifest_stops_the_lane(self):
         os.remove(os.path.join(self.root, "_Audit", "manifest.json"))

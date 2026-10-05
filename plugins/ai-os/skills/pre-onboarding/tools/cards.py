@@ -38,9 +38,12 @@ them all: a term from the operator's isolation list that a card names but its ow
 writes <work>/state/ALERT, writes none of them and stops every worker. With --redo, an id counts as redone only once
 its card is written.
 
-A document whose current path in the manifest is under the migrations folder is held for another project, and one the
-rulebook `exclude`s is excluded: `build` plans no batch for it, `work` sends it in none (a batch planned earlier and a
---redo id alike), and both count each kind, whatever the document's flags.
+A document is carded only when the manifest holds it live (not `departed`) and not withheld: one whose current path is
+under the migrations folder is held for another project, one the rulebook `exclude`s is excluded, a departed one or an id
+the manifest does not hold is not live, and an extract record that still carries a withheld path (made before the
+exclusion) is not sent until `extract.py repath` has brought it up to date. `build` plans no batch for any of them, `work`
+sends none (a batch planned earlier and a --redo id alike), and both count each kind, whatever the document's flags. The
+path a call names a document by is the manifest's, never the record's.
 """
 import collections
 import glob
@@ -155,14 +158,28 @@ class Run:
         self.alert = os.path.join(self.state, "ALERT")
         self.writer = common.Writer(self.root if getattr(a, "read_only_root", False) else None)
         self.budget = Budget(a)
-        self.held = common.withheld_ids(self.root, self.rb, getattr(a, "manifest", None))
+        self.states, self.paths = common.manifest_view(self.root, self.rb, getattr(a, "manifest", None))
 
     def record(self, eid):
         return load_json(os.path.join(self.extract, eid + ".json"))
 
+    def unsendable(self, eid, rec=None):
+        """Why the document of `eid` is not carded, or None. Only a document the manifest holds live and not withheld
+        is: otherwise its state (`migrations`, `excluded`, `departed`; an id the manifest does not hold is `unknown`),
+        or `stale_path` when its extract record still carries a withheld path (made before the document was excluded:
+        `extract.py repath` brings it up to date, and until then the record is not sent)."""
+        state = self.states.get(eid, "unknown")
+        if state != "ok":
+            return state
+        try:
+            path = (rec if rec is not None else self.record(eid)).get("path")
+        except (OSError, ValueError, AttributeError):
+            return None  # an unreadable record fails where it is read, loud
+        return "stale_path" if isinstance(path, str) and common.withheld(self.rb, path) else None
+
     def payload(self, eid, text_override=None):
         r = self.record(eid)
-        return {"id": eid, "path": r["path"], "class": r["class"], "page_count": r.get("page_count", 0),
+        return {"id": eid, "path": self.paths[eid], "class": r["class"], "page_count": r.get("page_count", 0),
                 "read": read_label(r.get("tiers")), "text": full_text(r) if text_override is None else text_override}
 
 
@@ -178,12 +195,17 @@ def build(a):
         if not f.endswith(".json"):
             continue
         eid = f[:-5]
-        if eid in run.held:
-            held[run.held[eid]] += 1
+        why = run.unsendable(eid) if run.states.get(eid, "unknown") != "ok" else None
+        if why:
+            held[why] += 1
             continue
         if eid in planned or os.path.exists(os.path.join(run.cards, eid + ".json")):
             continue
         r = load_json(os.path.join(run.extract, f))
+        why = run.unsendable(eid, r)
+        if why:
+            held[why] += 1
+            continue
         if r.get("status") not in FINAL:
             waiting += 1
             continue
@@ -211,8 +233,10 @@ def build(a):
                 continue
             cur.append(it)
             cur_chars += it["chars"]
-    print("build: %d new batches, %d records still waiting for extraction, %d held for another project, %d excluded"
-          % (made, waiting, held["migrations"], held["excluded"]))
+    print("build: %d new batches, %d records still waiting for extraction, %d held for another project, %d excluded, "
+          "%d not live, %d with a withheld stored path (run extract.py repath)"
+          % (made, waiting, held["migrations"], held["excluded"], held["departed"] + held["unknown"],
+             held["stale_path"]))
     return 0
 
 
@@ -597,8 +621,13 @@ def work(a):
         if os.path.exists(run.alert):
             log("ALERT present, stopping")
             return 3
-        held.update({it["id"]: run.held[it["id"]] for it in bt["items"] if it["id"] in run.held})
-        todo = [it["id"] for it in bt["items"] if it["id"] not in run.held and not has(it["id"])]
+        todo = []
+        for it in bt["items"]:
+            why = run.unsendable(it["id"])
+            if why:
+                held[it["id"]] = why
+            elif not has(it["id"]):
+                todo.append(it["id"])
         if not todo:
             continue
         t0 = time.time()
@@ -630,8 +659,9 @@ def work(a):
         log("batch %s mode=%s carded in %.0fs" % (bt["name"], bt["mode"], time.time() - t0))
     with open(os.path.join(run.state, ("redo%d" if a.redo else "cards%d") % wi + ".done"), "w", encoding="utf-8") as f:
         f.write(common.now_local())
-    log("worker finished; held for another project: %d; excluded: %d"
-        % tuple(sum(why == kind for why in held.values()) for kind in ("migrations", "excluded")))
+    count = collections.Counter(held.values())
+    log("worker finished; held for another project: %d; excluded: %d; not live: %d; withheld stored path: %d"
+        % (count["migrations"], count["excluded"], count["departed"] + count["unknown"], count["stale_path"]))
     return 0
 
 

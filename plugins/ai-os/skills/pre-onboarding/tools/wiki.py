@@ -153,6 +153,7 @@ and its data table, which `check` requires beside every xychart-beta, pie, gantt
 pairing). Rules in full: references/tools.md.
 """
 import argparse
+import bisect
 import collections
 import csv
 import datetime
@@ -521,9 +522,10 @@ def fresh_bundles(root, bdir, mpath, ws, arguments, rb, man, reuse=False):
         raise common.ToolError("stale bundles: %s was routed by another Schema routing or section kinds; %s"
                                % (meta_path, rebuild))
     if meta.get("withheld_sha256") != withheld_digest(rb, man):
+        remove_bundle_files(bdir)  # they hold documents that must not be in one: not left for a later read
         raise common.ToolError("stale bundles: %s was built when other documents were held for another project or "
-                               "excluded (the migrations folder or `exclude` in rulebook.json changed); %s"
-                               % (meta_path, rebuild))
+                               "excluded (the migrations folder or `exclude` in rulebook.json changed), so the "
+                               "bundles were removed; %s" % (meta_path, rebuild))
     missing = sorted(str(f) for f in meta["files"].values()
                      if not (isinstance(f, str) and BUNDLE_FILE.fullmatch(f) and os.path.isfile(os.path.join(bdir, f))))
     if missing:
@@ -714,6 +716,48 @@ def render_template(name, **fields):
     return re.sub(r"\]\((\.\.?/[^)\s]*)\)", absolute, text).format(**fields)
 
 
+def md_cell(value):
+    return " ".join(str(value).split()).replace("|", "\\|")
+
+
+def md_table(headers, rows):
+    return "\n".join(["| %s |" % " | ".join(headers), "| %s |" % " | ".join("---" for _ in headers)]
+                      + ["| %s |" % " | ".join(md_cell(c) for c in row) for row in rows])
+
+
+def schema_tables(rb, ws):
+    """The Schema's four tables as markdown, from the compiled twin, with every routing row whose prefix is withheld left
+    out (a line says how many): what a brief embeds in place of the Schema page, which lists those rows."""
+    shown = [r for r in ws["routing"] if not common.path_withheld(rb, {}, r["prefix"])]
+    hidden = len(ws["routing"]) - len(shown)
+    parts = ["### Layout", "", md_table(["Section", "Pages", "Professional lens", "Kind"], [
+        ["%s %s" % (x["number"], x["name"]), x["pages"], "; ".join(x["professionals"]),
+         x["kind"] + (", derived" if x["derived"] else "")] for x in ws["sections"]]),
+        "", "### Routing", "", md_table(["Files under", "Section and page"], [["`%s`" % r["prefix"], r["target"]]
+                                                                              for r in shown])]
+    if hidden:
+        parts += ["", "%d routing row%s into a withheld folder %s not shown." % (hidden, "" if hidden == 1 else "s",
+                                                                                 "is" if hidden == 1 else "are")]
+    parts += ["", "### Page contracts", "", md_table(
+        ["Section (professional)", "Reader", "Questions, most important first", "Fields every page carries"],
+        [["%s %s (%s)" % (c["number"], c["name"], "; ".join(c["professionals"])), c["reader"] or "",
+          " ".join("%d. %s" % (i, q) for i, q in enumerate(c["questions"], 1)), ", ".join(c["fields"])]
+         for c in ws["contracts"]])]
+    if ws["pages"]:
+        parts += ["", "### Page professionals", "", md_table(
+            ["Page", "Professional", "Deliverable", "Tone"],
+            [[p, v["professional"], v["deliverable"], v["tone"]] for p, v in sorted(ws["pages"].items())])]
+    return "\n".join(parts)
+
+
+def remove_bundle_files(bdir):
+    """Remove `bundles.json` and the section files of the bundles in `bdir`: the bundles were built before a change to
+    what is withheld, and hold documents that must not be in one."""
+    for name in sorted(os.listdir(bdir)):
+        if name == "bundles.json" or BUNDLE_FILE.fullmatch(name):
+            os.remove(os.path.join(bdir, name))
+
+
 @os_errors
 def brief(a):
     root, settings_dir, work = common.resolve(a)
@@ -754,7 +798,7 @@ def brief(a):
         "page-brief.md", folder_name=os.path.basename(root), owner_context=owner_context(root, rb),
         pages="\n\n".join(entries),
         page_map="\n".join("- `%s` (%s%s)" % (p, s, ", in this brief" if p in pages else "") for p, s in pmap.items()),
-        bundles_dir=bdir, wiki_dir=wiki, schema_path=os.path.join(root, ws["schema_path"]),
+        bundles_dir=bdir, wiki_dir=wiki, schema_tables=schema_tables(rb, ws),
         checker=" ".join(shlex.quote(x) for x in checker), return_shape=return_shape(pages),
         rationale="\n\n".join(skeletons))
     if a.out:
@@ -1009,31 +1053,79 @@ def acceptance_states(records, now):
 # ------------------------------------------------------------------------------------ check
 
 def withheld_citer(root, rb, man, ws):
-    """`cites(rel, text, skip=())` -> [(line, why)]: the citations on the wiki page `rel` (its text) that name a
-    withheld document, the one rule `check` reports as `cites_withheld` and `review-prompts` refuses a page on. A
-    citation is a `sources:` entry or a backticked span (`citations`), and names a withheld document when it is a path
-    a withheld entry holds (a copy at an included path too), or a path under the migrating folder or an excluded path
-    that the manifest holds as a file or a folder, so a placeholder such as `_Migrations/<Project>/` that names none is
-    not one. `skip` is a set of (line, span) to leave out (a chart's source cell, judged as a chart source). The
-    Schema page and the Log are not read for it. `why` is `migrations` or `excluded`; no path is returned."""
-    live = {h: e for h, e in man.items() if "departed" not in e.get("flags", [])}
-    withheld_at = common.withheld_paths(rb, man)
-    live_paths = {p for e in live.values() for p in [e["current_path"]] + [c["path"] for c in e.get("copies", [])]}
-    live_folders = {"/".join(q.split("/")[:i]) for q in live_paths for i in range(1, q.count("/") + 1)}
-    exempt_schema = schema_rel(root, rb, ws)
+    """`cites(rel, text, skip=())` -> [(line, why)]: where the wiki page `rel` (its text) names a withheld document or
+    folder, the one rule `check` reports as `cites_withheld` and `review-prompts` refuses a page on. Two things count,
+    and a path is judged by `common.fold`, so a case or Unicode variant of it is the same path:
 
-    def names(span):
-        bare = span.rstrip("/")
+    - a citation, a `sources:` entry or a backticked span (`citations`): a path a withheld entry holds (a copy at an
+      included path too), or a path under the migrating folder or an excluded path that the manifest holds as a file
+      or a folder, so a placeholder such as `_Migrations/<Project>/` that names none is not one;
+    - a withheld path anywhere in the page's text, in plain text and in fenced blocks, and in the text with its
+      percent-escapes decoded (a link's target): every path a withheld entry holds, and every withheld folder the
+      manifest holds (an excluded path, a project folder in the migrating folder), as the path with its separators.
+
+    `skip` is a set of (line, span) to leave out (a chart's source cell, judged as a chart source). The Schema page and
+    the Log may name a withheld folder, as a routing row or a history line does, but not a withheld document: only a
+    folder is let stand there. `why` is `migrations` or `excluded`; no path is returned."""
+    live = {h: e for h, e in man.items() if "departed" not in e.get("flags", [])}
+    withheld_at = common.withheld_paths(rb, man)  # {fold(path): why}, every path a withheld entry holds
+    live_paths = {common.fold(p) for e in live.values()
+                  for p in [e["current_path"]] + [c["path"] for c in e.get("copies", [])]}
+    live_folders = {"/".join(q.split("/")[:i]) for q in live_paths for i in range(1, q.count("/") + 1)}
+    folders = {}  # {fold(path) + "/": why}: the withheld folders the manifest holds, and the folders `exclude` names
+    for q in live_paths:
+        parts = q.split("/")
+        for i in range(1, len(parts)):
+            here = "/".join(parts[:i])
+            why = common.withheld(rb, here)
+            if why:
+                folders.setdefault(here + "/", why)
+    for e in rb["exclude"]:
+        k = common.fold(e).rstrip("/")
+        if k not in withheld_at:
+            folders.setdefault(k + "/", "excluded")
+    exempt = lambda rel: rel.startswith(LOG_DIR + "/") or rel == schema_rel(root, rb, ws)
+
+    def named(span):
+        """(why, "document" | "folder") for a citation, or None."""
+        bare = common.fold(span.rstrip("/"))
         if bare in withheld_at:
-            return withheld_at[bare]
+            return withheld_at[bare], "document"
         why = common.withheld(rb, bare)
-        return why if why and (bare in live_paths or bare in live_folders) else None
+        return (why, "folder") if why and (bare in live_paths or bare in live_folders) else None
+
+    def scan(lines):
+        """[(line number, why, kind)] for every token of `withheld_at` and `folders` in `lines`, wrapped text joined."""
+        keys = [common.fold(x) for x in lines]
+        joined, starts = "", []
+        for k in keys:
+            starts.append(len(joined))
+            joined += k + " "
+        found = []
+        for tokens, kind in ((withheld_at, "document"), (folders, "folder")):
+            for token, why in tokens.items():
+                at = joined.find(token)
+                while at >= 0:
+                    after = at + len(token)
+                    if (at == 0 or not joined[at - 1].isalnum() and joined[at - 1] != "_") and (
+                            kind == "folder" or after >= len(joined) or not (joined[after].isalnum()
+                                                                            or joined[after] == "_")):
+                        found.append((bisect.bisect_right(starts, at), why, kind))
+                    at = joined.find(token, at + 1)
+        return found
 
     def cites(rel, text, skip=()):
-        if rel.startswith(LOG_DIR + "/") or rel == exempt_schema:
-            return []
-        return [(line, why) for line, span in citations(text) if (line, span) not in skip
-                for why in [names(span)] if why]
+        found = set()
+        for line, span in citations(text):
+            hit = None if (line, span) in skip else named(span)
+            if hit:
+                found.add((line, hit[0], hit[1]))
+        lines = text.split("\n")
+        for body in (lines, urllib.parse.unquote(text).split("\n")):
+            found.update(f for f in scan(body) if f[0] not in {l for l, _s in skip})
+        if exempt(rel):
+            found = {f for f in found if f[2] == "document"}
+        return sorted({(line, why) for line, why, _kind in found})
     return cites
 
 
@@ -1088,7 +1180,8 @@ def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptan
         if fm.get("status") == "superseded":
             sup += 1
         for s in fm.get("sources") if isinstance(fm.get("sources"), list) else []:
-            if isinstance(s, str) and not os.path.exists(os.path.join(root, s)):
+            # spelt exactly as its folder lists it: a case variant opens the file on macOS and would pass for it
+            if isinstance(s, str) and common.named_exactly(root, s.rstrip("/")) is None:
                 dead_src.append([rel, s])
         for d in fm.get("deadlines") or []:
             if isinstance(d, dict):

@@ -605,7 +605,7 @@ class ExcludedTest(AuditCase):
         self.assertNotIn("Private", cache)
 
     def test_an_exclusion_that_names_no_path_is_refused_and_nothing_is_written(self):
-        for entry in ("Staf", "staff", "Staff/nobody.txt"):
+        for entry in ("Staf", "Staff/nobody.txt"):
             with self.subTest(entry):
                 root = self.folder_with(exclude=[entry], parent="bad" + str(len(entry)))
                 code, _o, err = run("audit.py", "--root", root, "--work", os.path.join(self.tmp, "work"), "--out",
@@ -613,6 +613,14 @@ class ExcludedTest(AuditCase):
                 self.assertEqual(code, 2)
                 self.assertIn("exclude entry %r is not a path under" % entry, err)
                 self.assertFalse(os.path.exists(os.path.join(self.out(root), "manifest.json")))
+
+    def test_a_case_variant_of_an_excluded_path_excludes_it(self):
+        """macOS opens `staff/pay.txt` for `Staff/pay.txt`, so the owner's `staff` means the folder."""
+        root = self.folder_with(exclude=["staff", "LETTERS/private.pdf"], parent="case")
+        entries = by_path(self.audit(root))
+        for rel in ("Staff/pay.txt", "Staff/Bills/Gas.pdf", "Letters/Private.pdf"):
+            self.assertEqual((entries[rel]["hashed"], entries[rel]["synthetic_id"]), (False, True), rel)
+        self.assertTrue(entries["Letters/Kept.pdf"]["hashed"])
 
     def test_dropping_an_exclusion_reads_the_file_at_the_next_audit(self):
         root = self.folder_with(exclude=["Staff"])

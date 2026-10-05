@@ -16,6 +16,8 @@ row's evidence before the move and the destination's after it, never overwrite, 
 holds nothing but `.DS_Store`, deletes only of copies the manifest marks `redundant`, never inside a pack, and only
 after every other approved row is done and the manifest was regenerated after them, deleted items moved to the Bin
 (never unlinked).
+A path the rulebook excludes is proposed nothing, and a row whose `from` or `to` is one is refused by `check` and
+`execute` before any hashing: the plan tools never open an excluded file.
 Two-phase undo log: an `intent` line before each change and a `done` line with its reverse after. A failed row stops
 its domain. A `convert` row is the owner's or the deployment's: the executor names it, leaves it pending and goes on.
 """
@@ -118,7 +120,8 @@ def execute(a):
     bin_dir = os.path.abspath(a.bin or os.path.expanduser("~/.Trash"))
     failed_domains = set()
     man = None
-    in_pack = common.pack_matcher(root, common.load_rulebook(root, common.settings_dir_for(root, a.settings_dir)))
+    rb = common.load_rulebook(root, common.settings_dir_for(root, a.settings_dir))
+    in_pack = common.pack_matcher(root, rb)
     if phase == "deletes":
         others = [r for r in rows if r["approved"] == "approved" and r["action"] not in ("delete", "convert")]
         if any(r["status"] != "done" for r in others):
@@ -149,6 +152,7 @@ def execute(a):
             continue
         try:
             act = r["action"]
+            refuse_excluded(rb, r)
             if act == "create":
                 dst = guard.inside(r["to"])
                 if os.path.exists(dst) and not os.path.isdir(dst):
@@ -251,6 +255,18 @@ def execute(a):
     return 1 if failed_domains else 0
 
 
+EXCLUDED = ("%s is excluded from reading by the rulebook: no tool opens, hashes or moves it; the owner moves it by "
+            "hand")
+
+
+def refuse_excluded(rb, r):
+    """Refuse a row whose `from` or `to` is a path the rulebook excludes (or under one), before any hashing: a check
+    or a move would open the file to prove its hash, which the owner's exclusion forbids."""
+    for key in ("from", "to"):
+        if r[key] and common.is_excluded(rb, r[key].rstrip("/")):
+            raise ValueError(EXCLUDED % ("the %s path" % key))
+
+
 NO_DESTINATION = "no destination: the owner must choose one before approving"
 
 
@@ -266,10 +282,12 @@ def check(a):
     root = os.path.realpath(a.root)
     guard = Guard(root)
     man = load_manifest(a.manifest or os.path.join(root, "_Audit", "manifest.json"))
-    in_pack = common.pack_matcher(root, common.load_rulebook(root, common.settings_dir_for(root, a.settings_dir)))
+    rb = common.load_rulebook(root, common.settings_dir_for(root, a.settings_dir))
+    in_pack = common.pack_matcher(root, rb)
     ok = bad = 0
     for r in read_plan(a.plan):
         try:
+            refuse_excluded(rb, r)
             if r["action"] == "delete":
                 if in_pack(os.path.dirname(r["from"])):
                     raise ValueError(PACK_REFUSAL)
@@ -341,17 +359,21 @@ def light(a):
     refuse_decided(a.out)
     root = os.path.realpath(a.root)
     entries = load_manifest(a.manifest or os.path.join(root, "_Audit", "manifest.json"))
-    live = {h: e for h, e in entries.items() if "departed" not in e.get("flags", [])}
     rb = common.load_rulebook(root, common.settings_dir_for(root, a.settings_dir))
+    # an item the tools may not read (staged for another project, or excluded) is proposed nothing, and a path it holds
+    # is no stray, no name defect and no redundant copy: the owner's exclusion also means the plan leaves it alone
+    live = {h: e for h, e in entries.items()
+            if "departed" not in e.get("flags", []) and not common.withheld(rb, e["current_path"])}
     in_pack = common.pack_matcher(root, rb)
     migr = rb["migrations_dir"]
     redundant, allpaths = {}, {}
     for h, e in live.items():
         for c in e.get("copies", []):
-            if c["kind"] == "redundant":
+            if c["kind"] == "redundant" and not common.withheld(rb, c["path"]):
                 redundant[c["path"]] = h
         for p in [c["path"] for c in e.get("copies", [])] or [e["current_path"]]:
-            allpaths[p] = h
+            if not common.withheld(rb, p):
+                allpaths[p] = h
     rows = []
     if not a.deletes_only:
         for p in sorted(x for x in allpaths if "/" not in x):
@@ -401,7 +423,7 @@ def migrate(a):
     root = os.path.realpath(a.root)
     rb = common.load_rulebook(root, common.settings_dir_for(root, a.settings_dir))
     entries = load_manifest(a.manifest or os.path.join(root, "_Audit", "manifest.json"))
-    where = live_paths(entries)
+    where = {p: v for p, v in live_paths(entries).items() if not common.is_excluded(rb, p)}  # never an excluded path
     rows, seen, review = [], set(), []
     for item in read_paths(a.paths_file):
         ps = sorted(p for p in where if p.startswith(item)) if item.endswith("/") else [item]
@@ -426,7 +448,7 @@ def return_(a):
     root = os.path.realpath(a.root)
     rb = common.load_rulebook(root, common.settings_dir_for(root, a.settings_dir))
     entries = load_manifest(a.manifest or os.path.join(root, "_Audit", "manifest.json"))
-    where = live_paths(entries)
+    where = {p: v for p, v in live_paths(entries).items() if not common.is_excluded(rb, p)}
     base = "%s/%s/" % (rb["migrations_dir"], a.project)
     rows, review = [], []
     for item in read_paths(a.paths_file):

@@ -6,6 +6,7 @@ in one place: with it set, any write under the folder being prepared is refused 
 import argparse
 import atexit
 import datetime
+import functools
 import hashlib
 import json
 import os
@@ -322,6 +323,7 @@ def load_rulebook(root, settings_dir, required=False, verify=True):
     merged["packs"] = [p.rstrip("/") for p in merged["packs"]]
     merged["exclude"] = [p.rstrip("/") for p in merged["exclude"]]
     merged["_source"] = path if data else None
+    check_excluded(root, merged)
     return merged
 
 
@@ -408,18 +410,25 @@ def _nfc(text):
     return unicodedata.normalize("NFC", text)
 
 
+@functools.lru_cache(maxsize=1 << 16)
+def fold(text):
+    """A path or a name as every withheld comparison sees it: Unicode NFC, then case-folded, then NFC again. A name
+    may be stored decomposed on disk and composed in a page or in rulebook.json, and the folder may be on a file system
+    that ignores case (macOS opens `staff/pay.txt` for `Staff/pay.txt`), so two spellings that name one file are
+    one name here."""
+    return _nfc(_nfc(text).casefold())
+
+
 def in_migrations(rb, path):
     """True when `path`, relative to the folder with `/` separators, lies under the folder's migrations folder
-    (`migrations_dir`, `_Migrations` by default). Names are compared in Unicode NFC, as a name may be stored
-    decomposed on disk and composed in rulebook.json."""
-    return _nfc(path).startswith(_nfc(rb["migrations_dir"]).rstrip("/") + "/")
+    (`migrations_dir`, `_Migrations` by default), compared as `fold` compares."""
+    return fold(path).startswith(fold(rb["migrations_dir"]).rstrip("/") + "/")
 
 
 def is_excluded(rb, path):
-    """True when `path` is a path the folder's `exclude` lists, or lies under one: matched on the folder's own
-    spelling (each part exactly, case included), in Unicode NFC."""
-    p = _nfc(path)
-    return any(p == e or p.startswith(e + "/") for e in map(_nfc, rb["exclude"]))
+    """True when `path` is a path the folder's `exclude` lists, or lies under one, compared as `fold` compares."""
+    p = fold(path)
+    return any(p == e or p.startswith(e + "/") for e in (fold(x).rstrip("/") for x in rb["exclude"]))
 
 
 def withheld(rb, path):
@@ -432,9 +441,9 @@ def withheld(rb, path):
     return "excluded" if is_excluded(rb, path) else None
 
 
-def withheld_ids(root, rb, manifest=None):
-    """{id: why} (as `withheld`) for the manifest's entries whose current path is withheld. The manifest is required and
-    checked, since a missing or malformed one would otherwise read as nothing withheld."""
+def _manifest_entries(root, manifest=None):
+    """The entries of the manifest, which is required and checked: a missing or malformed one would otherwise read as
+    nothing withheld."""
     path = manifest or os.path.join(root, "_Audit", "manifest.json")
     if not os.path.exists(path):
         raise ToolError("manifest missing: %s; run audit.py first" % path)
@@ -448,7 +457,29 @@ def withheld_ids(root, rb, manifest=None):
         where = e.get("current_path") if isinstance(e, dict) else None
         if not (isinstance(where, str) and where):
             raise ToolError("%s: entry %s has no current_path; re-run audit.py" % (path, h))
-    return withheld_in(rb, entries)
+    return entries
+
+
+def withheld_ids(root, rb, manifest=None):
+    """{id: why} (as `withheld`) for the manifest's entries whose current path is withheld."""
+    return withheld_in(rb, _manifest_entries(root, manifest))
+
+
+def manifest_view(root, rb, manifest=None):
+    """({id: state}, {id: current path}) for every entry of the manifest. A state is `"migrations"` or `"excluded"` when
+    the entry's current path is withheld (as `withheld`, whatever its flags), else `"departed"` when it is, else
+    `"ok"`: live and included, the only state whose document a tool may read, send to an engine or queue. An id the
+    manifest does not hold is none of these, and a caller treats it as not live. The path is what a tool names a
+    document by, never the one an extract record kept."""
+    entries = _manifest_entries(root, manifest)
+    states = {h: withheld(rb, e["current_path"]) or ("departed" if "departed" in e.get("flags", []) else "ok")
+              for h, e in entries.items()}
+    return states, {h: e["current_path"] for h, e in entries.items()}
+
+
+def manifest_states(root, rb, manifest=None):
+    """{id: state}, as `manifest_view` gives."""
+    return manifest_view(root, rb, manifest)[0]
 
 
 def withheld_in(rb, entries):
@@ -460,14 +491,14 @@ WITHHELD_WHY = {"migrations": "held for another project", "excluded": "excluded"
 
 
 def withheld_paths(rb, entries):
-    """{path: why} (as `withheld`) for every path, current and copies', that a live entry withheld by its current path
-    holds: a copy of a withheld document at an included path is as withheld as its canonical copy."""
+    """{fold(path): why} (as `withheld`) for every path, current and copies', that a live entry withheld by its current
+    path holds: a copy of a withheld document at an included path is as withheld as its canonical copy."""
     out = {}
     for e in entries.values():
         why = None if "departed" in e.get("flags", []) else withheld(rb, e["current_path"])
         if why:
             for p in [e["current_path"]] + [c["path"] for c in e.get("copies", [])]:
-                out.setdefault(p, why)
+                out.setdefault(fold(p), why)
     return out
 
 
@@ -476,7 +507,7 @@ def path_withheld(rb, at, path):
     (`at`, from `withheld_paths`), or one `withheld` says is, as a file or as a folder (so the folder `Staff` and the
     bare migrations folder are withheld, and a folder holding only one excluded file is not)."""
     bare = path.rstrip("/")
-    return at.get(path) or at.get(bare) or withheld(rb, bare) or withheld(rb, bare + "/")
+    return at.get(fold(bare)) or withheld(rb, bare) or withheld(rb, bare + "/")
 
 
 def named_exactly(root, rel):
@@ -491,13 +522,26 @@ def named_exactly(root, rel):
     return cur
 
 
+def named_loosely(root, rel):
+    """As `named_exactly`, but a part may differ in case and in Unicode form, as `fold` compares."""
+    cur = root
+    for part in rel.split("/"):
+        names = {fold(n): n for n in os.listdir(cur)} if os.path.isdir(cur) else {}
+        if fold(part) not in names:
+            return None
+        cur = os.path.join(cur, names[fold(part)])
+    return cur
+
+
 def check_excluded(root, rb):
-    """Fail loud on an `exclude` entry that is no path under `root`, named exactly: a typo or a changed case would
-    exclude nothing, and the owner's exclusion would reach the engines without a word."""
+    """Fail loud on an `exclude` entry that names no path under `root`, ignoring case and Unicode form (as the
+    withheld comparisons do): a typo would exclude nothing, and the owner's exclusion would reach the engines without a
+    word. `load_rulebook` calls it, so every tool that reads the settings refuses such an entry before it reads
+    anything."""
     for p in rb["exclude"]:
-        if named_exactly(root, p) is None:
-            raise ToolError("%s: exclude entry %r is not a path under %s (names compared exactly, case included); "
-                            "update rulebook.json exclude" % (rb.get("_source") or "rulebook.json", p, root))
+        if named_loosely(root, p) is None:
+            raise ToolError("%s: exclude entry %r is not a path under %s (ignoring case and Unicode form); update "
+                            "rulebook.json exclude" % (rb.get("_source") or "rulebook.json", p, root))
 
 
 def pack_matcher(root, rb):

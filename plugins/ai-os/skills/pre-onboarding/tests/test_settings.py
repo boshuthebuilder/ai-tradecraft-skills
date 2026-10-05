@@ -472,6 +472,43 @@ class StaleTest(FixtureCopy):
         self.assertEqual(code, 0, err)
 
 
+class ExcludeEverywhereTest(FixtureCopy):
+    """`exclude` is checked in the one loader: an entry that names no path stops every tool that reads the settings, before
+    it reads or writes anything."""
+
+    def test_every_tool_refuses_an_exclude_entry_that_names_no_path(self):
+        self.rulebook_json(self.root, exclude=["Nowhere"])
+        before = tree_digest(self.root)
+        work = self.work(self.root)
+        folder = ["--root", self.root, "--work", work]
+        manifest = os.path.join(self.root, "_Audit", "manifest.json")
+        for name, args in (("audit.py", folder), ("extract.py", folder + ["--lane", "main", "--manifest", manifest]),
+                           ("cards.py", ["build"] + folder), ("vision.py", folder + ["--model", "m"]),
+                           ("wiki.py", ["profile"] + folder), ("wiki.py", ["check"] + folder),
+                           ("wiki.py", ["bundles"] + folder), ("plan.py", ["light", "--root", self.root, "--out",
+                                                                             os.path.join(self.tmp, "plan")]),
+                           ("readiness.py", folder), ("settings.py", ["compile"] + folder),
+                           ("refs.py", folder)):
+            with self.subTest(tool=name, args=args[:1]):
+                code, out, err = run(name, *args)
+                self.assertEqual(code, 2, out + err)
+                self.assertIn("exclude entry 'Nowhere' is not a path under", err)
+                self.assertNotIn("Traceback", err)
+        self.assertEqual(tree_digest(self.root), before, "a tool wrote into the folder before refusing")
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "plan")))
+        found = self.check(self.root)  # the diagnosis reports it as a finding, as it reports any invalid twin
+        self.assertEqual(found["status"]["rulebook_json"], "invalid")
+        self.assertTrue(any("exclude entry 'Nowhere' is not a path under" in f for f in found["findings"]))
+
+    def test_a_case_variant_of_a_real_path_is_accepted_and_the_audit_leaves_it_unread(self):
+        self.rulebook_json(self.root, exclude=["06 work"])
+        code, _out, err = self.audit(self.root)
+        self.assertEqual(code, 0, err)
+        entries = json.loads(read(os.path.join(self.tmp, "out", "manifest.json")))["entries"]
+        work = [e for e in entries.values() if e["current_path"].startswith("06 Work/")]
+        self.assertTrue(work and all(e["hashed"] is False for e in work))
+
+
 class CheckTest(FixtureCopy):
     def test_the_fixture_is_clean(self):
         self.compile(self.root)
@@ -664,7 +701,7 @@ class WithheldTest(unittest.TestCase):
                 self.assertEqual(common.withheld(self.rb, path), "migrations")
 
     def test_nothing_else_is_withheld_by_default(self):
-        for path in ("", "_Migrations", "_Migrations.pdf", "_Migrationsx/a.pdf", "_migrations/a.pdf",
+        for path in ("", "_Migrations", "_Migrations.pdf", "_Migrationsx/a.pdf",
                      "02 Finance/_Migrations/a.pdf", "02 Finance/Old invoice.pdf", "Migrations/a.pdf"):
             with self.subTest(path):
                 self.assertFalse(common.in_migrations(self.rb, path))
@@ -676,6 +713,12 @@ class WithheldTest(unittest.TestCase):
         self.assertFalse(common.in_migrations(self.rb, "_Migrations/Other Project/a.pdf"))
         self.rb["migrations_dir"] = "_Leaving/"  # a trailing slash names the same folder
         self.assertTrue(common.in_migrations(self.rb, "_Leaving/Other Project/a.pdf"))
+
+    def test_a_case_variant_of_the_migrations_folder_is_held_too(self):
+        """On a file system that ignores case the variant opens the same folder."""
+        for path in ("_migrations/Other/a.pdf", "_MIGRATIONS/Other/a.pdf"):
+            with self.subTest(path):
+                self.assertEqual(common.withheld(self.rb, path), "migrations")
 
     def test_names_are_compared_composed_or_decomposed(self):
         composed, decomposed = "_Migr\u00e9es", "_Migre\u0301es"
@@ -692,10 +735,14 @@ class WithheldTest(unittest.TestCase):
                 self.assertTrue(common.is_excluded(self.rb, path))
                 self.assertEqual(common.withheld(self.rb, path), "excluded")
 
-    def test_an_exclusion_is_matched_exactly_by_part_never_by_prefix_or_case(self):
-        self.rb["exclude"] = ["Staff", "Letters/Private.pdf"]
-        for path in ("Staffing/a.txt", "Staff.txt", "staff/a.txt", "STAFF/a.txt", "Letters/Private.pdf.bak",
-                     "Letters/Private.pdfx/a", "Letters/private.pdf", "Other/Staff/a.txt", "Letters", "Letters/Other.pdf"):
+    def test_an_exclusion_matches_whole_parts_ignoring_case_and_unicode_form_never_a_prefix(self):
+        self.rb["exclude"] = ["Staff", "Letters/Private.pdf", "Caf\u00e9"]
+        for path in ("staff/a.txt", "STAFF/a.txt", "Letters/private.pdf", "LETTERS/PRIVATE.PDF/page",
+                     unicodedata.normalize("NFD", "CAF\u00c9/menu.txt")):
+            with self.subTest(path):
+                self.assertEqual(common.withheld(self.rb, path), "excluded")
+        for path in ("Staffing/a.txt", "Staff.txt", "Letters/Private.pdf.bak", "Letters/Private.pdfx/a",
+                     "Other/Staff/a.txt", "Letters", "Letters/Other.pdf", "Caf/menu.txt"):
             with self.subTest(path):
                 self.assertFalse(common.is_excluded(self.rb, path))
 
@@ -751,6 +798,7 @@ class WithheldTest(unittest.TestCase):
     def test_a_trailing_slash_on_an_exclude_entry_is_dropped(self):
         root = os.path.join(self.tmp, "Papers")
         os.makedirs(os.path.join(root, ".familyai"))
+        os.makedirs(os.path.join(root, "Staff"))
         with open(os.path.join(root, "CLAUDE.md"), "w", encoding="utf-8") as f:
             f.write("# Rules\n")
         pin = hashlib.sha256(b"# Rules\n").hexdigest()
@@ -758,12 +806,28 @@ class WithheldTest(unittest.TestCase):
             json.dump({"version": 1, "rulebook_sha256": pin, "exclude": ["Staff/"]}, f)
         self.assertEqual(common.load_rulebook(root, os.path.join(root, ".familyai"))["exclude"], ["Staff"])
 
+    def test_every_tool_that_reads_the_settings_refuses_an_exclude_entry_that_names_no_path(self):
+        """`load_rulebook` is the one loader, so the refusal is not the audit's alone."""
+        root = os.path.join(self.tmp, "Papers")
+        os.makedirs(os.path.join(root, ".familyai"))
+        os.makedirs(os.path.join(root, "Staff"))
+        with open(os.path.join(root, "CLAUDE.md"), "w", encoding="utf-8") as f:
+            f.write("# Rules\n")
+        pin = hashlib.sha256(b"# Rules\n").hexdigest()
+        with open(os.path.join(root, ".familyai", "rulebook.json"), "w", encoding="utf-8") as f:
+            json.dump({"version": 1, "rulebook_sha256": pin, "exclude": ["Staf"]}, f)
+        for verify in (True, False):
+            with self.subTest(verify=verify):
+                with self.assertRaisesRegex(common.ToolError, "exclude entry 'Staf' is not a path under"):
+                    common.load_rulebook(root, os.path.join(root, ".familyai"), verify=verify)
+
     def test_an_exclude_entry_that_names_no_path_is_refused_by_name(self):
         root = os.path.join(self.tmp, "Papers")
         os.makedirs(os.path.join(root, "Staff"))
         os.makedirs(os.path.join(root, "Caf\u00e9"))
-        for entry, ok in (("Staff", True), ("staff", False), ("Staf", False), ("Staff/pay.txt", False),
-                          ("Caf\u00e9", True), (unicodedata.normalize("NFD", "Caf\u00e9"), True)):
+        for entry, ok in (("Staff", True), ("staff", True), ("STAFF", True), ("Staf", False),
+                          ("Staff/pay.txt", False), ("Caf\u00e9", True), ("CAF\u00c9", True),
+                          (unicodedata.normalize("NFD", "Caf\u00e9"), True)):
             with self.subTest(entry):
                 rb = dict(self.rb, exclude=[entry])
                 if ok:

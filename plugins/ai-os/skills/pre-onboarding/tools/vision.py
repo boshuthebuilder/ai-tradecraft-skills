@@ -8,10 +8,11 @@ commands are refused). The transcription replaces the page's text in the extract
 sent, with its text; anything else is a failed attempt, and after three a page is marked `unread` with the local
 text kept. Worker k of N owns the ids that hash to k. Exits when extraction has finished and its share is empty.
 
-A queued image whose document's current path in the manifest is under the migrations folder (held for another
-project) or is one the rulebook `exclude`s (excluded) is never sent, whatever the document's flags: it stays in the
-queue and out of the share that has to be empty, and the lane's log counts the documents of each kind. The manifest is
-read again before each batch, so a round that stages a document while the lane runs is seen.
+A queued image is sent only when the manifest holds its document live (not `departed`) and not withheld: one whose
+current path is under the migrations folder (held for another project) or is one the rulebook `exclude`s (excluded), a
+departed one, and an id the manifest does not hold (not live) are never sent, whatever the document's flags. They stay
+in the queue and out of the share that has to be empty, and the lane's log counts the documents of each kind. The
+manifest is read again before each batch, so a round that stages or excludes a document while the lane runs is seen.
 
     python3 vision.py --root R --model <vision model id> [--worker 0/2]
 """
@@ -83,12 +84,12 @@ def main():
         os.makedirs(queue, exist_ok=True)
         files = sorted(f for f in os.listdir(queue) if re.match(r"[0-9a-f]{64}_\d{5}\.png$", f)
                        and int(f[:8], 16) % wn == wi)
-        held = common.withheld_ids(root, rb, a.manifest)
+        states = common.manifest_states(root, rb, a.manifest)
         ready, recs = [], {}
         for f in files:
             eid = f[:64]
-            if eid in held:
-                held_seen[eid] = held[eid]
+            if states.get(eid, "unknown") != "ok":
+                held_seen[eid] = states.get(eid, "unknown")
                 continue
             recs.setdefault(eid, load(eid))
             if recs[eid] and recs[eid].get("status") == "needs_vision":
@@ -168,8 +169,9 @@ def main():
         with open(tries_p, "w", encoding="utf-8") as f:
             json.dump(tries, f)
         log("batch %d images %s" % (len(ready), "ok" if got is not None else "FAILED"))
-    log("finished; held for another project: %d; excluded: %d"
-        % tuple(sum(why == kind for why in held_seen.values()) for kind in ("migrations", "excluded")))
+    count = collections.Counter(held_seen.values())
+    log("finished; held for another project: %d; excluded: %d; not live: %d"
+        % (count["migrations"], count["excluded"], count["departed"] + count["unknown"]))
     with open(os.path.join(state, "vision%d.done" % wi), "w", encoding="utf-8") as f:
         f.write(common.now_local())
     return 0

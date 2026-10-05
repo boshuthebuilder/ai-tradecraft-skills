@@ -101,7 +101,6 @@ def main():
     reserved = BASE_RESERVED | set(rb["reserved"]) | {rb["wiki_dir"]}
     img_cap = int(rb["image_cap_mb"]) * 1024 * 1024
     in_pack = common.pack_matcher(root, rb)
-    common.check_excluded(root, rb)
     log = common.logger(work, "audit")
     folder = os.path.basename(root)
 

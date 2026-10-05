@@ -1073,6 +1073,88 @@ class CheckTest(PlanCase):
                 write(self.path(rel), original)
 
 
+# ---------------------------------------------------------------------------------------------- the owner's exclusions
+
+NEVER_HASH_EXCLUDED = """
+import sys
+sys.path.insert(0, sys.argv[1])
+import common
+import plan
+real = common.sha256_file
+
+
+def guarded(path):
+    if "IMG_0001" in path or "Lease notes" in path:
+        raise AssertionError("hashed " + path)
+    return real(path)
+
+
+common.sha256_file = guarded
+sys.argv = ["plan.py"] + sys.argv[2:]
+common.run_main(plan.main)
+"""
+
+
+class ExcludedPlanTest(PlanCase):
+    """A path the rulebook excludes is proposed nothing, and a row that names one is refused before any hashing."""
+
+    EXCLUDED = ("IMG_0001.jpg", "03 Home/Lease notes .txt", "05 Archive/Slides.pptx")
+
+    def prepare(self):
+        twin = os.path.join(self.root, ".familyai", "rulebook.json")
+        write(twin, json.dumps(dict(json.loads(read(twin)), exclude=list(self.EXCLUDED)), ensure_ascii=False))
+
+    def test_light_proposes_nothing_for_an_excluded_stray_name_defect_or_redundant_copy(self):
+        code, _o, err = self.run_plan("light", "--root", self.root, "--out", os.path.dirname(self.plan))
+        self.assertEqual(code, 0, err)
+        text = read(self.plan)
+        for named in ("IMG_0001", "Lease notes", "Slides"):
+            self.assertNotIn(named, text, "a row names an excluded item")
+        kept = [(r["action"], r["from"]) for r in self.rows().values()]
+        self.assertIn(("rename", "03 Home/Utilities /"), kept, "the rows for what is not excluded are unchanged")
+        self.assertIn(("delete", "05 Archive/Cours de fran\u00e7ais.pdf"), kept)
+
+    def test_check_and_execute_refuse_a_row_that_names_an_excluded_path_before_hashing(self):
+        write_rows(self.plan, [row(1, "move", "IMG_0001.jpg", "03 Home/Beach.jpg", "f" * 64),
+                               row(2, "rename", "03 Home/Lease notes .txt", "03 Home/Lease notes.txt", "e" * 64),
+                               row(3, "move", "03 Home/Lease renewal.pdf", "05 Archive/Slides.pptx",
+                                   self.ids["03 Home/Lease renewal.pdf"]),
+                               row(4, "delete", "05 Archive/Slides.pptx", "", "d" * 64, kind="redundant")])
+        code, out, err = self.run_plan("check", "--root", self.root, "--plan", self.plan, script=NEVER_HASH_EXCLUDED)
+        self.assertEqual(code, 1, out + err)
+        failed = {line.split()[1]: line for line in out.splitlines() if line.startswith("FAIL")}
+        self.assertEqual(sorted(failed), ["1", "2", "3", "4"])
+        for seq, which in (("1", "from"), ("2", "from"), ("3", "to"), ("4", "from")):
+            self.assertIn("the %s path is excluded from reading by the rulebook: no tool opens, hashes or moves it"
+                          % which, failed[seq])
+            self.assertNotIn("source missing or hash differs", failed[seq])
+        before = tree_digest(self.root)
+        code, out, err = self.execute(script=NEVER_HASH_EXCLUDED)
+        self.assertEqual(code, 1, out + err)
+        self.assertNotIn("Traceback", err)
+        self.assertEqual(self.status(1)[0], "failed")
+        self.assertIn("excluded from reading", self.status(1)[1])
+        self.assertEqual(tree_digest(self.root), before, "a refused row changed the folder")
+
+    def test_a_row_for_what_is_not_excluded_still_runs_and_is_checked(self):
+        write_rows(self.plan, [row(1, "move", "03 Home/Lease renewal.pdf", "03 Home/Renewal.pdf",
+                                   self.ids["03 Home/Lease renewal.pdf"])])
+        code, out, err = self.run_plan("check", "--root", self.root, "--plan", self.plan)
+        self.assertEqual((code, "rows ok 1 failed 0" in out), (0, True), out + err)
+
+    def test_migrate_and_return_never_list_an_excluded_path(self):
+        paths = os.path.join(self.tmp, "paths.txt")
+        write(paths, "IMG_0001.jpg\n03 Home/\n")
+        out = os.path.join(self.tmp, "round")
+        code, _o, err = self.run_plan("migrate", "--root", self.root, "--project", "Household", "--paths-file", paths,
+                                      "--out", out)
+        self.assertEqual(code, 0, err)
+        rows = read_rows(os.path.join(out, "move-plan.csv"))
+        self.assertNotIn("Lease notes", read(os.path.join(out, "move-plan.csv")))
+        self.assertTrue(rows and all(not r["from"].startswith("IMG_0001") for r in rows))
+        self.assertIn("MISSING\tIMG_0001.jpg", read(os.path.join(out, "review.tsv")))
+
+
 # ---------------------------------------------------------------------------------------------- migrations
 
 class MigrationRoundTest(PlanCase):

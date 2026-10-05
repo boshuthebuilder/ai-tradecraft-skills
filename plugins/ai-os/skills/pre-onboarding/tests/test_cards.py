@@ -739,6 +739,8 @@ class HeldForAnotherProjectTest(CardsCliCase):
         pin = hashlib.sha256(read(os.path.join(self.root, "CLAUDE.md")).encode()).hexdigest()
         write(os.path.join(self.root, ".familyai", "rulebook.json"),
               json.dumps(dict(settings, version=1, rulebook_sha256=pin)))
+        for entry in settings.get("exclude", []):  # an `exclude` entry must name a path: make each a folder
+            os.makedirs(os.path.join(self.root, entry), exist_ok=True)
 
     def test_an_excluded_document_is_never_carded_and_is_counted_apart(self):
         self.rulebook(exclude=["Staff", "Letters/Private.pdf"])
@@ -775,6 +777,91 @@ class HeldForAnotherProjectTest(CardsCliCase):
                     self.assertNotIn("nanny", c["prompt"])
                 self.assertEqual(sorted(self.written()), [] if extra else [own])
                 self.assertIn("worker finished; held for another project: 0; excluded: 1", err)
+
+    def stage_synthetic(self, i, current_path):
+        """The manifest entry an audit makes for an excluded path: a synthetic id, `hashed` false, no content."""
+        self.entries[i] = {"id": i, "current_path": current_path, "class": "document", "hashed": False,
+                           "synthetic_id": True, "flags": []}
+        write(os.path.join(self.root, "_Audit", "manifest.json"),
+              json.dumps({"schema": "family-ai-preprocess-manifest/2", "entries": self.entries}))
+
+    def test_a_document_moved_into_an_excluded_folder_after_extraction_is_never_sent(self):
+        """The audit cannot link a move into an excluded folder (it never hashes there): the old entry is `departed` at
+        its old, included path and the file has a new synthetic id. The old id's record holds the full text."""
+        own = self.record("03 Home/Rent.pdf", ["Rent for the flat."])
+        old = self.record("Letters/Dismissal.txt", ["Dismissal letter, reference 98765432."])
+        code, _out, err = self.cards_py("build")
+        self.assertEqual(code, 0, err)
+        self.assertEqual([len(bt["items"]) for bt in self.batches().values()], [2])  # planned before the move
+        self.entries[old]["flags"] = ["departed"]  # re-audited after the move and the exclusion
+        self.stage_synthetic(eid("Private/Dismissal.txt"), "Private/Dismissal.txt")
+        self.rulebook(exclude=["Private"])
+        code, out, err = self.work_run("codex", "--terms", self.terms)
+        self.assertEqual(code, 0, err)
+        calls = self.fakes.calls("codex")
+        self.assertEqual([item_count(c) for c in calls], [1])
+        self.assertNotIn("98765432", calls[0]["prompt"])
+        self.assertNotIn("Dismissal", calls[0]["prompt"])
+        self.assertEqual(sorted(self.written()), [own])
+        self.assertIn("not live: 1", err)
+        shutil.rmtree(os.path.join(self.work, "batches"))  # a fresh build plans nothing for it either
+        code, out, err = self.cards_py("build")
+        self.assertIn("1 not live", out)
+
+    def test_a_departed_document_and_an_id_the_manifest_does_not_hold_are_not_carded(self):
+        gone = self.record("Letters/Gone.txt", ["A letter that left the folder."], flags=["departed"])
+        unknown = eid("Elsewhere/Unknown.txt")
+        write(os.path.join(self.extract, unknown + ".json"), json.dumps({
+            "id": unknown, "path": "Elsewhere/Unknown.txt", "class": "document", "status": "ok", "page_count": 1,
+            "tiers": {"text_layer": 1}, "chars": 10, "pages": [{"n": 1, "tier": "text_layer", "text": "A stray."}]}))
+        code, out, err = self.cards_py("build")
+        self.assertEqual(code, 0, err)
+        self.assertIn("build: 0 new batches", out)
+        self.assertIn("2 not live", out)
+        redo = os.path.join(self.tmp, "redo.txt")
+        write(redo, "%s\n%s\n" % (gone, unknown))
+        code, _out, err = self.work_run("codex", "--terms", self.terms, "--redo", redo)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.fakes.calls("codex"), [])
+        self.assertIn("not live: 2", err)
+
+    def test_a_record_made_before_an_exclusion_is_not_sent_until_it_is_repathed(self):
+        """`Staff/Nanny dismissal.txt` and an identical `Public/Payslip copy.txt`: the first name was canonical when
+        the record was made. The owner excludes `Staff`, and the entry is now live at the other name, not withheld."""
+        i = self.record("Staff/Nanny dismissal.txt", ["Dismissal of the nanny, reference 98765432."],
+                        now_at="Public/Payslip copy.txt")
+        self.rulebook(exclude=["Staff"])
+        code, out, err = self.cards_py("build")
+        self.assertEqual(code, 0, err)
+        self.assertIn("build: 0 new batches", out)
+        self.assertIn("1 with a withheld stored path (run extract.py repath)", out)
+        self.assertEqual(self.batches(), {})
+        redo = os.path.join(self.tmp, "redo.txt")
+        write(redo, i + "\n")
+        code, _out, err = self.work_run("codex", "--terms", self.terms, "--redo", redo)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.fakes.calls("codex"), [], "a record carrying an excluded path was sent")
+        self.assertIn("withheld stored path: 1", err)
+        rec = os.path.join(self.extract, i + ".json")  # repathed, as `extract.py repath --apply` does
+        write(rec, json.dumps(dict(json.loads(read(rec)), path="Public/Payslip copy.txt")))
+        code, out, err = self.cards_py("build")
+        self.assertIn("build: 1 new batches", out)
+        code, _out, err = self.work_run("codex", "--terms", self.terms)
+        self.assertEqual(code, 0, err)
+        prompt = self.fakes.calls("codex")[0]["prompt"]
+        self.assertIn("Public/Payslip copy.txt", prompt)
+        self.assertNotIn("Staff", prompt)
+
+    def test_a_call_names_a_document_by_the_manifests_path_never_the_records(self):
+        i = self.record("03 Home/Old name.pdf", ["A lease, reference 55501234."], now_at="03 Home/New name.pdf")
+        code, _out, err = self.cards_py("build")
+        self.assertEqual(code, 0, err)
+        code, _out, err = self.work_run("codex", "--terms", self.terms)
+        self.assertEqual(code, 0, err)
+        item, = sent_items(self.fakes.calls("codex")[0]["prompt"])
+        self.assertEqual(item["path"], "03 Home/New name.pdf")
+        self.assertNotIn("Old name", self.fakes.calls("codex")[0]["prompt"])
+        self.assertEqual(list(self.written()), [i])
 
     def test_the_migrations_folder_is_the_one_the_settings_name(self):
         write(os.path.join(self.root, "CLAUDE.md"), "# Rules\n")

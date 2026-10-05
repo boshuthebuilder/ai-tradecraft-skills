@@ -33,7 +33,7 @@ pass either, and the operator reads it.
   Deadlines page holds only what the roll-up renders from the pages' frontmatter, and every other line is reported)
   and recurring dates live in page frontmatter, with any other derived page not verified (see `deadline_items`); the
   rulebook reserves the deployment's rulebook filenames and routes no new file to the migrations folder (read by
-  keyword, a negation or a description of staging through an approved plan row not counted: see
+  keyword, strictly: a line naming the folder with a routing word is a finding, whatever else it says; see
   `routes_new_files_out`); the migrations folder holds no file (names listed, never a file opened; see
   `migrations_cleared`); both settings twins present and fresh.
 
@@ -1159,30 +1159,29 @@ def migrations_cleared(root, name):
         " and %d folder(s) could not be listed, so the count may be low" % len(unlisted) if unlisted else "", tail)
 
 
-# The rulebook's prose, read by keyword. A statement routes new files to the migrations folder when a clause of it
-# names the folder together with one of ROUTES, unless the clause negates it (a NEGATORS word before the last of the
-# folder's name and the routing words, so `never go to _Migrations/` and `no new file is dropped into it` pass but
-# `go to _Migrations/, not to the inbox` does not) or only describes staging through an approved plan row.
-ROUTES = re.compile(r"(?i)new file|dropped|goes to|go to")
-NEGATORS = re.compile(r"(?i)\b(?:never|not|no|none|nothing|nowhere|neither|nor|cannot|avoid(?:s|ed)?|forbid(?:s|den)?"
-                      r"|prohibit(?:s|ed)?|prevent(?:s|ed)?|instead of|rather than)\b|n['\u2019]t\b")
-STAGED_BY_ROW = re.compile(r"(?i)\bapprov\w*\b.*\b(?:plan|rows?)\b|\b(?:plan|rows?)\b.*\bapprov\w*\b")
-CLAUSE_END = re.compile(r"(?i)[;:.!?](?:\s|$)|;|\s(?:but|however|whereas)\s")
+# The rulebook's prose, read by keyword, strictly: a statement (a list item or a paragraph, the lines it wraps over
+# joined) that names the migrations folder together with a ROUTES word reads as routing new files there, whatever else it
+# says. A negation ("never", "not", "no") is not read: a sentence can hold one and still route ("new files that do not
+# belong here go to `_Migrations/`"), and a missed route is not safe where a false finding is, since the operator
+# rewords the line.
+ROUTES = re.compile(r"(?i)new file|drop|goes to|go to")
 LIST_ITEM = re.compile(r"(?:[-*+]|[0-9]+[.)])\s")
 
 
 def statements(text):
     """The rulebook's statements as a reader takes them: each list item and each paragraph is one, with a line it
-    wraps onto joined to it, so a negation cannot fall on one line and the folder on the next; a heading, a table row
-    and a code fence stand alone."""
-    out, open_ = [], False
+    wraps onto joined to it; a heading, a table row and a line of a fenced block stand alone."""
+    out, open_, fence = [], False, False
     for line in text.splitlines():
         s = line.strip()
         item = LIST_ITEM.match(s)
-        if not s:
-            open_ = False
-        elif s.startswith(("#", "|", "```", "~~~")):
+        if s.startswith(("```", "~~~")):
+            fence, open_ = not fence, False
             out.append(s)
+        elif fence or s.startswith(("#", "|")):
+            out.append(s)  # a line of code, a heading or a table row stands alone
+            open_ = False
+        elif not s:
             open_ = False
         elif open_ and not item:
             out[-1] += " " + s
@@ -1193,24 +1192,11 @@ def statements(text):
 
 
 def routes_new_files_out(text, folder):
-    """The statements of the rulebook `text` that route new files to the migrations folder `folder`: a clause (a
-    sentence, split further at `;`, a colon, `but` and `however`) that names `<folder>/` and one of ROUTES (`new file`,
-    `dropped`, `goes to`, `go to`, in any case), unless it negates the routing, a NEGATORS word standing before the
-    last of the folder's name and the routing words, or only describes staging through an approved plan row (`approved`
-    with `plan` or `row` in the clause)."""
+    """The statements of the rulebook `text` that read as routing new files to the migrations folder `folder`: those that
+    name `<folder>/` together with `new file`, `drop` (`dropped`, a drop point), `goes to` or `go to`, in any case, and
+    whatever else they say."""
     named = folder + "/"
-    routed = []
-    for statement in statements(text):
-        for clause in CLAUSE_END.split(statement) if named in statement else ():
-            at = clause.rfind(named)
-            ways = [m.start() for m in ROUTES.finditer(clause)]
-            if at < 0 or not ways or STAGED_BY_ROW.search(clause):
-                continue
-            last = max(at, ways[-1])
-            if not any(m.start() < last for m in NEGATORS.finditer(clause)):
-                routed.append(statement)
-                break
-    return routed
+    return [statement for statement in statements(text) if named in statement and ROUTES.search(statement)]
 
 
 def contract(root, rb, settings_dir, ws, pages, rulebook_text):
@@ -1224,7 +1210,7 @@ def contract(root, rb, settings_dir, ws, pages, rulebook_text):
     items["derived_pages_hold_nothing_hand_written"], items["recurring_dates_in_frontmatter"], \
         items["other_derived_pages"], outside = deadline_items(wiki, pages, ws)
     # The rulebook is prose, read by keyword and substring: each filename written anywhere in it reserves it, and a
-    # statement that routes new files to the migrations folder is read by `routes_new_files_out`.
+    # statement that reads as routing new files to the migrations folder is found by `routes_new_files_out`, strictly.
     if rulebook_text is None:
         items["rulebook_reserves_rulebook_filenames"] = items["new_files_routed_within_folder"] = \
             "not verified: CLAUDE.md missing (rulebook.present reports it)"
@@ -1235,7 +1221,10 @@ def contract(root, rb, settings_dir, ws, pages, rulebook_text):
         routes_out = routes_new_files_out(rulebook_text, rb["migrations_dir"])
         items["new_files_routed_within_folder"] = "ok" if not routes_out else \
             "finding: the rulebook routes new files to %s/ (%d line(s)); migrations are the owner's cross-project " \
-            "synthesis to propose" % (rb["migrations_dir"], len(routes_out))
+            "synthesis to propose. A line that names %s/ with \"new file\", \"drop\", \"goes to\" or \"go to\" reads as " \
+            "routing, whatever else it says, so reword it: describe staging only through approved plan rows, say that " \
+            "new files are filed in this folder by the wiki's routing, and keep those words off any line that names " \
+            "%s/" % (rb["migrations_dir"], len(routes_out), rb["migrations_dir"], rb["migrations_dir"])
     items["migrations_folder_cleared"] = migrations_cleared(root, rb["migrations_dir"])
     try:
         common.load_rulebook(root, settings_dir, required=True)

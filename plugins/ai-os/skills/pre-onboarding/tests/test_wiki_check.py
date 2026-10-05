@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import unicodedata
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -416,13 +417,65 @@ class CheckTest(Copy):
     def test_only_a_citation_of_a_withheld_document_counts(self):
         res = self.cites("06 Work", cite=["_Migrations/<Project>/", "_Migrations/", "06 Work/Nothing.docx", "06 Workshop/x.pdf",
                                           "05 Archive/", "04 Study/Notes.rtf"])
-        self.assertEqual(len(res["cites_withheld"]), 3, "the three the Tax page already has, and none of these")
+        self.assertEqual(len(res["cites_withheld"]), 4, "the three the Tax page already has, and a file under the "
+                         "excluded folder; not the placeholder, the bare migrations folder or the near names")
 
-    def test_the_schema_and_the_log_may_name_a_withheld_folder(self):
+    def test_the_schema_and_the_log_may_name_a_withheld_folder_but_not_a_withheld_document(self):
         res = self.cites("06 Work")
         pages = {p for p, _l, _w in res["cites_withheld"]}
         self.assertEqual(pages, {TAX})
         self.assertIn("06 Work/", read(os.path.join(self.root, WIKI, "90 Schema", "90 Schema.md")))
+        log = os.path.join(self.root, WIKI, "91 Log", "91 Log.md")
+        write(log, read(log) + "\n## [2024-07-01] ingest | `06 Work/Contract.docx` (the nanny's contract)\n")
+        schema = os.path.join(self.root, WIKI, "90 Schema", "90 Schema.md")
+        write(schema, read(schema) + "\nA worked example: `06 Work/Essay.docx`.\n")
+        compile_schema(self.root, self.work)
+        res = self.check()
+        self.assertEqual(sorted({p for p, _l, _w in res["cites_withheld"]}),
+                         [TAX, "90 Schema/90 Schema.md", "91 Log/91 Log.md"])
+        self.assertEqual(len([c for c in res["cites_withheld"] if c[0] != TAX]), 2)
+
+    def test_a_case_or_unicode_variant_of_a_withheld_path_is_still_a_citation(self):
+        text = read(self.page(TAX)).replace("06 Work/", "06 work/")
+        write(self.page(TAX), text)
+        self.assertEqual(len(self.cites("06 Work")["cites_withheld"]), 3, "the variants a macOS path opens")
+        man = os.path.join(self.root, "_Audit", "manifest.json")
+        m = json.loads(read(man))
+        accented = unicodedata.normalize("NFD", "06 Work/Caf\u00e9 menu.txt")  # as the file system stores it
+        next(iter(m["entries"].values()))["copies"] = []
+        m["entries"]["f" * 64] = {"id": "f" * 64, "current_path": accented, "class": "document", "hashed": True,
+                                  "flags": [], "size": 1, "mtime": "2024-06-01T00:00:00Z"}
+        write(man, json.dumps(m))
+        page = self.page("40 Study/40 Study.md")
+        write(page, read(page) + "\nThe menu is `%s`.\n" % unicodedata.normalize("NFC", "06 Work/Caf\u00e9 menu.txt"))
+        found = [c for c in self.check()["cites_withheld"] if c[0] == "40 Study/40 Study.md"]
+        self.assertEqual([c[2] for c in found], ["excluded"])
+        code, out, err = self.wiki("review-prompts", "--page", "40 Study/40 Study.md", "--author-model", "a",
+                                   "--reviewer-model", "b", "--out", os.path.join(self.tmp, "q"))
+        self.assertEqual(code, 2, out + err)
+        self.assertNotIn("Caf", err)
+
+    def test_a_withheld_path_in_plain_text_a_fence_or_a_link_is_a_citation(self):
+        self.exclude("06 Work")
+        edits = {"plain text": "The contract is 06 Work/Contract.docx, signed in May.\n",
+                 "wrapped": "The contract is 06 Work/\nContract.docx, signed in May.\n",
+                 "a fence": "```text\n06 Work/Contract.docx\n```\n",
+                 "a link": "See [the contract](../../06%20Work/Contract.docx).\n",
+                 "other case": "See 06 WORK/contract.DOCX.\n"}
+        page = self.page("40 Study/40 Study.md")
+        base = read(page)
+        for name, text in edits.items():
+            with self.subTest(name):
+                write(page, base + "\n" + text)
+                found = [c for c in self.check()["cites_withheld"] if c[0] == "40 Study/40 Study.md"]
+                self.assertEqual([c[2] for c in found], ["excluded"], name)
+        write(page, base + "\nWorkshop 06 Workshop/x and the Work/Contract.docx idea.\n")
+        self.assertEqual([c for c in self.check()["cites_withheld"] if c[0] == "40 Study/40 Study.md"], [])
+
+    def test_a_sources_entry_spelt_in_another_case_is_dead(self):
+        """It opens the file on macOS, so a test of existence would pass for it."""
+        edit(self.page(TAX), '  - "06 Work/Contract.docx"', '  - "06 work/Contract.docx"')
+        self.assertEqual(self.check()["dead_source_paths"], [[TAX, "06 work/Contract.docx"]])
 
     def test_a_chart_whose_source_is_excluded_is_a_problem(self):
         res = self.cites("03 Home/Lease renewal.pdf")
@@ -925,6 +978,18 @@ class ReviewPromptsTest(Copy):
         code, stdout, err = self.withhold_and_prompt("06 Work", pages=("90 Schema/90 Schema.md", "91 Log/91 Log.md"))
         self.assertEqual(code, 0, stdout + err)
         self.assertEqual(json.loads(stdout)["refused"], [])
+
+    def test_the_log_naming_a_withheld_document_is_refused_and_its_prompt_names_none(self):
+        log = os.path.join(self.root, WIKI, "91 Log", "91 Log.md")
+        write(log, read(log) + "\n- Filed `06 Work/Contract.docx` (the nanny's contract).\n")
+        out = os.path.join(self.tmp, "p")
+        code, stdout, err = self.withhold_and_prompt("06 Work", pages=("91 Log/91 Log.md", "00 Index/00 Index.md"),
+                                                     out=out)
+        self.assertEqual(code, 2, stdout + err)
+        refused = json.loads(stdout)["refused"]
+        self.assertEqual([r[0] for r in refused], ["91 Log/91 Log.md"])
+        self.assertNotIn("Contract", err)
+        self.assertEqual(sorted(self.texts(out)), ["00 Index/00 Index.owner.md", "00 Index/00 Index.professional.md"])
 
     def test_the_routes_into_a_withheld_folder_are_not_shown(self):
         self.withhold("06 Work")

@@ -442,10 +442,15 @@ class BundlesTest(Copy):
         self.exclude("06 Work")  # the owner excludes it; the manifest has not moved, so only the withheld set says so
         for cmd, args in (("bundles", ["--reuse"]), ("brief", ["--page", BRIEF_PAGES[0]])):
             with self.subTest(cmd=cmd):
+                self.exclude()  # the bundles are rebuilt as they were, then the exclusion is made again
+                self.build()
+                self.exclude("06 Work")
                 err = self.refused(cmd, *args)
                 self.assertIn("stale bundles", err)
                 self.assertIn("held for another project or excluded", err)
                 self.assertIn("rebuild them: wiki.py bundles --root", err)
+                self.assertEqual(sorted(os.listdir(self.bundles_dir())), [],
+                                 "the bundles holding the excluded documents were left on disk")
         self.build()
         self.assertNotIn("Contract.docx", self.bundle_text())
         self.brief(BRIEF_PAGES[0])
@@ -457,6 +462,30 @@ class BundlesTest(Copy):
         self.assertNotIn("06 Work", brief)
         self.assertIn("  - 1 route to a withheld folder, not shown", brief)
         self.assertIn("  - `02 Finance/`: 20 Bank accounts and Cash position", brief)
+
+    def test_a_brief_embeds_the_schemas_tables_without_the_withheld_routes_and_never_names_the_schema_page(self):
+        self.exclude("06 Work")
+        self.build()
+        brief = self.brief(BRIEF_PAGES[0])
+        tables = brief.split("## The Schema's tables")[1].split("## What to do")[0]
+        for heading in ("### Layout", "### Routing", "### Page contracts", "### Page professionals"):
+            self.assertIn(heading, tables)
+        self.assertIn("| `02 Finance/` | 20 Bank accounts and Cash position |", tables)
+        self.assertIn("1 routing row into a withheld folder is not shown.", tables)
+        self.assertIn("| 20 Finance/Tax.md | chartered tax adviser | annual tax position letter | exact, dated |", tables)
+        self.assertNotIn(os.path.join(self.root, WIKI, "90 Schema", "90 Schema.md"), brief,
+                         "the brief sends the author to the page that lists the routes")
+        self.assertNotIn("Read the Schema page", brief)
+        self.assertIn("do not open the Schema page", brief)
+        self.assertIn("A path this brief marks withheld, any path under the migrations folder and any path the owner "
+                      "excluded is never opened, read or cited", " ".join(brief.split()))
+        self.assertNotIn("Open a source file itself when", brief)
+
+    def test_a_brief_with_nothing_withheld_shows_every_route_and_no_note(self):
+        self.build()
+        tables = self.brief(BRIEF_PAGES[0]).split("## The Schema's tables")[1].split("## What to do")[0]
+        self.assertIn("| `06 Work/` | 20 Tax (employment income) |", tables)
+        self.assertNotIn("not shown", tables)
 
     def test_a_rebuild_leaves_only_its_own_files(self):
         write(os.path.join(self.bundles_dir(), "bundle_99.jsonl"), "{}\n")

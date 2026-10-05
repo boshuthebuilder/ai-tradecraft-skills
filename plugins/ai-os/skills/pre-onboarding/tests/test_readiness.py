@@ -367,61 +367,68 @@ class RollUpFormsTest(unittest.TestCase):
 
 
 class RoutesNewFilesOutTest(unittest.TestCase):
-    """The rulebook check reads prose by keyword: a statement routes new files to the migrations folder when a clause
-    names `_Migrations/` with "new file", "dropped", "goes to" or "go to", unless it negates that or only describes
-    staging through an approved plan row."""
+    """The rulebook check reads prose by keyword, strictly: a statement naming `_Migrations/` with "new file", "drop",
+    "goes to" or "go to" reads as routing new files there, whatever else it says. A negation is not read: a sentence can
+    hold one and still route, and a missed route is not safe where a false finding is (the operator rewords the line)."""
 
-    NOT_ROUTING = (
-        "New files never go to `_Migrations/`.",
-        "New files never go to `_Migrations/`; one that seems to belong to another project is filed here like any other.",
-        "No new file is dropped into `_Migrations/`.",
-        "Do not send new files to `_Migrations/`.",
-        "New files are not routed to `_Migrations/`.",
-        "New files don't go to `_Migrations/`.",
-        "New files don\u2019t go to `_Migrations/`.",
-        "New files should never be dropped into `_Migrations/`, which only an approved plan row fills.",
-        "`_Migrations/` never receives new files.",
-        "Nothing is dropped into `_Migrations/` by the system.",
-        "New files go to the inbox, not `_Migrations/`.",
-        "New files are filed within the folder instead of going to `_Migrations/`.",
-        "Files go to `_Migrations/<Project>/` only through an approved plan row (`plan.py migrate`).",
-        "Files the owner approved for another project are dropped into `_Migrations/<Project>/` by an approved row.",
-        "Approved files go to `_Migrations/<Project>/` when the owner approves the row in the plan.",
-        "- New files never\n  go to `_Migrations/`.",
-        "`_Migrations/<Project>/`: files the owner approved moving to another project.",
-        "Files the owner approved wait in `_Migrations/<Project>/` until their project collects them.",
-        "New files are filed by the wiki's routing. `_Migrations/` is only for staging.",
-    )
     ROUTING = (
+        # the plain statements
         "New files that belong to another project go to `_Migrations/<Project>/`.",
         "Files that may belong to another project are dropped into `_Migrations/`.",
         "A new file for another project goes to `_Migrations/<Project>/`.",
-        "NEW FILES GO TO `_MIGRATIONS/`.".replace("_MIGRATIONS", "_Migrations"),
-        "New files go to `_Migrations/`, not to the inbox.",
-        "Never put new files in the inbox; they go to `_Migrations/<Project>/`.",
-        "New files go to `_Migrations/`. Nothing else is filed there.",
+        "NEW FILES GO TO `_Migrations/`.",
         "New files go to `_Migrations/`; an approved row in the plan then moves them on.",
-        "- New files that belong to another\n  project go to `_Migrations/<Project>/`.",
-        "- A file that seems to belong to another project is not filed here:\n  it is dropped into `_Migrations/`.",
+        "New files go to `_Migrations/` once the owner has approved the plan row for them.",
+        # a negation that does not govern the routing
+        "New files that do not belong here go to `_Migrations/`.",
+        "Files that are not for this project go to `_Migrations/<Project>/`.",
+        "New files not about the household go to `_Migrations/`.",
+        "Do not keep new files here, drop them into `_Migrations/`.",
+        "Never put new files in the inbox; they go to `_Migrations/<Project>/`.",
+        "New files go to `_Migrations/`, not to the inbox.",
+        "New files go to `_Migrations/`. Nothing else is filed there.",
         "Do not file new files in the inbox, but let them go to `_Migrations/` by hand.",
+        "- A file that seems to belong to another project is not filed here:\n  it is dropped into `_Migrations/`.",
+        # wrapped, so that a negation on one line sits beside the routing on the next
+        "Never leave new files in the inbox\nNew files go to `_Migrations/`",
+        "Never leave new files in the inbox\nand they go to `_Migrations/`.",
+        "- New files that belong to another\n  project go to `_Migrations/<Project>/`.",
+        # a correct statement the rule still reads as routing: reword it (the finding says how)
+        "New files never go to `_Migrations/`.",
+        "No new file is dropped into `_Migrations/`.",
+        "`_Migrations/` never receives new files.",
+        "New files go to `_Inbox/`, and the owner decides what goes to `_Migrations/`.",
+        "`_Inbox/` is the drop point; `_Migrations/<Project>/` holds files approved for another project.",
+    )
+    NOT_ROUTING = (
+        "`_Migrations/<Project>/`: files the owner approved moving to another project.",
+        "Files the owner approved wait in `_Migrations/<Project>/` until their project collects them.",
+        "Staging happens only through an approved row in a plan, into `_Migrations/<Project>/`.",
+        "- Files the owner approved for another project wait in `_Migrations/<Project>/`, put there only by an approved\n"
+        "  row in a plan.",
+        "New files are filed within this folder by the wiki's routing, never routed to the migrations folder.",
+        "New files go to `_Inbox/`. Nothing is staged without an approved plan row.",
+        "```\n_Inbox/            the drop point\n_Migrations/<Project>/    approved files\n```",
     )
 
     def routing(self, text, folder="_Migrations"):
         return readiness.routes_new_files_out(text, folder)
 
-    def test_a_negation_or_a_description_of_staging_does_not_route_new_files(self):
-        for sentence in self.NOT_ROUTING:
-            with self.subTest(sentence=sentence):
-                self.assertEqual(self.routing(sentence), [])
-
-    def test_a_statement_that_routes_new_files_there_does(self):
+    def test_every_statement_that_names_the_folder_with_a_routing_word_is_flagged(self):
         for sentence in self.ROUTING:
             with self.subTest(sentence=sentence):
                 self.assertEqual(len(self.routing(sentence)), 1)
 
-    def test_a_negation_after_the_routing_does_not_negate_it(self):
-        self.assertEqual(len(self.routing("New files go to `_Migrations/`, not to the inbox.")), 1)
-        self.assertEqual(self.routing("New files go to the inbox, not `_Migrations/`."), [])
+    def test_the_wording_that_describes_staging_through_plan_rows_alone_passes(self):
+        for sentence in self.NOT_ROUTING:
+            with self.subTest(sentence=sentence):
+                self.assertEqual(self.routing(sentence), [])
+
+    def test_the_rulebook_template_and_the_fixture_pass(self):
+        skill = read(os.path.join(HERE, "..", "SKILL.md"))
+        step = skill[skill.index("new files are filed within this folder"):].split("\n\nThen run", 1)[0]
+        self.assertEqual(self.routing(step), [], "the wording the skill gives for the rulebook")
+        self.assertEqual(self.routing(read(os.path.join(FIXTURE, "CLAUDE.md"))), [])
 
     def test_a_statement_not_naming_the_folder_is_not_read(self):
         self.assertEqual(self.routing("New files go to the migrations folder."), [])
@@ -430,17 +437,19 @@ class RoutesNewFilesOutTest(unittest.TestCase):
     def test_the_folder_is_the_one_given(self):
         text = "New files go to `_Leaving/`. Approved files wait in `_Migrations/`."
         self.assertEqual(self.routing(text, "_Leaving"), [text])
-        self.assertEqual(self.routing(text), [])
+        self.assertEqual(len(self.routing(text)), 1)  # one statement names both: the folder asked for is `_Migrations/`
+        self.assertEqual(self.routing("New files go to `_Leaving/`.\n\nApproved files wait in `_Migrations/`."), [])
 
     def test_a_wrapped_line_is_read_with_the_one_it_continues(self):
-        text = ("- New files never\n  go to `_Migrations/`.\n- New files that belong to another\n  project go to "
-                "`_Migrations/<Project>/`.\n\nA heading follows\n\n## Rules\ngo to `_Migrations/`\n")
-        self.assertEqual(self.routing(text), ["New files that belong to another project go to `_Migrations/<Project>/`.",
-                                              "go to `_Migrations/`"])
+        text = ("- New files never\n  go to `_Migrations/`.\n- Approved files wait there.\n\nA heading follows\n\n"
+                "## Rules\ngo to `_Migrations/`\n")
+        self.assertEqual(self.routing(text), ["New files never go to `_Migrations/`.", "go to `_Migrations/`"])
 
-    def test_a_table_row_and_a_heading_stand_alone(self):
+    def test_a_table_row_a_heading_and_a_line_of_code_stand_alone(self):
         text = "## New files\n| a | go to `_Migrations/` |\n| b | filed here |\n"
         self.assertEqual(self.routing(text), ["| a | go to `_Migrations/` |"])
+        fenced = "```\nnew files here\n_Migrations/<Project>/\n```\n"
+        self.assertEqual(self.routing(fenced), [], "the words and the folder are on different lines of the block")
 
 
 class MigrationsClearedTest(unittest.TestCase):
@@ -734,14 +743,21 @@ class ContractTest(Prepared):
         self.assertIn("routes new files to _Migrations/ (1 line(s))",
                       self.one_finding("handoff_contract.new_files_routed_within_folder"))
 
-    def test_a_rulebook_that_says_where_new_files_never_go_passes(self):
+    def test_a_rulebook_that_describes_staging_through_plan_rows_alone_passes(self):
         self.edit_rulebook("\n## Formats and packs",
-                           "- New files never go to `_Migrations/`; one that seems to belong to another project is\n"
-                           "  filed here like any other.\n"
+                           "- New files are filed in this folder by the wiki's routing, never routed to the migrations\n"
+                           "  folder; one that seems to belong to another project is filed here like any other.\n"
                            "- Files the owner approved for another project wait in `_Migrations/<Project>/`, put\n"
                            "  there only by an approved row in a plan.\n\n## Formats and packs")
         res = self.readiness(code=0)
         self.assertEqual(res["handoff_contract"]["new_files_routed_within_folder"], "ok")
+
+    def test_a_negated_sentence_beside_the_folder_is_a_finding_that_says_how_to_reword_it(self):
+        self.edit_rulebook("\n## Formats and packs", "- New files never go to `_Migrations/`.\n\n## Formats and packs")
+        detail = self.one_finding("handoff_contract.new_files_routed_within_folder")
+        self.assertIn("routes new files to _Migrations/ (1 line(s))", detail)
+        self.assertIn("describe staging only through approved plan rows, say that new files are filed in this folder by "
+                      "the wiki's routing, and keep those words off any line that names _Migrations/", detail)
 
     def test_a_rulebook_that_routes_new_files_to_the_migrations_folder_fails_wherever_it_wraps(self):
         self.edit_rulebook("\n## Formats and packs",

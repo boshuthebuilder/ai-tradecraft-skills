@@ -96,10 +96,14 @@ rename history and departures are kept; a manifest of another schema there is re
   as for an item counted and not hashed), no `copies` and no hash-cache line. The manifest keeps no content hash for it
   because getting one means reading the file, and an entry with a content id would be matched as a copy of any
   included file with the same bytes. An entry nothing can read is how every later tool already treats a counted item,
-  and a manifest an older audit made, which hashed it, is still read by path (below). An entry that names no path
-  under the folder, exactly as spelled (each part compared with its folder's listing, case included, in Unicode NFC),
-  refuses the run: a typo would exclude nothing, and the owner's exclusion would reach the engines without a word.
-  Dropping an exclusion hashes the file at the next audit, and the entry made while it was excluded becomes history.
+  and a manifest an older audit made, which hashed it, is still read by path (below). Paths are compared ignoring case
+  and Unicode form, since macOS opens `staff/pay.txt` for `Staff/pay.txt`. An entry that names no path under the folder
+  (compared the same way) refuses the run, as it does for **every** tool that reads the settings: `common.load_rulebook`
+  checks it, so `extract.py`, `cards.py`, `vision.py`, `wiki.py`, `plan.py`, `readiness.py` and the rest stop with
+  `exclude entry '<entry>' is not a path under <folder>` before they read or write anything (`settings.py check`
+  reports it as a finding). A typo would otherwise exclude nothing, and the owner's exclusion would reach the engines
+  without a word; and an excluded path that is deleted must come out of `exclude`. Dropping an exclusion hashes the file
+  at the next audit, and the entry made while it was excluded becomes history.
 
 ## `plan.py`
 
@@ -133,7 +137,8 @@ Writes `<plan folder>/move-plan.csv` with a row, `status` `proposed`, for:
   the copy kept.
 
 Files under the migrations folder and redundant copies are not renamed. `--deletes-only` writes only the delete
-rows.
+rows. An item the tools may not read, staged for another project or excluded by the rulebook, is proposed nothing: it is
+no stray, no name defect, no redundant copy and no canonical copy of one, and `light` never opens it.
 
 ### `migrate` and `return`
 
@@ -195,7 +200,10 @@ the rules [the plan schema](../../folder-curation/references/move-plan-schema.md
 Prints a `FAIL` line per failing row, naming it (`FAIL <seq> <action> <from> <why>`), and `rows ok <n> failed <n>`; exit
 1 on any failure. A `move` or `rename` row with no `to`, such as a root stray the owner has not placed, fails with `no
 destination: the owner must choose one before approving`, as `execute` refuses it; a row the owner declined or
-deferred is never run, so it is not refused. A destination that already exists is seen only by `execute`.
+deferred is never run, so it is not refused. A row whose `from` or `to` is a path the rulebook excludes (or under one)
+fails, before any hashing, with `the from path is excluded from reading by the rulebook: no tool opens, hashes or moves
+it; the owner moves it by hand`, and `execute` refuses it the same way; `migrate` and `return` list such a path as
+`MISSING`. A destination that already exists is seen only by `execute`.
 
 ### `execute`
 
@@ -255,14 +263,20 @@ documents no tool reads, by the manifest entry's current path and **whatever its
   not let it through. Staged material is not the preparation's to read: its text would reach a model's context as
   another project's material, which the isolation terms exist to prevent, and the terms check cannot see it, since the
   document's own text carries the term;
-- **excluded**: a path the rulebook's `exclude` lists, or under one, matched on the folder's own spelling (a part
-  exactly, case included, in Unicode NFC), so `Staff` takes `Staff/pay.txt` and not `Staffing/` or `staff/`. Matching
-  by path means a manifest an older audit made, which hashed the file, does not let it through either.
+- **excluded**: a path the rulebook's `exclude` lists, or under one, so `Staff` takes `Staff/pay.txt` and not
+  `Staffing/`. Matching by path means a manifest an older audit made, which hashed the file, does not let it through
+  either.
+
+Every comparison, here and in the wiki tools, is by whole path part, in Unicode NFC and case-folded, so `staff/pay.txt`,
+`STAFF/pay.txt` and a decomposed spelling of an accented name are the path `Staff/pay.txt` names: macOS opens them for it.
 
 Such a document is never read and never queued for the vision lane, and the run's log counts each kind on its `start`
 and `finished` lines (`held_for_another_project=<n> excluded=<n>`), over the entries the lane and worker take, so the
 workers' counts add up to the folder's. A record made before the document was staged or excluded stays where it is,
-never rewritten or read again. A path both staged and excluded is counted as held for another project.
+never rewritten or read again. A path both staged and excluded is counted as held for another project. A document is
+read, carded and sent only when the manifest holds it **live** (not `departed`) and not withheld, so a document moved
+into an excluded folder (its old entry departed at its old, included path, and the file has a new, unhashed entry in the
+excluded folder) is never sent from the old entry's record.
 
 ### Lanes and workers
 
@@ -613,7 +627,9 @@ bundles whose recorded `manifest_sha256` differs from the current manifest's, wh
 the current Schema's, whose `withheld_sha256` differs from the withheld set now (the migrations folder or `exclude` in
 `rulebook.json` changed, which the manifest alone does not show: a bundle built before an exclusion would hold the
 excluded document), or whose files are missing, and name the command that rebuilds them with the recorded
-`arguments`. `--reuse` also refuses bundles built with other `--cards`, `--extract` or `--text-cap` than the ones
+`arguments`. When the withheld set is what differs, the bundle files are **removed** from the bundles folder before the
+refusal, since they hold documents that must not be in one (a brief rendered earlier, kept by whoever asked for `--out`,
+still points at them: render it again). `--reuse` also refuses bundles built with other `--cards`, `--extract` or `--text-cap` than the ones
 it is given. Every curation round ends in a re-audit that rewrites the manifest, so bundles built before it are
 refused rather than read.
 
@@ -625,13 +641,17 @@ Renders `templates/page-brief.md` for a set of pages, sorted, so the order given
 professional, deliverable and tone ([a page's professional](settings.md#a-pages-professional)) and its section's
 contract (reader, questions, fields; a `fixed` section takes the method's shape, and any other section without a
 contract is refused); the routing into its section (a row whose prefix is a withheld folder is not shown, and a line
-says how many) and its bundle; the owner context from `rulebook.json` (folder
+says how many) and its bundle; the Schema's four tables, rendered from the compiled twin with every routing row into a
+withheld folder left out (a line says how many), which the author is told to use in place of the Schema page, since that
+page lists those rows; the owner context from `rulebook.json` (folder
 description, people with aliases, identifier policy, boundaries); the page map; each page's rationale block with what
 the Schema fixes filled in; the JSON a drafting agent returns, which is what [wiki-onboarding step
 4a](../../wiki-onboarding/SKILL.md#4a-draft-the-pages-when-every-document-has-been-read) names (`pages`, each with its
 `path`, `text`, `rationale` and `index_entry`, then `open_questions` and `check_result`); and the checker command
 every drafting agent runs, `python3 <tools>/wiki.py check --root <root> --work <work> --page <page> ...`, scoped to
-the pages briefed. The page map is every page
+the pages briefed. The brief tells the author to open a source file only when a bundle line names it, and that a path the
+brief marks withheld, any path under the migrations folder and any path the owner excluded is never opened, read or
+cited. The page map is every page
 under the wiki folder, every page in the Schema's Page professionals table, each Layout section's folder note (`<NN
 Name>/<NN Name>.md`) and the pages briefed, each marked `exists` or `planned`. It refuses stale bundles, and writes
 `--out` only outside the folder. The same inputs render the same bytes.
@@ -706,8 +726,12 @@ default that does not exist reads as `not recorded`. Line numbers count from the
   ([`common.withheld`](#held-for-another-project-and-excluded)): a path a withheld entry holds (a copy at an included
   path of a withheld document too), or a path under the migrations folder or an excluded path that the manifest holds
   as a file or a folder (so a placeholder such as `_Migrations/<Project>/` is not one). `why` is `migrations` or
-  `excluded`, and the report names no path. A page must not depend on a document the tools may not read, so each is a
-  problem; the Schema and the Log are not read for it, and a chart's source cell is judged as a chart source.
+  `excluded`, and the report names no path. Paths are compared as `common.fold` does (case and Unicode form ignored),
+  and a withheld path is found anywhere in the page, in plain text and in a fenced block and with its percent-escapes
+  decoded (a link's target), as well as in a `sources:` entry or a backticked span. A page must not depend on a document
+  the tools may not read, so each is a problem. The Schema page and the Log may name a withheld **folder** (a routing
+  row, a history line) but not a withheld **document**: a document path is a citation on any page, those two included. A
+  chart's source cell is judged as a chart source.
 - `deadlines`, `[date, page]`: every `deadlines:` entry in the pages' frontmatter (no problem).
 - `documents_in_scope`, `documents_not_covered` and the first twenty as `not_covered_sample`: coverage, with
   `documents_held_for_another_project` and `documents_excluded` counting the live documents withheld
@@ -1108,27 +1132,18 @@ same way, which is not a finding and not a pass either, and does not change the 
   folder (below); `migrations_folder_cleared` (below);
   `settings_rulebook_json` and `settings_wiki_schema_json` (present and fresh).
 
-**Routing new files to the migrations folder.** `new_files_routed_within_folder` reads the rulebook a statement at a
-time (a list item or a paragraph, with the lines it wraps over joined, so a negation and the folder name need not share
-a line; a heading, a table row and a code fence stand alone), each split into clauses at `;`, a colon, a sentence end,
-`but`, `however` and `whereas`. A clause routes new files out when it names the migrations folder (`_Migrations/`)
-together with "new file", "dropped", "goes to" or "go to", in any case, **unless** it negates the routing or only
-describes staging through an approved plan row:
-
-- **a negation** is any of `never`, `not`, `no`, `none`, `nothing`, `nowhere`, `neither`, `nor`, `cannot`, `n't`,
-  `avoid`, `forbid`, `prohibit`, `prevent`, `instead of` or `rather than` standing before the last of the folder's name
-  and the routing words in the clause. So "new files never go to `_Migrations/`", "no new file is dropped into it",
-  "do not send new files to it" and "new files go to the inbox, not `_Migrations/`" pass, while "new files go to
-  `_Migrations/`, not to the inbox" (the negation comes after) and "never put new files in the inbox; they go to
-  `_Migrations/`" (it is another clause) do not;
-- **staging through an approved plan row** is a clause that says `approved` (or `approve`, `approval`) together with
-  `plan` or `row`: "files go to `_Migrations/<Project>/` only through an approved plan row" passes.
-
-A line saying where approved migrations wait (`_Migrations/<Project>/`: files the owner approved moving to another
-project) names no routing word and passes, as it always did. The finding counts the statements that route, and names
-none of them; the check reads prose by keyword, so a sentence it cannot judge is the owner's to read, never a pass for
-a rule the rulebook does not state. [Pinned](../tests/test_readiness.py) by the passing and failing sentences of
-`RoutesNewFilesOutTest`.
+**Routing new files to the migrations folder.** `new_files_routed_within_folder` reads the rulebook strictly, by keyword:
+a statement (a list item or a paragraph, with the lines it wraps over joined; a heading, a table row and a line of a fenced
+block stand alone) that names the migrations folder (`_Migrations/`) together with "new file", "drop" (`dropped`, a drop
+point), "goes to" or "go to", in any case, is a finding, **whatever else it says**. A negation is deliberately not read:
+"new files that do not belong here go to `_Migrations/`" holds one and still routes. A missed route is not safe where a
+false finding is, since the operator rewords the line; the finding says how: describe staging only through approved plan
+rows, say that new files are filed in this folder by the wiki's routing, and keep those words off any line that names
+`_Migrations/`. A line saying where approved migrations wait (`_Migrations/<Project>/`: files the owner approved moving to
+another project, put there only by an approved row in a plan) names no routing word and passes, as does the rulebook
+template's wording ("new files are filed within this folder by the wiki's routing, never routed to the migrations folder",
+which does not write the folder's name). The finding counts the statements and names none of them.
+[Pinned](../tests/test_readiness.py) by the flagged and the passing sentences of `RoutesNewFilesOutTest`.
 
 **The migrations folder.** `migrations_folder_cleared` lists the names under the folder's migrations folder
 (`migrations_dir`, `_Migrations` by default) and never opens a file. It is `ok` when no file is there, or no such
