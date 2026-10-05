@@ -387,15 +387,15 @@ Two concepts the archetypes above rest on:
   may access, reads them, and never writes back into them. Isolation is by construction: the
   synthesis job's gather only ever presents the wikis the access rule allows, so a cross-tier leak
   cannot happen downstream of it.
-- **Cross-project migrations are proposed, then approved by the owner.** While a folder is being
-  prepared, a curation round may propose one (`folder-curation`). Once a folder is maintained, the
-  user-tier synthesis proposes them: it is the one pass that reads both sides, so it is where a file
-  one project holds for another is noticed. It raises the move as an escalation for the owner to
-  approve or decline (the user-synthesis archetype's optional `migration` field), and never moves a
-  file itself. An approved migration is carried out inside the holding project by its approved
-  curation plan, under that project's guards
-  ([`folder-curation`'s staging rule](skills/folder-curation/SKILL.md#3-propose-the-only-model-step)).
-  No job in either tier moves a file between projects on its own.
+- **A cross-project migration is suggested, never made by a job.** While a folder is being prepared,
+  a curation round may stage one in the migrations folder through plan rows the owner approves
+  ([`folder-curation`'s staging rule](skills/folder-curation/SKILL.md#3-propose-the-only-model-step)),
+  and the folder is onboarded only once that folder is empty. Once a folder is maintained, the
+  user-tier synthesis suggests them: it is the one pass that reads both sides, so it is where a file
+  one project holds for another is noticed. It raises the move as an escalation, with its evidence,
+  for the owner to make by hand or decline (the user-synthesis archetype's optional `migration`
+  field), and never moves a file itself; a deployment surfaces the suggestion and executes no
+  guarded cross-project move. No job in either tier moves a file between projects.
 
 Onboarding an *identity* (as opposed to a project) is its own skill — **`user-onboarding`** — because
 a user vault is a different shape from a project wiki: its storage is owned differently (see *Storage

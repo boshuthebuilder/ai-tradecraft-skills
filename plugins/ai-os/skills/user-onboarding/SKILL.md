@@ -7,7 +7,7 @@ description: >-
   project-onboarding, which onboards a folder of documents. Covers the storage-ownership handshake
   (the user owns the folder and shares it into the worker), the type-1 vault skeleton it scaffolds,
   and stamping the user-synthesis archetype (an incremental `synthesise` plus its periodic `reconcile`
-  twin), which also proposes cross-project migrations for the owner to approve. For a document
+  twin), which also suggests cross-project migrations for the owner to make by hand. For a document
   folder use project-onboarding (after pre-onboarding for a lived-in one); for the synthesis archetype
   details see project-onboarding/archetypes/user-synthesis.
 ---
@@ -52,9 +52,9 @@ When onboarding is done:
   may read (the one access rule, single-homed in the deployment);
 - the **user-synthesis archetype** is stamped: a reactive `synthesise` job and its periodic `reconcile`
   twin, both declaring `wiki-maintenance` as their capability;
-- the synthesis is where **cross-project migrations are proposed**: when the wikis it reads show that
-  files one project holds belong to another, it raises the move for the owner to approve or decline,
-  and the owner's approved curation plan in the holding project carries it out (the archetype's
+- the synthesis is where **cross-project migrations are suggested**: when the wikis it reads show that
+  files one project holds belong to another, it raises the move, with its evidence, for the owner to
+  make by hand or decline, and no job carries it out (the archetype's
   [proposed migrations](../project-onboarding/archetypes/user-synthesis/README.md#proposed-migrations));
 - a first synthesis has run, so `00 Index/` and `01 Knowledge/` hold a real starting view.
 

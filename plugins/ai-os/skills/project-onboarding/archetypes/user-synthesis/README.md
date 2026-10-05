@@ -25,7 +25,7 @@ file-ingest. Two jobs, named for what they do (a job's `id` equals its `mode`):
   synthesis makes is real and portable.
 - **Reasoning (the model):** the synthesis itself — weaving the scoped sources into a coherent whole:
   themes, cross-project connections, a navigable index, every claim traceable to a source page.
-  It also proposes cross-project migrations for the owner to approve (below).
+  It also suggests cross-project migrations for the owner to make by hand (below).
 
 ## Write contract
 
@@ -48,22 +48,24 @@ areas), differing only in **breadth** (the whole vault against all sources, not 
 A project files every new item within itself, so a file that belongs to another project stays where
 it was filed until the owner moves it
 ([`wiki-maintenance`'s rule](../../../wiki-maintenance/SKILL.md#rules-that-keep-it-safe)). While a
-folder is being prepared, a curation round may propose a migration (`folder-curation`); once a folder
-is maintained, the synthesis, the one pass that reads both projects, is where a cross-project
-**migration** is proposed. Both templates return a proposal as an ordinary `needs_a_look` item, one
-per matter, with an optional `migration` field: the two project ids, the files by the folder-relative
-paths the holding project's page cites, and the pages that show it. Its `owner_action` asks the
-owner to approve or decline the move. Most runs propose none, and an item without the field is
-unchanged.
+folder is being prepared, a curation round may stage a migration through plan rows the owner approves
+([`folder-curation`'s staging rule](../../../folder-curation/SKILL.md#3-propose-the-only-model-step)),
+and the folder is onboarded only once the migrations folder is empty; once a folder is maintained, the
+synthesis, the one pass that reads both projects, is where a cross-project **migration** is proposed,
+as a suggestion. Both templates return a suggestion as an ordinary `needs_a_look` item, one per
+matter, with an optional `migration` field: the two project ids, the files by the folder-relative
+paths the holding project's page cites, and the pages that show it, which are its evidence. Its
+`owner_action` names the move for the owner to make by hand, or to decline. Most runs propose none,
+and an item without the field is unchanged.
 
-The synthesis never moves a file and never writes into a project. An approved migration is carried
-out inside the holding project by its approved curation plan, under that project's guards
-([`folder-curation`'s staging rule](../../../folder-curation/SKILL.md#3-propose-the-only-model-step)).
-Because a proposal is a `needs_a_look` item, it rides the raised-item ledger: an open or dismissed
-proposal is not raised again, and a declined one stays declined. A deployment that does not read
-`migration` still surfaces the item for the owner's decision; one that does can turn an approval
-into a staging plan in the holding project. The field is additive and optional: a deployment that
-validates the reply strictly allows it before advancing its pin.
+The synthesis never moves a file and never writes into a project, and no other job moves one for
+it: the deployment surfaces the item to the owner as a suggestion, and the owner makes the move by
+hand in the folders, never as a guarded cross-project move the deployment executes. Because a
+suggestion is a `needs_a_look` item, it rides the raised-item ledger: an open or dismissed one is not
+raised again, and a declined one stays declined. A deployment that does not read `migration` still
+surfaces the item for the owner; one that does can show the two projects, the files and the evidence
+beside it. The field is additive and optional: a deployment that validates the reply strictly allows
+it before advancing its pin.
 
 ## Files
 

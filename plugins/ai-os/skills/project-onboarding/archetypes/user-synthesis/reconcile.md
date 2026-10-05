@@ -62,7 +62,7 @@ Reckon the whole vault and correct drift, making the **minimal stable changes** 
    the vault has actually grown, propose the minimal Schema update (and say why in `needs_a_look`).
 5. **Re-derive the Index** so it reflects the reconciled tree.
 6. **Proposed migrations, when the sources show one** (optional), exactly as `synthesise` sets out:
-   one `needs_a_look` item per matter with its `migration` filled, for the owner to approve or decline.
+   one `needs_a_look` item per matter with its `migration` filled, for the owner to make by hand or decline.
    Seeing every accessible project at once, this pass is where files one project holds for another
    are easiest to spot; never re-propose one the ledger holds as open or dismissed.
 7. **A dated log line** recording the reconcile.

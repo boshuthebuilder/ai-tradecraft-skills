@@ -7,12 +7,13 @@ description: >-
   under the owner's approval, from a reviewed move-plan executed under guards and verified by
   re-audit, and hand it to project-onboarding. Propose-only by default; nothing moves without a yes.
   The audit half keeps running afterwards as the project's periodic `audit` job (the folder-curation
-  archetype), and approved plans are also how files migrate between projects. A component of
+  archetype), and while a folder is being prepared approved plans are also how files are staged for
+  another project, for the owner to move by hand. A component of
   pre-onboarding: a person preparing a lived-in folder for the system starts there, and it runs this
   skill's audit and curation rounds with its bundled tools. Use directly when the owner wants a
-  one-time scan and a live drift record without moving anything, or to carry out an approved
-  migration. For a drop folder of files that belong to no project yet use file-preprocessing; for a
-  folder that is already tidy use project-onboarding directly.
+  one-time scan and a live drift record without moving anything, or to stage an approved migration
+  while a folder is being prepared. For a drop folder of files that belong to no project yet use
+  file-preprocessing; for a folder that is already tidy use project-onboarding directly.
 ---
 
 # folder-curation
@@ -58,10 +59,12 @@ tools implement, and the method the folder-curation archetype's jobs keep runnin
   moving. Run the audit half only; the `audit` job then keeps it current.
 - A project that was onboarded without curation keeps raising filing ambiguities. Run curation
   retroactively; the wiki's existing citations are swept by the rename protocol.
-- Files are to **migrate** between projects. Once a folder is maintained, a migration is proposed by
-  the owner's user-tier synthesis (`wiki-maintenance`'s rule that a project files within itself);
-  during preparation, a curation round may propose one. Either way the owner approves it, and an
-  approved plan of this skill carries it out, staged in `_Migrations/<Project>/` (step 3).
+- Files are to **migrate** between projects while a folder is being prepared. A curation round may
+  propose one, and an approved plan of this skill stages the files in `_Migrations/<Project>/`
+  (step 3); the folder is onboarded only once that folder is empty. Once a folder is maintained, no
+  plan of this skill moves a file between projects: the owner's user-tier synthesis may suggest a
+  migration (`wiki-maintenance`'s rule that a project files within itself), and the owner makes it
+  by hand.
 
 Not for: a drop folder of new files (`file-preprocessing`); a folder that is already tidy
 (`project-onboarding`); a git repository (the `code` archetype); writing the wiki (`wiki-onboarding`).
@@ -82,7 +85,8 @@ Beside the owner's material, named by whatever the deployment declares:
                            left behind; for a migration or return round, a MISSING row for each
                            listed path the manifest does not know
   _Migrations/<Project>/   files the owner approved for another project, at their original relative
-                           paths, until that project collects them (only while a migration is open)
+                           paths, until that project collects them (only while a migration is open;
+                           empty before the folder is onboarded)
   <rulebook>               the folder's standing instructions for any AI session (e.g. CLAUDE.md):
                            the depth the owner chose, the class policy, naming rules, exclusions,
                            where AI outputs land
@@ -259,12 +263,15 @@ From the audit and the answers, emit a **move-plan** (schema:
   evidence hash; the executor proves the folder empty on disk instead. Where the rulebook keeps empty
   folders (`keep_empty_folders`, the default), the owner declines the `rmdir` rows the tool proposes
   among their own folders; only the migrations folder's are approved by default.
-- **Migrations are staged, never sent.** A file bound for another project moves by a `move` row into
-  `_Migrations/<Project>/`, keeping its folder-relative path beneath, so the receiving project
-  collects it from one place and a return is the exact reverse. Before the round, show the owner the
-  actual files the boundary moves (step 2), and list against each staged path the copies that stay
-  behind, so a duplicate is not taken for the file itself. Staging is a curation act, never a filing
-  rule: the rulebook never routes new files into the migrations folder.
+- **Migrations are staged, never sent.** While a folder is being prepared, a file bound for another
+  project moves by a `move` row into `_Migrations/<Project>/`, keeping its folder-relative path
+  beneath, so the receiving project collects it from one place and a return is the exact reverse.
+  Before the round, show the owner the actual files the boundary moves (step 2), and list against
+  each staged path the copies that stay behind, so a duplicate is not taken for the file itself.
+  Staging is a curation act, never a filing rule: the rulebook never routes new files into the
+  migrations folder. It is a preparation act too: the folder is onboarded only once the migrations
+  folder is empty, and once it is maintained no plan stages a file for another project, a move that
+  belongs elsewhere being the owner's to make by hand.
 - **Return migrations** bring a staged file the owner decides to keep back to its original path, by a
   `move` row out of `_Migrations/<Project>/`. When the approved return moves empty
   `_Migrations/<Project>/`, its `rmdir` row is proposed then, as for any emptied folder (above), and
