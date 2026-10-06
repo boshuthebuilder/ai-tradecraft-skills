@@ -663,6 +663,27 @@ class ExcludedTest(AuditCase):
         self.assertNotIn("pay.txt", log, "the log counts, never names")
         self.assertEqual(by_path(after)["Staff/pay.txt"]["hashed"], False)
 
+    def test_a_departed_entry_whose_own_path_was_never_excluded_keeps_its_history_but_not_an_excluded_copy(self):
+        """Dropped only when its own current path is excluded. Here the document at `Letters/` departs after the owner
+        excluded the folder holding a copy of it: its history stays, and the copy's path under the exclusion does not."""
+        root = self.folder(dict(self.pinned(exclude=[]), **{"Letters/Lease.pdf": "the lease",
+                                                            "Archive/Lease copy.pdf": "the lease"}), parent="hist")
+        first = self.audit(root)
+        entry = by_path(first)["Letters/Lease.pdf"]
+        self.assertEqual(sorted(c["path"] for c in entry["copies"]), ["Archive/Lease copy.pdf", "Letters/Lease.pdf"])
+        self.set_exclude(root, "Archive")
+        os.remove(os.path.join(root, "Letters", "Lease.pdf"))
+        after = self.audit(root)
+        kept = after["entries"][entry["id"]]
+        self.assertIn("departed", kept["flags"])
+        self.assertEqual(kept["current_path"], "Letters/Lease.pdf")
+        self.assertEqual([h["path"] for h in kept["rename_history"]], ["Letters/Lease.pdf"], "the history stays")
+        self.assertNotIn("Archive", json.dumps(kept), "a copy's path under an excluded folder stays in no entry")
+        self.assertEqual(self.summary(root)["departed"], 1)
+        self.assertIn("| Departed entries | 1 |", self.report(root))
+        log = read(os.path.join(os.path.dirname(root), "work", "logs", "audit.log"))
+        self.assertIn("took a copy under an excluded path out of 1 departed entr(ies)", log)
+
     def test_a_departed_entry_outside_the_exclusion_is_still_kept(self):
         root = self.folder_with(exclude=["Staff"], parent="keep")
         first = self.audit(root)
@@ -742,10 +763,35 @@ class NotAuditedTest(AuditCase):
         self.audit(root)
         self.assertEqual(self.summary(root)["not_audited"], {"Outbox": 1, "Private": 1})
 
-    def test_an_excluded_name_is_not_named_as_not_audited(self):
-        root = self.folder(dict(self.pinned(exclude=["_Old invoices"]), **{"_Old invoices/a.pdf": "a", "Outbox/x.txt": "x"}))
+    def test_a_skipped_name_the_owner_also_excluded_is_reported_and_counted_as_excluded(self):
+        """It is in none of the walk's lists, so the summary would count it nowhere: it is named under Not audited with its
+        reason, and its items are in the excluded count."""
+        for name, want in (("_Old invoices", 2), ("Outbox", 2)):
+            with self.subTest(name):
+                root = self.folder(dict(self.pinned(exclude=[name]), **{
+                    "_Old invoices/a.pdf": "a", "_Old invoices/b.pdf": "b", "Outbox/x.txt": "x", "Outbox/y.txt": "y",
+                    "Invoices/Bill.pdf": "bill"}), parent="ex" + str(len(name)))
+                self.audit(root)
+                s = self.summary(root)
+                self.assertEqual(s["excluded"], want)
+                self.assertEqual(s["not_audited"], {"Outbox": 2, "_Old invoices": 2})
+                report = self.report(root)
+                self.assertIn("| Excluded from reading (rulebook `exclude`) | %d |" % want, report)
+                self.assertIn("- `%s`: 2 items; %s, also excluded by the owner" % (
+                    name, "a reserved name" if name == "Outbox" else "a leading `_` marks a system folder"), report)
+                log = read(os.path.join(os.path.dirname(root), "work", "logs", "audit.log"))
+                self.assertIn("also excluded", log)
+
+    def test_a_link_at_the_top_is_one_item_and_is_never_walked(self):
+        outside = os.path.join(self.tmp, "elsewhere")
+        for n in range(5):
+            write(os.path.join(outside, "f%d.txt" % n), "outside %d" % n)
+        root = self.folder({"Invoices/Bill.pdf": "bill", "_Old invoices/a.pdf": "a"})
+        os.symlink(outside, os.path.join(root, "_Elsewhere"))
+        os.symlink(outside, os.path.join(root, "_Old invoices", "nested"))
         self.audit(root)
-        self.assertEqual(self.summary(root)["not_audited"], {"Outbox": 1})
+        self.assertEqual(self.summary(root)["not_audited"], {"_Elsewhere": 1, "_Old invoices": 2},
+                         "the link is one item; a link inside a skipped folder is not followed")
 
 
 class MigratingTest(AuditCase):
