@@ -656,8 +656,8 @@ refused (exit 2). Each card records `card_meta.path`, the manifest's path of its
 items of a group or single call, the section prompt's path and section text, and the opening text and notes of a
 sectioned document. The card records `card_meta.shielded`, how many times a term stood in its document's path and text
 (a count, never the term), when it is above zero, and the log and the closing line count the documents shielded. The
-contamination guard compares each card with that shielded text, so a card that names any term writes the alert.
-`card_meta` also records `via`, `model`, `shield_sha256` (the digest of the terms' forms, or `none` under
+contamination guard compares each card's values (never its field names) with that shielded text, so a card that names
+any term writes the alert. `card_meta` also records `via`, `model`, `shield_sha256` (the digest of the terms' forms, or `none` under
 `--no-isolation-terms`) and for `codex` `effort` and, with `--light-model`, `light_model` and `light_model_effort`
 (always `low`): what `readiness.py` needs to require a canary for each, and to find cards made under another shield.
 A section note the model returns that names a term is contamination too: it writes the alert and stops every worker, and
@@ -1312,8 +1312,8 @@ same way, which is not a finding and not a pass either, and does not change the 
   `bad_category` (outside the rulebook's `card_categories`), `extract_paths_stale` (a record whose path is not the
   manifest's; the finding names the [`extract.py repath`](#repath) command that repairs it, after the malformed
   extract records, which `repath` cannot read, are dealt with), `contamination` (a
-  card naming an isolation term, compared with its document's text as the engine was sent it, shielded, so any term a
-  card names is a finding, and so is one a card made before the shield names under the old excuse that its source
+  card naming an isolation term in a value (its field names are never read), compared with its document's text as the
+  engine was sent it, shielded, so any term a card names is a finding, and so is one a card made before the shield names under the old excuse that its source
   carried it; `not verified` without `--terms`), `cards_shield` (the count of cards whose recorded shield,
   `card_meta.shield_sha256`, is absent or is not the digest of the terms file given: made with no shield or under another
   list; not a finding, since `contamination` still reads them, but not verified, and listed in `not_verified`),

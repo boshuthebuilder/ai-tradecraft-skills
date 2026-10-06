@@ -386,17 +386,6 @@ class Shielded:
             print("shielded %d occurrence(s) of an isolation term in %s" % (self.count, what), file=sys.stderr)
 
 
-def strings(value):
-    """Every string in a JSON value, mapping keys left out."""
-    if isinstance(value, str):
-        return [value]
-    if isinstance(value, dict):
-        return [x for v in value.values() for x in strings(v)]
-    if isinstance(value, (list, tuple)):
-        return [x for v in value for x in strings(v)]
-    return []
-
-
 def shielded_document(h, entry, evidence, cards_dir, extract_dir, card=None, xr=None):
     """Whether document `h`, which the manifest holds as `entry`, is shielded: a subagent must not open it, because its
     file still holds a name the isolation list withholds. It is when its path, any copy's path, its extract text or any
@@ -422,7 +411,7 @@ def shielded_document(h, entry, evidence, cards_dir, extract_dir, card=None, xr=
     if card is None or xr is None:
         return True
     meta = card.get("card_meta")
-    values = "\n".join(strings({k: v for k, v in card.items() if k != "card_meta"}))  # the values, never the field names
+    values = "\n".join(isolation.strings({k: v for k, v in card.items() if k != "card_meta"}))  # never the field names
     return bool(isinstance(meta, dict) and meta.get("shielded")) or isolation.carries(values, evidence) \
         or isolation.carries(full_text(xr), evidence)
 

@@ -242,7 +242,7 @@ so the operator should expect an unreadable name and may rename the file.
 ### Every card, before it is written
 
 The contamination guard. The card is compared with its document's path and text as the call was sent, shielded, in
-which no term survives; the model was never shown a term, so a card that names one (anywhere in its JSON, ignoring case)
+which no term survives; the model was never shown a term, so a card that names one (in any value of its JSON, ignoring case; its field names are never read)
 did not take it from the document, and its source cannot excuse it. (Before the shield, a term the document itself
 carried was excused: that excuse is gone, and `readiness.py` finds cards made under it.) The placeholder is
 taken out of a card, and of a section note, before the terms are looked for (inside the one matcher, whatever the caller:

@@ -1544,6 +1544,19 @@ class CardsShieldTest(Prepared):
     def test_without_the_terms_file_it_is_not_verified(self):
         self.assertEqual(self.readiness(code=0)["records"]["cards_shield"], "not verified: no --terms")
 
+    def test_a_short_term_is_never_read_in_a_card_field_name(self):
+        """Prop is in `proposed_name`, which every card has: readiness reads the card's values, so it is no contamination
+        unless a value names it."""
+        terms = os.path.join(self.tmp, "prop.txt")
+        write(terms, "Prop\n")
+        res = self.readiness("--terms", terms)
+        self.assertEqual(res["records"]["contamination"], 0)
+        self.assertNotIn("contamination", json.dumps(res["findings"]))
+        card_file = self.path("_Audit", "cards", self.ids()["04 Study/Notes.rtf"] + ".json")
+        card = json.loads(read(card_file))
+        write(card_file, json.dumps(dict(card, summary=card["summary"] + " Prop signed it."), indent=1))
+        self.assertEqual(self.readiness("--terms", terms)["records"]["contamination"], 1)
+
     def test_a_card_repeating_the_placeholder_in_any_case_is_no_contamination(self):
         """Held stands inside the placeholder: a card that repeats a shielded path, however it writes the placeholder, must not
         alert on it."""

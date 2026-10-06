@@ -42,9 +42,10 @@ document. A cached section note is shielded again when it is read, and the notes
 list's forms (`isolation.shield_digest`), so a note cached under an older version of the tool or another terms file is
 never reused. A document that carries a term is still carded, from the text with the term withheld; the card records
 `card_meta.shielded`, a count and never the term, and the log and the worker's closing line count the documents
-shielded. Before any card of a batch is written, the contamination guard checks them all against the shielded text
-actually sent: the model was never shown a term, so none can come from the document, and a card that names any term
-from the list (`isolation.contamination`) writes <work>/state/ALERT, writes none of the batch and stops every worker.
+shielded. Before any card of a batch is written, the contamination guard checks the values of them all (never their
+field names) against the shielded text actually sent: the model was never shown a term, so none can come from the
+document, and a card that names any term from the list (`isolation.contamination`) writes <work>/state/ALERT, writes
+none of the batch and stops every worker.
 A section note that names a term is the same contamination (its section was sent shielded): it writes the ALERT, stops
 every worker and is never cached; a clean note is shielded again (for the markers) before it is cached, and again
 whenever it is read from the cache. Shielding always comes before any cut: the sections and the opening text are cut
@@ -606,7 +607,7 @@ def write_cards(run, cards, batch_name, evidence, meta, log):
     document's text as it was sent, shielded, so any term the card names is an alert."""
     for eid, c in cards.items():
         sent = run.shield("%s\n%s" % (run.paths[eid], full_text(run.record(eid))))
-        blob = json.dumps(c, ensure_ascii=False)
+        blob = "\n".join(isolation.strings(c))  # the card's values, never its field names
         bad = isolation.contamination(blob, sent, evidence) if evidence else []
         if bad:
             raise_alert(run, log, "card %s" % eid[:12], len(bad), "no card of this batch written")

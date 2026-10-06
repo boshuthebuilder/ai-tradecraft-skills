@@ -206,6 +206,19 @@ def hits(text, terms):
     return [t for t in terms if (rx := alternation((t,))) is not None and rx.search(body)]
 
 
+def strings(value):
+    """Every string in a JSON value, mapping keys left out: a card's values, never its field names. What a term is looked for
+    in when a card is read (the contamination check, `wiki.shielded_document`), so a short term or marker such as Nam is not
+    found in a field name such as `proposed_name`."""
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        return [x for v in value.values() for x in strings(v)]
+    if isinstance(value, (list, tuple)):
+        return [x for v in value for x in strings(v)]
+    return []
+
+
 def carries(text, evidence):
     """Whether `text` holds a term or a marker of the evidence: whether `shield` would replace anything in it. (`hits`
     reads the terms alone, which is what a card is an alert for naming; a marker is a form of the term, and a document
@@ -293,7 +306,8 @@ def term_in_source(term, src, evidence):
 
 
 def contamination(card_text, source_text, evidence):
-    """Terms a card names that its own source does not carry: each one is an alert. Given the source as it was sent,
+    """Terms a card names that its own source does not carry: each one is an alert. `card_text` is the card's values
+    (`strings`, joined), never its field names. Given the source as it was sent,
     shielded (`shield`), in which no term or marker survives, nothing excuses a term, so every term the card names is
     returned: the model was never shown it. `hits` takes the placeholder out of the card first, whatever its case or
     spacing, so a model that writes it back never alerts, even where a term stands inside it (a surname such as Held)."""

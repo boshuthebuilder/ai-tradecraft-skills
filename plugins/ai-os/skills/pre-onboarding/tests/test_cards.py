@@ -1364,6 +1364,24 @@ class ShieldTest(CardsCliCase):
         self.assertEqual(card["card_meta"]["shielded"], 1)
         self.assertFalse(os.path.exists(os.path.join(self.work, "state", "ALERT")))
 
+    def test_a_short_term_is_never_read_in_a_card_field_name(self):
+        """Nam is in `proposed_name`: the check reads the card's values, so a card whose values do not carry it is no
+        contamination and the run goes on."""
+        terms = self.own_terms("Nam\n")
+        doc = self.record("03 Home/Rent.pdf", ["Rent for the flat."])
+        self.cards_py("build")
+        self.fakes.script("codex", default={"kind": "text"})
+        code, _out, err = self.work_run("codex", "--terms", terms)
+        self.assertEqual(code, 0, err)
+        self.assertFalse(os.path.exists(os.path.join(self.work, "state", "ALERT")))
+        self.assertIn(doc, self.written())
+        self.fakes.reset("codex")
+        self.fakes.script("codex", default={"kind": "text", "suffix": " Nam signed it."})
+        os.remove(os.path.join(self.cards, doc + ".json"))
+        code, _out, err = self.work_run("codex", "--terms", terms)
+        self.assertEqual(code, 2, err)
+        self.assertIn("contamination alert", err)
+
     PLACEHOLDER_TERMS = "Quorvane Holdings\nHeld\n"  # Held stands inside the placeholder
 
     def test_a_card_repeating_the_placeholder_in_any_case_is_no_contamination(self):

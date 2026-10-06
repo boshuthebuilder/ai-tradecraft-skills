@@ -227,6 +227,21 @@ class ShieldTest(Case):
         self.assertEqual(isolation.evidence_of(ns(terms=self.terms)), self.ev)
 
 
+class StringsTest(Case):
+    def test_strings_are_the_values_of_a_json_value_never_its_keys(self):
+        card = {"proposed_name": "", "title": "A lease", "key_facts": {"dates": ["2024-01-01"], "amounts": []}, "n": 3,
+                "parties": ["Alex", {"party_name": "Robin"}]}
+        self.assertEqual(sorted(isolation.strings(card)), sorted(["", "A lease", "2024-01-01", "Alex", "Robin"]))
+        self.assertEqual(isolation.strings(None), [])
+
+    def test_a_short_term_is_not_a_contamination_in_a_field_name_only_in_a_value(self):
+        ev = {"Nam": ["Nam"]}
+        card = {"proposed_name": "", "title": "A lease"}
+        self.assertEqual(isolation.contamination("\n".join(isolation.strings(card)), "", ev), [])
+        self.assertEqual(isolation.contamination("\n".join(isolation.strings(dict(card, title="Nam lease"))), "", ev),
+                         ["Nam"])
+
+
 class PlaceholderMatcherTest(Case):
     """No form is ever found inside the placeholder, so a short name is never refused and never read in a shielded text."""
 
