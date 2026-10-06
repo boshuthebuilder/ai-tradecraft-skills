@@ -4,6 +4,60 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v12.1.0 (2026-10-06)
+
+A **MINOR**, from a cold-reader test: a fresh agent given only `pre-onboarding` planned the preparation of a
+fictional company folder and found where the skill left it guessing. The tools now keep every file staged for
+another project, and every path the owner excludes, away from every model-facing artefact, and the skill's
+prose is completed for a cold reader and for a company folder.
+
+### Added (MINOR)
+
+- **Withheld means purged** (`common.withheld`, `common.purge_withheld`, #128, #131). A document staged in the
+  migrations folder, or under a path the owner excluded, is never read, carded, sent to an engine, put in a
+  bundle, brief, profile, review prompt, drift report or chart, or opened or hashed by `plan.py`. Every tool's
+  start, and every worker batch, discards what an earlier run derived from such a document: extract records,
+  cards, cached section notes, queued page images, hash-cache lines, and every bundle, brief, prompt and report
+  written under another withheld set. It prints counts, never paths, and a removal that fails stops the tool.
+- **`wiki.py deadlines`** renders the derived Deadlines page from the pages' `deadline`, `deadlines` and
+  `recurring` frontmatter, in exactly the form `readiness.py` accepts (#128).
+- **`check` finds citations of withheld documents** (`cites_withheld`), in any spelling of the path, and
+  `review-prompts` refuses to render a page that has one. `brief` marks such a page (#128).
+- **`plan.py` takes `--work`** like every other tool, and purges only the work folder it resolved (#132).
+- **The rulebook skeleton** (`tools/templates/rulebook.md`), whose migrations wording passes readiness (#129).
+
+### Changed
+
+- **`exclude` is enforced.** Every tool honours it and refuses an entry that names no path or lies inside an
+  iWork package; matching ignores case and Unicode form; `audit.py` records an excluded file without opening,
+  hashing or downloading it.
+- **The rulebook routing check** reads the whole rulebook statement by statement, names the migrations folder in
+  any case with or without its slash, and still flags a sentence that negates the routing, with advice on how
+  to word it.
+- **`audit.py` records a document's first placement** in `rename_history`, as the manifest schema describes;
+  an older manifest is read as before and gains it on the document's next move.
+- **Fail loud:** `extract.py` refuses a missing `--ocr-bin` and names a missing OCR tier on an image record,
+  and `--retry-failed` recovers it; `plan.py check` refuses a row with no destination; `light`, `migrate` and
+  `return` refuse to overwrite a plan that holds the owner's decisions; `--out` is refused inside the folder,
+  compared ignoring case.
+- **`isolation.py scan`** refuses only an expansion left undone (`~user`, an unset `$NAME`), so a path through
+  iCloud Drive (`com~apple~CloudDocs`) is accepted (#132).
+- **The prose** closes the 47 gaps the cold reader found (#129, #130): the order of the audit and the
+  interview, the card categories, third-party personal data, the terms file, the engines' canaries, how the
+  wiki subagents are isolated (the coordinating session's own instruction and memory files are scanned, and a
+  hit stops the stage), who writes the fixed pages, acceptance order, the Bin, iWork figures, and company
+  folders (a bookkeeper, a compliance officer and a marketing manager in the catalogue, VAT in the money rules).
+
+### Migrating a deployment
+
+Nothing is required to advance the pin. A deployment that runs the preparation tools should audit once more
+(first placements), and check that each `exclude` entry still names a path.
+
+### Placeholders
+
+No placeholder was added, removed or made required: each of the eight prompt templates under
+`project-onboarding/archetypes/` uses the same set as at v12.0.0.
+
 ## v12.0.0 (2026-10-05)
 
 A **MAJOR**: a semantic change to a documented rule (#126), with a new hand-off check and a roll-up reader
