@@ -46,6 +46,20 @@ everything except the system-owned names.
 dashboard or a session instruction file left next to the documents it describes is a stray; an ingest
 that finds one files it into the wiki and logs the move.
 
+**The one exception is an owner confirmation record, because it is not an AI artefact.** Some facts
+exist only because the owner said so: "the deposit came back in cash; no letter is coming". When the
+owner states such a fact about a matter whose documents sit in the folder, the deployment's capture
+surface writes it **into that matter's folder**, beside the documents it settles. It is a dated,
+attributed Markdown file that carries the owner's words verbatim and is named so the deployment can
+recognise it by its name alone (for example `2026-03-14 Owner confirmation - Deposit returned.md`).
+The words are the owner's, so the record is a **source**: read and cited like any document in the
+folder. No job writes, edits, renames, moves, files or sweeps one, and an ingest never treats one as a
+stray. Only the capture surface writes them, on the owner's explicit statement. The deployment's code
+holds those rules ([the three layers](../../ARCHITECTURE.md#the-three-layers-of-a-job)). This is what
+keeps the folder the golden source when the owner settles something by saying it: a fact kept only in
+the wiki is a fact the folder does not know, so the next job that reads the folder asks again. When no
+folder fits the statement, it stays a wiki-only `manual` note (see *Provenance always*).
+
 ## The recommended layout (an example — the Schema is the law)
 
 When a wiki is created from scratch, a **human-readable, numbered-section** layout works well: one
@@ -464,7 +478,9 @@ to the section the Schema declares for authored content (e.g. an *Ideas* section
 block `provenance: manual`, and treat its content as authoritative from then on. Carry the owner's
 text **verbatim** as the note body — synthesis may add a title, date and links around it, never
 replace it: the wiki page becomes the only copy of the owner's words once the inbox item is drained.
-There is nothing to file in step 2 — the note's home *is* the wiki page.
+There is nothing to file in step 2 — the note's home *is* the wiki page. A statement of **fact** about a
+matter whose documents sit in the folder is not an authored note: it is an owner confirmation record
+(see [the shape of a folder](#the-shape-of-a-folder)), a source rather than a page.
 
 **Fail loud, never silent.** A blocked, locked, unavailable or unreadable source is a *named* state
 (flagged for review with its reason) — never dropped, never defaulted to "nothing to do". A genuinely
@@ -578,7 +594,10 @@ hash walk, so a folder that is mostly photographs or imaging stays cheap to keep
 A low-volume folder is well served by a frequent reactive ingest and an occasional reconcile; scale to
 the folder's traffic. **Who maintains it matters:** when a person (or an interactive session) edits the
 wiki inline as they work, any scheduled automation is a *safety net* behind that; for an unattended folder
-with no inline maintainer, the scheduled passes are the primary path.
+with no inline maintainer, the scheduled passes are the primary path. One thing an inline maintainer never
+does is edit the wiki to match a fact the owner has only said. That fact goes to the deployment's
+capture surface as an owner confirmation record, and ingest folds it in from there, so the wiki never
+carries a fact the folder lacks.
 
 ## Rules that keep it safe
 
@@ -605,6 +624,14 @@ with no inline maintainer, the scheduled passes are the primary path.
     (keeping a "first asserted by owner on YYYY-MM-DD" trace where useful) — a confirmed fact rejoins
     reconciliation rather than staying exempt forever. Contradiction is different and unchanged: manual
     wins, the discrepancy is recorded, the owner is asked.
+  - **from an owner confirmation record** — `derived`, because the record is a file in the folder:
+    the page cites it in `source:` like any document, and the lint reconciles the page against it. A
+    record outranks the **absence** of a document. The matter it names is settled, so do not raise
+    a missing document or chase evidence the record says will not come. A document that contradicts
+    a record follows *Sources that disagree stay visible*: state both, keep the owner's precedence and
+    ask the owner. Never silently prefer either. Where the fact belongs with a folder's documents,
+    prefer a record to a `manual` note. A manual note lives only in the wiki, so the folder, which is
+    the golden source, never learns the fact.
   - **external feed** (e.g. a calendar's "Coming Events") — a read-only view of an external source, kept
     **distinct from file-derived deadlines** and never `.proposed.md`-guarded as if human-authored. In
     the automated job framework it is **rendered deterministically** from the snapshot (a pure function

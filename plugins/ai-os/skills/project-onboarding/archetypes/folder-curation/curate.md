@@ -40,7 +40,8 @@ only. Follow the skill's *Propose* rules, of which these decide most rows:
    stays whole. A `delete` row names the redundant **path** in `from` and that path's entry id in
    `evidence`; the canonical path survives and is never deleted.
 3. **AI artefacts beside the sources** — summaries, dashboards, session instruction files — move to
-   the wiki or outputs tier the rulebook declares. Sources stay pure.
+   the wiki or outputs tier the rulebook declares. Sources stay pure. An owner confirmation record is
+   a source, not an AI artefact: it gets no row (`wiki-maintenance`, *The shape of a folder*).
 4. **Content-based renames are delegated**, not re-derived here: a `rename` row at medium depth names
    the files, and `file-preprocessing` in its in-place mode does the understanding and the naming.
 5. **A folder rename carries a sweep.** Set `sweep = yes` on any folder `rename` whose old path

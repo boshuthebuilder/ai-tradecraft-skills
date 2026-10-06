@@ -84,7 +84,11 @@ Reconcile the wiki **to the files**:
 2. **`provenance: manual` content is owner-asserted and authoritative** — never flag it as
    inconsistent with the files, never delete it, never contradict it. The one permitted change:
    authored notes (ideas, brainstorms) that clearly belong together may be **merged or cross-linked**,
-   preserving their content and their `provenance: manual` marking verbatim.
+   preserving their content and their `provenance: manual` marking verbatim. An **owner confirmation
+   record** in the folder is a source with the same authority. A page fact that disagrees with its
+   record is brought back into line with the record, unless a document contradicts the record: that
+   goes to the owner, both sides stated. Never correct a fact towards a document that does not exist,
+   and never re-raise what a record settles.
 3. **Calendar.** Exactly like the Deadlines roll-up, `Coming Events` is rendered **deterministically by
    the deployment** from the calendar snapshot (a wired capability — see `rollups.coming_events`) —
    **never build, edit, or return it** here, and never flag it as file-inconsistent (a calendar feed is

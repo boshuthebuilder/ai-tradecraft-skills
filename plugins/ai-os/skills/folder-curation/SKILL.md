@@ -260,7 +260,8 @@ From the audit and the answers, emit a **move-plan** (schema:
   redundant *path*, never the entry, so the canonical path always survives. Working copies are
   consolidated to their canonical home with a pointer note, never silently removed.
 - **AI artefacts beside sources** (summaries, dashboards, session instruction files) move to the
-  wiki or outputs tier the deployment declares; sources stay pure.
+  wiki or outputs tier the deployment declares; sources stay pure. An owner confirmation record is a
+  source, not one of these, and stays where it is (`wiki-maintenance`, *The shape of a folder*).
 - **Content-based renames** (medium depth and above) are delegated to `file-preprocessing` in its
   in-place mode over the listed files, never re-implemented here.
 - **Folder renames** carry the `wiki-maintenance` rename protocol: sweep every consumer of the old

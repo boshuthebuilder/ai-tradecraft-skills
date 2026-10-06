@@ -131,7 +131,8 @@ Four more the scan cannot guess, so they replace guesses rather than lengthening
   watched for change.
 - **Which formats are working formats**, and will they be converted?
 - **Does anyone else write to the folder, and where have AI outputs already been written?** Those
-  move to the wiki tier — see `wiki-maintenance`.
+  move to the wiki tier — see `wiki-maintenance`, which also says why an owner confirmation record,
+  the owner's own words, stays beside its documents.
 
 In a prepared folder the curation interview has already recorded several of these answers in the
 folder's rulebook (how files arrive, closed matters, working formats, exclusions, where AI outputs sit).

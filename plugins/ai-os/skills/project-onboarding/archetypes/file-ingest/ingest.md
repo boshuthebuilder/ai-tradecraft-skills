@@ -87,6 +87,9 @@ For each new or changed source, and each item in the inbox:
    successful run like any other handled item (e.g. record it processed by content hash); if your
    drain consumes only *filed* items, give the note an explicit `filings` destination in the inbox's
    `Processed/` holding area instead — never leave it to be reprocessed and duplicated.
+   **Never file an owner confirmation record.** It is the owner's own statement, already in the folder
+   of the matter it settles (`wiki-maintenance`, *The shape of a folder*): no `filing`, no rename, no
+   move, and never a stray.
 3. **Update the wiki page(s) the source touches by integrating, never accreting** (`wiki-maintenance`,
    core loop step 3): put each fact in the existing page and section that already track its kind — the
    table row, the list, the line it supersedes, corrected rather than left beside the new one. A source
@@ -134,7 +137,10 @@ deterministic snapshot of the project's calendar.
 
 A wiki claim the owner asked to record that is **not** derived from a saved file is a **manual note**:
 give that page/block `provenance: manual`. Never flag a `provenance: manual` note as inconsistent with
-the files — it is authoritative; a calendar event never supersedes it. Follow the identifier policy in wiki-maintenance: full source-supported identifiers by default,
+the files — it is authoritative; a calendar event never supersedes it. An **owner confirmation
+record** is a source: a fact taken from it is `derived` and cites the record in `source:`. It outranks the
+absence of a document, so never raise as missing what it says will not come. A document that
+contradicts one is surfaced for the owner, both sides stated; neither is silently preferred. Follow the identifier policy in wiki-maintenance: full source-supported identifiers by default,
 with any explicit owner restriction enforced by the deployment. Include relevant private and clinical
 substance; never complete a masked value by guessing.
 

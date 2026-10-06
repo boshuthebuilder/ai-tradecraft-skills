@@ -4,6 +4,47 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v13.0.0 (2026-10-06)
+
+A **MAJOR**: a documented rule gains an exception (#140). An owner often settles something by saying so,
+with no document behind it. Until now the method gave such a statement one home, a wiki-only
+`provenance: manual` note, so the folder (the golden source) never learned the fact, and a job reading the
+folder kept asking about it. The rule that "anything an AI writes lands in the wiki or an outputs tier, never
+beside the sources" also forbade the obvious fix. No skill name, archetype layout or prompt placeholder
+changed.
+
+### Breaking (MAJOR)
+
+- **Owner confirmation records** ([`wiki-maintenance`](plugins/ai-os/skills/wiki-maintenance/SKILL.md#the-shape-of-a-folder)).
+  A fact the owner states about a matter whose documents sit in the folder is written by the deployment's
+  capture surface **into that matter's folder**. It is a dated, attributed Markdown file carrying the owner's
+  words verbatim, named so the deployment can recognise it by its name alone. It is the owner's testimony,
+  not an AI artefact, so it is the one exception to "never beside the sources".
+  - It is a **source**: no job writes, edits, renames, moves, files or sweeps one, and an ingest never treats one as a stray.
+  - A fact taken from a record is `derived` and cites the record in `source:`.
+  - A record outranks the absence of a document.
+  - A document that contradicts one follows *Sources that disagree stay visible*, with the owner's precedence.
+  - Where the fact belongs with a folder's documents, a record is preferred to a wiki-only `manual` note.
+  - An interactive maintainer never edits the wiki to match a fact the owner has only said: the record goes
+    in first, and ingest folds it in.
+  - When no folder fits, the statement stays a `manual` note, as before.
+- **The file-ingest archetypes follow.**
+  - `ingest.md`: never file a record; cite it like any source; surface a contradicting document.
+  - `reconcile.md`: a record has the authority of `manual` content; never correct a fact towards a document
+    that does not exist, and never re-raise what a record settles.
+- **Every restatement of the rule points back.** `folder-curation`, its `curate.md`, `project-onboarding`
+  and `wiki-onboarding` each say in one clause that a record is a source, not an AI artefact.
+
+### Migrating a deployment
+
+- **Before using the convention, put its guards in code** (the three layers). The capture surface is the only
+  writer of a record, and it writes only on the owner's explicit statement. Filings and moves never create,
+  rename or relocate a record. A wiki write never produces a record-shaped page. A sweep never deletes one.
+- **Show every record's text to every ingest and reconcile run**, as a deployment already shows any owner
+  testimony it pins. Otherwise a job that sees each source only once forgets the record after its first run.
+- **Re-reconcile the twins** of `file-ingest/ingest.md` and `file-ingest/reconcile.md`. No placeholder or
+  output shape changed.
+
 ## v12.3.0 (2026-10-06)
 
 A **MINOR**: `pre-onboarding` assesses a folder's structure before the wiki is drafted and re-organises only the
