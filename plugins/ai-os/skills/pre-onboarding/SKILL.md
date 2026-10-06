@@ -169,8 +169,9 @@ Two things the [hand-off contract](#the-hand-off-contract) checks belong in the 
   seems to belong to another project is filed here like any other, and the move is only suggested, by the owner's
   user-tier synthesis; the owner makes it by hand
   ([a project files within itself](../wiki-maintenance/SKILL.md#rules-that-keep-it-safe)). Keep the other project's
-  name out of the rulebook. `readiness.py` reads this part strictly, by keyword, a statement at a time (a paragraph
-  or list item, its wrapped lines joined): any statement that writes the migrations folder's own name, in any letter
+  name out of the rulebook. `readiness.py` reads the whole rulebook strictly, by keyword, a statement at a time (a
+  paragraph or list item, its wrapped lines joined, and a list item joined to the line ending in `:` directly above
+  its list): any statement, under any heading, that writes the migrations folder's own name, in any letter
   case and with or without its slash, together with "new file", "drop", "goes to" or "go to" is a finding, a negation
   included. So say plainly, in a statement of its own that writes the name, that files wait there only while a
   migration is open and only an approved plan row puts them there, and say in another, without the name, that new
@@ -260,8 +261,9 @@ current path, matched by content hash, with nothing read again; run it again wit
 refuses a move to a path that is not in the folder, so it runs only on a manifest the re-audit has made current
 ([`repath`](references/tools.md#repath)). Then rebuild the bundles and run `wiki.py drift` (step 7). A card holds its
 document's id and `card_meta.path`, the path it was carded at, which only records how it was made, so a card that moved
-between included paths needs nothing; a card (or record) whose path is withheld is discarded by every tool's start, and its
-document is read again ([withheld means purged](references/tools.md#common-flags)).
+between included paths needs nothing; a card (or record) whose path is withheld is discarded by every tool's start. A
+document still live at a path that is not withheld is read again from there; an excluded or staged document is not read
+again ([withheld means purged](references/tools.md#common-flags)).
 
 ### 4. Extract the text
 
@@ -401,31 +403,40 @@ vision lane and the cards alone. The readers interview is the coordinator's own:
 answers down, and gives the template to no one.
 
 What reaches a subagent is its brief and what it reads, **and whatever the session loads for every agent it starts**:
-the operator's user-level instruction file and the memory and project instruction files of the working directory the
-session was started in. Those name the operator's other affairs, no brief mentions them, and no engine canary covers
-them. A brief limits what a subagent is told to read: its brief, which carries the Schema's tables (the page brief
-tells the drafter not to open the Schema page), the core wiki rule, the bundles and the source files a bundle line
-names; not the terms file, `<work>/state`, or anything under `_Audit/` the brief does not name (the manifest and
-`AUDIT.md` name the project a staged file is bound for, and a departed entry keeps it). A brief is no isolation, so
-hold two controls. Start the preparation session from a working directory that loads no other project's instructions or
-memory: the folder being prepared, or a neutral empty folder, with no parent folder holding another project's
-instruction file. And scan, before any subagent reads a brief, the briefs and review prompts as files and the global
-files the session loads, with the same `scan` as step 5:
+the operator's user-level instruction file and any file it imports, the instruction files of the working directory and
+of every parent folder, and the memory files of the working directory the session was started in. Those name the
+operator's other affairs, no brief mentions them, and no engine canary covers them. A brief limits what a subagent is
+told to read: its brief, which carries the Schema's tables (the page brief tells the drafter not to open the Schema
+page), the core wiki rule, the bundles and the source files a bundle line names; not the terms file, `<work>/state`, or
+anything under `_Audit/` the brief does not name (the manifest and `AUDIT.md` name the project a staged file is bound
+for, and a departed entry keeps it). A brief is no isolation, so hold three controls. Start the preparation session
+from a working directory that loads no other project's instructions or memory: the folder being prepared, or a neutral
+empty folder, with no instruction file in any parent folder. Have the coordinator write no memory during the wiki
+stage, since a later subagent would load it. And scan, before any subagent reads a brief, the briefs and review prompts
+as files and every file the session loads, with the same `scan` as step 5:
 
     python3 <tools>/isolation.py scan --terms <terms file> --path <work>/briefs --path <work>/reviews \
-        --path "<folder>/CLAUDE.md" --path "<folder>/.familyai" \
-        --if-present ~/.claude/CLAUDE.md --if-present ~/.claude/projects/<the working directory's path, separators as ->/memory \
+        --path "<folder>/CLAUDE.md" --path "<folder>/.familyai" --path "<folder>/<folder name> Wiki/90 Schema" \
+        --if-present "<the session's user-level instruction file>" --if-present "<its memory folder>" \
         --out <work>/state/scan-wiki.json
 
-The `--if-present` lines are for a Claude Code session (its user-level instruction file, and the memory index it loads
-for its working directory); give the equivalent files of another coordinating agent, and any other file the session
-loads, and drop a line whose folder does not exist, as in step 5. `.familyai` has changed since step 5 (the compiled
-Schema), and a subagent working in the folder loads the rulebook, so both are scanned again with the briefs. `scan`
-refuses a path that does not exist: leave out `<work>/reviews` before the first review prompt. It creates `--out`'s
-folder. If the scan finds a term in a file the session loads, the wiki stage cannot be isolated in that session: run it
-from a session whose user-level files hold nothing from another project, or tell the owner the wiki stage is not
-verified. The coordinating session is the operator's own and is not behind this gate, and it needs no name from the terms
-file. Save every brief you fill by hand under `<work>/briefs/` (`structure.md`, `contract-<NN>.md`), beside the ones
+Do not build those paths by hand. Take the exact path of each instruction and memory file the session itself loaded
+from what the session reports (for Claude Code, its memory listing and the instruction files it names), as absolute
+paths, quoted, each given as `--if-present`, and add every file a user-level instruction file imports and every
+instruction file of a parent folder, or start from a folder that has none. `scan` refuses a path that still holds `~`
+after expansion: a project-memory folder's name holds none, since every character of the working directory's path
+other than an ASCII letter or digit is written as `-` (look under `~/.claude/projects/` if the report does not give
+it). For the session's own files, a path `scan` refuses because its folder does not exist is a wrong path: correct it
+and run the scan again. It is never a line to drop (step 5's rule is for an engine the machine lacks). Only the memory
+folder itself may be absent, as in a fresh working directory, which `scan` lists in `absent`: read it. `.familyai` has
+changed since step 5 (the compiled Schema), and a subagent working in the folder loads the rulebook, which tells it to
+follow the Schema page, so all three are scanned again with the briefs. `scan` refuses a path that does not exist:
+leave out the Schema page before it is written, and `<work>/reviews` before the first review prompt. It creates
+`--out`'s folder. **A term found in any file the session loads, or in a brief, stops the wiki stage.** Brief no
+subagent until the file is cleaned or, for a memory or parent-folder file, the session is restarted from a folder
+whose loaded files pass. A file the scan could not read is the one not-verified state: say so to the owner. The
+coordinating session is the operator's own and is not behind this gate, and it needs no name from the terms file. Save
+every brief you fill by hand under `<work>/briefs/` (`structure.md`, `contract-<NN>.md`), beside the ones
 `wiki.py brief --out` writes, so that each is a file to scan, and leave out of them every routing row, path and name
 that belongs to the migrations folder or an excluded path (a brief the tool renders already does).
 
@@ -491,7 +502,10 @@ In order:
    writes, the Schema and the folder notes included, it makes a return file by hand in `<work>/returns/`: an object
    with a `pages` list, each entry the page's `path` and its `rationale` block (the heading and five lines), so that
    `wiki.py rationale --root "<folder>" --returns <work>/returns` writes `_Audit/wiki-rationale.md` with a block for
-   every page. Then run `wiki.py check --root "<folder>"` over the whole wiki until it reports zero problems.
+   every page. Then run `wiki.py check --root "<folder>"` over the whole wiki until it reports zero problems, and scan
+   the pages themselves for the terms, since `readiness.py` checks the cards and not the pages:
+   `isolation.py scan --terms <terms file> --path "<folder>/<folder name> Wiki" --path "<folder>/_Audit/wiki-rationale.md"
+   --out <work>/state/scan-pages.json`. A term in a page stops acceptance until the page is rewritten.
 7. Accept every page as [wiki-onboarding step 6](../wiki-onboarding/SKILL.md#6-reader-acceptance-the-owners-lens-and-the-professionals)
    runs it and [the core rule's acceptance](../wiki-maintenance/SKILL.md#acceptance) sets it out, through a model
    other than the one that drafted it (below, `<A>` drafted the page and `<B>` reviews it). Finish every edit first,
