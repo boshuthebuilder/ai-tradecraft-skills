@@ -1401,16 +1401,22 @@ class WorkFolderTest(PlanCase):
                            "through a link": os.path.join(link, "scratch")}.items():
             for cmd, args in self.commands().items():
                 with self.subTest(name, cmd=cmd):
-                    note = self.leave_a_note(self.given_work)
-                    before = tree_digest(self.root)
+                    real = os.path.realpath(work)
+                    note = self.leave_a_note(real)   # inside the folder: a purge before the refusal would remove it
+                    default = self.leave_a_note(self.default_work)
+                    before, before_default = tree_digest(self.root), tree_digest(self.default_work)
                     code, out, err = self.run_plan(*args, "--work", work)
                     self.assertEqual(code, 2, out + err)
                     self.assertIn("error: --work must be outside the folder: ", err)
                     self.assertNotIn("Traceback", err)
                     self.assertNotIn("purged", err)
-                    self.assertEqual(tree_digest(self.root), before)
-                    self.assertTrue(os.path.isfile(note))
-                    shutil.rmtree(self.given_work)
+                    self.assertTrue(os.path.isfile(note), "the note in the refused work folder was purged")
+                    self.assertEqual(tree_digest(self.root), before, "the refused run wrote or removed a file")
+                    self.assertTrue(os.path.isfile(default))
+                    self.assertEqual(tree_digest(self.default_work), before_default)
+                    shutil.rmtree(os.path.join(real, "sections"))
+                    shutil.rmtree(self.default_work)
+                    shutil.rmtree(self.path("scratch"), True)
 
     def test_the_refusal_is_the_other_tools_refusal(self):
         inside = self.path("scratch")
