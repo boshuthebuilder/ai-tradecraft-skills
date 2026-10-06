@@ -164,12 +164,27 @@ class ShieldTest(Case):
         self.assertEqual(isolation.shield("[withheld name]", ev), ("[withheld name]", 0))
         self.assertFalse(isolation.carries(once[0].replace("[withheld name]", ""), ev))
 
+    PLACEHOLDERS = ("[withheld name]", "[Withheld Name]", "[WITHHELD NAME]", "[withheld  name]", "[ withheld name ]",
+                    "[withheld\nname]", "[withheld\u00a0name]")
+
+    def test_the_placeholder_is_taken_out_whatever_its_case_or_spacing(self):
+        for form in self.PLACEHOLDERS:
+            with self.subTest(form=form):
+                self.assertEqual(isolation.without_placeholder("a %s b" % form), "a \x00 b")
+        self.assertEqual(isolation.without_placeholder("a [withheld names] b"), "a [withheld names] b")
+
     def test_a_term_inside_the_placeholder_is_no_contamination_and_one_outside_it_still_is(self):
-        ev = {"Held": ["Held"]}
-        self.assertEqual(isolation.contamination('{"summary": "Filed under [withheld name] letter.pdf"}', "", ev), [])
+        ev = {"Held": ["Held"]}  # as evidence only: `load_terms` refuses a file that holds it
+        for form in self.PLACEHOLDERS:
+            with self.subTest(form=form):
+                self.assertEqual(isolation.contamination('{"summary": "Filed under %s letter.pdf"}' % form, "", ev), [])
         self.assertEqual(isolation.contamination('{"summary": "[withheld name] and Held."}', "", ev), ["Held"])
         self.assertEqual(isolation.contamination('{"summary": "Hel[withheld name]d"}', "", ev), [],
                          "taking the placeholder out never joins what stood round it into a term")
+
+    def test_the_shield_leaves_the_placeholder_as_it_stands_in_any_case(self):
+        ev = {"Quorvane": ["Quorvane"]}
+        self.assertEqual(isolation.shield("a [Withheld  Name] b Quorvane", ev), ("a [withheld name] b [withheld name]", 1))
 
     def test_carries_is_whether_the_shield_would_replace_anything(self):
         for text, want in (("Rent to Zarnwick Farm", True), ("only the marker, ZARNWICK", True), ("Council tax", False),
@@ -210,6 +225,33 @@ class ShieldTest(Case):
             isolation.evidence_of(ns(terms=self.terms, no_isolation_terms=True))
         self.assertEqual(isolation.evidence_of(ns(no_isolation_terms=True)), {})
         self.assertEqual(isolation.evidence_of(ns(terms=self.terms)), self.ev)
+
+
+class PlaceholderTermsTest(Case):
+    """No term or marker may stand inside the placeholder, so none can be read in a shielded text."""
+
+    def refused(self, text):
+        path = os.path.join(self.tmp, "t.txt")
+        write(path, text)
+        with self.assertRaises(common.ToolError) as caught:
+            isolation.load_terms(path)
+        return str(caught.exception)
+
+    def test_a_term_or_marker_inside_the_placeholder_is_refused_naming_the_line_never_the_term(self):
+        for text, line in (("Held\n", 1), ("# a comment\nZarnwick Farm|Zarnwick\nname\n", 3), ("WITHHELD  NAME\n", 1),
+                           ("Quorvane Holdings|held\n", 1), ("name]\n", 1), ("[withheld\n", 1), ("with\n", 1),
+                           ("d na\n", 1)):
+            with self.subTest(text=text):
+                message = self.refused(text)
+                self.assertIn("line %d" % line, message)
+                self.assertIn("give a fuller form", message)
+                for term in ("Held", "WITHHELD", "Quorvane", "Zarnwick"):
+                    self.assertNotIn(term, message)
+
+    def test_a_term_that_only_looks_like_part_of_it_is_accepted(self):
+        path = os.path.join(self.tmp, "t.txt")
+        write(path, "Held Farm\nHolden\nwithheld names\nname] letter\n")
+        self.assertEqual(sorted(isolation.load_terms(path)), ["Held Farm", "Holden", "name] letter", "withheld names"])
 
 
 class ScanTest(Case):

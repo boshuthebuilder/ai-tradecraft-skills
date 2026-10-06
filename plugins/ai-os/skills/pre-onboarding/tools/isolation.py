@@ -138,17 +138,24 @@ def answered(reply, marker):
 
 
 def load_terms(path):
-    """{term: [term, marker, ...]} from the operator's terms file. A missing file is an error, not an empty list."""
+    """{term: [term, marker, ...]} from the operator's terms file. A missing file is an error, not an empty list. So is a
+    term or marker that occurs inside the placeholder `[withheld name]` (ignoring case and the spacing in it): a surname
+    such as Held would be found in every shielded text, so no card or note could be told from one that names it. The
+    error names the line, never the term; give a fuller form."""
     if not path or not os.path.exists(path):
         raise common.ToolError("isolation terms file missing: %s" % path)
     out = {}
     with open(path, encoding="utf-8") as f:
         lines = f.read().splitlines()
-    for line in lines:
+    for number, line in enumerate(lines, 1):
         line = line.strip()
         if not line or line.startswith("#"):
             continue
         parts = [x.strip() for x in line.split("|") if x.strip()]
+        if any(" ".join(normal(x).lower().split()) in SHIELD for x in parts):
+            raise common.ToolError("isolation terms file %s, line %d: a term or marker occurs inside the placeholder "
+                                   "%s that the shield writes, so a shielded text could not be told from one that names "
+                                   "it; give a fuller form" % (path, number, SHIELD))
         out[parts[0]] = parts
     if not out:
         raise common.ToolError("isolation terms file is empty: %s" % path)
@@ -156,6 +163,14 @@ def load_terms(path):
 
 
 SHIELD = "[withheld name]"
+PLACEHOLDER = re.compile(r"\[\s*withheld\s+name\s*\]", re.I)  # the placeholder as a model may write it back
+
+
+def without_placeholder(text):
+    """`text` with every occurrence of the placeholder taken out for a mark that is no letter, ignoring case and the spacing
+    inside the brackets. Taken out before any term is looked for in model output (a card, a section note, a reply), so the
+    placeholder itself, however a model writes it back, is never read as a term."""
+    return PLACEHOLDER.sub("\x00", text)
 
 
 def forms(evidence):
@@ -175,15 +190,16 @@ def alternation(fs, protect=False):
     """The one pattern that finds any of the forms `fs` (a tuple, longest first), ignoring case: each form in NFC, each run
     of whitespace inside it standing for any run of Unicode whitespace in the text (a line break, a no-break space, a
     narrow no-break space, two spaces), so a name wrapped at the end of a line or set with a no-break space is the name.
-    With `protect`, the placeholder `SHIELD` comes first, so text already shielded is matched as it stands and a form
-    that occurs inside the placeholder (a surname such as Held) is never found there.
+    With `protect`, the placeholder (`PLACEHOLDER`, whatever its case or spacing) comes first, so text already shielded
+    is matched as it stands and the shield is idempotent; `load_terms` refuses a form that occurs inside the placeholder,
+    so no form can be found there.
 
     This is the one matcher: `hits` (the scan and the contamination check), `carries`, `shield` and `masked` all use it,
     so they always agree. What it does not match is a settled residual: a name split by a hyphen at the end of a line, or
     by a zero-width character or a soft hyphen, and a name in another script or spelling."""
     parts = [r"\s+".join(re.escape(w) for w in normal(f).split()) for f in fs if normal(f).split()]
     if protect:
-        parts.insert(0, re.escape(SHIELD))
+        parts.insert(0, PLACEHOLDER.pattern)
     return re.compile("|".join(parts), re.I) if parts else None
 
 
@@ -216,7 +232,7 @@ def shield(text, evidence):
 
     def replace(m):
         nonlocal n
-        if m.group(0).lower() != SHIELD:
+        if not PLACEHOLDER.fullmatch(m.group(0)):
             n += 1
         return SHIELD
     out = rx.sub(replace, normal(text))
@@ -283,10 +299,10 @@ def term_in_source(term, src, evidence):
 def contamination(card_text, source_text, evidence):
     """Terms a card names that its own source does not carry: each one is an alert. Given the source as it was sent,
     shielded (`shield`), in which no term or marker survives, nothing excuses a term, so every term the card names is
-    returned: the model was never shown it. Every occurrence of the placeholder is taken out of the card first, so a term
-    that stands inside `[withheld name]` (a surname such as Held) is never found in the placeholder itself."""
-    return [t for t in hits(card_text.replace(SHIELD, "\x00"), evidence)
-            if not term_in_source(t, source_text, evidence)]
+    returned: the model was never shown it. Every occurrence of the placeholder is taken out of the card first
+    (`without_placeholder`, whatever its case or spacing), so the placeholder is never read as a term; `load_terms` refuses
+    a term that stands inside it, so none can."""
+    return [t for t in hits(without_placeholder(card_text), evidence) if not term_in_source(t, source_text, evidence)]
 
 
 def masked(text, evidence):

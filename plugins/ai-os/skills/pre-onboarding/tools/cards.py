@@ -578,7 +578,8 @@ def sections_text(run, engine_light, eid, log, engine_name):
         if note is None:
             unread.append("section %d of %d: %s" % (k, len(chunks), why))
             continue
-        named = isolation.hits(note, run.evidence)  # the section was sent shielded: a term in its notes is not from it
+        # the section was sent shielded: a term in its notes is not from it (the placeholder, as written back, is no term)
+        named = isolation.hits(isolation.without_placeholder(note), run.evidence)
         if named:
             raise_alert(run, log, "a section note of %s" % eid[:12], len(named), "the note was not cached")
         note = run.shield(note)

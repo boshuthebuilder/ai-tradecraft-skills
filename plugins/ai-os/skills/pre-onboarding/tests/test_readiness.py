@@ -1544,17 +1544,26 @@ class CardsShieldTest(Prepared):
     def test_without_the_terms_file_it_is_not_verified(self):
         self.assertEqual(self.readiness(code=0)["records"]["cards_shield"], "not verified: no --terms")
 
-    def test_a_card_repeating_the_placeholder_is_no_contamination_when_a_term_stands_in_it(self):
-        """A term `Held` is inside `[withheld name]`: a card that repeats a shielded path must not alert on the placeholder."""
-        terms = os.path.join(self.tmp, "held.txt")
-        write(terms, "Held\n")
-        self.stamp_cards(digest=isolation.shield_digest({"Held": ["Held"]}))
-        self.canary("agy", terms_sha256=isolation.shield_digest({"Held": ["Held"]}), reply="NAMES: Kobelumi", hits=0,
-                    usage={}, answered=True, marker="Kobelumi", **{"pass": True})
+    def test_a_card_repeating_the_placeholder_in_any_case_is_no_contamination(self):
+        """A term `name] letter` stands across the placeholder and the word after it: a card that repeats a shielded
+        path, however it writes the placeholder, must not alert on it."""
+        terms = os.path.join(self.tmp, "across.txt")
+        write(terms, "Zarnwick Farm\nname] letter\n")
+        digest = isolation.shield_digest(isolation.load_terms(terms))
+        self.stamp_cards(digest=digest)
+        self.canary("agy", terms_sha256=digest, reply="NAMES: Kobelumi", hits=0, usage={}, answered=True,
+                    marker="Kobelumi", **{"pass": True})
         p = self.path("_Audit", "cards", self.ids()["04 Study/Notes.rtf"] + ".json")
         card = json.loads(read(p))
-        write(p, json.dumps(dict(card, summary=card["summary"] + " Filed under [withheld name]."), indent=1))
-        self.assertEqual(self.readiness("--terms", terms, code=0)["records"]["contamination"], 0)
+        for placeholder in ("[withheld name]", "[Withheld Name]", "[ withheld  name ]"):
+            with self.subTest(placeholder):
+                write(p, json.dumps(dict(card, summary=card["summary"] + " Filed as %s letter." % placeholder), indent=1))
+                self.assertEqual(self.readiness("--terms", terms, code=0)["records"]["contamination"], 0)
+
+    def test_a_terms_file_with_a_term_inside_the_placeholder_is_a_tool_error(self):
+        terms = os.path.join(self.tmp, "held.txt")
+        write(terms, "Held\n")
+        self.assertIn("occurs inside the placeholder", self.refused("--terms", terms))
 
 
 class FindingTest(Prepared):

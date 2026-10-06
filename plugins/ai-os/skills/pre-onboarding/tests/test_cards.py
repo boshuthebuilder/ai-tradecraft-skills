@@ -1350,16 +1350,45 @@ class ShieldTest(CardsCliCase):
         self.assertEqual(item["path"], "03 Home/Letter from [withheld name].pdf")
         self.assertEqual(self.written()[doc]["card_meta"]["shielded"], 1)
 
-    def test_a_term_inside_the_placeholder_never_alerts_on_the_placeholder(self):
-        """A surname such as Held stands in `[withheld name]`: the card repeats the shielded path, which is no contamination."""
+    def test_a_terms_file_holding_a_term_inside_the_placeholder_is_refused_before_anything_runs(self):
         terms = self.own_terms("Held\n")
-        doc = self.record("03 Home/Held letter.pdf", ["A letter."])
+        self.record("03 Home/Held letter.pdf", ["A letter."])
         self.cards_py("build")
-        self.fakes.script("codex", default={"kind": "text"})
         code, _out, err = self.work_run("codex", "--terms", terms)
+        self.assertEqual(code, 2, err)
+        self.assertIn("occurs inside the placeholder [withheld name]", err)
+        self.assertNotIn("Held", err)
+        self.assertEqual(self.fakes.calls("codex"), [])
+
+    PLACEHOLDER_TERMS = "Quorvane Holdings\nname] letter\n"  # the second stands across the placeholder and what follows it
+
+    def test_a_card_repeating_the_placeholder_in_any_case_is_no_contamination(self):
+        """The shielded path reads `[withheld name] letter.pdf`, and a term `name] letter` is in it: the card repeats it, however
+        its case and spacing, and the placeholder is not read as a term."""
+        terms = self.own_terms(self.PLACEHOLDER_TERMS)
+        doc = self.record("03 Home/Quorvane Holdings letter.pdf", ["A letter."])
+        self.cards_py("build")
+        for suffix in (" Signed by [withheld name] letter.", " Signed by [Withheld Name] letter.",
+                       " Signed by [ WITHHELD   NAME ] letter."):
+            with self.subTest(suffix):
+                self.fakes.reset("codex")
+                self.fakes.script("codex", default={"kind": "text", "suffix": suffix})
+                shutil.rmtree(self.cards, True)
+                code, _out, err = self.work_run("codex", "--terms", terms)
+                self.assertEqual(code, 0, err)
+                self.assertFalse(os.path.exists(os.path.join(self.work, "state", "ALERT")))
+                self.assertIn(suffix.strip(), self.written()[doc]["summary"])
+
+    def test_a_section_note_repeating_the_placeholder_is_no_contamination(self):
+        """Section notes summarise text that carries the placeholder and often repeat it, in any case."""
+        terms = self.own_terms(self.PLACEHOLDER_TERMS)
+        pages = ["Page %d: Quorvane Holdings letter. " % n + "w" * 3_000 for n in (1, 2, 3)]
+        doc, work = self.sections(pages)
+        self.fakes.script("codex", default={"kind": "text", "note_suffix": " As [Withheld Name] letter says."})
+        code, _out, err = self.cards_py("work", "--terms", terms, *work)
         self.assertEqual(code, 0, err)
-        self.assertIn("[withheld name] letter.pdf", self.written()[doc]["summary"])
         self.assertFalse(os.path.exists(os.path.join(self.work, "state", "ALERT")))
+        self.assertEqual(sorted(self.written()), [doc])
 
     def sections(self, pages=None):
         pages = pages or ["Page %d of the reader. " % n + "w" * 3_000 for n in (1, 2, 3)]
