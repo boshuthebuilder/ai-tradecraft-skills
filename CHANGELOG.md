@@ -25,12 +25,18 @@ prompt placeholder changed.
 - **One matcher** (`isolation.alternation`) for the shield, the scan (`hits`), `carries` and `masked`: case-insensitive,
   in Unicode NFC, with a space in a term matching any run of Unicode whitespace, so a name wrapped at a line end, set
   with a no-break space or stored decomposed is still the name. A name split by a hyphen at a line end, or by a
-  zero-width character, is not matched: a settled residual. The shield is idempotent, and the contamination check takes
-  the placeholder out first, so a term that stands inside `[withheld name]` never alerts on it.
-- **A subagent is told never to open a shielded source.** A bundle line for a document whose path, card or extract text
-  carries a term has `"shielded": true`; the page brief and both review templates say never to open such a source;
-  `review-prompts` (which takes `--extract`) lists it as "do not open" and samples none of its facts. The tools cannot
-  restrict a subagent's file access: the guard is the instruction and the shielded text the bundle already holds.
+  zero-width character, is not matched: a settled residual. The shield is idempotent. One helper
+  (`isolation.without_placeholder`, case-insensitive and tolerant of the spacing inside the brackets) takes the
+  placeholder out of a card and of a section note before any term is looked for, and `load_terms` refuses a term or
+  marker that occurs inside the placeholder (naming the line, never the term), so no term can ever be read in it.
+- **A subagent is told never to open a shielded source.** One rule (`wiki.shielded_document`) decides it for `bundles`,
+  `brief` and `review-prompts` alike: the document's path, any copy's path, its extract text or any field of its card
+  carries a term, or its card records that it was shielded; a card or extract record that is missing or unreadable counts
+  as shielded (fail closed). A bundle line for such a document has `"shielded": true`; the page brief and both review
+  templates say never to open such a source; `review-prompts` (which takes `--extract`) lists it as "do not open", and a
+  cited folder with a shielded document under it likewise (how many, never which), and samples none of its facts; `brief`
+  says how many of the sources an existing page cites are shielded. The tools cannot restrict a subagent's file access:
+  the guard is the instruction and the shielded text the bundle already holds.
 - **A section note that names a term is contamination:** it writes the ALERT, stops every worker and is never cached.
 - **`vision.py` holds back a document that carries a term.** An image cannot be shielded, so a document whose manifest
   path or extract text (`text` or `local_text`) carries a term has no image sent: its queued pages are marked `unread`,
@@ -48,7 +54,9 @@ prompt placeholder changed.
   records the digest of the terms file it ran against (`terms_sha256`), which readiness must find equal.
 - **`audit.py` reports what it skips** (`summary.json` `not_audited`, the `Not audited` section of `AUDIT.md`) and counts
   excluded items apart from count-only images (`summary.json` `excluded`). A skipped folder the owner also excluded is
-  named, with that reason, and counts as excluded; a link at the top is one item and is never walked.
+  named, with that reason, and counts as excluded (naming it is intended: it is a top-level name, as the top-level
+  table already shows for any folder the walk enters, and its items are counted, never listed); a link at the top is
+  one item and is never walked.
 - **`settings.py check` reads `ocr_languages`** against the codes `extract.py` reads, from one list in `common.py`.
 
 ### Changed

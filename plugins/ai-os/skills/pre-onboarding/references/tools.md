@@ -140,7 +140,8 @@ document started at be judged once the document was moved by a round and then st
   a log line. A folder holding `Outbox/`, `Wiki/` (when its wiki folder is named otherwise), `_Old invoices/` and
   `Invoices/` reports the first three. A skipped name the owner also excluded is recorded the same way, with a reason that says so
   (`also excluded by the owner`), and its items count in `excluded`, so the Excluded row never reads 0 for a folder the owner
-  excluded. A link at the top is counted as one item and never walked, and a linked folder inside a skipped folder is one
+  excluded. Naming it there is intended: it is a top-level name, which the top-level table already shows for any folder the
+  walk enters, and the items under it are counted, never listed. A link at the top is counted as one item and never walked, and a linked folder inside a skipped folder is one
   item, so the count never follows a link out of the folder.
 - **What it hashes.** Every item in full, except an image over the rulebook's `image_cap_mb`, which is counted with
   a synthetic id. Hashes are cached in `--cache` (default `<work>/hashcache.json`) by path, size and modification
@@ -762,8 +763,11 @@ inside the folder, and the tool's own: a rebuild removes `bundles.json` and the 
 document: its short id, path, other copies, pages, extract status, and from its card `title`, `doc_type`, `party`,
 `parties`, `doc_date`, `category`, `language` and `sensitive`; then `summary` and `key_facts`, and in an `active`
 section the full text, shielded whole and then capped at `--text-cap` characters (a cut never splits a name). A line for a
-document whose path, a copy's path, card or extract text carries a term also has `"shielded": true`, since its source file
-still holds the name: a drafter is told never to open such a source. In any other section, reading, photos and other bulk
+document that is shielded also has `"shielded": true`, since its source file still holds the name: a drafter is told never
+to open such a source. One rule, `shielded_document`, decides it for `bundles`, `brief` and `review-prompts` alike: the
+document's path, any copy's path, its extract text or any field of its card carries a term or marker, or its card records
+that it was shielded. It fails closed: a card or extract record that is missing or cannot be read counts as shielded, never
+as clean. In any other section, reading, photos and other bulk
 material is listed `compact`, without summary or text. A card with no extract record is refused. A withheld document is
 in no bundle, in neither the `unrouted` nor the `uncarded` list, and in no `copies` list (a copy of an included document
 under a withheld path is left out too); it is counted in the summary the command prints and `bundles.json` keeps
@@ -816,7 +820,9 @@ every drafting agent runs, `python3 <tools>/wiki.py check --root <root> --work <
 the pages briefed. A page that already exists and cites a withheld document (`cites_withheld`, below) carries a line in its
 entry (`- Withheld citation: lines <n>, <n> cite a document the tools may not read (excluded). Take each citation off
 the page, and every fact drawn from that document with it; do not open the document, and do not name its path.`), with
-the lines and the kind of withholding and no path. The brief tells the author to open a source file only when a bundle line names it, and that a path the
+the lines and the kind of withholding and no path. Given the terms, an existing page that cites shielded sources (a
+document, or a folder holding one, by the rule `bundles` uses) carries `- Shielded sources: N sources this page cites ...
+Never open them`, the count and never which. The brief tells the author to open a source file only when a bundle line names it, and that a path the
 brief marks withheld, any path under the migrations folder and any path the owner excluded is never opened, read or
 cited. The page map is every page
 under the wiki folder, every page in the Schema's Page professionals table, each Layout section's folder note (`<NN
@@ -970,10 +976,12 @@ and a sample of facts from their cards), each carrying the page's text and sha25
 to `<out>/<page path without .md>.owner.md` and `.professional.md` (default `<work>/reviews/`) and refused inside the
 folder; the same inputs render the same bytes. A reviewer model equal to the author model is refused.
 
-**A source that carries a term is not to be opened.** Given the terms, a cited document whose path, a copy's path, card
-(`card_meta.shielded`) or extract text (`--extract`, default `<root>/_Audit/extract`) carries a term is listed under "Its
-sources" as `do not open; it carries a name kept from you`, and none of its facts is sampled: its file still holds the name
-the prompt withholds. The professional template says never to open it and to say in a finding what could not be checked;
+**A source that carries a term is not to be opened.** Given the terms, a cited document that is shielded by the rule
+`bundles` uses (`shielded_document`, which reads `--cards` and `--extract`, default `<root>/_Audit/cards` and
+`<root>/_Audit/extract`, and fails closed on a record it cannot read) is listed under "Its sources" as `do not open; it
+carries a name kept from you`, and none of its facts is sampled: its file still holds the name the prompt withholds. A cited
+folder with a shielded document under it (copies included) is listed with `do not open it: N documents under it carry a
+name kept from you, so work from the bundle for that folder`, the count and never which. The professional template says never to open it and to say in a finding what could not be checked;
 the owner template says to open no source file.
 
 The sample is fixed by rule, so a second review of a page checks the same facts: every non-empty date, amount and

@@ -19,8 +19,9 @@ Nothing at the top is skipped silently: the walk skips the tool's reserved names
 `reserved` names) and any folder with a leading `_` other than the migrations folder, and each that is not the tool's
 own or the deployment's expected machinery (`_Audit`, `.familyai`, the rulebook files, the wiki folder) is recorded with
 its item count: `summary.json` `not_audited`, the `Not audited` section of `AUDIT.md`, and the log. One the owner has
-also excluded is recorded the same way, with a reason that says so, and its items count in `excluded`. A link is counted
-as one item and never followed.
+also excluded is recorded the same way, with a reason that says so, and its items count in `excluded`. Naming such a
+folder in `Not audited` is intended: it is a top-level name, which the top-level table already shows for any folder the
+walk enters, and its items are counted, never listed. A link is counted as one item and never followed.
 
     python3 audit.py --root <folder> [--out <dir>] [--work <dir>] [--settings-dir <dir>] [--read-only-root]
 
