@@ -15,7 +15,8 @@ run of four or more digits in that document's text, so a reply that swaps ids or
 gets written. `cards_by_path` replaces fields of a document's card (an honest card written as the instructions
 ask). Options change that: `swap` (two ids exchanged, cards in place), `cross` (contents rotated, ids and order
 intact), `cross_paths` (two named documents' cards trade contents when both are in the call), `reorder` (a correct
-reply in reverse order), `drop`, `extra`, `invalid`, `suffix`.
+reply in reverse order), `drop`, `extra`, `invalid`, `suffix` (added to each card's summary) and `note_suffix` (added
+to each section note).
 """
 import json
 import os
@@ -91,7 +92,7 @@ def answer(prompt, r):
         if r.get("no_notes"):
             return json.dumps({})
         head = prompt[prompt.index("This is section"):].split(".")[0]
-        return json.dumps({"notes": "notes on " + head[len("This is "):]})
+        return json.dumps({"notes": "notes on " + head[len("This is "):] + r.get("note_suffix", "")})
     if "these image files: " in prompt:
         if r.get("no_pages"):
             return json.dumps({})

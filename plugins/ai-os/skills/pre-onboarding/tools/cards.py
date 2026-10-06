@@ -45,8 +45,13 @@ never reused. A document that carries a term is still carded, from the text with
 shielded. Before any card of a batch is written, the contamination guard checks them all against the shielded text
 actually sent: the model was never shown a term, so none can come from the document, and a card that names any term
 from the list (`isolation.contamination`) writes <work>/state/ALERT, writes none of the batch and stops every worker.
-`card_meta` records the engine (`via`), the model, for codex the effort, and the light model when `--light-model` is
-used, which `readiness.py` reads to require a canary for each (`isolation.py canary`).
+A section note that names a term is the same contamination (its section was sent shielded): it writes the ALERT, stops
+every worker and is never cached; a clean note is shielded again (for the markers) before it is cached, and again
+whenever it is read from the cache. Shielding always comes before any cut: the sections and the opening text are cut
+from text already shielded. `card_meta` records the engine (`via`), the model, `shield_sha256` (the digest of the
+terms' forms, or `none` under `--no-isolation-terms`), for codex the effort and, when `--light-model` is used, the
+light model and the effort it ran at (`light_model_effort`), which `readiness.py` reads to require a canary for each
+(`isolation.py canary`) and to find cards made under another shield.
 
 A document is carded only when the manifest holds it live (not `departed`) and not withheld: one whose current path is
 under the migrations folder is held for another project, one the rulebook `exclude`s is excluded, a departed one or an id
@@ -74,6 +79,7 @@ import isolation  # noqa: E402
 HERE = os.path.dirname(os.path.abspath(__file__))
 FINAL = {"ok", "partial", "blank", "photo", "listed", "no_reader", "failed"}
 MIN_SECTION = 1_000  # the smallest section budget (characters or estimated tokens) a run accepts
+LIGHT_EFFORT = "low"  # the effort a codex `--light-model` reads section notes at; recorded on each card
 # The document-sized budgets with agy, in characters. agy cuts a prompt at about 192,000 UTF-8 bytes of text and
 # engines.AGY_MAX_PROMPT_BYTES refuses over 180,000. A CJK character is three bytes, so the budget in CJK is 3 x 50,000
 # = 150,000 bytes, and the rest of the prompt has the other 30,000. Measured, the most that rest takes is 28,253
@@ -211,11 +217,12 @@ class Run:
 
     def payload(self, eid, text_override=None):
         """The item a call carries for document `eid`: its path and text, shielded, never the ones the manifest and the
-        record hold."""
+        record hold. `text_override` is text the caller has shielded already (a sectioned document's notes and opening
+        text, whose every part `sections_text` shields itself), and is sent as it is."""
         r = self.record(eid)
         return {"id": eid, "path": self.shield(self.paths[eid]), "class": r["class"],
                 "page_count": r.get("page_count", 0), "read": read_label(r.get("tiers")),
-                "text": self.shield(full_text(r) if text_override is None else text_override)}
+                "text": self.shield(full_text(r)) if text_override is None else text_override}
 
 
 def build(a):
@@ -571,6 +578,10 @@ def sections_text(run, engine_light, eid, log, engine_name):
         if note is None:
             unread.append("section %d of %d: %s" % (k, len(chunks), why))
             continue
+        named = isolation.hits(note, run.evidence)  # the section was sent shielded: a term in its notes is not from it
+        if named:
+            raise_alert(run, log, "a section note of %s" % eid[:12], len(named), "the note was not cached")
+        note = run.shield(note)
         run.writer.text(cp, "[path] %s\n%s" % (run.paths[eid], note))  # the real path: a purge reads it
         notes.append(note)
     if unread:
@@ -581,6 +592,15 @@ def sections_text(run, engine_light, eid, log, engine_name):
         len(chunks), "\n".join(notes), text[:20000])
 
 
+def raise_alert(run, log, what, n, outcome):
+    """Write the ALERT that stops every worker, naming `what` named `n` isolation terms its document was sent without
+    (never a term), and refuse with `outcome`."""
+    with open(run.alert, "w", encoding="utf-8") as f:
+        f.write("contamination: %s names %d isolation term(s), which its document was sent without\n" % (what, n))
+    log("ALERT: %s names isolation terms, which its document was sent without" % what)
+    raise common.ToolError("contamination alert; %s; every worker stops" % outcome)
+
+
 def write_cards(run, cards, batch_name, evidence, meta, log):
     """Every card is checked before any is written: one alert writes none of them. A card is checked against its
     document's text as it was sent, shielded, so any term the card names is an alert."""
@@ -589,11 +609,7 @@ def write_cards(run, cards, batch_name, evidence, meta, log):
         blob = json.dumps(c, ensure_ascii=False)
         bad = isolation.contamination(blob, sent, evidence) if evidence else []
         if bad:
-            with open(run.alert, "w", encoding="utf-8") as f:
-                f.write("contamination: card %s names %d isolation term(s), which its document was sent without\n"
-                        % (eid, len(bad)))
-            log("ALERT: card %s names isolation terms, which its document was sent without" % eid[:12])
-            raise common.ToolError("contamination alert; no card of this batch written; every worker stops")
+            raise_alert(run, log, "card %s" % eid[:12], len(bad), "no card of this batch written")
     for eid, c in cards.items():
         c["card_meta"] = dict(meta, batch=batch_name, created_at=common.now_local(), path=run.paths[eid])
         n = run.shielded_count(eid)
@@ -627,16 +643,17 @@ def work(a):
         log("isolation terms: none, by operator decision (--no-isolation-terms)")
     if a.engine == "codex":
         engine = engines.Codex(a.model, effort=a.effort)
-        light = engines.Codex(a.light_model, effort="low") if a.light_model else engine
+        light = engines.Codex(a.light_model, effort=LIGHT_EFFORT) if a.light_model else engine
         schema = os.path.join(HERE, "schemas", "card_codex.json")
     else:
         engine = light = engines.Agy(a.model)
         schema = os.path.join(HERE, "schemas", "card.json")
-    meta = {"model": a.model or "cli-default", "via": a.engine}
+    meta = {"model": a.model or "cli-default", "via": a.engine,
+            "shield_sha256": isolation.shield_digest(evidence) if evidence else "none"}
     if a.engine == "codex":
         meta["effort"] = a.effort
         if a.light_model:
-            meta["light_model"] = a.light_model
+            meta["light_model"], meta["light_model_effort"] = a.light_model, LIGHT_EFFORT
     instr = instructions(run.rb)
     run.writer.makedirs(run.cards)
     if a.redo:

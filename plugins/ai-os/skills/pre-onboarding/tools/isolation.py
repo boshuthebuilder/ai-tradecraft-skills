@@ -42,16 +42,22 @@ files are the proof the gate ran; a missing or failed result means no real call 
 A canary clears one engine at one model and one effort, so a lane runs one per model it uses and writes each to its
 own file: `<work>/state/canary-<engine>-<model>.json` (a codex lane that runs one model at two efforts adds the effort
 to the name). `readiness.py` reads every `canary-*.json` there and, given the terms file, requires a passing one for
-each engine and exact model the cards record. `--effort` is codex's reasoning effort (default `low`); agy has none to
-set, because its effort is part of its model id, so `--effort` with agy is refused. The result records the effort used.
+each engine and exact model the cards record, and for codex at the exact effort each ran at, the light model's included.
+`--effort` is codex's reasoning effort (default `low`); agy has none to set, because its effort is part of its model id,
+so `--effort` with agy is refused. The result records the effort used, and the sha256 of the terms file's forms it ran
+against (`terms_sha256`, never the forms): `readiness.py` accepts a pass only when that equals the digest of the terms
+file it is given, so a canary run against an older or shorter list clears nothing.
 
 The shield (`shield`, `shield_value`) is what keeps a term out of a call in the first place. Every tool that sends text
 or a path to an engine, or writes it into a file a model will read, replaces each term and marker with `[withheld
-name]` first, by the same case-insensitive substring match `hits` and `masked` use, so the shield and the scan always
-agree. It is one home for the tools that need it (`cards.py`, `vision.py`, `wiki.py`); each requires `--terms` or
-`--no-isolation-terms` (`evidence_of`) and never writes a term anywhere.
+name]` first, by the one matcher (`alternation`) that `hits`, `carries` and `masked` use as well, so the shield and the
+scan always agree: case-insensitive, in Unicode NFC, a space in a term matching any run of whitespace (a line break, a
+no-break space), and not a name split by a hyphen or a zero-width character, which is a settled residual. It is one
+home for the tools that need it (`cards.py`, `vision.py`, `wiki.py`); each requires `--terms` or `--no-isolation-terms`
+(`evidence_of`) and never writes a term anywhere.
 """
 import argparse
+import functools
 import hashlib
 import json
 import os
@@ -59,6 +65,7 @@ import re
 import secrets
 import shutil
 import sys
+import unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common  # noqa: E402
@@ -148,37 +155,72 @@ def load_terms(path):
     return out
 
 
-def hits(text, terms):
-    low = text.lower()
-    return [t for t in terms if t.lower() in low]
-
-
 SHIELD = "[withheld name]"
 
 
 def forms(evidence):
     """Every term and marker of the evidence, once each, longest first (equal lengths in alphabetical order, so the order
-    never varies between runs): the order `masked` and `shield` replace in."""
+    never varies between runs): the order `shield` and `masked` match in."""
     return sorted({m for ms in evidence.values() for m in ms}, key=lambda m: (-len(m), m))
+
+
+def normal(text):
+    """`text` in Unicode NFC, the one form every match is made in: a name may be stored decomposed (an older macOS file
+    name) and written composed in the terms file, or the other way about."""
+    return unicodedata.normalize("NFC", text)
+
+
+@functools.lru_cache(maxsize=None)
+def alternation(fs, protect=False):
+    """The one pattern that finds any of the forms `fs` (a tuple, longest first), ignoring case: each form in NFC, each run
+    of whitespace inside it standing for any run of Unicode whitespace in the text (a line break, a no-break space, a
+    narrow no-break space, two spaces), so a name wrapped at the end of a line or set with a no-break space is the name.
+    With `protect`, the placeholder `SHIELD` comes first, so text already shielded is matched as it stands and a form
+    that occurs inside the placeholder (a surname such as Held) is never found there.
+
+    This is the one matcher: `hits` (the scan and the contamination check), `carries`, `shield` and `masked` all use it,
+    so they always agree. What it does not match is a settled residual: a name split by a hyphen at the end of a line, or
+    by a zero-width character or a soft hyphen, and a name in another script or spelling."""
+    parts = [r"\s+".join(re.escape(w) for w in normal(f).split()) for f in fs if normal(f).split()]
+    if protect:
+        parts.insert(0, re.escape(SHIELD))
+    return re.compile("|".join(parts), re.I) if parts else None
+
+
+def hits(text, terms):
+    """The `terms` (a list of forms, or an evidence mapping, whose keys are its terms) that `text` carries, by the one
+    matcher (`alternation`)."""
+    body = normal(text)
+    return [t for t in terms if (rx := alternation((t,))) is not None and rx.search(body)]
 
 
 def carries(text, evidence):
     """Whether `text` holds a term or a marker of the evidence: whether `shield` would replace anything in it. (`hits`
     reads the terms alone, which is what a card is an alert for naming; a marker is a form of the term, and a document
     that carries one is as much a document that carries the term.)"""
-    return bool(hits(text, forms(evidence)))
+    rx = alternation(tuple(forms(evidence)))
+    return rx is not None and rx.search(normal(text)) is not None
 
 
 def shield(text, evidence):
-    """(`text` with every term and marker of `evidence` replaced by `SHIELD`, the number replaced). Matching is the
-    case-insensitive substring match `hits` and `masked` use, longest form first, in one pass, so the placeholder is never
-    scanned again and a form is never replaced inside it. Empty evidence (`--no-isolation-terms`) returns the text as it
-    was and 0. A term is never written anywhere. A short term also matches inside longer words, which garbles the word
-    and never leaks the term: prefer full names in the terms file."""
-    fs = forms(evidence)
-    if not fs:
+    """(`text` with every term and marker of `evidence` replaced by `SHIELD`, the number replaced). Matching is the one
+    matcher's (`alternation`): case-insensitive, in Unicode NFC, a space in a form standing for any run of whitespace, longest
+    form first, in one pass, so the placeholder is never scanned again and text already shielded is left as it is (the
+    shield is idempotent). A text that held a match is returned in NFC. Empty evidence (`--no-isolation-terms`), or a
+    text with no match, is returned as it was, with 0. A term is never written anywhere. A short term also matches
+    inside longer words, which garbles the word and never leaks the term: prefer full names in the terms file."""
+    rx = alternation(tuple(forms(evidence)), protect=True)
+    if rx is None:
         return text, 0
-    return re.subn("|".join(re.escape(f) for f in fs), lambda _m: SHIELD, text, flags=re.I)
+    n = 0
+
+    def replace(m):
+        nonlocal n
+        if m.group(0).lower() != SHIELD:
+            n += 1
+        return SHIELD
+    out = rx.sub(replace, normal(text))
+    return (out, n) if n else (text, 0)
 
 
 def shield_value(value, evidence):
@@ -241,15 +283,20 @@ def term_in_source(term, src, evidence):
 def contamination(card_text, source_text, evidence):
     """Terms a card names that its own source does not carry: each one is an alert. Given the source as it was sent,
     shielded (`shield`), in which no term or marker survives, nothing excuses a term, so every term the card names is
-    returned: the model was never shown it."""
-    return [t for t in hits(card_text, evidence) if not term_in_source(t, source_text, evidence)]
+    returned: the model was never shown it. Every occurrence of the placeholder is taken out of the card first, so a term
+    that stands inside `[withheld name]` (a surname such as Held) is never found in the placeholder itself."""
+    return [t for t in hits(card_text.replace(SHIELD, "\x00"), evidence)
+            if not term_in_source(t, source_text, evidence)]
 
 
 def masked(text, evidence):
-    """`text` with every term and marker replaced by `<term>` (longest first, ignoring case)."""
-    for m in forms(evidence):
-        text = re.sub(re.escape(m), "<term>", text, flags=re.I)
-    return text
+    """`text` with every term and marker replaced by `<term>`, by the one matcher (`alternation`); a text with no match is
+    returned as it was."""
+    rx = alternation(tuple(forms(evidence)))
+    if rx is None:
+        return text
+    out, n = rx.subn("<term>", normal(text))
+    return out if n else text
 
 
 UNSET_VARIABLE = re.compile(r"\$(\w+|\{[^}]*\})", re.ASCII)  # what `os.path.expandvars` reads as a variable
@@ -360,8 +407,9 @@ def canary(a):
     marker = fresh_marker(evidence)
     effort = None if a.engine == "agy" else a.effort or CODEX_EFFORT
     d = engines.fresh_dir("canary_")
-    res = {"engine": a.engine, "checked_at": common.now_local(), "terms": len(evidence), "marker": marker,
-           "model": a.model or "cli-default", "effort": effort}
+    res = {"engine": a.engine, "checked_at": common.now_local(), "terms": len(evidence),
+           "terms_sha256": shield_digest(evidence), "marker": marker, "model": a.model or "cli-default",
+           "effort": effort}
     try:
         eng = engines.Agy(a.model) if a.engine == "agy" else engines.Codex(a.model, effort=effort)
         reply, usage = eng(CANARY.format(marker=marker), d)

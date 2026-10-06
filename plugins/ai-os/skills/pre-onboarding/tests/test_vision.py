@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import unicodedata
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -348,6 +349,32 @@ class VisionTest(unittest.TestCase):
                 self.assertEqual([p["tier"] for p in self.record()["pages"][:2]], ["unread", "unread"])
                 self.assertEqual(os.listdir(self.queue), [])
                 self.assertIn("held for an isolation term: 1", err)
+
+    def test_a_name_wrapped_or_set_with_another_space_in_the_text_holds_the_document(self):
+        """The local text of a scan wraps a name at a line end: it is still the name, and no image of it is sent."""
+        terms = os.path.join(self.tmp, "terms-plain.txt")
+        write(terms, "Zarnwick Farm\n")  # no marker: only the whole name can hold the document
+        for text in ("Lease of Zarnwick\nFarm, signed", "Lease of Zarnwick\u00a0Farm", "Lease of ZARNWICK  \t Farm"):
+            with self.subTest(text):
+                self.setUp()
+                write(terms, "Zarnwick Farm\n")
+                rec = self.record()
+                rec["pages"][2]["text"] = text
+                write(os.path.join(self.out, self.eid + ".json"), json.dumps(rec))
+                code, _out, err = self.vision(terms=("--terms", terms))
+                self.assertEqual(code, 0, err)
+                self.assertEqual(self.fakes.calls("agy"), [], "an image of a document that carries a term was sent")
+                self.assertEqual([p["tier"] for p in self.record()["pages"][:2]], ["unread", "unread"])
+                self.assertIn("held for an isolation term: 1", err)
+
+    def test_a_path_in_another_unicode_form_holds_the_document(self):
+        terms = os.path.join(self.tmp, "terms-nfc.txt")
+        write(terms, "Jos\u00e9 Quorvane\n")
+        self.stage(self.eid, unicodedata.normalize("NFD", "01 Identity/Jos\u00e9 Quorvane scan.pdf"))
+        code, _out, err = self.vision(terms=("--terms", terms))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.fakes.calls("agy"), [])
+        self.assertIn("held for an isolation term: 1", err)
 
     def test_only_the_document_that_carries_no_term_is_sent(self):
         """The residual, stated: a document with no term in its path or its local text is sent whole, whatever its

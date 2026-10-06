@@ -115,6 +115,62 @@ class ShieldTest(Case):
         ev = {"A.B (C)": ["A.B (C)"]}
         self.assertEqual(isolation.shield("a.b (c) and AXB (C)", ev), ("[withheld name] and AXB (C)", 1))
 
+    WRAPPED = ("Zarnwick\nFarm", "Zarnwick\r\nFarm", "Zarnwick\u00a0Farm", "Zarnwick\u202fFarm", "Zarnwick\u2009Farm",
+               "ZARNWICK  \t Farm", "zarnwick\n    farm", "Zarnwick\u3000Farm")
+
+    def test_a_name_wrapped_at_a_line_end_or_set_with_another_space_is_the_name(self):
+        for form in self.WRAPPED:
+            with self.subTest(form=form):
+                text = "Lease between Alex and %s for the flat." % form
+                got, n = isolation.shield(text, self.ev)
+                self.assertEqual((got, n), ("Lease between Alex and [withheld name] for the flat.", 1))
+                self.assertTrue(isolation.carries(text, self.ev))
+                self.assertEqual(isolation.hits(text, self.ev), ["Zarnwick Farm"], "the scan reads it the same way")
+                self.assertEqual(isolation.masked(text, self.ev), "Lease between Alex and <term> for the flat.")
+
+    def test_a_name_in_either_unicode_form_is_the_name(self):
+        nfd, nfc = "Jose\u0301 Quorvane", "Jos\u00e9 Quorvane"
+        for term, text in ((nfc, "Letter from %s.pdf" % nfd), (nfd, "Letter from %s.pdf" % nfc)):
+            with self.subTest(term=term):
+                ev = {term: [term]}
+                self.assertEqual(isolation.shield(text, ev), ("Letter from [withheld name].pdf", 1))
+                self.assertTrue(isolation.carries(text, ev))
+                self.assertEqual(isolation.hits(text, ev), [term])
+                self.assertEqual(isolation.masked(text, ev), "Letter from <term>.pdf")
+
+    def test_the_matcher_is_one_whatever_asks(self):
+        """The scan, the contamination check and the shield read a text alike: a text the shield leaves is a text the scan
+        finds nothing in."""
+        cases = list(self.WRAPPED) + ["Zarnwick", "Zarnwick-Farm", "Zarnwick Far", "Other\nProject", "青石湾"]
+        for form in cases:
+            with self.subTest(form=form):
+                text = "a %s b" % form
+                shielded, n = isolation.shield(text, self.ev)
+                self.assertEqual(n > 0, isolation.carries(text, self.ev))
+                self.assertEqual(isolation.hits(shielded, isolation.forms(self.ev)), [], shielded)
+
+    def test_what_still_does_not_match_is_the_settled_residual(self):
+        """A name split by a hyphen at a line end, or by a zero-width character or a soft hyphen, is not matched."""
+        for form in ("Zarn-\nwick Farm", "Zarn\u200bwick Farm", "Zarn\u00adwick Farm", "ZarnwickFarm"):
+            with self.subTest(form=form):
+                self.assertEqual(isolation.shield("a %s b" % form, {"Zarnwick Farm": ["Zarnwick Farm"]}),
+                                 ("a %s b" % form, 0))
+
+    def test_the_shield_is_idempotent_and_never_finds_a_term_inside_its_placeholder(self):
+        ev = {"Held": ["Held"], "Zarnwick Farm": ["Zarnwick Farm"]}
+        once = isolation.shield("Held Zarnwick\nFarm and a held letter", ev)
+        self.assertEqual(once, ("[withheld name] [withheld name] and a [withheld name] letter", 3))
+        self.assertEqual(isolation.shield(once[0], ev), (once[0], 0))
+        self.assertEqual(isolation.shield("[withheld name]", ev), ("[withheld name]", 0))
+        self.assertFalse(isolation.carries(once[0].replace("[withheld name]", ""), ev))
+
+    def test_a_term_inside_the_placeholder_is_no_contamination_and_one_outside_it_still_is(self):
+        ev = {"Held": ["Held"]}
+        self.assertEqual(isolation.contamination('{"summary": "Filed under [withheld name] letter.pdf"}', "", ev), [])
+        self.assertEqual(isolation.contamination('{"summary": "[withheld name] and Held."}', "", ev), ["Held"])
+        self.assertEqual(isolation.contamination('{"summary": "Hel[withheld name]d"}', "", ev), [],
+                         "taking the placeholder out never joins what stood round it into a term")
+
     def test_carries_is_whether_the_shield_would_replace_anything(self):
         for text, want in (("Rent to Zarnwick Farm", True), ("only the marker, ZARNWICK", True), ("Council tax", False),
                            ("青石湾 1号", True)):
@@ -513,6 +569,16 @@ class CanaryTest(Case):
         self.assertEqual((res["model"], res["effort"]), ("fake-codex", "low"))
         _code, res, _stdout, _err = self.canary("codex")
         self.assertEqual((res["model"], res["effort"]), ("cli-default", "low"))
+
+    def test_the_result_records_the_digest_of_the_terms_it_ran_against_never_the_terms(self):
+        self.says("agy", "NAMES: {marker}")
+        code, res, stdout, err = self.canary("agy", "--model", "fake-model")
+        self.assertEqual(code, 0, err)
+        want = isolation.shield_digest(isolation.load_terms(self.terms))
+        self.assertEqual(res["terms_sha256"], want)
+        self.assertIn(want, stdout)
+        for term in ("Zarnwick", "Other Project", "青石湾"):
+            self.assertNotIn(term, json.dumps(res))
 
     def test_codex_takes_an_effort_and_the_result_records_it(self):
         self.says("codex", "NAMES: {marker}")
