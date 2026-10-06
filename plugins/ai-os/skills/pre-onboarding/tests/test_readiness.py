@@ -1557,6 +1557,16 @@ class CardsShieldTest(Prepared):
         write(card_file, json.dumps(dict(card, summary=card["summary"] + " Prop signed it."), indent=1))
         self.assertEqual(self.readiness("--terms", terms)["records"]["contamination"], 1)
 
+    def test_a_term_in_a_key_the_schema_does_not_define_is_contamination(self):
+        """A key of the model's own is read like a value; the schema's own field names are not."""
+        terms = os.path.join(self.tmp, "key.txt")
+        write(terms, "Zarnwick Farm\n")
+        self.assertEqual(self.readiness("--terms", terms)["records"]["contamination"], 0)
+        card_file = self.path("_Audit", "cards", self.ids()["04 Study/Notes.rtf"] + ".json")
+        card = json.loads(read(card_file))
+        write(card_file, json.dumps(dict(card, **{"Zarnwick Farm": "seen"}), indent=1))
+        self.assertEqual(self.readiness("--terms", terms)["records"]["contamination"], 1)
+
     def test_a_card_repeating_the_placeholder_in_any_case_is_no_contamination(self):
         """Held stands inside the placeholder: a card that repeats a shielded path, however it writes the placeholder, must not
         alert on it."""

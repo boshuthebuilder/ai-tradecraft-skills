@@ -411,7 +411,7 @@ def shielded_document(h, entry, evidence, cards_dir, extract_dir, card=None, xr=
     if card is None or xr is None:
         return True
     meta = card.get("card_meta")
-    values = "\n".join(isolation.strings({k: v for k, v in card.items() if k != "card_meta"}))  # never the field names
+    values = isolation.card_text({k: v for k, v in card.items() if k != "card_meta"})
     return bool(isinstance(meta, dict) and meta.get("shielded")) or isolation.carries(values, evidence) \
         or isolation.carries(full_text(xr), evidence)
 

@@ -242,6 +242,26 @@ class StringsTest(Case):
                          ["Nam"])
 
 
+class CardTextTest(Case):
+    """What a card is checked for terms in: its values, and any key its schema does not define, each piece apart."""
+
+    def test_a_key_the_schema_does_not_define_is_read_and_one_it_defines_is_not(self):
+        ev = {"Zarnwick Farm": ["Zarnwick Farm"], "Nam": ["Nam"]}
+        card = {"id": "x", "proposed_name": "", "title": "A lease", "key_facts": {"dates": [], "Zarnwick Farm": "1"}}
+        self.assertEqual(isolation.contamination(isolation.card_text(card), "", ev), ["Zarnwick Farm"])
+        self.assertEqual(isolation.contamination(isolation.card_text(dict(card, **{"Zarnwick Farm": 1})), "", ev),
+                         ["Zarnwick Farm"])
+        del card["key_facts"]["Zarnwick Farm"]
+        self.assertEqual(isolation.contamination(isolation.card_text(card), "", ev), [])
+
+    def test_a_two_word_term_is_never_matched_across_two_values_only_within_one(self):
+        ev = {"Brindle Court": ["Brindle Court"]}
+        card = {"party": "Alex Brindle", "parties": ["Court Services"], "summary": "A letter."}
+        self.assertEqual(isolation.contamination(isolation.card_text(card), "", ev), [])
+        self.assertEqual(isolation.contamination(isolation.card_text(dict(card, summary="At Brindle\nCourt.")), "", ev),
+                         ["Brindle Court"])
+
+
 class PlaceholderMatcherTest(Case):
     """No form is ever found inside the placeholder, so a short name is never refused and never read in a shielded text."""
 

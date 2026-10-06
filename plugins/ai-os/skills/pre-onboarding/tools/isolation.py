@@ -206,17 +206,45 @@ def hits(text, terms):
     return [t for t in terms if (rx := alternation((t,))) is not None and rx.search(body)]
 
 
-def strings(value):
-    """Every string in a JSON value, mapping keys left out: a card's values, never its field names. What a term is looked for
-    in when a card is read (the contamination check, `wiki.shielded_document`), so a short term or marker such as Nam is not
-    found in a field name such as `proposed_name`."""
+def strings(value, known=None):
+    """Every string in a JSON value. Mapping keys are left out, unless `known` is given: then every key not in `known` is
+    kept too. `card_text` passes the card schemas' field names, so a short term or marker such as Nam is not found in
+    `proposed_name`, while a term a model writes as a key of its own is still found."""
     if isinstance(value, str):
         return [value]
     if isinstance(value, dict):
-        return [x for v in value.values() for x in strings(v)]
+        return [x for k, v in value.items()
+                for x in ([k] if known is not None and k not in known else []) + strings(v, known)]
     if isinstance(value, (list, tuple)):
-        return [x for v in value for x in strings(v)]
+        return [x for v in value for x in strings(v, known)]
     return []
+
+
+def schema_keys(schema):
+    """Every property name a JSON schema defines, at any depth."""
+    if isinstance(schema, dict):
+        return set(schema.get("properties", {})) | {k for v in schema.values() for k in schema_keys(v)}
+    if isinstance(schema, list):
+        return {k for v in schema for k in schema_keys(v)}
+    return set()
+
+
+def _card_keys():
+    keys = {"category_raw", "card_meta"}  # set by the tools, never by the model (card_meta is left out by every caller)
+    for name in ("card.json", "card_codex.json"):
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "schemas", name), encoding="utf-8") as f:
+            keys |= schema_keys(json.load(f))
+    return frozenset(keys)
+
+
+CARD_KEYS = _card_keys()
+
+
+def card_text(card):
+    """The text a card is checked for terms in: its string values and every field name the card schemas do not define,
+    each a separate piece joined by NUL. The matcher reads a space inside a term as any whitespace and never crosses a
+    NUL, so a two-word term is never found across two values (a party and the next one), only within one."""
+    return "\x00".join(strings(card, CARD_KEYS))
 
 
 def carries(text, evidence):
@@ -306,8 +334,8 @@ def term_in_source(term, src, evidence):
 
 
 def contamination(card_text, source_text, evidence):
-    """Terms a card names that its own source does not carry: each one is an alert. `card_text` is the card's values
-    (`strings`, joined), never its field names. Given the source as it was sent,
+    """Terms a card names that its own source does not carry: each one is an alert. The card's text is what
+    the module's `card_text` makes of it: its values and any field name the card schemas do not define. Given the source as it was sent,
     shielded (`shield`), in which no term or marker survives, nothing excuses a term, so every term the card names is
     returned: the model was never shown it. `hits` takes the placeholder out of the card first, whatever its case or
     spacing, so a model that writes it back never alerts, even where a term stands inside it (a surname such as Held)."""

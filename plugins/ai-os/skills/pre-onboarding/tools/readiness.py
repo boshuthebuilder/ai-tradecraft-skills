@@ -1364,7 +1364,7 @@ def record_checks(root, rb, live, evidence, models=None):
         if x is False:
             no_terms.append(path)
         elif evidence and x is not None:
-            blob = "\n".join(isolation.strings({k: v for k, v in card.items() if k != "card_meta"}))  # values only
+            blob = isolation.card_text({k: v for k, v in card.items() if k != "card_meta"})
             sent = isolation.shield(path + "\n" + C.full_text(x), evidence)[0]  # as the engine was sent it
             if isolation.contamination(blob, sent, evidence):
                 found["contamination"].append(path)  # the terms themselves are never written out

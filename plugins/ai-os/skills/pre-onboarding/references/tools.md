@@ -656,7 +656,8 @@ refused (exit 2). Each card records `card_meta.path`, the manifest's path of its
 items of a group or single call, the section prompt's path and section text, and the opening text and notes of a
 sectioned document. The card records `card_meta.shielded`, how many times a term stood in its document's path and text
 (a count, never the term), when it is above zero, and the log and the closing line count the documents shielded. The
-contamination guard compares each card's values (never its field names) with that shielded text, so a card that names
+contamination guard compares each card's values, and any field name the card schemas do not define, with that shielded
+text, so a card that names
 any term writes the alert. `card_meta` also records `via`, `model`, `shield_sha256` (the digest of the terms' forms, or `none` under
 `--no-isolation-terms`) and for `codex` `effort` and, with `--light-model`, `light_model` and `light_model_effort`
 (always `low`): what `readiness.py` needs to require a canary for each, and to find cards made under another shield.
@@ -769,8 +770,8 @@ document's path, any copy's path, its extract text or any field of its card carr
 that it was shielded. It fails closed: a card or extract record that is missing or cannot be read counts as shielded, never
 as clean, for a document that should have one; an entry the manifest records as never read (`hashed` false, such as an
 image over the cap) has neither by design and is judged by its paths alone, so such an image is not "do not open" unless
-its path carries a term, and a folder is not marked only for holding one. Only the values of a card are read, never its
-field names, so a short marker such as Nam is not found in `proposed_name`. In any other section, reading, photos and other bulk
+its path carries a term, and a folder is not marked only for holding one. A card is read by its values and by any field name the card
+schemas do not define, never by the names they do, so a short marker such as Nam is not found in `proposed_name`. In any other section, reading, photos and other bulk
 material is listed `compact`, without summary or text. A card with no extract record is refused. A withheld document is
 in no bundle, in neither the `unrouted` nor the `uncarded` list, and in no `copies` list (a copy of an included document
 under a withheld path is left out too); it is counted in the summary the command prints and `bundles.json` keeps
@@ -1312,7 +1313,7 @@ same way, which is not a finding and not a pass either, and does not change the 
   `bad_category` (outside the rulebook's `card_categories`), `extract_paths_stale` (a record whose path is not the
   manifest's; the finding names the [`extract.py repath`](#repath) command that repairs it, after the malformed
   extract records, which `repath` cannot read, are dealt with), `contamination` (a
-  card naming an isolation term in a value (its field names are never read), compared with its document's text as the
+  card naming an isolation term in a value or in a field name the card schemas do not define, compared with its document's text as the
   engine was sent it, shielded, so any term a card names is a finding, and so is one a card made before the shield names under the old excuse that its source
   carried it; `not verified` without `--terms`), `cards_shield` (the count of cards whose recorded shield,
   `card_meta.shield_sha256`, is absent or is not the digest of the terms file given: made with no shield or under another

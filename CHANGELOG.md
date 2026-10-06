@@ -39,10 +39,12 @@ prompt placeholder changed.
   says how many of the sources an existing page cites are shielded. The tools cannot restrict a subagent's file access:
   the guard is the instruction and the shielded text the bundle already holds.
 - **A section note that names a term is contamination:** it writes the ALERT, stops every worker and is never cached.
-- **A card is read by its values, never its field names.** The contamination check (`cards.py` before a batch is written,
-  `readiness.py`) and the shielded-document rule (`wiki.shielded_document`) look for a term in the card's string values
-  only, through one helper (`isolation.strings`), so a short term or marker such as Nam is not found in `proposed_name`
-  and does not stop every worker over a card that never named it. A value that carries the term is still an alert.
+- **A card is read by its values, never the field names its schema defines.** The contamination check (`cards.py`
+  before a batch is written, `readiness.py`) and the shielded-document rule (`wiki.shielded_document`) look for a term
+  through one helper (`isolation.card_text`): every string value, and any field name the card schemas do not define (a
+  model may add a key of its own, and a term written as one is still found), each piece apart, so a two-word term is
+  never matched across two values. A short term or marker such as Nam is therefore not found in `proposed_name` and
+  does not stop every worker over a card that never named it. A value that carries the term is still an alert.
 - **`vision.py` holds back a document that carries a term.** An image cannot be shielded, so a document whose manifest
   path or extract text (`text` or `local_text`) carries a term has no image sent: its queued pages are marked `unread`,
   the local text kept, and the log counts such documents. The residual, a term visible only on a page local OCR could

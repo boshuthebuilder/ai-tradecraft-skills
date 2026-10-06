@@ -1382,6 +1382,30 @@ class ShieldTest(CardsCliCase):
         self.assertEqual(code, 2, err)
         self.assertIn("contamination alert", err)
 
+    def test_a_term_written_as_a_key_of_the_models_own_is_an_alert(self):
+        """A key the card schema does not define is read like a value: a term a model writes as one still alerts."""
+        terms = self.own_terms("Zarnwick Farm\n")
+        doc = self.record("03 Home/Rent.pdf", ["Rent for the flat."])
+        self.cards_py("build")
+        self.fakes.script("codex", default={"kind": "text", "cards_by_path": {
+            "03 Home/Rent.pdf": {"key_facts": {"dates": [], "amounts": [], "reference_numbers": [], "Zarnwick Farm": "x"}}}})
+        code, _out, err = self.work_run("codex", "--terms", terms)
+        self.assertEqual(code, 2, err)
+        self.assertIn("contamination alert", err)
+        self.assertNotIn(doc, self.written())
+
+    def test_a_two_word_term_is_never_matched_across_two_values(self):
+        """A party Alex Brindle beside a party Court Services is not the term Brindle Court: the run goes on."""
+        terms = self.own_terms("Brindle Court\n")
+        doc = self.record("03 Home/Rent.pdf", ["Rent for the flat."])
+        self.cards_py("build")
+        self.fakes.script("codex", default={"kind": "text", "cards_by_path": {
+            "03 Home/Rent.pdf": {"party": "Alex Brindle", "parties": ["Court Services"]}}})
+        code, _out, err = self.work_run("codex", "--terms", terms)
+        self.assertEqual(code, 0, err)
+        self.assertFalse(os.path.exists(os.path.join(self.work, "state", "ALERT")))
+        self.assertIn(doc, self.written())
+
     PLACEHOLDER_TERMS = "Quorvane Holdings\nHeld\n"  # Held stands inside the placeholder
 
     def test_a_card_repeating_the_placeholder_in_any_case_is_no_contamination(self):
