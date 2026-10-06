@@ -549,12 +549,51 @@ class CheckTest(FixtureCopy):
         result = self.check(self.root)
         self.assertEqual(result["findings"], [])
         self.assertEqual(result["status"], {"rulebook_json": "fresh", "rulebook_facts": "checked",
-                                            "rulebook_copies_identical": True, "wiki_schema_json": "fresh"})
+                                            "rulebook_copies_identical": True, "wiki_schema_json": "fresh",
+                                            "ocr_languages": "checked"})
         out = os.path.join(self.tmp, "check.json")
         code, stdout, err = run("settings.py", "check", "--root", self.root, "--work", self.work(self.root),
                                 "--out", out)
         self.assertEqual(code, 0, err)
         self.assertEqual(json.loads(read(out)), json.loads(stdout))
+
+    def test_a_page_contracts_table_with_its_header_row_alone_compiles_and_each_section_without_a_contract_is_listed(self):
+        """The contracts may be drafted after the Schema is first written: the empty table compiles, and `check` names
+        every section that is not `fixed` as still without one."""
+        text = read(os.path.join(self.root, SCHEMA))
+        start = text.index("## Page contracts")
+        end = text.index("\n## ", start + 1) if "\n## " in text[start + 1:] else len(text)
+        header = "\n".join(text[start:end].splitlines()[:4])  # the heading, a blank line, the header and delimiter rows
+        with open(os.path.join(self.root, SCHEMA), "w", encoding="utf-8") as f:
+            f.write(text[:start] + header + "\n\n" + text[end:].lstrip("\n"))
+        self.compile(self.root)
+        self.assertEqual(self.ws(self.root)["contracts"], [])
+        findings = self.check(self.root)["findings"]
+        sections = [s for s in self.ws(self.root)["sections"] if s["kind"] != "fixed"]
+        self.assertEqual(sorted(findings), sorted("section %s %s has no page contract" % (s["number"], s["name"])
+                                                  for s in sections))
+        self.assertTrue(sections)
+
+    def test_the_ocr_languages_are_read_against_the_codes_extract_py_reads(self):
+        """One list for both: every code `extract.py` reads passes `check`, in any letter case and region, and a code it
+        refuses at the start of extraction is refused by `check` in the same words."""
+        self.compile(self.root)
+        self.rulebook_json(self.root, ocr_languages=["EN-gb", "fr", "zh-Hans", "zh-tw"])
+        result = self.check(self.root)
+        self.assertEqual((result["findings"], result["status"]["ocr_languages"]), ([], "checked"))
+        self.rulebook_json(self.root, ocr_languages=["en-GB", "ja-JP"])
+        found = self.check(self.root)["findings"]
+        folder = ["--root", self.root, "--work", self.work(self.root)]
+        manifest = os.path.join(self.root, "_Audit", "manifest.json")
+        code, _out, err = run("extract.py", *folder, "--lane", "main", "--manifest", manifest)
+        self.assertEqual(code, 2, err)
+        self.assertEqual(found, [err.strip()[len("error: "):]])
+        self.assertNotIn("Traceback", err)
+
+    def test_an_unreadable_rulebook_leaves_the_ocr_languages_not_verified(self):
+        self.compile(self.root)
+        os.remove(os.path.join(self.root, ".familyai", "rulebook.json"))
+        self.assertEqual(self.check(self.root)["status"]["ocr_languages"], "not verified: rulebook.json unreadable")
 
     def test_absent_twins_are_missing(self):
         os.remove(os.path.join(self.root, ".familyai", "rulebook.json"))
@@ -617,6 +656,8 @@ class CheckTest(FixtureCopy):
             ("no AGENTS.md", lambda r: os.remove(os.path.join(r, "AGENTS.md")), "rulebook file missing: AGENTS.md"),
             ("a rulebook that is not UTF-8", not_utf8, "not valid UTF-8"),
             ("contracts written before the Reader column", no_reader, settings.NO_READER),
+            ("an OCR language no local reader has", lambda r: self.rulebook_json(r, ocr_languages=["en-GB", "ja-JP"]),
+             "ocr_languages entry 'ja-JP' is not a language local OCR reads"),
         ]
         for n, (name, plant, finding) in enumerate(cases):
             with self.subTest(name):

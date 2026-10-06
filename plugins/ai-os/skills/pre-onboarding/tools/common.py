@@ -242,6 +242,30 @@ WIKI_SCHEMA_ROWS = {
                   "fields": list},
 }
 PAGE_ROW = {"professional": str, "deliverable": str, "tone": str}
+# A BCP 47 code, in lower case, by language and its script or region, else by language alone: tesseract's language and
+# Vision's. The Vision codes are those in Vision's supportedRecognitionLanguages, to be confirmed on a Mac with
+# `page-ocr --lang`; Vision is given these, never the rulebook's own regional codes. `extract.py` reads them and
+# `settings.py check` refuses an `ocr_languages` entry that is in neither, so both refuse the same codes.
+TESSERACT_LANGS = {"en": "eng", "fr": "fra", "de": "deu", "es": "spa",
+                   "zh-hans": "chi_sim", "zh-cn": "chi_sim", "zh-sg": "chi_sim",
+                   "zh-hant": "chi_tra", "zh-tw": "chi_tra", "zh-hk": "chi_tra", "zh-mo": "chi_tra"}
+VISION_LANGS = {"en": "en-US", "fr": "fr-FR", "de": "de-DE", "es": "es-ES",
+                "zh-hans": "zh-Hans", "zh-cn": "zh-Hans", "zh-sg": "zh-Hans",
+                "zh-hant": "zh-Hant", "zh-tw": "zh-Hant", "zh-hk": "zh-Hant", "zh-mo": "zh-Hant"}
+
+
+def ocr_codes(langs, table):
+    """`table`'s codes for the rulebook's BCP 47 codes, in order, without repeats; a code local OCR does not read fails
+    loud, naming the codes it does."""
+    out = []
+    for code in langs:
+        parts = code.lower().split("-")
+        key = next((k for k in ("-".join(parts[:2]), parts[0]) if k in table), None)
+        if key is None:
+            raise ToolError("ocr_languages entry %r is not a language local OCR reads (known: en, fr, de, es, "
+                            "zh-Hans, zh-CN, zh-SG, zh-Hant, zh-TW, zh-HK, zh-MO)" % code)
+        out.append(table[key])
+    return list(dict.fromkeys(out))
 
 
 def read_json_object(path):

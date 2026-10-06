@@ -46,41 +46,19 @@ OFFICE_ZIP = {".docx", ".pptx", ".xlsx", ".ppsx", ".potx"}
 PLAIN = {".txt", ".md", ".csv"}
 PHOTO_MIN_CHARS = 80
 CJK_LANGS = ("zh",)             # the languages `cjk()` counts and both OCR tables know
-# A BCP 47 code, in lower case, by language and its script or region, else by language alone: tesseract's language
-# and Vision's. The Vision codes are those in Vision's supportedRecognitionLanguages, to be confirmed on a Mac with
-# `page-ocr --lang`; Vision is given these, never the rulebook's own regional codes.
-TESSERACT_LANGS = {"en": "eng", "fr": "fra", "de": "deu", "es": "spa",
-                   "zh-hans": "chi_sim", "zh-cn": "chi_sim", "zh-sg": "chi_sim",
-                   "zh-hant": "chi_tra", "zh-tw": "chi_tra", "zh-hk": "chi_tra", "zh-mo": "chi_tra"}
-VISION_LANGS = {"en": "en-US", "fr": "fr-FR", "de": "de-DE", "es": "es-ES",
-                "zh-hans": "zh-Hans", "zh-cn": "zh-Hans", "zh-sg": "zh-Hans",
-                "zh-hant": "zh-Hant", "zh-tw": "zh-Hant", "zh-hk": "zh-Hant", "zh-mo": "zh-Hant"}
 SEARCH = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin"]
-
-
-def ocr_codes(langs, table):
-    """`table`'s codes for the rulebook's BCP 47 codes, in order, without repeats; an unknown code fails loud."""
-    out = []
-    for code in langs:
-        parts = code.lower().split("-")
-        key = next((k for k in ("-".join(parts[:2]), parts[0]) if k in table), None)
-        if key is None:
-            raise common.ToolError("ocr_languages entry %r is not a language local OCR reads (known: en, fr, de, es, "
-                                   "zh-Hans, zh-CN, zh-SG, zh-Hant, zh-TW, zh-HK, zh-MO)" % code)
-        out.append(table[key])
-    return list(dict.fromkeys(out))
 
 
 def tesseract_langs(langs):
     """tesseract's `-l` value for the rulebook's codes."""
-    return "+".join(ocr_codes(langs, TESSERACT_LANGS))
+    return "+".join(common.ocr_codes(langs, common.TESSERACT_LANGS))
 
 
 def vision_passes(langs):
     """The language sets Vision reads a page with, in Vision's codes: the Chinese codes with the English ones, then,
     for a page on which that finds no Chinese text, the other codes; one pass with every code when the list has no
     Chinese code or nothing else. Vision is not given Chinese beside a language other than English."""
-    codes = ocr_codes(langs, VISION_LANGS)
+    codes = common.ocr_codes(langs, common.VISION_LANGS)
     cjk_codes = [c for c in codes if c.split("-")[0].lower() in CJK_LANGS]
     other = [c for c in codes if c not in cjk_codes]
     if not cjk_codes or not other:
@@ -515,7 +493,7 @@ def main():
     root, settings_dir, work = common.resolve(a, extract=a.out)
     rb = common.load_rulebook(root, settings_dir)
     langs = rb["ocr_languages"]
-    ocr_codes(langs, TESSERACT_LANGS)   # an unknown code fails loud before anything is written
+    common.ocr_codes(langs, common.TESSERACT_LANGS)   # an unknown code fails loud before anything is written
     out = os.path.realpath(a.out) if a.out else os.path.join(root, "_Audit", "extract")
     writer = common.Writer(root if a.read_only_root else None)
     writer.makedirs(out)

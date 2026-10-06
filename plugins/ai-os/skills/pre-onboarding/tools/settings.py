@@ -16,6 +16,9 @@ from the Schema page's tables, each the one table under a `## ` heading of its n
 
 Other headers, a missing required table and a row that cannot be read fail loud; nothing is guessed. Both twins
 record their source's sha256; every tool refuses a twin whose source has changed since ("stale").
+
+`check` also reads each `ocr_languages` entry against the codes `extract.py` reads (`common.TESSERACT_LANGS`, one home
+for both), and reports one it does not know as the message `extract.py` would stop with at the start of extraction.
 """
 import argparse
 import hashlib
@@ -290,6 +293,14 @@ def check_cmd(a):
     except common.ToolError:
         rb = None
     wiki_named_right = rb is None or rb["wiki_dir"] == folder_wiki
+    if rb is None:
+        status["ocr_languages"] = "not verified: rulebook.json unreadable"
+    else:
+        status["ocr_languages"] = "checked"
+        try:
+            common.ocr_codes(rb["ocr_languages"], common.TESSERACT_LANGS)
+        except common.ToolError as e:
+            findings.append(str(e))
     if rb is None or text is None:
         status["rulebook_facts"] = "not verified: %s" % ("rulebook.json unreadable" if rb is None
                                                          else "CLAUDE.md missing")
