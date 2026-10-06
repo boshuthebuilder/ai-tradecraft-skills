@@ -85,6 +85,9 @@ about their affairs rather than as an abstract index. Always include a small set
 └── 91 Log          append-only history of what was ingested/changed
 ```
 
+Each fixed page is a folder note of its own name (`00 Index/00 Index.md`), listed in the Schema's Layout as a `fixed`
+section ([the settings reference](../pre-onboarding/references/settings.md#the-schema-pages-tables)); a page in a section
+that names several professionals, a folder note included, is listed in Page professionals with its own.
 Number prefixes drive sidebar ordering (in Obsidian, putting each page in a folder of the same name
 sorts the root numerically). The meta pages sit at high numbers (9x) so content owns the 00–89 range:
 a wiki that works will grow sections, and Schema and Log should never need renaming to stay last.
@@ -104,8 +107,8 @@ the hand-off readiness check among the preparation tools in
 years, tax years, policy years) and topic folders that span years (a hobby, an adviser, an exam).
 Documents get filed under both and duplicated across them. Route both into their sections, and write
 the rule for a document filed under both down: dated documents route with their time folder; a topic
-folder is the home only for matters that span several years. Record the rule in the Schema's routing so
-every later pass files the same way.
+folder is the home only for matters that span several years. Record the rule in the Schema, in prose beside the
+routing table (which holds folder prefixes only), so every later pass files the same way.
 
 ### 3. Interview — a few targeted questions
 
@@ -147,8 +150,8 @@ from the first questions of their catalogue row and proposes the reader, the que
 order and the fields every page of the section carries, and the owner agrees or corrects it. Where a
 section names several professionals, they draft its contract together, each owning the questions for
 the pages they voice. Sections the layout marks `fixed` take the shapes the method gives them. Record
-the identifier-policy rung and any policy for combining currencies, dates or units; record an absent
-policy explicitly.
+the identifier-policy rung and any policy for combining currencies, dates or units, and the period convention of a
+section that holds money (a financial year, a VAT period or a tax year); record an absent policy explicitly.
 
 Put the layout, routing, page contracts and page professionals in the Schema's tables before writing
 those pages, and compile the machine-readable twin through the deployment's tooling (the tables and the
@@ -193,7 +196,9 @@ drafted now rather than left for sources to arrive. One coordinator, the agent r
 runs the drafting:
 
 - **A fixed page map.** Before drafting starts, the coordinator fixes every page path the wiki will
-  hold, from the agreed layout and page professionals. A drafting agent writes only its own pages on the
+  hold, from the agreed layout and page professionals. In a prepared folder the map is every page listed in Page
+  professionals, each Layout section's folder note and the pages already on disk, so list every planned page there
+  before the first brief. A drafting agent writes only its own pages on the
   map and links only to paths on it; none invents, renames or merges a page. A page the evidence shows
   is missing goes back to the coordinator as a proposal, and the map changes through the Schema.
 - **Fresh bundles.** Each section's evidence is a bundle built from the cards by the Schema's compiled
@@ -211,7 +216,9 @@ runs the drafting:
   [outside knowledge](../wiki-maintenance/SKILL.md#outside-knowledge-and-dated-rules).
 - **Parallel agents.** Draft sections in parallel, one agent per section (or per group of pages in a
   large one), each in a fresh context holding only its briefs, its bundle and the map, so no agent
-  carries another section's evidence or voice.
+  carries another section's evidence or voice. A very large section is split by page, or by year, and each agent is
+  told which lines of the bundle are its own; no agent is given more evidence than fits its context with room left for
+  the sources it opens and the pages it writes (`pre-onboarding` gives its working limit).
 - **A checker every drafting agent runs.** Before it returns, each agent runs the deterministic wiki
   check among the preparation tools, scoped to its own pages (frontmatter keys, source paths that
   exist, page links that resolve, em dashes), and fixes every finding. A link to a page the map plans
@@ -222,7 +229,10 @@ runs the drafting:
   it wrote, each page's rationale block, its Index entry, its open questions and its check result. Only
   the coordinator writes what sections share: the pages the layout marks `fixed` (the Index, the Log,
   a People alias table) from those returns, the derived Deadlines roll-up from the pages' own
-  frontmatter rather than from any return's prose, and the rationale file from the returned blocks.
+  frontmatter rather than from any return's prose, and the rationale file from the returned blocks. The Index is
+  written in its professional's voice (the chief of staff's), from the returns' Index entries and open questions. The
+  coordinator also writes a rationale block for each page it writes itself (the Index, the Log, the Schema, the
+  Deadlines page, a folder note), as a return of its own, so that the rationale file covers every page.
 
 ### 5. Hand off
 
@@ -248,6 +258,19 @@ wiki check reports as [acceptance](../wiki-maintenance/SKILL.md#acceptance) sets
 finding and the response to it. Rebuild what the findings touch and review
 it again, children before parents and the Index last. This is the acceptance loop of
 `coding:iterative-acceptance`; a passing check never stands in for it.
+
+**Order.** Finish every edit before the first verdict, the last Log line included: any later edit to a page voids its
+acceptance, and appending to the Log, adding a contract to the Schema and re-rendering Deadlines are edits. Then accept
+the section pages, the fixed pages other than the Index, and the Index last, against its children.
+
+**Fixed pages.** A fixed page has no contract of its own, so the reviewer judges it for what it is for. The Index: in
+the owner's lens, what needs a decision comes first and every page is found from it; in the chief of staff's, it is
+ranked by urgency, one line per item, and agrees with the pages it summarises. Deadlines is derived and its entries are
+checked by tool, so the reviewer judges that it reads as a forward list and says why when it is empty. The Schema: in
+the owner's lens, the layout, routing, contracts and professionals are the ones agreed; in the librarian's, they hold
+together (every folder routed, every section but a fixed one with a contract, every page with one professional, each
+section's purpose and trigger documents recorded). The Log: in the owner's lens, it says what was done and when; in
+the librarian's, it is append-only history, one dated line per pass, and agrees with the pages and the rationale.
 
 ## Principles
 

@@ -43,6 +43,10 @@ In the professional's lens, as the rule's *Acceptance* sets it out:
 3. Does it stay in its scope and in {professional}'s voice, with outside knowledge labelled and dated rules checked
    against their official source?
 
+For a fixed page (the Index, Deadlines, the Schema or the Log) judge it for what it is for, as
+[`wiki-onboarding`, step 6](../../../wiki-onboarding/SKILL.md#6-reader-acceptance-the-owners-lens-and-the-professionals)
+sets out. Open the page and its sources, and nothing else in the folder.
+
 ## Reply
 
 JSON only. The verdict is `accepted`, or `changes` with at least one finding; every finding says where on the page

@@ -1,5 +1,9 @@
-<!-- Stage: the readers interview, the first wiki stage in pre-onboarding (SKILL.md step 7). Filled by the
-coordinating agent: replace every field in braces; doubled braces are literal. -->
+<!-- Stage: the readers interview, the first wiki stage in pre-onboarding (SKILL.md step 7). Held by the coordinating
+agent itself, with the owner, and given to no subagent: replace every field in braces; doubled braces are literal.
+`folder_name`: the folder's own name. `owner_context`: written from `rulebook.json`, as the head of every page brief
+is: the folder and its `folder_description`; each of `people`, with its other names and who it is; the identifier
+policy; the `boundaries`. `profile_summary`: from `wiki.py profile`, a line per top-level folder with its document
+count, its main card categories and the span of its dates. -->
 # Readers interview: {folder_name}
 
 The first wiki stage in [`pre-onboarding`](../../SKILL.md#7-build-the-wiki), under
@@ -38,3 +42,5 @@ Reply with JSON only:
 
 The readers and their questions go to the librarian (`structure-brief.md`) and to each page's professional
 (`contract-brief.md`), and end in the Schema: its readers and purpose, and each contract's Reader and Questions.
+What the owner holds back goes into the rulebook's `boundaries`, which every page brief carries to its drafter, and
+into the contract of any section it limits. No tool enforces it: the reviewers judge each page against its contract.
