@@ -21,8 +21,9 @@ Stated once here; each tool's section below lists only its own.
 | Tool | `--root` | `--settings-dir` | `--work` | `--out` | `--read-only-root` |
 | --- | --- | --- | --- | --- | --- |
 | `audit.py` | yes | yes | yes | output folder | yes |
-| `plan.py` | `light`, `migrate`, `return`, `rmdirs`, `check`, `execute` | as `--root` | as `--root` | plan folder, for `light`, `migrate`, `return` | `light`, `migrate`, `return`, `rmdirs` |
+| `plan.py` | `light`, `migrate`, `return`, `reorg`, `rmdirs`, `check`, `execute` | as `--root` | as `--root` | plan folder, for `light`, `migrate`, `return`, `reorg` | `light`, `migrate`, `return`, `reorg`, `rmdirs` |
 | `extract.py` | yes | yes | yes | records folder | yes |
+| `structure.py` | yes | yes | yes | `measure`'s input, `documents`' listing | yes |
 | `vision.py` | yes | yes | yes | records folder | yes |
 | `cards.py` | yes | yes | yes | cards folder | yes |
 | `refs.py` | yes | yes | yes | no | yes |
@@ -31,11 +32,11 @@ Stated once here; each tool's section below lists only its own.
 | `wiki.py` | yes | yes | yes | per subcommand | yes |
 | `readiness.py` | yes | yes | yes | result file | yes |
 
-`plan.py`'s subcommands with `--root`, `extract.py`, `vision.py`, `cards.py`, `wiki.py` and `readiness.py` also take
+`plan.py`'s subcommands with `--root`, `extract.py`, `structure.py`, `vision.py`, `cards.py`, `wiki.py` and `readiness.py` also take
 `--manifest <file>` (default `<root>/_Audit/manifest.json`).
 
-**The isolation flags.** `cards.py work`, `vision.py` and `wiki.py`'s `profile`, `bundles`, `brief` and `review-prompts`
-each need `--terms <file>` (the operator's terms file) or `--no-isolation-terms` (the stated decision that nothing is to
+**The isolation flags.** `cards.py work`, `vision.py`, `structure.py`'s `measure` and `documents` and `wiki.py`'s
+`profile`, `bundles`, `brief` and `review-prompts` each need `--terms <file>` (the operator's terms file) or `--no-isolation-terms` (the stated decision that nothing is to
 be kept out), and refuse neither, or both, before they read anything (exit 2, `give --terms (the isolation list) or
 --no-isolation-terms`). With a terms file they send and write nothing that carries a term: see [the
 shield](cards.md#the-shield).
@@ -196,6 +197,7 @@ and never another. `approve` and `prove` take no `--root` and so no `--work`.
 | --- | --- |
 | `light` | proposes a light-depth round |
 | `migrate`, `return` | propose staging files for another project, or bringing them back |
+| `reorg` | proposes the re-organisation the owner approved, from a mapping |
 | `approve` | records the owner's decision on rows |
 | `rmdirs` | adds rows removing the folders the approved moves empty |
 | `check` | dry-runs every row under the executor's guards |
@@ -243,6 +245,73 @@ Both also write `review.tsv` beside the plan.
 written) when the plan folder already holds a `move-plan.csv` with any row approved, declined or deferred, naming the
 file and the number of rows, and saying to choose a new plan folder; a plan that cannot be read as one is refused the
 same way. A proposal nobody has decided is replaced, so a round can be proposed again until the owner starts on it.
+
+### `reorg`
+
+    plan.py reorg --root <folder> --mapping <mapping.json> --out <plan folder> [--manifest <file>]
+
+Turns the mapping the owner approved ([pre-onboarding step 7](../SKILL.md#7-assess-the-structure)) into a plan, all
+rows `proposed` and at depth `medium`. It refuses to run at all (exit 2, before it reads the mapping) when the rulebook
+records `depth` `light`, or none, which is `light`: the owner is not open to a re-organisation, and must agree a change
+first (record `medium` or `full` in `CLAUDE.md` and `.familyai/rulebook.json`, re-pin `rulebook_sha256`). The mapping is
+exactly
+
+    {"scope": ["<folder>", ...], "keep": ["<folder>", ...],
+     "moves": [{"from": "<a document or a folder>", "to": "<a folder>"}, ...]}
+
+`scope` is the folders the owner approved, and a `from` must lie in one. `keep` is the folders the owner said must stay
+where they are (`[]` when none; the key is required, so that leaving it out is never read as none): no document under
+one is moved, whichever row names it, and a `scope` inside one is refused. A `scope` folder holds live documents. A `keep` folder only has to be a folder in the folder: one
+the owner excluded, or one with nothing a re-org could move, is accepted as given, since nothing in it moves anyway. A `from` that is a document is one row. A
+`from` that is a folder moves its whole content: each live document under it goes to the same place under `to`, keeping
+its sub-folders, and the folder is then empty; a file the owner excluded stays where it is, counted. `to` is a folder
+that exists or is created (never the folder's root), and its existing parts must be spelled as the folder spells them. A
+trailing `/` on a path is ignored, and a path in another Unicode form takes the manifest's spelling.
+
+It writes `<plan folder>/move-plan.csv` with, in this order, a `create` row for each destination folder that does not
+exist (shallowest first), a `move` row for each document (`from`, `to`, `evidence` the manifest's id, `kind` the path's
+copy kind, one row for each path that holds a content, a copy included), and an `rmdir` row for each top-most folder
+the moves empty inside the scope, with a `needs_a_look` saying it is empty only if every move out of it is approved and
+that the owner may decline it (`keep_empty_folders`), as `rmdirs` proposes. A folder that a pack, the rulebook's
+`active` or `finished`, or the compiled Schema's Routing table names gets no `rmdir` row, and neither does one outside
+the scope, nor one that any row moves a document into (or that lies above such a destination): it would not be empty
+when the row runs; the output says which. It also names each new top-level folder the plan creates, so that the owner
+can weigh it against the verdict (only a `full` one approved by the owner allows it). `execute`, `check`, the re-audit and `prove` run the rows as they run any others, and
+a plan folder the owner has begun to decide is not replaced ([the same refusal as `light`](#light)).
+
+It refuses (exit 2, `refused, nothing written: <n> problem(s):`, one line for each, a mapping row named by its index,
+`moves[0]` being the first):
+
+- a mapping that is not that shape, a path that is empty, absolute or holds an empty, `.` or `..` part or a control
+  character, and a `scope` entry that is no folder holding live documents;
+- a `from` that is neither a live document nor a folder holding one, or lies outside every `scope` folder, or has a
+  document under a `keep` folder (counted, with the first kept folder named);
+- a `from` or a `scope` that is withheld, staged for another project or excluded (named by its row, never its path: no
+  tool opens, hashes or moves it), and a `to` that is excluded or under the migrations folder;
+- anything inside a pack, a document filed into a pack, and a document whose manifest copy kind is `pack`;
+- a document whose FINAL path, the destination and what lies under it for a folder that moves whole, is inside a pack,
+  under an excluded path or in the migrations folder (a name the system reserves starts every final path, so the
+  destination check already refuses it): one refusal for each row and kind,
+  counting the documents, never naming an excluded path, and found before the destination-exists check, so that a
+  withheld file already there is not named as one that exists;
+- a folder that moves whole while it is, or holds, a folder the rulebook's `active` or `finished` lists or the compiled
+  Schema routes (without a compiled Schema, which the wiki's step creates, the routing names none); the message says
+  which file to edit first: the rulebook (`CLAUDE.md`, its `AGENTS.md` copy and `.familyai/rulebook.json`, then re-pin
+  `rulebook_sha256`), or the Schema page and `settings.py compile`, then propose again;
+- a `to` that is a name the system reserves (the rulebook files, `.familyai`, `_Audit`, the inbox, the migrations folder,
+  the wiki folder, `reserved`, `Outbox`, `Wiki`, any name starting with `_` or `.`), a part that exists as a file or is
+  inside an iWork package, a part spelled with another case than its folder, a folder to create whose name has a space
+  at either end, and a folder moved into itself;
+- a destination that already exists (compared ignoring case, and a live document or a file on disk alike: nothing is
+  overwritten), a document moved to where it already is, and two documents moved to one path;
+- a document whose content already lives in the destination folder, at any depth, once the moves are done (a duplicate:
+  drop it with `plan.py light`'s `delete` row and leave it out of the mapping), computed on the folder as it will be, so
+  a copy that also moves out does not count;
+- a document that is not on disk (the manifest is older than the folder: audit again), is cloud-only (hashing would
+  download it) or no longer hashes to its manifest id (it changed since the audit).
+
+Every refusal is found before any file is hashed except the last, which opens only the sources, and only once nothing
+else is wrong.
 
 ### `review.tsv`
 
@@ -420,26 +489,31 @@ confidence of at least 0.45.
 
 ### `repath`
 
-    extract.py repath --root <folder> [--manifest <file>] [--out <extract dir>] [--apply]
+    extract.py repath --root <folder> [--manifest <file>] [--out <extract dir>] [--cards <cards dir>] [--apply]
 
-An extract record carries the path its document had when it was read, so a curation round after extraction leaves
-it behind. Once the round's re-audit is proved, `repath` rewrites each record's `path` to its document's
-`current_path` in the manifest, matched by content hash (the record's id, its file name); nothing is read again, no
-model is called and nothing else in a record changes. It prints `records`, `applied`, `paths_changed`,
-`already_current`, `moves` (`[id, old path, new path]`), `departed_left` and `not_in_manifest` (`[id, path]`:
-records of departed documents, and of ids the manifest does not hold, left as they are), and exits 0.
+An extract record carries the path its document had when it was read, and a card the one it was carded at
+(`card_meta.path`), so a curation round after extraction leaves both behind. Once the round's re-audit is proved,
+`repath` rewrites each record's `path` and each card's `card_meta.path` to its document's `current_path` in the
+manifest, matched by content hash (the id, the file's name); nothing is read again, no model is called and nothing else
+in a record or a card changes (a card is written as `cards.py` writes it, one space of indent). It prints `records`,
+`applied`, `paths_changed`, `already_current`, `moves` (`[id, old path, new path]`), `departed_left` and
+`not_in_manifest` (`[id, path]`: records of departed documents, and of ids the manifest does not hold, left as they
+are), and `cards`, the same for the cards (`count`, `paths_changed`, `already_current`, `moves`, `departed_left`,
+`not_in_manifest`) with `without_path` (a card with no `card_meta.path`, which a card made by hand need not record, is
+left as it is and counted) and `malformed` (the ids of cards that are not valid JSON objects, left as they are), and
+exits 0. A cards folder that does not exist is no cards (the cards come after the extraction).
 
 It is a dry run unless `--apply`. It refuses (exit 2, nothing written), naming each: a manifest `wiki.py` would
-refuse; a record whose `id` is not its file name; a record whose document's paths the manifest's canonical choice
-does not settle (copies naming no canonical copy, several, or one other than the current path, or a current path
+refuse; a record whose `id` is not its file name; a record or a card whose document's paths the manifest's canonical
+choice does not settle (copies naming no canonical copy, several, or one other than the current path, or a current path
 another live entry holds); and a move to a current path that is not in the folder, since the manifest is then older
-than the folder: re-audit first. `--apply` writes every repathed record to a temporary file beside it, through the
-guarded writer (with `--read-only-root`, records inside the folder are refused; `--out` names records kept
-elsewhere), and only then replaces the records. Whatever stops it part way, no temporary file stays: an OS error
-or a refusal exits 2 naming the records already replaced, and anything else (an interrupt) is raised again once
-the temporary files are gone. Cards need no repair: a card holds its document's id and `card_meta.path`, the path it was carded at, which records how
-it was made and is no path a tool reads. A record, a card or a cached note whose path is withheld is purged at every
-tool's start, so before `repath` runs: it meets only records that moved between included paths.
+than the folder: re-audit first. `--apply` writes every repathed record and card to a temporary file beside it, through
+the guarded writer (with `--read-only-root`, files inside the folder are refused; `--out` and `--cards` name the
+folders when they are kept elsewhere), records first, and only then replaces them. Whatever stops it part way, no
+temporary file stays: an OS error or a refusal exits 2 naming the files already replaced (a card as `cards/<id>.json`),
+and anything else (an interrupt) is raised again once the temporary files are gone. A record, a card or a cached note
+whose path is withheld is purged at every tool's start, so before `repath` runs: it meets only records and cards that
+moved between included paths.
 
 ## `iwa.py` and `page_ocr.swift`
 
@@ -451,6 +525,105 @@ that are human text, in storage order.
 (`file`, `text`, `confidence`, `lines`, and `error` when it failed); `page-ocr --stdin` reads one image path per
 line, where `LANG=<codes>|<path>` sets the languages for that image. `extract.py` keeps one `--stdin` process
 running and restarts it if it stalls; its first run compiles Vision's model, which takes about a minute.
+
+## `structure.py`
+
+The structure assessment of [pre-onboarding step 7](../SKILL.md#7-assess-the-structure): it measures a folder's
+structure, lists the documents of the folders the owner approves, and checks the records manager's record. No model is
+called. `measure` and `documents` write what a model will read, so each needs `--terms <file>` or
+`--no-isolation-terms` ([the flags](#common-flags)) and shields every string it writes, as `wiki.py` does
+([the shield](cards.md#the-shield)); both write working files, never inside the folder, registered for a later purge, and
+refuse one over 400,000 bytes (`measure`: lower `--sample` or `--depth`; `documents`: name fewer folders).
+
+| Subcommand | Does |
+| --- | --- |
+| `measure` | every structure signal per folder, and the judge's input |
+| `documents` | the documents under the approved folders, with their cards' fields, for the mapping's author |
+| `check` | the shape of the assessment record |
+
+### `measure`
+
+    structure.py measure --root <folder> (--terms <file> | --no-isolation-terms) --out <input.md> [--measures <json>]
+                         [--depth 3] [--sample 5] [--cards <dir>] [--manifest <file>]
+
+Reads the manifest and the cards (a missing cards folder is refused; a card-less content is counted, as
+`without_card`), never a document. A *document* is a live path (a copy is a document of its own); a *content* is one
+manifest entry. A departed document and one the tools may not read (staged for another project, or excluded:
+[`common.withheld`](#held-for-another-project-and-excluded)) are left out of every figure and only counted
+(`departed`, `held_for_another_project`, `excluded`), never named, a path at a time as the documents are: two copies of
+a live document under the migrations folder count 2 held, and a content excluded under two paths counts 2, so that
+`documents` and those three add up to every path the manifest holds. A folder with no live document below it is not in
+the manifest, so it is not measured. Shares over contents are over distinct contents, so a copy never inflates a
+subject.
+
+For the root and every folder down to `--depth`, a row of values, zero included, and the `stands_out` flags that apply,
+at thresholds fixed in the tool (`PARAMS`, written into the output) before any judgement and never tuned to a folder:
+
+| Flag | Stands out when |
+| --- | --- |
+| `wide` | at least 15 documents directly in the folder; `flat_dump` adds that it has no sub-folder |
+| `mixed` | at least 5 carded contents directly in it, the commonest category at most 0.6 of them |
+| `duplicate_subtree` | at least 3 contents, every one also in one other folder that is not nested with it (any depth); each folder that meets it is counted (both folders of a copied pair, and a folder above several copied sub-folders as well as each of those), but a folder that only wraps one (no document of its own, one sub-folder) is neither counted again nor named as the other folder |
+| `generic_names` | at least 5 canonical documents below it, at least 0.3 of them named like a device or scanner default (the audit's `generic_name`) |
+| `generic_folder_name` | named like New folder, Stuff, Misc, Other or Downloads |
+| `single_child_chain` | starts a run of at least 2 folders that each hold one folder and no document |
+| `root_strays` | the root has at least 1 document directly in it |
+
+Subject spread is over the whole folder: a category, or a party other than the main one (the one most cards name as their
+`party`; card `party` and `parties`, aliases folded to the rulebook's `people`, `Unknown` left out) whose contents sit
+in at least 3 top-level homes (a content sits in the home of its current path; a document at the root is one home).
+**A flag draws attention and never decides a verdict**: duplicates and strays alone are the light round's, and the
+records manager judges, and the owner approves.
+
+`--measures` (default `measures.json` beside `--out`) holds, and stdout prints, `{version, params, summary, signals,
+spread, folders}`: `summary` the counts, `signals` each whole-folder signal at any depth with `threshold`, `count`,
+`stands_out` and `where`, `spread` the categories and parties in at least 2 homes (at most 40 listed, every one at the
+threshold first), and `folders` a list in tree order (never a mapping keyed by path, so two folders that shield alike are
+still two rows). `--out` is the judge's input: the folder tree to `--depth` with counts, the whole-folder measures, a
+table with each folder's flags, and a card sample (up to `--sample` cards per folder, from the documents directly in it,
+sorted by path and evenly spaced, so the same input gives the same bytes). It names no verdict.
+
+### `documents`
+
+    structure.py documents --root <folder> (--terms <file> | --no-isolation-terms) --folder <folder> [--folder ...]
+                           --out <listing.md> [--cards <dir>] [--manifest <file>]
+
+Every live document under each `--folder`, with its card's fields (`doc_type`, `party`, `category`, `doc_date`,
+`title`; a card-less document without them), shielded, for the author of a mapping, who needs each document's card and
+not a sample. A `--folder` that is no folder holding live documents is refused.
+
+### `check`
+
+    structure.py check --root <folder> [--record <file>] [--manifest <file>]
+
+Checks the record, `<folder>/_Audit/structure-assessment.md` unless `--record` names another, against the manifest, and
+prints `overall`, `documents` (the live documents, as `measure` counts them), `would_move`, `blocks`, `verdicts` (the
+counts), `problems`, `ok` and `top_level_folders_without_block` (a count: a folder with no block is left as it is).
+A heading is compared to the manifest's folders in Unicode NFC, and a folder stored decomposed is found by its composed
+name (the one rule `plan.py reorg` and `documents --folder` use, `common.as_spelled`); a case that differs is another
+name. Exit 0 when it has no problem, 1 when it has any (all of them are listed), 2 when the record is missing or not
+UTF-8.
+The record is:
+
+    # Structure assessment
+
+    Overall: <no re-org | targeted | full>
+    Reason: <text>
+    Documents that would move: <N> of <M>
+
+    ### <folder path>
+    - Verdict: <leave as it is | tidy inside | restructure>
+    - Evidence: <text>
+    - What the owner would relearn: <text>
+
+and the problems it finds are: a title, header line or block line out of place, out of order, given twice or with no
+text; an `Overall` or a `Verdict` that is not one of the values above; N or M that is not a whole number, M that is not
+the live document count (audit and measure again if the manifest changed), N over M; a block whose heading is no folder
+holding live documents, a folder given twice, a heading the shield hid (`[withheld name]`: rename or exclude the folder,
+then measure again) and no block at all; and the contradictions: `no re-org` with a block that is tidy inside or
+restructure, `no re-org` with N above 0, `targeted` or `full` with every block leave as it is, and N of 0 beside a
+`targeted` or `full` verdict or a block that is tidy inside or restructure (a document renamed or sent to another
+folder counts as moved). It prints counts and never a folder of the manifest.
 
 ## `vision.py`
 
@@ -845,6 +1018,8 @@ comment; the coordinating agent fills the others.
 | --- | --- | --- |
 | `readers-interview.md` | readers; the owner answers | `folder_name`, `owner_context`, `profile_summary` |
 | `structure-brief.md` | sections, routing and each page's professional; the librarian proposes | `folder_name`, `owner_context`, `readers`, `profile`, `current_schema` |
+| `structure-assessment-brief.md` | the structure assessment, before the wiki ([step 7](../SKILL.md#7-assess-the-structure)); the records manager assesses | `input_file` |
+| `structure-mapping-brief.md` | the mapping for the folders the owner approved; the records manager proposes | `input_file`, `documents_file`, `scope` |
 | `contract-brief.md` | a section's contract; its professional drafts | `section`, `professional`, `owner_context`, `readers`, `section_rows`, `routing`, `bundle` |
 | `page-brief.md` | the pages; their professional writes | rendered whole by `brief` |
 | `review-owner.md` | acceptance in the owner's lens; a model that did not write the page | rendered whole by `review-prompts` |
@@ -1577,6 +1752,9 @@ In the work directory, never in the folder:
 | `vision_queue/<id>_<page>.png` | `extract.py`, drained by `vision.py` | page images for the vision lane |
 | `batches/<bucket>_<seq>.json` | `cards.py build` | the card batches |
 | `sections/` | `cards.py work` | cached section notes of long documents |
+| `structure/input.md`, `structure/measures.json` | `structure.py measure` | the judge's input and the measures, shielded |
+| `structure/documents.md` | `structure.py documents` | the documents of the approved folders with their cards' fields, shielded |
+| `structure/mapping.json` | the coordinating agent | the mapping `plan.py reorg` reads, its `scope` the owner's own list |
 | `bundles/` | `wiki.py bundles` | the section bundles and `bundles.json` |
 | `reviews/` | `wiki.py review-prompts` | each page's `.owner.md` and `.professional.md` review prompt |
 | `state/extract_<lane><k>.done`, `state/vision<k>.done`, `state/cards<k>.done`, `state/redo<k>.done` | each worker | done markers |

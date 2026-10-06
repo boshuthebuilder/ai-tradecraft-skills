@@ -471,8 +471,9 @@ A lived-in folder can arrive **prepared** rather than cold. Preparation happens 
 session before any job runs, and nothing in the owner's material changes in it without the owner's
 approval. Its sequence, who decides at each step and the tools that do the exact parts belong to
 [`pre-onboarding`](skills/pre-onboarding/SKILL.md): in outline, audit and approved tidy-up rounds
-(`folder-curation`), the full text of every document and a card for each, the wiki (`wiki-onboarding`
-under the core wiki rule), a readiness check, then the hand-off to `project-onboarding`.
+(`folder-curation`), the full text of every document and a card for each, an assessment of the structure that
+re-organises only the folders the owner approves, the wiki (`wiki-onboarding` under the core wiki rule), a readiness
+check, then the hand-off to `project-onboarding`.
 
 What this design relies on is where preparation ends. A prepared folder meets
 [the hand-off contract](skills/pre-onboarding/SKILL.md#the-hand-off-contract), and carries

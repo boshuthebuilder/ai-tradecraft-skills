@@ -196,6 +196,16 @@ class Prepared(unittest.TestCase):
     def json_file(self, *rel):
         return json.loads(read(self.path(*rel)))
 
+    def carded_at_current_paths(self):
+        """Every card records the path it was carded at, as `cards.py` writes it (the committed fixture's hand-made cards
+        carry none)."""
+        paths = {h: p for p, h in self.ids().items()}
+        folder = self.path("_Audit", "cards")
+        for name in sorted(os.listdir(folder)):
+            card = json.loads(read(os.path.join(folder, name)))
+            card["card_meta"]["path"] = paths[card["id"]]
+            write(os.path.join(folder, name), json.dumps(card, ensure_ascii=False, indent=1))
+
     def work_file(self, name):
         return os.path.join(self.work, "state", name)
 
@@ -2074,7 +2084,9 @@ class RepathTest(Prepared):
         res = self.repath()
         self.assertEqual(res, {"records": 17, "applied": False, "paths_changed": 1, "already_current": 16,
                                "moves": [[self.eid, self.MOVED[0], self.MOVED[1]]], "departed_left": [],
-                               "not_in_manifest": []})
+                               "not_in_manifest": [],
+                               "cards": {"count": 17, "paths_changed": 0, "already_current": 0, "without_path": 17,
+                                         "moves": [], "departed_left": [], "not_in_manifest": [], "malformed": []}})
         self.assertEqual(read(self.record, "rb"), before, "a dry run writes nothing")
         code, out, err = run(*command)  # the repair, as readiness names it
         self.assertEqual(code, 0, err)
@@ -2236,6 +2248,222 @@ class RepathTest(Prepared):
     def test_a_malformed_record_is_refused(self):
         write(self.record, json.dumps({"id": "another", "path": self.MOVED[0]}))
         self.assertIn("is not an extract record for %s" % self.eid, self.repath(code=2))
+
+    def carded_at_current_paths(self):
+        super().carded_at_current_paths()
+        self.card = self.path("_Audit", "cards", self.eid + ".json")
+
+    def test_the_card_path_follows_the_manifest_with_nothing_else_changed(self):
+        self.carded_at_current_paths()
+        before = read(self.card)
+        self.move_and_audit(*self.MOVED)
+        res = self.repath()
+        self.assertEqual(res["cards"], {"count": 17, "paths_changed": 1, "already_current": 16, "without_path": 0,
+                                        "moves": [[self.eid, self.MOVED[0], self.MOVED[1]]], "departed_left": [],
+                                        "not_in_manifest": [], "malformed": []})
+        self.assertEqual(read(self.card), before, "a dry run writes nothing")
+        res = self.repath("--apply")
+        self.assertEqual((res["paths_changed"], res["cards"]["paths_changed"]), (1, 1))
+        old, new = json.loads(before), json.loads(read(self.card))
+        self.assertEqual(new, dict(old, card_meta=dict(old["card_meta"], path=self.MOVED[1])), "only the path changes")
+        self.assertEqual((list(new), list(new["card_meta"])), (list(old), list(old["card_meta"])), "the key order stays")
+        self.assertEqual(read(self.card), json.dumps(new, ensure_ascii=False, indent=1), "written as cards.py writes")
+        self.assertEqual(json.loads(read(self.record))["path"], self.MOVED[1])
+        again = self.repath()
+        self.assertEqual((again["paths_changed"], again["cards"]["paths_changed"]), (0, 0))
+
+    def test_a_folder_with_no_cards_is_no_cards(self):
+        """A round after the extraction and before the cards (step 3) meets no cards folder at all."""
+        shutil.rmtree(self.path("_Audit", "cards"))
+        self.move_and_audit(*self.MOVED)
+        res = self.repath("--apply")
+        self.assertEqual((res["paths_changed"], res["cards"]["count"], res["cards"]["paths_changed"]), (1, 0, 0))
+        self.assertFalse(os.path.exists(self.path("_Audit", "cards")), "repath makes no folder")
+
+    def test_a_card_with_no_path_is_left_as_it_is_and_counted(self):
+        before = read(self.card_of(self.eid), "rb")
+        self.move_and_audit(*self.MOVED)
+        res = self.repath("--apply")
+        self.assertEqual((res["cards"]["without_path"], res["cards"]["paths_changed"]), (17, 0))
+        self.assertEqual(read(self.card_of(self.eid), "rb"), before)
+
+    def card_of(self, eid):
+        return self.path("_Audit", "cards", eid + ".json")
+
+    def test_cards_of_departed_and_unknown_documents_and_malformed_cards_are_left_and_listed(self):
+        self.carded_at_current_paths()
+        os.remove(self.path(*self.MOVED[0].split("/")))
+        self.tool("audit.py")
+        stray = {"id": "0" * 64, "card_meta": {"path": "Nowhere/Lost.pdf"}}
+        write(self.card_of("0" * 64), json.dumps(stray))
+        other = self.ids()["06 Work/Contract.docx"]
+        write(self.card_of(other), "{not json")
+        write(self.card_of("1" * 64), json.dumps({"id": "2" * 64}))
+        before = read(self.card_of(self.eid), "rb")
+        res = self.repath("--apply")["cards"]
+        self.assertEqual((res["paths_changed"], res["departed_left"], res["not_in_manifest"]),
+                         (0, [[self.eid, self.MOVED[0]]], [["0" * 64, "Nowhere/Lost.pdf"]]))
+        self.assertEqual(sorted(res["malformed"]), sorted([other, "1" * 64]))
+        self.assertEqual(read(self.card_of(self.eid), "rb"), before)
+        self.assertEqual(read(self.card_of(other)), "{not json")
+
+    def test_a_card_of_a_document_the_manifest_does_not_settle_is_refused(self):
+        self.carded_at_current_paths()
+        self.move_and_audit(*self.MOVED)
+        essay = self.ids()["06 Work/Essay.docx"]
+        os.remove(self.path("_Audit", "extract", essay + ".json"))   # only its card is left to refuse
+
+        def two_canonical(entries):
+            for c in entries[essay]["copies"]:
+                c["kind"] = "canonical"
+        self.unsettle(two_canonical)
+        before = tree_digest(self.path("_Audit", "cards"))
+        for args in ([], ["--apply"]):
+            err = self.repath(*args, code=2)
+            self.assertIn("refused, nothing written", err)
+            self.assertIn(essay, err)
+        self.assertEqual(tree_digest(self.path("_Audit", "cards")), before)
+
+    def test_a_card_would_move_to_a_path_that_is_not_in_the_folder_is_refused(self):
+        self.carded_at_current_paths()
+        old = read(self.path("_Audit", "manifest.json"))
+        self.move_and_audit(*self.MOVED)
+        self.repath("--apply")
+        write(self.path("_Audit", "manifest.json"), old)
+        before = read(self.card)
+        err = self.repath("--apply", code=2)
+        self.assertIn("2 record(s) would move to a path that is not in the folder", err)
+        self.assertIn("card %s to '%s'" % (self.eid, self.MOVED[0]), err)
+        self.assertEqual(read(self.card), before)
+
+    def test_cards_kept_elsewhere_and_read_only_root(self):
+        self.carded_at_current_paths()
+        self.move_and_audit(*self.MOVED)
+        before = read(self.card)
+        self.assertIn("--read-only-root", self.repath("--apply", "--read-only-root", code=2))
+        elsewhere, cards = os.path.join(self.tmp, "extract"), os.path.join(self.tmp, "cards")
+        shutil.copytree(self.path("_Audit", "extract"), elsewhere)
+        shutil.copytree(self.path("_Audit", "cards"), cards)
+        kept = tree_digest(elsewhere)
+        err = self.repath("--apply", "--read-only-root", "--out", elsewhere, code=2)  # the cards are still in the folder
+        self.assertIn("--read-only-root", err)
+        self.assertEqual((tree_digest(elsewhere), read(self.card)), (kept, before), "a refusal changes nothing")
+        self.repath("--apply", "--read-only-root", "--out", elsewhere, "--cards", cards)
+        self.assertEqual(json.loads(read(os.path.join(cards, self.eid + ".json")))["card_meta"]["path"], self.MOVED[1])
+        self.assertEqual(read(self.card), before)
+
+    def test_a_failure_staging_a_card_replaces_no_record_and_no_card(self):
+        """The disk fills while the first card's temporary file is written: no record was replaced, and no temporary
+        file stays in either folder."""
+        self.carded_at_current_paths()
+        (_id1, p1, _n1), (_id2, p2, _n2) = moves = self.two_moves()
+        folders = (self.path("_Audit", "extract"), self.path("_Audit", "cards"))
+        before = [tree_digest(d) for d in folders]
+        real, calls = os.fsync, []
+
+        def fsync(fd):
+            calls.append(fd)
+            if len(calls) == 3:                     # two records staged; the first card is the third file
+                raise OSError(28, "No space left on device")
+            return real(fd)
+        with unittest.mock.patch.object(extract.os, "fsync", fsync):
+            with self.assertRaises(common.ToolError) as cm:
+                self.apply_in_process()
+        self.assertIn("repath stopped, no record replaced: [Errno 28] No space left on device", str(cm.exception))
+        self.assertEqual([tree_digest(d) for d in folders], before)
+        self.assertEqual([n for d in folders for n in os.listdir(d) if ".repath" in n], [])
+
+    def test_a_failure_replacing_a_card_names_the_records_and_cards_already_replaced(self):
+        self.carded_at_current_paths()
+        (id1, p1, n1), (id2, p2, n2) = self.two_moves()
+        real, calls = os.replace, []
+
+        def replace(src, dst):
+            calls.append(dst)
+            if len(calls) == 3:                     # the two records, then the first card
+                raise OSError(13, "Permission denied")
+            return real(src, dst)
+        with unittest.mock.patch.object(extract.os, "replace", replace):
+            with self.assertRaises(common.ToolError) as cm:
+                self.apply_in_process()
+        self.assertIn("repath stopped, 2 record(s) already replaced (%s.json, %s.json): [Errno 13] Permission denied"
+                      % (id1, id2), str(cm.exception))
+        self.assertEqual([n for d in ("extract", "cards") for n in os.listdir(self.path("_Audit", d))
+                          if ".repath" in n], [])
+
+
+class ReorgRoundEndToEndTest(Prepared):
+    """A re-organisation round on a prepared folder, from the structure step to the readiness check: measure, the
+    record's check, a mapping, `plan.py reorg`, the approval, `check`, `execute`, the re-audit, `prove`, then
+    `extract.py repath`. Readiness names the stale extract path until the repath, and finds nothing after it."""
+
+    MOVED = ("04 Study/Notes.rtf", "05 Archive/Notes.rtf")  # cited by no page by path; a page names both folders
+
+    def plan_run(self, *args, code=0):
+        got, out, err = run("plan.py", *args)
+        self.assertEqual(got, code, out + err)
+        return out
+
+    def test_a_round_leaves_no_stale_extract_path_and_the_card_path_current(self):
+        self.carded_at_current_paths()
+        self.readiness(code=0)
+        eid = self.ids()[self.MOVED[0]]
+        card = self.path("_Audit", "cards", eid + ".json")
+        record = self.path("_Audit", "extract", eid + ".json")
+        # the structure step on the prepared folder: the measures, a record of the assessment, its check
+        got, out, err = run("structure.py", "measure", "--root", self.root, "--work", self.work, "--out",
+                            os.path.join(self.tmp, "structure", "input.md"))
+        self.assertEqual(got, 0, err)
+        self.assertEqual(json.loads(out)["summary"]["documents"], 24)
+        write(self.path("_Audit", "structure-assessment.md"), "\n".join([
+            "# Structure assessment", "", "Overall: targeted", "Reason: Study holds one loose note.",
+            "Documents that would move: 1 of 24", "", "### 04 Study", "- Verdict: tidy inside",
+            "- Evidence: one note with no sub-folder to sit in.", "- What the owner would relearn: one file moves."]))
+        got, out, err = run("structure.py", "check", "--root", self.root, "--work", self.work)
+        self.assertEqual(got, 0, out + err)
+        # the owner approves the folder; the mapping moves one document into a folder that exists
+        mapping = os.path.join(self.tmp, "mapping.json")
+        write(mapping, json.dumps({"scope": ["04 Study"], "keep": [],
+                                   "moves": [{"from": self.MOVED[0], "to": "05 Archive"}]}))
+        plan_folder = self.path("_Audit", "plans", "2026-10-06")
+        self.plan_run("reorg", "--root", self.root, "--work", self.work, "--mapping", mapping, "--out", plan_folder,
+                      code=2)                       # the owner is not open to it: the rulebook records depth light
+        twin = self.path(".familyai", "rulebook.json")
+        write(twin, json.dumps(dict(json.loads(read(twin)), depth="medium"), indent=1))
+        self.plan_run("reorg", "--root", self.root, "--work", self.work, "--mapping", mapping, "--out", plan_folder)
+        plan_csv = os.path.join(plan_folder, "move-plan.csv")
+        self.assertEqual([(r["action"], r["from"], r["to"]) for r in csv_rows(plan_csv)],
+                         [("move", self.MOVED[0], self.MOVED[1])])
+        self.plan_run("approve", "--plan", plan_csv, "--rows", "all", "--note", "Alex agreed")
+        self.assertIn("rows ok 1 failed 0", self.plan_run("check", "--root", self.root, "--work", self.work, "--plan",
+                                                         plan_csv))
+        before = os.path.join(self.tmp, "manifest.before.json")
+        shutil.copy(self.path("_Audit", "manifest.json"), before)
+        self.plan_run("execute", "--root", self.root, "--work", self.work, "--plan", plan_csv, "--bin",
+                      os.path.join(self.tmp, "Bin"), "--apply")
+        self.assertTrue(os.path.isfile(self.path(*self.MOVED[1].split("/"))))
+        self.tool("audit.py")
+        proof = json.loads(self.plan_run("prove", "--plan", plan_csv, "--before", before, "--after",
+                                         self.path("_Audit", "manifest.json")))
+        self.assertTrue(proof["ok"], proof)
+        # until the records follow the move, readiness names the stale path
+        self.assertIn("'04 Study/Notes.rtf' is now '05 Archive/Notes.rtf'",
+                      self.one_finding("records.extract_paths_stale"))
+        self.assertEqual(json.loads(read(card))["card_meta"]["path"], self.MOVED[0])
+        res = json.loads(self.tool("extract.py", "repath", "--apply")[0])
+        self.assertEqual((res["paths_changed"], res["cards"]["paths_changed"]), (1, 1))
+        self.readiness(code=0)
+        self.assertEqual(json.loads(read(record))["path"], self.MOVED[1])
+        self.assertEqual(json.loads(read(card))["card_meta"]["path"], self.MOVED[1])
+        for name in os.listdir(self.path("_Audit", "cards")):
+            meta = json.loads(read(self.path("_Audit", "cards", name)))["card_meta"]
+            self.assertTrue(os.path.exists(self.path(*meta["path"].split("/"))), "every card path is a file now")
+
+
+def csv_rows(path):
+    import csv
+    with open(path, encoding="utf-8", newline="") as f:
+        return list(csv.DictReader(f))
 
 
 class FixtureBuildTest(unittest.TestCase):

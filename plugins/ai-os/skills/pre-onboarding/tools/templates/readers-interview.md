@@ -1,4 +1,4 @@
-<!-- Stage: the readers interview, the first wiki stage in pre-onboarding (SKILL.md step 7). Held by the coordinating
+<!-- Stage: the readers interview, the first wiki stage in pre-onboarding (SKILL.md step 8). Held by the coordinating
 agent itself, with the owner, and given to no subagent: replace every field in braces; doubled braces are literal.
 `folder_name`: the folder's own name. `owner_context`: written from `rulebook.json`, as the head of every page brief
 is: the folder and its `folder_description`; each of `people`, with its other names and who it is; the identifier
@@ -6,7 +6,7 @@ policy; the `boundaries`. `profile_summary`: from `wiki.py profile`, a line per 
 count, its main card categories and the span of its dates. -->
 # Readers interview: {folder_name}
 
-The first wiki stage in [`pre-onboarding`](../../SKILL.md#7-build-the-wiki), under
+The first wiki stage in [`pre-onboarding`](../../SKILL.md#8-build-the-wiki), under
 [the core wiki rule](../../../wiki-maintenance/SKILL.md#the-core-wiki-rule) in `wiki-maintenance`: who reads the
 wiki, and what for. **Pen:** the owner, who answers; you ask, and write the answers down in the owner's words,
 adding nothing of your own. Nothing about the wiki's shape is decided here.

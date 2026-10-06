@@ -457,11 +457,45 @@ def reserved_names(rb):
     return list(dict.fromkeys(names + rb["reserved"]))
 
 
-def _nfc(text):
+def nfc(text):
+    """`text` in Unicode NFC, the one form a name is compared in wherever a person or a model names a folder."""
     return unicodedata.normalize("NFC", text)
 
 
+_nfc = nfc
+
+
+def spelling_index(paths):
+    """{path in NFC: path as spelled} for the paths the manifest holds. A name may be stored decomposed on disk and
+    typed composed by a person or a model; `as_spelled` looks it up here, so that every tool that is given a folder's
+    name takes the manifest's own spelling."""
+    return {nfc(p): p for p in paths}
+
+
+def as_spelled(index, name):
+    """`name` as the manifest spells it, by `spelling_index`; a name it does not hold is returned in NFC (no case
+    folding: a name that differs in case is another name here)."""
+    n = nfc(name)
+    return index.get(n, n)
+
+
 @functools.lru_cache(maxsize=1 << 16)
+def lexists_folded(path):
+    """Whether `path` exists, or a name in its folder that `fold` makes equal to its last part does. The folder being
+    prepared lives on a file system that ignores case (iCloud Drive, macOS), where `B.TXT` and `b.txt` are one file,
+    so a tool that may run elsewhere (a case-sensitive Linux disk, in CI) must not read them as two. A folder that does
+    not exist holds nothing; any other error reading it is raised."""
+    if os.path.lexists(path):
+        return True
+    parent, name = os.path.split(path)
+    try:
+        names = os.listdir(parent or ".")
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+    want = fold(name)
+    return any(fold(n) == want for n in names)
+
+
 def fold(text):
     """A path or a name as every withheld comparison sees it: Unicode NFC, then case-folded, then NFC again. A name
     may be stored decomposed on disk and composed in a page or in rulebook.json, and the folder may be on a file system
@@ -568,6 +602,21 @@ def prior_paths(rb, entries):
         for p in before:
             if isinstance(p, str) and p and fold(p) not in included and fold(p) not in now:
                 out.setdefault(fold(p), why)
+    return out
+
+
+def live_document_paths(rb, entries):
+    """{path: id} for every path a live document that the tools may read holds: each path of each entry that is not
+    `departed` and whose current path is not withheld (a copy listed in `copies` is a path of its own), except a path
+    that is itself withheld (a copy of a readable document inside an excluded folder). The one reading of "the
+    documents of the folder" that `plan.py reorg` and `structure.py` share."""
+    out = {}
+    for h, e in entries.items():
+        if "departed" in e.get("flags", []) or withheld(rb, e["current_path"]):
+            continue
+        for p in [c["path"] for c in e.get("copies", [])] or [e["current_path"]]:
+            if not withheld(rb, p):
+                out[p] = h
     return out
 
 

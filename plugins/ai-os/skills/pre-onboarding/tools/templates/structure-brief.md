@@ -1,12 +1,12 @@
 <!-- Stages: the structure and each page's professional, after the readers interview in pre-onboarding (SKILL.md
-step 7). Filled by the coordinating agent and given to a subagent: replace every field in braces; doubled braces are
+step 8). Filled by the coordinating agent and given to a subagent: replace every field in braces; doubled braces are
 literal. Save the filled brief as `<work>/briefs/structure.md`, so that it is scanned. `folder_name`: the folder's own
 name. `owner_context`: as in `readers-interview.md`. `readers`: the readers interview's JSON reply, as recorded.
 `profile`: the JSON `wiki.py profile` wrote (`<work>/profile.json`), in full. `current_schema`: the Schema page's text
 as it stands, or `none yet` on a first run, without any routing row into the migrations folder or an excluded path. -->
 # Structure brief: {folder_name}
 
-The wiki stages after the readers interview in [`pre-onboarding`](../../SKILL.md#7-build-the-wiki), under
+The wiki stages after the readers interview in [`pre-onboarding`](../../SKILL.md#8-build-the-wiki), under
 [the core wiki rule](../../../wiki-maintenance/SKILL.md#the-core-wiki-rule) in `wiki-maintenance`: the wiki's
 sections and routing, then each page's professional. **Pen:** you, as the librarian, proposing; the owner agrees
 the sections and routing first, then each page's professional, before any contract or page is written.

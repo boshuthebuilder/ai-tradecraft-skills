@@ -36,7 +36,7 @@ GOLDEN = os.path.join(HERE, "golden", "wiki")
 WIKI = "Alex Personal Wiki"
 BRIEF_PAGES = ("20 Finance/Tax.md", "20 Finance/Cash position.md")
 TEMPLATES = ("readers-interview.md", "structure-brief.md", "contract-brief.md", "page-brief.md", "review-owner.md",
-             "review-professional.md", "rulebook.md")
+             "review-professional.md", "rulebook.md", "structure-assessment-brief.md", "structure-mapping-brief.md")
 RULE = os.path.join(SKILLS, "wiki-maintenance", "SKILL.md")
 ONBOARDING = os.path.join(SKILLS, "wiki-onboarding", "SKILL.md")
 STEP_4A = {  # what wiki-onboarding step 4a says a drafting agent returns: where the brief's JSON shape carries each

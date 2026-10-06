@@ -217,8 +217,13 @@ Show the audit, then ask, in this order, and record every answer in the rulebook
    description of them: list, from the manifest, the paths on each side of the line the owner draws,
    and let them read the list. Owners describe a folder by what they meant it to hold; the files say
    what it does hold, and a boundary agreed in words moves the wrong ones.
-2. **How far to reorganise**: present the depth ladder below as a comparison with what moves, what
-   the owner relearns, reversibility and effort. The owner picks a depth; the plan never exceeds it.
+2. **Whether to reorganise**: not a depth to pick before anyone has looked. Ask whether the owner is open to the
+   folder's structure being re-organised at all, and which folders must stay where they are. The scope comes from an
+   assessment of the structure ([`pre-onboarding` step 7](../pre-onboarding/SKILL.md#7-assess-the-structure)): it names
+   the folders where a re-organisation is worth proposing, the owner approves each folder, and the plan never exceeds
+   what they approved. The depth ladder below is what that assessment decides, folder by folder. The answers bind the
+   tools: `plan.py reorg` refuses to run on a rulebook that records depth light, and takes the folders that must stay
+   as `keep`, from which it moves nothing.
 3. **How new files arrive** today (a scanner to the root, attachments saved into subfolders,
    batches from a desktop), and whether anyone else writes to the folder. This decides the inbox.
 4. **Which folders are closed matters** (ingested once as history, marked superseded) and which are
@@ -228,7 +233,7 @@ Show the audit, then ask, in this order, and record every answer in the rulebook
    use, never a condition of the system reading the document.
 6. **Any explicit exclusions or identifier restrictions.** Full private content is the default
    under `wiki-maintenance`; compile excluded paths and any requested identifier restriction into
-   job config. These decisions do not change the separate reorganisation depth selected above.
+   job config. These decisions do not change the separate decision on reorganising, above.
    See the enforcement boundaries in [`ARCHITECTURE.md`](../../ARCHITECTURE.md).
 7. **Where AI outputs already sit** beside the sources, so the plan can relocate them.
 8. **Language and naming** for renamed files and folders, where the material is bilingual — and the
@@ -248,7 +253,8 @@ From the audit and the answers, emit a **move-plan** (schema:
 - One row per action: `move`, `rename`, `delete`, `convert`, `create`, `rmdir`. Each carries the
   evidence hash of the file it touches (an `rmdir` or folder `rename` row excepted), the reason, the
   depth it belongs to, and the domain, so the owner can approve a domain at a time.
-- **Never exceed the chosen depth.** Rows above it may be listed under a *later* heading for the
+- **Never exceed what the owner approved.** The depth is decided folder by folder (light, unless the structure
+  assessment found a folder worth more), and rows above it may be listed under a *later* heading for the
   next round, never mixed into this one.
 - **Delete only redundant duplicates** proven by hash and outside any pack — a row names the
   redundant *path*, never the entry, so the canonical path always survives. Working copies are
@@ -278,8 +284,8 @@ From the audit and the answers, emit a **move-plan** (schema:
   `_Migrations/<Project>/`, its `rmdir` row is proposed then, as for any emptied folder (above), and
   never in the same proposal as the moves, so a declined return cannot leave an `rmdir` that fails.
 - **Never invent a taxonomy.** The owner's shape stays; the plan resolves conflicts inside it. A
-  full re-taxonomy is a depth the owner must choose, and even then it is proposed as a mapping from
-  every existing folder, never as a blank target tree.
+  full re-taxonomy is only what an assessment's `full` verdict and the owner's approval of each folder allow, and even
+  then it is proposed as a mapping from every existing folder in scope (`plan.py reorg`), never as a blank target tree.
 - Anything the model cannot place with confidence is a `needs_a_look` — a `look` class, a
   `what_would_resolve`, and the evidence — not a guessed row. **One concern is one item, however
   many rows it touches**: an unfamiliar party, an unrecognised account, a folder whose purpose is
@@ -364,11 +370,16 @@ approval loop, without a second migration.
 
 ## The depth ladder
 
+Light is the default tidy and the first round of every folder. Medium and full are not chosen up front: the structure
+assessment of [`pre-onboarding` step 7](../pre-onboarding/SKILL.md#7-assess-the-structure) decides, folder by folder,
+which one a folder needs, if any, and the owner approves each folder's scope. A folder the assessment leaves as it is
+stays at light.
+
 | depth | what moves | what the owner relearns | when it fits |
 |---|---|---|---|
 | **light** | root strays into the inbox or their folder; hygiene defects; AI artefacts out of the sources; redundant duplicates moved to the Bin; system layer added | nothing | almost always the first round; the wiki carries the rest |
-| **medium** | light, plus: overlapping homes resolved to one canonical home each; working-copy trees consolidated with pointer notes; generic names replaced by descriptive ones (via `file-preprocessing` in place); folder names normalised to the owner's language rule | a handful of moves | when routing ambiguity survives the Schema, one domain at a time |
-| **full** | every folder mapped to a new top-level scheme | everything | rarely; only when the owner asks for it, and only as a mapping from every existing folder |
+| **medium** | light, plus: overlapping homes resolved to one canonical home each; working-copy trees consolidated with pointer notes; generic names replaced by descriptive ones (via `file-preprocessing` in place); folder names normalised to the owner's language rule | a handful of moves | a folder the assessment found worth it (a catch-all, one subject in several homes), one folder at a time |
+| **full** | every folder mapped to a new top-level scheme | everything | rarely; only when the assessment finds most of the top-level structure needs a new shape and the owner approves each folder, and only as a mapping from every existing folder in scope |
 
 The wiki *is* the clean taxonomy. Reorganising the files to match it is the one thing the framework
 says not to do, so **full** is offered for completeness and recommended against.

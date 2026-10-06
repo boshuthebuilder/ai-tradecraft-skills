@@ -15,7 +15,7 @@ log counts each (`held_for_another_project`, `excluded`).
 
     python3 extract.py --root R --lane main --worker 0/4
     python3 extract.py --root R --lane apps
-    python3 extract.py repath --root R [--apply]     after a round moved documents: paths from the manifest, by hash
+    python3 extract.py repath --root R [--apply]     after a round moved documents: record and card paths, by hash
 
 Record: id, path, class, status (ok, partial, blank, photo, listed, no_reader, needs_vision, failed), page_count,
 tiers, chars, extractor, extracted_at, pages[{n, text, tier, engine?, conf?}], notes?. A tier whose tool is missing
@@ -579,35 +579,82 @@ def repath_unsettled(entries):
     return out
 
 
-def repath_stage(writer, path, tmp, rec):
-    """`rec` written to `tmp`, the temporary file beside `path`, after the writer's guard on `path`."""
+def repath_stage(writer, path, tmp, text):
+    """`text` written to `tmp`, the temporary file beside `path`, after the writer's guard on `path`."""
     writer.check(path)
     with open(tmp, "w", encoding="utf-8", newline="") as f:
-        f.write(json.dumps(rec, ensure_ascii=False))
+        f.write(text)
         f.flush()
         os.fsync(f.fileno())
 
 
+def repath_cards(cards, entries, unsettled):
+    """What `repath` does to the cards in the folder `cards`, which holds one `<id>.json` per document: ({the name of
+    each card whose `card_meta.path` is not its document's current path: (its text with that path set, old, new)},
+    the counts and lists the report carries, the cards whose document's paths the manifest does not settle, for the
+    refusal). A card with no `card_meta.path` is left as it is and counted (the path is the one it was carded at,
+    which a card made by hand need not record), as are a card of a departed document or of an id the manifest does
+    not hold (listed), and one that is not valid JSON or not an object (listed by id). A missing folder is no cards.
+    The cards are written as `cards.py` writes them, one space of indent, and only that path changes."""
+    out = collections.OrderedDict([("count", 0), ("paths_changed", 0), ("already_current", 0), ("without_path", 0),
+                                   ("moves", []), ("departed_left", []), ("not_in_manifest", []), ("malformed", [])])
+    changes, refused = {}, []
+    names = sorted(n for n in os.listdir(cards) if n.endswith(".json")) if os.path.isdir(cards) else []
+    out["count"] = len(names)
+    for n in names:
+        path, cid = os.path.join(cards, n), n[:-5]
+        try:
+            with open(path, encoding="utf-8") as f:
+                card = json.load(f)
+        except (OSError, ValueError, RecursionError):
+            card = None
+        if not (isinstance(card, dict) and card.get("id") == cid):
+            out["malformed"].append(cid)
+            continue
+        meta = card.get("card_meta")
+        old = meta.get("path") if isinstance(meta, dict) else None
+        e = entries.get(cid)
+        if e is None:
+            out["not_in_manifest"].append([cid, old])
+        elif "departed" in e.get("flags", []):
+            out["departed_left"].append([cid, old])
+        elif not isinstance(old, str):
+            out["without_path"] += 1
+        elif cid in unsettled:
+            refused.append("%s (%s): %s" % (cid, old, unsettled[cid]))
+        elif old != e["current_path"]:
+            text = json.dumps(dict(card, card_meta=dict(meta, path=e["current_path"])), ensure_ascii=False, indent=1)
+            changes[n] = (text, old, e["current_path"])
+            out["moves"].append([cid, old, e["current_path"]])
+        else:
+            out["already_current"] += 1
+    out["paths_changed"] = len(changes)
+    return changes, out, refused
+
+
 def repath(argv):
-    """`extract.py repath`: rewrite each extract record's `path` to its document's current path in the manifest,
-    matched by content hash (the record's id). No document is read again and no model is called; nothing else in a
-    record changes. A dry run by default. Records of departed documents, and records whose id the manifest does not
-    hold, are left as they are and listed. It refuses, naming each and writing nothing (exit 2): a record whose
-    document has paths the manifest's canonical choice does not settle (`repath_unsettled`), and a move to a current
-    path that is not in the folder (the manifest is older than the folder: re-audit first). --apply writes every
-    repathed record to a temporary file beside it, through the guarded writer (--read-only-root refuses a write
-    inside the folder), and only then replaces the records. Whatever stops it part way, no temporary file stays: an
-    OS error or a refusal is a named error (exit 2) listing the records already replaced, and anything else (an
-    interrupt) is raised again once the temporary files are gone."""
+    """`extract.py repath`: rewrite each extract record's `path`, and each card's `card_meta.path`, to its document's
+    current path in the manifest, matched by content hash (the record's id). No document is read again and no model is
+    called; nothing else in a record or a card changes. A dry run by default. Records and cards of departed documents,
+    and those whose id the manifest does not hold, are left as they are and listed, and so is a card that is not valid
+    JSON; a card with no `card_meta.path` is left and counted. It refuses, naming each and writing nothing (exit 2): a
+    record or card whose document has paths the manifest's canonical choice does not settle (`repath_unsettled`), and a
+    move to a current path that is not in the folder (the manifest is older than the folder: re-audit first). --apply
+    writes every repathed record and card to a temporary file beside it, through the guarded writer (--read-only-root
+    refuses a write inside the folder), records first, and only then replaces them. Whatever stops it part way, no
+    temporary file stays: an OS error or a refusal is a named error (exit 2) listing the files already replaced, and
+    anything else (an interrupt) is raised again once the temporary files are gone."""
     import wiki  # the manifest's one reader, which refuses a malformed one by name
-    ap = common.base_args("Repath extract records from the manifest by content hash (no re-read)")
+    ap = common.base_args("Repath extract records and cards from the manifest by content hash (no re-read)")
     ap.prog = "extract.py repath"
     ap.add_argument("--manifest", help="default <root>/_Audit/manifest.json")
     ap.add_argument("--out", help="the extract records (default <root>/_Audit/extract)")
-    ap.add_argument("--apply", action="store_true", help="write the repathed records (default: a dry run)")
+    ap.add_argument("--cards", help="the cards (default <root>/_Audit/cards)")
+    ap.add_argument("--apply", action="store_true", help="write the repathed records and cards (default: a dry run)")
     a = ap.parse_args(argv)
-    root, _settings_dir, _work = common.resolve(a, extract=a.out)
+    root, _settings_dir, _work = common.resolve(a, extract=a.out, cards=a.cards)
     records = os.path.realpath(a.out) if a.out else os.path.join(root, "_Audit", "extract")
+    cards = os.path.realpath(a.cards) if a.cards else os.path.join(root, "_Audit", "cards")
     _mpath, entries = wiki.load_manifest(root, a.manifest)
     try:
         names = sorted(n for n in os.listdir(records) if n.endswith(".json"))
@@ -633,27 +680,34 @@ def repath(argv):
         elif eid in unsettled:
             refused.append("%s (%s): %s" % (eid, rec["path"], unsettled[eid]))
         elif rec["path"] != e["current_path"]:
-            moves.append((path, rec, rec["path"], e["current_path"]))
+            moves.append((path, json.dumps(dict(rec, path=e["current_path"]), ensure_ascii=False), rec["path"],
+                          e["current_path"]))
         else:
             current += 1
+    card_changes, card_report, card_refused = repath_cards(cards, entries, unsettled)
+    refused += card_refused
     if refused:
         raise common.ToolError("refused, nothing written: the manifest does not settle where %d record(s) belong: %s"
                                % (len(refused), "; ".join(refused)))
-    absent = ["%s to %r" % (rec["id"], new) for _p, rec, _old, new in moves
+    absent = ["%s to %r" % (os.path.basename(p)[:-5], new) for p, _t, _old, new in moves
               if not os.path.lexists(os.path.join(root, *new.split("/")))]
+    absent += ["card %s to %r" % (n[:-5], new) for n, (_t, _old, new) in card_changes.items()
+               if not os.path.lexists(os.path.join(root, *new.split("/")))]
     if absent:
         raise common.ToolError("refused, nothing written: %d record(s) would move to a path that is not in the folder "
                                "(%s); the manifest is older than the folder: re-audit (audit.py) first, then repath"
                                % (len(absent), "; ".join(absent)))
     if a.apply:
         writer, staged, replaced = common.Writer(root if a.read_only_root else None), [], []
+        todo = [(p, t, os.path.basename(p)) for p, t, _old, _new in moves] + [
+            (os.path.join(cards, n), t, "cards/" + n) for n, (t, _old, _new) in card_changes.items()]
         try:
-            for path, rec, _old, new in moves:
+            for path, text, _name in todo:
                 staged.append(("%s.repath%d" % (path, os.getpid()), path))  # recorded before it is opened
-                repath_stage(writer, path, staged[-1][0], dict(rec, path=new))
-            for tmp, path in staged:
+                repath_stage(writer, path, staged[-1][0], text)
+            for (tmp, path), (_p, _t, name) in zip(staged, todo):
                 os.replace(tmp, path)
-                replaced.append(os.path.basename(path))
+                replaced.append(name)
         except BaseException as e:  # whatever stops it, no temporary file stays
             for tmp, _path in staged[len(replaced):]:
                 try:
@@ -667,8 +721,8 @@ def repath(argv):
                 else "no record replaced", e))
     print(json.dumps(collections.OrderedDict([
         ("records", len(names)), ("applied", a.apply), ("paths_changed", len(moves)),
-        ("already_current", current), ("moves", [[rec["id"], old, new] for _p, rec, old, new in moves]),
-        ("departed_left", left), ("not_in_manifest", unknown)]), ensure_ascii=False, indent=1))
+        ("already_current", current), ("moves", [[os.path.basename(p)[:-5], old, new] for p, _t, old, new in moves]),
+        ("departed_left", left), ("not_in_manifest", unknown), ("cards", card_report)]), ensure_ascii=False, indent=1))
     return 0
 
 
