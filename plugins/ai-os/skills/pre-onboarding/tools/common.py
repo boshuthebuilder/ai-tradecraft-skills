@@ -480,6 +480,22 @@ def as_spelled(index, name):
 
 
 @functools.lru_cache(maxsize=1 << 16)
+def lexists_folded(path):
+    """Whether `path` exists, or a name in its folder that `fold` makes equal to its last part does. The folder being
+    prepared lives on a file system that ignores case (iCloud Drive, macOS), where `B.TXT` and `b.txt` are one file,
+    so a tool that may run elsewhere (a case-sensitive Linux disk, in CI) must not read them as two. A folder that does
+    not exist holds nothing; any other error reading it is raised."""
+    if os.path.lexists(path):
+        return True
+    parent, name = os.path.split(path)
+    try:
+        names = os.listdir(parent or ".")
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+    want = fold(name)
+    return any(fold(n) == want for n in names)
+
+
 def fold(text):
     """A path or a name as every withheld comparison sees it: Unicode NFC, then case-folded, then NFC again. A name
     may be stored decomposed on disk and composed in a page or in rulebook.json, and the folder may be on a file system

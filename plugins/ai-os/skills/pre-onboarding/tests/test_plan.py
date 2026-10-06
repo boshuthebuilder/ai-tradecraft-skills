@@ -1905,6 +1905,21 @@ class ReorgRefusalTest(ReorgCase):
         self.refuses(["07 Misc"], [("07 Misc/a.txt", "11 New"), ("07 Misc", "11 New")],
                      "'07 Misc/a.txt' is also moved by moves[0]")
 
+    def test_a_name_differing_only_in_case_exists_on_a_case_sensitive_disk_too(self):
+        """The folder lives where case is ignored, so `B.TXT` is `b.txt` even when the tool runs on a disk that keeps them
+        apart: `os.path.lexists` is made case-sensitive here, as it is on Linux, and the check still finds the file."""
+        from unittest import mock
+        write(self.path("08 Other/B.TXT"), "case")
+
+        def exact(p):                                   # what lexists answers on a case-sensitive disk
+            parent, name = os.path.split(p)
+            return os.path.isdir(parent) and name in os.listdir(parent)
+        with mock.patch("os.path.lexists", side_effect=exact):
+            self.assertFalse(os.path.lexists(self.path("08 Other/b.txt")), "the stand-in is case-sensitive")
+            self.assertTrue(common.lexists_folded(self.path("08 Other/b.txt")))
+            self.assertFalse(common.lexists_folded(self.path("08 Other/c.txt")))
+            self.assertFalse(common.lexists_folded(self.path("No such folder/b.txt")))
+
     def test_a_duplicate_of_what_the_destination_holds_is_left_to_the_light_round(self):
         err = self.refuses(["07 Misc"], [("07 Misc/dup.txt", "08 Other")],
                            "moves[0]: the content of '07 Misc/dup.txt' already lives at '08 Other/original.txt' once "

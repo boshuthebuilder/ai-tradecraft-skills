@@ -775,7 +775,7 @@ def reorg(a):
             refuse("moves[%d]" % i, "%r is in %r already" % (p, row_of[i][1]))
         elif common.fold(dst) in owners:
             refuse("moves[%d]" % i, "%r and %r both move to %r" % (p, owners[common.fold(dst)], dst))
-        elif common.fold(dst) in taken or os.path.lexists(os.path.join(root, dst)):
+        elif common.fold(dst) in taken or common.lexists_folded(os.path.join(root, dst)):
             refuse("moves[%d]" % i, "the destination %r exists (nothing is overwritten)" % dst)
         owners.setdefault(common.fold(dst), p)
     paths_of = {}
