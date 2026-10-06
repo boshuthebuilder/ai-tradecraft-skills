@@ -427,14 +427,18 @@ instruction file of a parent folder, or start from a folder that has none. `scan
 after expansion: a project-memory folder's name holds none, since every character of the working directory's path
 other than an ASCII letter or digit is written as `-` (look under `~/.claude/projects/` if the report does not give
 it). For the session's own files, a path `scan` refuses because its folder does not exist is a wrong path: correct it
-and run the scan again. It is never a line to drop (step 5's rule is for an engine the machine lacks). Only the memory
-folder itself may be absent, as in a fresh working directory, which `scan` lists in `absent`: read it. `.familyai` has
+and run the scan again. It is never a line to drop (step 5's rule is for an engine the machine lacks). A file or folder
+the session does not have, such as a memory folder in a fresh working directory or a user-level instruction file the
+operator never wrote, is listed in `absent`: read the list and check that each entry is truly absent. `.familyai` has
 changed since step 5 (the compiled Schema), and a subagent working in the folder loads the rulebook, which tells it to
 follow the Schema page, so all three are scanned again with the briefs. `scan` refuses a path that does not exist:
 leave out the Schema page before it is written, and `<work>/reviews` before the first review prompt. It creates
-`--out`'s folder. **A term found in any file the session loads, or in a brief, stops the wiki stage.** Brief no
-subagent until the file is cleaned or, for a memory or parent-folder file, the session is restarted from a folder
-whose loaded files pass. A file the scan could not read is the one not-verified state: say so to the owner. The
+`--out`'s folder. **A term found in any file the scan covers stops the wiki stage.** Brief no subagent until the
+file is cleaned or, for a memory or parent-folder file, the session is restarted from a folder whose loaded files
+pass, and the scan passes again. `scan` stops at the first file it cannot read, exits 2 and writes no result, so
+nothing after that file is checked: make the file readable and scan again, and brief no subagent until a scan
+passes. Only a file that cannot be made readable is left out, the rest is scanned again until it passes, and the
+owner is told which file was not verified. The
 coordinating session is the operator's own and is not behind this gate, and it needs no name from the terms file. Save
 every brief you fill by hand under `<work>/briefs/` (`structure.md`, `contract-<NN>.md`), beside the ones
 `wiki.py brief --out` writes, so that each is a file to scan, and leave out of them every routing row, path and name
