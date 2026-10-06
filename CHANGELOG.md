@@ -25,14 +25,15 @@ prompt placeholder changed.
 - **One matcher** (`isolation.alternation`) for the shield, the scan (`hits`), `carries` and `masked`: case-insensitive,
   in Unicode NFC, with a space in a term matching any run of Unicode whitespace, so a name wrapped at a line end, set
   with a no-break space or stored decomposed is still the name. A name split by a hyphen at a line end, or by a
-  zero-width character, is not matched: a settled residual. The shield is idempotent. One helper
-  (`isolation.without_placeholder`, case-insensitive and tolerant of the spacing inside the brackets) takes the
-  placeholder out of a card and of a section note before any term is looked for, and `load_terms` refuses a term or
-  marker that occurs inside the placeholder (naming the line, never the term), so no term can ever be read in it.
+  zero-width character, is not matched: a settled residual. The shield is idempotent. The matcher takes the placeholder
+  out of a text (`isolation.without_placeholder`: case-insensitive, tolerant of the spacing inside the brackets) before
+  `hits` and `carries` look for a form, so no form is ever found inside it, whatever the caller (a card, a section note,
+  the scan), and a surname such as Held, or a marker such as Nam, stays listable.
 - **A subagent is told never to open a shielded source.** One rule (`wiki.shielded_document`) decides it for `bundles`,
   `brief` and `review-prompts` alike: the document's path, any copy's path, its extract text or any field of its card
   carries a term, or its card records that it was shielded; a card or extract record that is missing or unreadable counts
-  as shielded (fail closed). A bundle line for such a document has `"shielded": true`; the page brief and both review
+  as shielded (fail closed), except an entry the manifest records as never read (`hashed` false: an image over the cap),
+  which is judged by its paths alone, so such an image, or a folder holding one, is not marked for that. A bundle line for such a document has `"shielded": true`; the page brief and both review
   templates say never to open such a source; `review-prompts` (which takes `--extract`) lists it as "do not open", and a
   cited folder with a shielded document under it likewise (how many, never which), and samples none of its facts; `brief`
   says how many of the sources an existing page cites are shielded. The tools cannot restrict a subagent's file access:

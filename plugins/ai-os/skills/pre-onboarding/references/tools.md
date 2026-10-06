@@ -767,7 +767,10 @@ document that is shielded also has `"shielded": true`, since its source file sti
 to open such a source. One rule, `shielded_document`, decides it for `bundles`, `brief` and `review-prompts` alike: the
 document's path, any copy's path, its extract text or any field of its card carries a term or marker, or its card records
 that it was shielded. It fails closed: a card or extract record that is missing or cannot be read counts as shielded, never
-as clean. In any other section, reading, photos and other bulk
+as clean, for a document that should have one; an entry the manifest records as never read (`hashed` false, such as an
+image over the cap) has neither by design and is judged by its paths alone, so such an image is not "do not open" unless
+its path carries a term, and a folder is not marked only for holding one. Only the values of a card are read, never its
+field names, so a short marker such as Nam is not found in `proposed_name`. In any other section, reading, photos and other bulk
 material is listed `compact`, without summary or text. A card with no extract record is refused. A withheld document is
 in no bundle, in neither the `unrouted` nor the `uncarded` list, and in no `copies` list (a copy of an included document
 under a withheld path is left out too); it is counted in the summary the command prints and `bundles.json` keeps

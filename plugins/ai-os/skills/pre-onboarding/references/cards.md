@@ -208,9 +208,9 @@ name stored decomposed in a file name is the name written composed), and a space
 whitespace in the text, so a name wrapped at a line end or set with a no-break space is shielded. A name split by a
 hyphen at a line end, or by a zero-width character or a soft hyphen, is not matched: a settled residual. The shield is
 idempotent (text already shielded is left as it is, whatever the case or spacing of the placeholder), and it always comes
-before any cut: a text is shielded whole and then cut. A terms file holding a term or marker that occurs inside the
-placeholder `[withheld name]` (a surname such as Held) is refused at load, naming the line and never the term, so no term
-can ever be read in a shielded text: give a fuller form.
+before any cut: a text is shielded whole and then cut. The one matcher takes the placeholder out of a text (any case, any spacing)
+before it looks for a form, so a term or marker that occurs inside it (a surname such as Held, a marker such as Nam) is
+listable and is never found there, whatever the caller.
 
 - **`cards.py`** shields every path and text it sends: the items of a group or a single call, the section prompt's path
   and section text, and a sectioned document's opening text and notes (a cached note is shielded again when read). A
@@ -224,7 +224,8 @@ can ever be read in a shielded text: give a fuller form.
   cut at `--text-cap`. A bundle line for a shielded document is marked `"shielded": true`, because its source
   file still holds the name. One rule decides it for `bundles`, `brief` and `review-prompts` alike: the document's path, any
   copy's path, its extract text or any field of its card carries a term or marker, or its card records that it was
-  shielded; a card or extract record that is missing or unreadable counts as shielded (fail closed). The page brief and
+  shielded; a card or extract record that is missing or unreadable counts as shielded (fail closed), bar an image the
+  manifest records as never read (`hashed` false), which has neither by design and is judged by its paths alone. The page brief and
   both review prompts say never to open such a source, a review prompt lists it as "do not open" (a folder with a shielded
   document under it too, with how many) and samples none of its facts, and the drafter works from the line and its card. The tools cannot restrict a subagent's file access, so the guard is that instruction and the fact
   that the bundle already holds the shielded text. `bundles.json` never records the terms file's path (a path may carry a
@@ -243,9 +244,9 @@ so the operator should expect an unreadable name and may rename the file.
 The contamination guard. The card is compared with its document's path and text as the call was sent, shielded, in
 which no term survives; the model was never shown a term, so a card that names one (anywhere in its JSON, ignoring case)
 did not take it from the document, and its source cannot excuse it. (Before the shield, a term the document itself
-carried was excused: that excuse is gone, and `readiness.py` finds cards made under it.) Every occurrence of the
-placeholder is taken out of the card, and of a section note, before the terms are looked for (one helper,
-`isolation.without_placeholder`: case-insensitive and tolerant of the spacing inside the brackets), so a model that
+carried was excused: that excuse is gone, and `readiness.py` finds cards made under it.) The placeholder is
+taken out of a card, and of a section note, before the terms are looked for (inside the one matcher, whatever the caller:
+`isolation.without_placeholder` is case-insensitive and tolerant of the spacing inside the brackets), so a model that
 writes the placeholder back never alerts on it. A section note is held to the same rule: it was written from a shielded section, so a
 term in it shows the light model is contaminated, and it writes the alert at once (and is never cached). Every card of a
 batch is checked before any is written: the first contaminated card writes

@@ -91,9 +91,9 @@ archetype); keeping a wiki that already exists (`wiki-maintenance`).
   settings name its people and every scan of them would fail. Matching is by case-insensitive substring, in
   Unicode NFC, with a space in a term matching any run of whitespace (a name wrapped at a line end, or set with a
   no-break space, is still the name); prefer full names, since a short term also masks inside longer words, which
-  garbles the word and never leaks it. A term or marker that occurs inside the placeholder `[withheld name]` (a surname
-  such as Held) is refused when the file is read: give a fuller form. A name split by a hyphen at a line end, or by a
-  zero-width character, is not matched: that residual is settled. Ask the operator for
+  garbles the word and never leaks it. The placeholder `[withheld name]` is taken out before any term is looked for, so a
+  surname such as Held, or a marker such as Nam, is listable and is never read in the placeholder. A name split by a
+  hyphen at a line end, or by a zero-width character, is not matched: that residual is settled. Ask the operator for
   the path, and settle the file before the first audit ([step 1](#1-audit)); the format is in
   [the card contract](references/cards.md#the-terms-file), and what the tools do with it, [the
   shield](references/cards.md#the-shield), in [step 5](#5-open-the-gate-to-the-engines). Where there is genuinely nothing
@@ -475,7 +475,8 @@ not the terms file, `<work>/state`, or
 anything under `_Audit/` the brief does not name (the manifest and `AUDIT.md` name the project a staged file is bound
 for, and a departed entry keeps it). **A bundle line marked `"shielded": true`** is a document whose path, a copy's path, extract
 text or card carries a name from the terms file (one rule, for the bundles, the brief and the review prompts alike, which
-counts a card or extract record it cannot read as shielded): its line reads `[withheld name]`, but its source file still
+counts a card or extract record it cannot read as shielded, bar an image the manifest records as never read, which is judged
+by its paths alone): its line reads `[withheld name]`, but its source file still
 holds the name. The page brief and both review prompts say never to open such a source, a folder holding one included; a
 review prompt lists it as "do not open", with how many for a folder, and samples none of its facts, and the drafter works
 from the bundle line and its card. The tools cannot restrict a subagent's file access, so
