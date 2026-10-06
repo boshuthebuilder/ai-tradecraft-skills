@@ -18,20 +18,37 @@ prompt placeholder changed.
 - **The shield** (`isolation.shield`, `shield_value`, `shield_digest`, `carries`). Every term and marker of the terms
   file is replaced by `[withheld name]` in every path and text a tool sends or writes: `cards.py` (items, section
   prompts, opening text and notes; the notes' cache basis folds in the sha256 of the terms' forms, and a cached note is
-  shielded again when read; a card records `card_meta.shielded`, a count), and `wiki.py` `profile`, `bundles`, `brief`
-  and `review-prompts` (a page's sha256 in a review prompt is left as it was). `bundles.json` records the shield, never
-  the terms, and `brief` and `bundles --reuse` refuse and remove bundles built under another one.
+  shielded again when read; a card records `card_meta.shielded`, a count, and `card_meta.shield_sha256`), and `wiki.py`
+  `profile`, `bundles`, `brief` and `review-prompts` (a page's sha256 in a review prompt is left as it was). Text is
+  shielded whole and then cut, never the other way. `bundles.json` records the shield, never the terms (nor the terms
+  file's path), and `brief` and `bundles --reuse` refuse and remove bundles built under another one.
+- **One matcher** (`isolation.alternation`) for the shield, the scan (`hits`), `carries` and `masked`: case-insensitive,
+  in Unicode NFC, with a space in a term matching any run of Unicode whitespace, so a name wrapped at a line end, set
+  with a no-break space or stored decomposed is still the name. A name split by a hyphen at a line end, or by a
+  zero-width character, is not matched: a settled residual. The shield is idempotent, and the contamination check takes
+  the placeholder out first, so a term that stands inside `[withheld name]` never alerts on it.
+- **A subagent is told never to open a shielded source.** A bundle line for a document whose path, card or extract text
+  carries a term has `"shielded": true`; the page brief and both review templates say never to open such a source;
+  `review-prompts` (which takes `--extract`) lists it as "do not open" and samples none of its facts. The tools cannot
+  restrict a subagent's file access: the guard is the instruction and the shielded text the bundle already holds.
+- **A section note that names a term is contamination:** it writes the ALERT, stops every worker and is never cached.
 - **`vision.py` holds back a document that carries a term.** An image cannot be shielded, so a document whose manifest
   path or extract text (`text` or `local_text`) carries a term has no image sent: its queued pages are marked `unread`,
   the local text kept, and the log counts such documents. The residual, a term visible only on a page local OCR could
   not read, is stated.
-- **`readiness.py`: `paths_naming_terms`** counts manifest entries of any state whose path, a copy's path or migration
-  label carries a term (a migration label is a folder name under the migrations folder), and **a canary for every model
-  the cards ran on**: given `--terms`, each engine and exact model in `card_meta` (and the codex effort and light model,
-  now recorded) needs a passing `<work>/state/canary-*.json`, or it is a finding.
-- **`isolation.py canary --effort`** (codex; agy's effort is in its model id), and the result names the effort used.
+- **`readiness.py`: `paths_naming_terms`** finds a live or staged manifest entry whose path, a copy's path or migration
+  label carries a term (a migration label is a folder name under the migrations folder): paths a later run can still
+  send. `history_paths_naming_terms` counts, as information and never a finding, the names the manifest keeps as history
+  (departed entries, `original_name`, `rename_history`). It also requires **a canary for every model the cards ran
+  on**: given `--terms`, each engine and exact model in `card_meta` needs a passing `<work>/state/canary-*.json`, for
+  codex at the exact effort (the light model's `light_model_effort` is now recorded beside `light_model`), made against
+  the same terms file, or it is a finding. Codex cards with no recorded effort read `not verified`, never a pass.
+  `cards_shield` counts, as not verified, the cards made with no recorded shield or under another terms file.
+- **`isolation.py canary --effort`** (codex; agy's effort is in its model id), and the result names the effort used and
+  records the digest of the terms file it ran against (`terms_sha256`), which readiness must find equal.
 - **`audit.py` reports what it skips** (`summary.json` `not_audited`, the `Not audited` section of `AUDIT.md`) and counts
-  excluded items apart from count-only images (`summary.json` `excluded`).
+  excluded items apart from count-only images (`summary.json` `excluded`). A skipped folder the owner also excluded is
+  named, with that reason, and counts as excluded; a link at the top is one item and is never walked.
 - **`settings.py check` reads `ocr_languages`** against the codes `extract.py` reads, from one list in `common.py`.
 
 ### Changed
@@ -42,11 +59,12 @@ prompt placeholder changed.
 - **The contamination check has no excuse.** A card is compared with its document as the engine was sent it, shielded,
   so a card that names any term is a finding in `cards.py` and in `readiness.py`, including a card made before this
   release under the old rule that a term its own source carried was not an alert.
-- **`audit.py` drops, rather than carries as `departed`, an entry under a path the owner has since excluded**, which
-  would have kept the file's name and real content hash for ever. An excluded item no longer appears in any path-listing
-  section of `AUDIT.md`, and takes no part in the iWork pairing.
-- **`readiness.py` keys `isolation.canary` by `"<engine> <model>"`**, one entry per result file, instead of one per
-  engine. The fixture's prepared cards now record the engine and model they stand for (`agy`, `gemini-fake-high`).
+- **`audit.py` drops, rather than carries as `departed`, an entry whose own path the owner has since excluded**, which
+  would have kept the file's name and real content hash for ever. A departed entry whose own path is not excluded keeps
+  its history, with only a copy's path under an excluded folder taken out. An excluded item no longer appears in any
+  path-listing section of `AUDIT.md`, and takes no part in the iWork pairing.
+- **`readiness.py` keys `isolation.canary` by `"<engine> <model>"`** (for codex, `"<engine> <model> effort <E>"`), one
+  entry per result file, instead of one per engine. The fixture's prepared cards now record the engine and model they stand for (`agy`, `gemini-fake-high`).
 - **The prose** closes the gaps the second reader found: the order of exclusions and terms before the first audit; the
   reserved and skipped names (`Outbox`, `Wiki`, the leading `_`); neutral migration labels; the shield and its
   residual; one canary per model; who the operator and the owner are; recording each model by its exact id; the session

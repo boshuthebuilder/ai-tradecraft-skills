@@ -138,7 +138,10 @@ document started at be judged once the document was moved by a round and then st
   number of files under it: `summary.json` `not_audited` (`{name: count}`), the `Not audited` section of `AUDIT.md`
   with the reason (a reserved name, or a leading `_`, which marks a system folder the deployment also never reads) and
   a log line. A folder holding `Outbox/`, `Wiki/` (when its wiki folder is named otherwise), `_Old invoices/` and
-  `Invoices/` reports the first three. A skipped name the owner also excluded is left out: `exclude` already says so.
+  `Invoices/` reports the first three. A skipped name the owner also excluded is recorded the same way, with a reason that says so
+  (`also excluded by the owner`), and its items count in `excluded`, so the Excluded row never reads 0 for a folder the owner
+  excluded. A link at the top is counted as one item and never walked, and a linked folder inside a skipped folder is one
+  item, so the count never follows a link out of the folder.
 - **What it hashes.** Every item in full, except an image over the rulebook's `image_cap_mb`, which is counted with
   a synthetic id. Hashes are cached in `--cache` (default `<work>/hashcache.json`) by path, size and modification
   time.
@@ -164,9 +167,10 @@ document started at be judged once the document was moved by a round and then st
   reports it as a finding). A typo would otherwise exclude nothing, and the owner's exclusion would reach the engines
   without a word; and an excluded path that is deleted must come out of `exclude`. Dropping an exclusion hashes the file
   at the next audit, and the entry made while it was excluded becomes history.
-- **Audited before an exclusion.** An entry an earlier audit made for a document that now lies under an excluded path
-  would keep the file's name and its real content hash, so the audit drops it (the entry, and a copy's path in it)
-  rather than carrying it as `departed`, and the log counts them. `summary.json` `excluded` counts the excluded items,
+- **Audited before an exclusion.** An entry an earlier audit made for a document whose own current path now lies under
+  an excluded path would keep the file's name and its real content hash, so the audit drops it rather than carrying it as
+  `departed`, and the log counts them. A departed entry whose own path is not excluded keeps its history, with only a
+  copy's path that now lies under an excluded path taken out of it (the log counts these too). `summary.json` `excluded` counts the excluded items,
   apart from `count_only`, which is the images over the cap; `AUDIT.md` has a row for each, and lists no excluded
   item's path in any section (generic names, hygiene, root strays, near matches for an unconverted iWork file,
   migrations); its top-level table counts them. An excluded item takes no part in the iWork pairing, so it is no
@@ -578,9 +582,11 @@ Keeps other projects out of model-facing context. The terms file's format is in
   word, from `secrets`, clear of every term), and asks the engine, in a fresh empty folder and as a factual check of
   its setup, for every personal, family or account name, organisation, company, property, street, address or place
   in its whole context (system and instruction files included), as exactly one line: `NAMES:` and the names
-  separated by commas, starting with that one, and nothing else. It writes `{engine, checked_at, terms, marker,
-  model, effort, reply, usage, hits, answered, pass}` (and `error` when there is one) to `--out`, the reply and any
-  error with their terms masked, and prints it without the reply. `model` is the id given (`cli-default` when none)
+  separated by commas, starting with that one, and nothing else. It writes `{engine, checked_at, terms, terms_sha256,
+  marker, model, effort, reply, usage, hits, answered, pass}` (and `error` when there is one) to `--out`, the reply and any
+  error with their terms masked, and prints it without the reply. `terms_sha256` is the digest of the terms file's forms
+  (`isolation.shield_digest`, never the forms): `readiness.py` accepts a pass only when it equals the digest of the terms
+  file it is given. `model` is the id given (`cli-default` when none)
   and `effort` is the codex effort the canary ran at (`--effort`, default `low`; agy's is part of its model id, so `null`,
   and `--effort` with agy is refused: choose the effort with `--model`). `answered` is
   true only when, after surrounding whitespace, the reply is a **single line** that is `NAMES:` and a
@@ -605,7 +611,10 @@ reports each canary as `not run` ([the skill](../SKILL.md#5-open-the-gate-to-the
 
 `isolation.py` is also the one home of **the shield** (`isolation.shield`, `shield_value`, `shield_digest`, `carries`),
 which the tools that send or write text use ([the card contract](cards.md#the-shield)): each term and marker replaced by
-`[withheld name]`, by the case-insensitive substring match the scan uses, longest first, in one pass.
+`[withheld name]`, by the one matcher (`isolation.alternation`) the scan, `carries` and `masked` use too: case-insensitive,
+in Unicode NFC, a space in a term matching any run of Unicode whitespace (a line break, a no-break space), longest form
+first, in one pass, and idempotent. A name split by a hyphen at a line end, or by a zero-width character, is not matched
+(a settled residual).
 
 ## `cards.py`
 
@@ -647,8 +656,11 @@ items of a group or single call, the section prompt's path and section text, and
 sectioned document. The card records `card_meta.shielded`, how many times a term stood in its document's path and text
 (a count, never the term), when it is above zero, and the log and the closing line count the documents shielded. The
 contamination guard compares each card with that shielded text, so a card that names any term writes the alert.
-`card_meta` also records `via`, `model`, and for `codex` `effort` and, with `--light-model`, `light_model`: what
-`readiness.py` needs to require a canary for each.
+`card_meta` also records `via`, `model`, `shield_sha256` (the digest of the terms' forms, or `none` under
+`--no-isolation-terms`) and for `codex` `effort` and, with `--light-model`, `light_model` and `light_model_effort`
+(always `low`): what `readiness.py` needs to require a canary for each, and to find cards made under another shield.
+A section note the model returns that names a term is contamination too: it writes the alert and stops every worker, and
+is never cached.
 
 `--redo` plans each id as a first run would (its size decides: a long document is read in sections, reusing the
 cached notes), and refuses an id with no extract record. Batches go in `<work>/batches/`, section notes in
@@ -749,7 +761,9 @@ note row routes nothing) and writes one `bundle_<NN>.jsonl` per section to `--ou
 inside the folder, and the tool's own: a rebuild removes `bundles.json` and the section files there). Each line is a
 document: its short id, path, other copies, pages, extract status, and from its card `title`, `doc_type`, `party`,
 `parties`, `doc_date`, `category`, `language` and `sensitive`; then `summary` and `key_facts`, and in an `active`
-section the full text, capped at `--text-cap` characters. In any other section, reading, photos and other bulk
+section the full text, shielded whole and then capped at `--text-cap` characters (a cut never splits a name). A line for a
+document whose path, a copy's path, card or extract text carries a term also has `"shielded": true`, since its source file
+still holds the name: a drafter is told never to open such a source. In any other section, reading, photos and other bulk
 material is listed `compact`, without summary or text. A card with no extract record is refused. A withheld document is
 in no bundle, in neither the `unrouted` nor the `uncarded` list, and in no `copies` list (a copy of an included document
 under a withheld path is left out too); it is counted in the summary the command prints and `bundles.json` keeps
@@ -759,8 +773,9 @@ under a withheld path is left out too); it is counted in the summary the command
 digest `common.withheld_digest` gives: the exclusions, the migrations folder, which documents are withheld and every
 path, copies included, that they hold), `shield` (`{terms, sha256}`: whether terms were given, and the sha256 of the sorted
 forms, never the forms), `arguments` (the
-non-default `--settings-dir`, `--manifest`, `--cards`, `--extract` and `--text-cap` it was built with, and the `--terms` file's path or
-`--no-isolation-terms`), `text_cap`,
+non-default `--settings-dir`, `--manifest`, `--cards`, `--extract` and `--text-cap` it was built with, and
+`--no-isolation-terms` or, for `--terms`, the fixed text `<terms file>`: the terms file's path may carry a term itself, so
+it is never recorded), `text_cap`,
 the counts per section, the files, the withheld counts, and the `unrouted` and `uncarded` paths; either list non-empty
 exits 1. A
 rebuild removes `bundles.json` before anything else, so one that fails part way leaves none to trust, and removes
@@ -945,7 +960,8 @@ by path, so the same blocks give the same bytes however they are grouped. The de
 ### `review-prompts`
 
     wiki.py review-prompts --root <folder> (--terms <file> | --no-isolation-terms) --page <page> [--page <page> ...]
-                           --author-model <model> --reviewer-model <model> [--sample 5] [--cards <dir>] [--out <dir>]
+                           --author-model <model> --reviewer-model <model> [--sample 5] [--cards <dir>] [--extract <dir>]
+                           [--out <dir>]
 
 Renders, for each page, `templates/review-owner.md` (the contract's reader and questions, in order, or for a
 `fixed` section a note that its shape is the method's) and `templates/review-professional.md` (the page's
@@ -953,6 +969,12 @@ professional, deliverable and tone, the contract, the section's routing, the doc
 and a sample of facts from their cards), each carrying the page's text and sha256. They are working files, written
 to `<out>/<page path without .md>.owner.md` and `.professional.md` (default `<work>/reviews/`) and refused inside the
 folder; the same inputs render the same bytes. A reviewer model equal to the author model is refused.
+
+**A source that carries a term is not to be opened.** Given the terms, a cited document whose path, a copy's path, card
+(`card_meta.shielded`) or extract text (`--extract`, default `<root>/_Audit/extract`) carries a term is listed under "Its
+sources" as `do not open; it carries a name kept from you`, and none of its facts is sampled: its file still holds the name
+the prompt withholds. The professional template says never to open it and to say in a finding what could not be checked;
+the owner template says to open no source file.
 
 The sample is fixed by rule, so a second review of a page checks the same facts: every non-empty date, amount and
 reference number in the `key_facts` of the cards of the documents the page cites (in `sources:` or backticks, by
@@ -1281,25 +1303,33 @@ same way, which is not a finding and not a pass either, and does not change the 
   extract records, which `repath` cannot read, are dealt with), `contamination` (a
   card naming an isolation term, compared with its document's text as the engine was sent it, shielded, so any term a
   card names is a finding, and so is one a card made before the shield names under the old excuse that its source
-  carried it; `not verified` without `--terms`) and `paths_naming_terms` (manifest entries of any state, live, departed
-  or withheld, whose current path, any copy's path or `migration_target` / `migration_targets` carries a term or marker:
-  a finding, its samples masked as `<term>`, which also covers a migration label, a folder name under the migrations
-  folder; `not verified` without `--terms`). A
+  carried it; `not verified` without `--terms`), `cards_shield` (the count of cards whose recorded shield,
+  `card_meta.shield_sha256`, is absent or is not the digest of the terms file given: made with no shield or under another
+  list; not a finding, since `contamination` still reads them, but not verified, and listed in `not_verified`),
+  `paths_naming_terms` (live or withheld manifest entries, not `departed`, whose current path, any copy's path or
+  `migration_target` / `migration_targets` carries a term or marker, which a later run can still send: a finding, its
+  samples masked as `<term>`, which also covers a migration label, a folder name under the migrations folder; `not
+  verified` without `--terms`) and `history_paths_naming_terms` (information only, never a finding: entries whose
+  `original_name` or `rename_history` paths carry a term, and every departed entry that does, history the manifest keeps and
+  no tool sends, for which the operator has no remedy). A
   count above zero is one finding. A check that needed a card or extract record that could not be read says so for
   that document rather than reading it clean: `bad_category`, `extract_paths_stale` and `contamination` become `not
   verified for N document(s) whose ... is malformed` (after the count, `1; not verified ...`, when some documents were checked and
   one held a finding), and are listed in `not_verified`.
 - `isolation.canary`: one entry for each canary result `isolation.py canary --out` wrote, every
-  `<work>/state/canary-*.json` (the older `canary-<engine>.json` names among them), keyed `"<engine> <model>"` (a file
-  that shares its key with another is keyed with its file name too): `passed (model M, effort E)`, `failed: ...` (a
-  finding) or `not verified: ...` (a pass recorded without `answered` and the invented `marker`, so from a canary a
-  refusal could pass: run it again). A file that is not a canary result for `agy` or `codex` is a tool error. The cards
-  record the engine and model they ran on (`card_meta.via`, `card_meta.model`, for `codex` `card_meta.effort`, and
-  `card_meta.light_model` when `--light-model` was used), and **given `--terms`, each such pair needs a passing canary for
-  that engine and exact model** (for `codex`, at the effort the cards record when the canary records one): a pair without
-  one is `finding: ...` and names the command to run, never `not run`. Without `--terms` a pair with no canary is `not
-  run: ...` (not verified). A card that records no engine and model, or an engine the canary cannot check, is not
-  verified. With no card to name a pair, an engine with no canary file reads `not run`, keyed by the engine alone.
+  `<work>/state/canary-*.json` (the older `canary-<engine>.json` names among them), keyed `"<engine> <model>"` and, for
+  codex, `"<engine> <model> effort <E>"` (files that share a key are keyed with their file names too): `passed (model M,
+  effort E)`, `failed: ...` (a finding) or `not verified: ...` (a pass recorded without `answered` and the invented
+  `marker`, so from a canary a refusal could pass; or, given `--terms`, one that records no `terms_sha256`, made before the
+  canary recorded it, or another one: run it again). A file that is not a canary result for `agy` or `codex` is a tool
+  error. The cards record the engine and model they ran on (`card_meta.via`, `card_meta.model`, for `codex`
+  `card_meta.effort`, and `card_meta.light_model` with `card_meta.light_model_effort` when `--light-model` was used), and
+  **given `--terms`, each pair needs a passing canary for that engine and exact model**, for `codex` at that exact effort
+  (the light model's included) and against the same terms file: a pair without one is `finding: ...` and names the command
+  to run, never `not run`. A codex pair whose cards record no effort (made before it was recorded) is `not verified: the
+  cards record no effort`, never a pass. Without `--terms` a pair with no canary is `not run: ...` (not verified). A card
+  that records no engine and model, or an engine the canary cannot check, is not verified. With no card to name a pair, an
+  engine with no canary file reads `not run`, keyed by the engine alone.
 - `wiki`: [`wiki.py check`](#check-1)'s report, reading the Schema from `--settings-dir`; its `problems` are one
   finding and its not-verified states are listed.
 - `wiki_handoff`: `rationale_file`, a finding when `_Audit/wiki-rationale.md` is missing (`check` reports it `not

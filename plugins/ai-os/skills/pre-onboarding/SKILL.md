@@ -88,8 +88,11 @@ archetype); keeping a wiki that already exists (`wiki-maintenance`).
   it in their own editor and gives the session its path alone; the names never enter the conversation. List only
   names distinct to the other projects: never the owner's own name, this folder's own organisation, or an
   identifier it shares with the operator's other affairs (a home address, a tax reference), since the folder's own
-  settings name its people and every scan of them would fail. Matching is by case-insensitive substring, so prefer full
-  names: a short term also masks inside longer words, which garbles the word and never leaks it. Ask the operator for
+  settings name its people and every scan of them would fail. Matching is by case-insensitive substring, in
+  Unicode NFC, with a space in a term matching any run of whitespace (a name wrapped at a line end, or set with a
+  no-break space, is still the name); prefer full names, since a short term also masks inside longer words, which
+  garbles the word and never leaks it. A name split by a hyphen at a line end, or by a zero-width character, is not
+  matched: that residual is settled. Ask the operator for
   the path, and settle the file before the first audit ([step 1](#1-audit)); the format is in
   [the card contract](references/cards.md#the-terms-file), and what the tools do with it, [the
   shield](references/cards.md#the-shield), in [step 5](#5-open-the-gate-to-the-engines). Where there is genuinely nothing
@@ -147,8 +150,8 @@ only in the cloud stops the audit with a list: download it, or, with the owner's
 which makes the audit download every cloud-only file under the folder (on a large folder, most of what the owner keeps
 in the cloud). Show the owner `AUDIT.md` before asking anything, its **Not audited** section included: the walk skips
 `Outbox`, `Wiki`, every name the rulebook reserves and every top-level folder that begins with `_` (a system folder,
-which the deployment never reads either), and that section names each one the folder holds with its item count, so the
-owner can say whether anything under one needs preparing. This first audit is a look: it runs again once the
+which the deployment never reads either), and that section names each one the folder holds with its item count (one the owner also
+excluded is named too, and counted as excluded), so the owner can say whether anything under one needs preparing. This first audit is a look: it runs again once the
 interview has settled the packs ([step 2](#2-interview-the-owner-write-the-rulebook-and-its-twin)).
 
 ### 2. Interview the owner; write the rulebook and its twin
@@ -362,13 +365,17 @@ canary (in one measured run a Flash-tier Gemini model refused it where a Pro-tie
 model on `agy` or `codex` (a codex canary runs at `--effort`, default `low`, and the cards at their own `--effort`,
 default `medium`; the two must match, so canary with the effort the cards will use, `--effort medium` for the default;
 agy has none to set, because its effort is part of its model id, and `--effort` with agy is refused), a codex
-`--light-model`, and the vision model when it differs from the card model. Write each to a file of
+`--light-model` (its section notes always run at `low`, so canary it with `--effort low`, whatever the main effort),
+and the vision model when it differs from the card model. Write each to a file of
 its own, `<work>/state/canary-<engine>-<model>.json` (a codex model run at two efforts adds the effort to the name).
 The same model can decline on one run and answer on the next: a decline proves nothing either way, so run the canary
 again. A model that declines three runs in a row cannot be cleared for this folder, so card with one that answers.
-Each result records the `model` and `effort` that were cleared. The cards record the model, engine and effort they ran
-on, and `readiness.py`, given the terms file, reads every `canary-*.json` and **requires a passing one for every
-engine and model the cards ran on**; a model with none is a finding, not a gap to remember. The vision model is the
+Each result records the `model` and `effort` that were cleared, and the digest of the terms file it ran against
+(`terms_sha256`, never the terms): change the list and run the canary again. The cards record the model, engine and
+effort they ran on, the light model's effort included, and `readiness.py`, given the terms file, reads every
+`canary-*.json` and **requires a passing one for every engine and model the cards ran on, for codex at that exact
+effort, made against the same terms file**; a model with none is a finding, not a gap to remember. Codex cards made
+before the effort was recorded read as not verified, never as a pass: card them again to clear them. The vision model is the
 exception: the extract records name the engine that read a page and not its model, so readiness cannot require its
 canary, and the hand-off should say which file cleared the vision lane. Each command clears its
 `--out` file before it even reads its command line, so a run that stops early (or is refused) leaves no earlier pass
@@ -380,14 +387,18 @@ so never start one without passing ones. A failure means the engine's context ca
 the terms file, `cards.py`, `vision.py` and the wiki's `profile`, `bundles`, `brief` and `review-prompts` replace every
 term and marker in every path and text they send or write with `[withheld name]`, whatever its case, and say how many
 they replaced. A document that carries a term is still carded, from its text with the term withheld, and its card
-records the count (`card_meta.shielded`). Matching is by case-insensitive substring, so prefer full names in the terms
-file. An image cannot be shielded: the vision lane sends none of a document whose path or whose extract text carries a
+records the count (`card_meta.shielded`) and the digest of the terms it was made under (`card_meta.shield_sha256`).
+Matching is the scan's (case-insensitive, in Unicode NFC, a space standing for any run of whitespace), so prefer full
+names in the terms file. A section note that names a term is contamination (its section was sent without one): it stops
+the cards like a contaminated card. An image cannot be shielded: the vision lane sends none of a document whose path or whose extract text carries a
 term, marks its queued pages `unread` with the local text kept, and counts such documents in its log. The residual is a
 term visible only on a page that local OCR could not read, which nothing can find before the image is sent. A document
 that must reach no model at all, even shielded, the owner excludes. `readiness.py --terms` then reports what the shield
-could not prevent: a card that names a term (the engine was never shown one), a manifest path, copy path or migration
-label that carries one, and a model with no canary. Each of the four commands refuses to run without `--terms` or
-`--no-isolation-terms`, so that running unshielded is always a stated decision.
+could not prevent: a card that names a term (the engine was never shown one), a live or staged manifest path, copy path
+or migration label that carries one (history the manifest keeps, such as a departed entry or a document's first name, is
+counted as information, since no later run sends it), a model with no canary, and, as not verified, the cards made with
+no recorded shield or under another terms file. Each of those commands, `cards.py work` and `vision.py` included,
+refuses to run without `--terms` or `--no-isolation-terms`, so that running unshielded is always a stated decision.
 
 **When no agy model passes.** The vision lane cannot run. The pages local OCR could not read stay `pending_vision` in
 records whose status is `needs_vision`: `cards.py build` counts their documents as waiting for ever, and readiness
@@ -458,9 +469,15 @@ the operator's user-level instruction file and any file it imports, the instruct
 of every parent folder, and the memory files of the working directory the session was started in. Those name the
 operator's other affairs, no brief mentions them, and no engine canary covers them. A brief limits what a subagent is
 told to read: its brief, which carries the Schema's tables (the page brief tells the drafter not to open the Schema
-page), the core wiki rule, the bundles and the source files a bundle line names; not the terms file, `<work>/state`, or
+page), the core wiki rule, the bundles and the source files a bundle line names, except one marked `"shielded": true`;
+not the terms file, `<work>/state`, or
 anything under `_Audit/` the brief does not name (the manifest and `AUDIT.md` name the project a staged file is bound
-for, and a departed entry keeps it). A brief is no isolation, so hold three controls. Start the preparation session
+for, and a departed entry keeps it). **A bundle line marked `"shielded": true`** is a document whose text or path carries a
+name from the terms file: its line reads `[withheld name]`, but its source file still holds the name. The page brief and
+both review prompts say never to open such a source, a review prompt lists it as "do not open" and samples none of its
+facts, and the drafter works from the bundle line and its card. The tools cannot restrict a subagent's file access, so
+the residual is plain: a subagent with file access could still open the file. The guard is that instruction, and the
+fact that the bundle already holds the text it needs, shielded. A brief is no isolation, so hold three controls. Start the preparation session
 from a working directory that loads no other project's instructions or memory: the folder being prepared, or a neutral
 empty folder, with no instruction file in any parent folder. Have the coordinator write no memory during the wiki
 stage, since a later subagent would load it. A session also loads more than files: its plugin and skill listings, its
@@ -695,10 +712,10 @@ What a deployment relies on when it onboards a prepared folder, and what `readin
   redundant copies, hygiene defects, unconverted iWork files), and no live entry's current path is gone.
 - **Every live document `extract.py` reads has an extract record and a card**; each card's category is one the
   rulebook allows, each record's path agrees with the manifest (`extract.py repath` repairs one that does not), no
-  card names an isolation term (each was made from its document with every term withheld), and no manifest path, copy
-  path or migration label carries one.
-- **The gate ran**: every engine and model the cards ran on has a passing canary, or the terms check was not run, which
-  is reported as not verified.
+  card names an isolation term (each was made from its document with every term withheld), and no live or staged
+  manifest path, copy path or migration label carries one.
+- **The gate ran**: every engine and model the cards ran on has a passing canary (for codex at the effort the cards ran
+  at, against the terms file in use), or the terms check was not run, which is reported as not verified.
 - **The wiki** is at `<folder name> Wiki/`, with the fixed pages `00 Index`, `01 Deadlines`, `90 Schema` and
   `91 Log`, and `wiki.py check` reports zero problems (numbered sections, frontmatter, `sources:` lists and
   folder-relative backticked paths that exist, links, em dashes, coverage, charts, rationale blocks).
