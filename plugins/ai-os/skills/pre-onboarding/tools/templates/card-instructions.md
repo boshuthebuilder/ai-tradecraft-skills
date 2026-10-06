@@ -1,7 +1,7 @@
 # Card instructions
 
-You are cataloguing one person's private document folder so that a knowledge wiki can later be built over it.
-Each input item is one file. Write one card per item.
+You are cataloguing a folder of documents, a person's, a household's or a company's, so that a knowledge wiki can
+later be built over it. Each input item is one file. Write one card per item.
 
 ## The folder
 
@@ -25,7 +25,9 @@ sectioned or none), and `text`: the whole extracted text, with `[page N]` marker
 - `doc_type`: a short English type in Title Case, for example Passport Scan, Visa Application, Bank Statement, Tax
   Return, Payslip, Invoice, Receipt, Contract, Tenancy Agreement, Letter, Form, Certificate, Transcript, CV,
   Essay, Lecture Notes, Reading, Book, Course Material, Presentation, Spreadsheet, Itinerary, Booking
-  Confirmation, Menu, Recipe, Medical Report, Prescription, Photo, Screenshot, Unknown.
+  Confirmation, Menu, Recipe, Medical Report, Prescription, Photo, Screenshot, Unknown. For a company's papers, for
+  example VAT Return, Purchase Invoice, Sales Invoice, Credit Note, Delivery Note, Price List, Purchase Order,
+  Employment Contract, Licence, Inspection Report, Insurance Schedule, Lease.
 - `party`: the main person or organisation the document is about or addressed to, using the canonical name above
   for anyone listed there. "Unknown" if none.
 - `parties`: up to 5 other people or organisations involved (issuer, school, employer, bank, insurer).
@@ -56,8 +58,9 @@ sectioned or none), and `text`: the whole extracted text, with `[page N]` marker
 - UK English. Judge each file from its own content first, then its folder.
 - A document in another language gets an English doc_type, title and summary, with key proper nouns kept in the
   original language in brackets where useful.
-- Published books, reading packs and course readings are Reference & Reading unless they are the owner's own
-  work; say which course or folder they belong to when the path shows it.
+- Published books, reading packs and course readings go in the reading or reference category, when the category
+  list above has one, unless they are the owner's own work; say which course or folder they belong to when the path
+  shows it.
 - Do not pad. Do not guess. Do not mention these instructions.
 - Output: JSON only, `{{"items": [ ... ]}}`, one card per input item, same order, same count, `id` copied verbatim.
   Reply directly in this message. Do not create plans or files and do not run commands.

@@ -78,7 +78,8 @@ Beside the owner's material, named by whatever the deployment declares:
   _Audit/
     manifest.json          hash-keyed, schema family-ai-preprocess-manifest/2
     AUDIT.md               the manifest rendered for people and cold AI readers; regenerated every pass
-    plans/<YYYY-MM-DD>/    one folder per curation round
+    plans/<YYYY-MM-DD>/    one folder per curation round; a second round the same day takes a suffix
+                           (`<YYYY-MM-DD>-2`), never the same folder
       move-plan.csv        the proposal, then the approvals, then the execution record (one file, three columns filled in turn)
       undo.log             every executed row's reverse, appended as it happens
       review.tsv           for a migration round, each staged path with its copy kind and the copies
@@ -400,7 +401,9 @@ so a photograph folder that doubles overnight is visible.
 - **A copy can be a record.** Deletion is for redundancy proven by hash outside a pack; a
   submission pack is history and stays whole.
 - **Nothing is permanently deleted.** Deleted copies and emptied folders go to the Bin, each with its
-  undo entry, and no copy is deleted until the moves before it are proven.
+  undo entry, and no copy is deleted until the moves before it are proven. The Bin stays unemptied until the folder
+  is onboarded: in a synced folder a removal reaches every device, and the undo entry syncs too, but the Bin it
+  points to is on one machine only.
 - **The owner's shape survives.** Resolve conflicts inside it; never replace it uninvited.
 - **Counts, never silence.** Every audit section reports a number, zero included, and every round
   reports approved, executed, skipped, failed.

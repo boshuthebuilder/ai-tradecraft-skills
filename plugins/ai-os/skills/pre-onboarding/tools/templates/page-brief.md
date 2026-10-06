@@ -39,6 +39,13 @@ folders taken out, and do not open the Schema page.
 
 {schema_tables}
 
+## What you may read
+
+This brief, the core wiki rule, the bundles above and the source files a bundle line names. To check a dated rule (a
+rate, a threshold, a deadline), which the core wiki rule asks you to do, read the issuing authority's own publication
+and no other site, and flag the rule as unchecked if you cannot. Read nothing else: not the Schema page, the manifest
+or `AUDIT.md`, nothing else under `_Audit/`, and nothing else outside this folder.
+
 ## What to do
 
 1. Read the Schema's tables above and the core wiki rule: its page contracts, rich pages, outside
@@ -56,6 +63,29 @@ folders taken out, and do not open the Schema page.
 
 ```json
 {return_shape}
+```
+
+## What the checks read
+
+The checker, and later the hand-off check, read every page as plain text, so write to these rules:
+
+- **No em dash** in the body outside inline code, nor in any `note` or `deadline_note` value, which the Deadlines
+  page copies. A source title, supplier name or menu name that holds one goes inside backticks in the body; elsewhere
+  use a comma, a colon or two sentences.
+- **Frontmatter** is plain `key: value` pairs at the left edge between `---` fences. Quote every `note` and
+  `deadline_note`: an unquoted value with a colon and a space in it, a bare `yes`, `no`, `on` or `off`, or a time such
+  as `12:30` is read as something other than text, and the page cannot be verified.
+- **Dates.** A forward date goes in `deadlines:` as `YYYY-MM-DD`, or as a date with a quoted note. A date that comes
+  round every year goes in `recurring:`, written as the day and the month name in full: a reader who writes the day
+  first reads it right, where `04-05` reads either way round.
+
+```yaml
+deadlines:
+  - date: 2026-04-05
+    note: "VAT return due"
+recurring:
+  - date: 5 April
+    note: "Year end for the accounts"
 ```
 
 ## The rationale blocks
