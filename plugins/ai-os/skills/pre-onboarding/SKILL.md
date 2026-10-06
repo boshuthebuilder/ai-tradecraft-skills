@@ -312,8 +312,10 @@ exists) and agy's `~/.gemini/GEMINI.md`. They assume each engine's default home:
 missing `~/.codex` or `~/.gemini` is an error, as a typo would be. A file missing from a folder the machine has is
 skipped and listed in the result's `absent` and on stderr, so read `absent` and check it holds only files the machine
 really lacks. `scan` expands `~` and variables itself, follows links into folders (skills are often links; a broken
-one is an error, never a skip), and stops with an error on a path that still holds `~` or `$`, or whose folder does
-not exist: that is a typo, and a typo must never read as a clean scan.
+one is an error, never a skip), and stops with an error on a path whose expansion was left undone (a leading `~user`
+the machine lacks, or a `$NAME` that is not set) or whose folder does not exist: that is a typo, and a typo must never
+read as a clean scan. A `~` inside a name is part of the name and is accepted, as in every iCloud Drive path
+(`.../Mobile Documents/com~apple~CloudDocs/...`).
 
 `canary` checks a cooperating engine: it plants an invented name in the engine's context and asks the engine for
 every name it holds, as exactly one line, `NAMES:` and the names separated by commas, starting with that one. It
@@ -423,13 +425,14 @@ as files and every file the session loads, with the same `scan` as step 5:
 Do not build those paths by hand. Take the exact path of each instruction and memory file the session itself loaded
 from what the session reports (for Claude Code, its memory listing and the instruction files it names), as absolute
 paths, quoted, each given as `--if-present`, and add every file a user-level instruction file imports and every
-instruction file of a parent folder, or start from a folder that has none. `scan` refuses a path that still holds `~`
-after expansion: a project-memory folder's name holds none, since every character of the working directory's path
-other than an ASCII letter or digit is written as `-` (look under `~/.claude/projects/` if the report does not give
-it). For the session's own files, a path `scan` refuses because its folder does not exist is a wrong path: correct it
-and run the scan again. It is never a line to drop (step 5's rule is for an engine the machine lacks). A file or folder
-the session does not have, such as a memory folder in a fresh working directory or a user-level instruction file the
-operator never wrote, is listed in `absent`: read the list and check that each entry is truly absent. `.familyai` has
+instruction file of a parent folder, or start from a folder that has none. `scan` refuses a path whose `~user` or
+`$NAME` expansion was left undone, and accepts a `~` inside a name, as in an iCloud Drive path: a project-memory
+folder's name holds neither, since every character of the working directory's path other than an ASCII letter or digit
+is written as `-` (look under `~/.claude/projects/` if the report does not give it). For the session's own files, a
+path `scan` refuses because its folder does not exist is a wrong path: correct it and run the scan again. It is never
+a line to drop (step 5's rule is for an engine the machine lacks). A file or folder the session does not have, such as
+a memory folder in a fresh working directory or a user-level instruction file the operator never wrote, is listed in
+`absent`: read the list and check that each entry is truly absent. `.familyai` has
 changed since step 5 (the compiled Schema), and a subagent working in the folder loads the rulebook, which tells it to
 follow the Schema page, so all three are scanned again with the briefs. `scan` refuses a path that does not exist:
 leave out the Schema page before it is written, and `<work>/reviews` before the first review prompt. It creates

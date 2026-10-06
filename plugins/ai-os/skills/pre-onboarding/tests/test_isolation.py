@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOOLS = os.path.join(HERE, "..", "tools")
@@ -180,8 +181,8 @@ class ScanTest(Case):
         write(os.path.join(d, "clean.md"), "Write a card for each document.")
         write(os.path.join(self.env["HOME"], ".codex", "AGENTS.md"), "Remember Zarnwick Farm.")
         cases = {
-            "an unexpandable user": ("~nosuchuser-qx/.codex/AGENTS.md", "still holds ~ or $"),
-            "an unset variable": ("$NO_SUCH_VARIABLE_QX/AGENTS.md", "still holds ~ or $"),
+            "an unexpandable user": ("~nosuchuser-qx/.codex/AGENTS.md", "unexpanded"),
+            "an unset variable": ("$NO_SUCH_VARIABLE_QX/AGENTS.md", "unexpanded"),
             "a folder that does not exist": (os.path.join(self.tmp, "nowhere", "AGENTS.md"),
                                              "its folder does not exist"),
             "a misspelt engine home": ("~/.codx/AGENTS.md", "its folder does not exist"),
@@ -195,6 +196,111 @@ class ScanTest(Case):
                 self.assertIn(why, err)
                 self.assertEqual(stdout, "", "a typo must not print a result that reads as a scan")
                 self.assertFalse(os.path.exists(out), "a typo must leave no result file")
+
+    def test_an_unexpanded_tilde_or_variable_is_refused_for_every_path_the_tool_expands(self):
+        """The same rule for `--path` as for `--if-present`: a leading `~user` the machine lacks and a `$NAME` that is
+        not set are typos, named as such, whichever option carries them."""
+        d = os.path.join(self.tmp, "prompts")
+        write(os.path.join(d, "clean.md"), "Write a card for each document.")
+        for option in ("--path", "--if-present"):
+            for given in ("~nosuchuser-qx/Prepared/instructions.md", "$NO_SUCH_VARIABLE_QX/instructions.md",
+                          "${NO_SUCH_VARIABLE_QX}/instructions.md", "~nosuchuser-qx"):
+                with self.subTest(option=option, given=given):
+                    out = os.path.join(self.tmp, "gate", "scan.json")
+                    args = ["--path", d, option, given] if option == "--if-present" else ["--path", given, "--path", d]
+                    code, stdout, err = self.iso("scan", "--terms", self.terms, *args, "--out", out)
+                    self.assertEqual(code, 2, stdout)
+                    self.assertIn("%s %s still begins with ~ or holds an unexpanded $NAME" % (option, given), err)
+                    self.assertEqual(stdout, "", "a typo must not print a result that reads as a scan")
+                    self.assertFalse(os.path.exists(out), "a typo must leave no result file")
+
+    def test_an_unexpanded_path_is_masked_in_the_error(self):
+        code, stdout, err = self.iso("scan", "--terms", self.terms, "--path", "~nosuchuser-qx/Zarnwick Farm/a.md")
+        self.assertEqual(code, 2, stdout)
+        self.assertIn("~nosuchuser-qx/<term>/a.md", err)
+        self.assertNotIn("Zarnwick", err)
+
+    def icloud_drive(self):
+        """A folder shaped like the iCloud Drive of a machine, in the temporary HOME: the `~` of `com~apple~CloudDocs`
+        is part of a folder's name."""
+        return os.path.join(self.env["HOME"], "Library", "Mobile Documents", "com~apple~CloudDocs")
+
+    def test_a_tilde_inside_a_path_component_is_accepted_for_every_path_option(self):
+        drive = self.icloud_drive()
+        prepared = os.path.join(drive, "Prepared Folder")
+        write(os.path.join(prepared, "instructions.md"), "Write a card for each document.")
+        write(os.path.join(prepared, "Schema.md"), "Remember Zarnwick Farm.")
+        terms = os.path.join(drive, "terms~kept.txt")
+        write(terms, TERMS)
+        out = os.path.join(drive, "gate~out", "scan.json")
+        file_ = os.path.join(prepared, "instructions.md")
+        spellings = {"as given": lambda p: p,
+                     "from the home folder": lambda p: "~" + p[len(self.env["HOME"]):],
+                     "from a variable": lambda p: "$HOME" + p[len(self.env["HOME"]):]}
+        for how, spell in spellings.items():
+            with self.subTest("--path, a file, %s" % how):
+                code, stdout, err = self.iso("scan", "--terms", terms, "--path", spell(file_), "--out", out)
+                self.assertEqual((code, json.loads(stdout)["files_checked"], json.loads(stdout)["pass"]),
+                                 (0, 1, True), err)
+                self.assertEqual(json.loads(read(out)), json.loads(stdout), "--out inside such a folder is written")
+            with self.subTest("--path, a folder, %s" % how):
+                code, stdout, err = self.iso("scan", "--terms", terms, "--path", spell(prepared))
+                self.assertEqual((code, list(json.loads(stdout)["files_with_terms"])), (1, ["0:Schema.md"]), err)
+            with self.subTest("--if-present, a file the machine has, %s" % how):
+                code, stdout, err = self.iso("scan", "--terms", terms, "--path", prepared, "--if-present",
+                                             spell(file_))
+                self.assertIn(code, (0, 1), err)
+                res = json.loads(stdout)
+                self.assertEqual((code, res["files_checked"], res["absent"], list(res["files_with_terms"])),
+                                 (1, 3, [], ["0:Schema.md"]), err)
+            with self.subTest("--if-present, a file the machine lacks, %s" % how):
+                gone = os.path.join(prepared, "AGENTS.override.md")
+                code, stdout, err = self.iso("scan", "--terms", terms, "--path", file_, "--if-present", spell(gone))
+                self.assertIn(code, (0, 1), err)
+                res = json.loads(stdout)
+                self.assertEqual((code, res["files_checked"], res["absent"], res["pass"]), (0, 1, [gone], True), err)
+                self.assertIn("absent, and not an error: %s" % gone, err)
+
+    def test_an_if_present_file_with_a_term_inside_such_a_folder_is_read_and_reported(self):
+        prepared = os.path.join(self.icloud_drive(), "Prepared Folder")
+        instructions = os.path.join(prepared, "instructions.md")
+        write(instructions, "Remember Zarnwick Farm.")
+        clean = os.path.join(self.tmp, "prompts")
+        write(os.path.join(clean, "clean.md"), "Write a card for each document.")
+        code, stdout, err = self.iso("scan", "--terms", self.terms, "--path", clean, "--if-present", instructions)
+        self.assertIn(code, (0, 1), err)
+        res = json.loads(stdout)
+        self.assertEqual((code, res["files_with_terms"], res["pass"]), (1, {"1:instructions.md": 1}, False), err)
+
+    def test_what_the_tilde_rule_accepts_and_refuses(self):
+        """`isolation.expand`: only an expansion left undone is refused, so a `~` or a `$` that is part of a name is
+        kept as it is."""
+        home = self.env["HOME"]
+        env = {"HOME": home, "SHOWN": "/shown"}
+        accepted = {
+            "~/Library/Mobile Documents/com~apple~CloudDocs/x.md":
+                home + "/Library/Mobile Documents/com~apple~CloudDocs/x.md",
+            "$HOME/Library/Mobile Documents/com~apple~CloudDocs": home + "/Library/Mobile Documents/com~apple~CloudDocs",
+            "/a/com~apple~CloudDocs/x.md": "/a/com~apple~CloudDocs/x.md",
+            "/a/b~/x.md": "/a/b~/x.md",
+            "/a/~b/x.md": "/a/~b/x.md",
+            "/a/~/x.md": "/a/~/x.md",
+            "a/~draft.md": "a/~draft.md",
+            "./~draft.md": "./~draft.md",
+            "/a/Cost $ notes/x.md": "/a/Cost $ notes/x.md",
+            "/a/price$": "/a/price$",
+            "${SHOWN}/x": "/shown/x",
+        }
+        refused = ["~nosuchuser-qx", "~nosuchuser-qx/x.md", "$NOT_SET_QX/x.md", "${NOT_SET_QX}/x.md",
+                   "/a/$NOT_SET_QX/x.md"]
+        with mock.patch.dict(os.environ, env, clear=False):
+            for given, want in accepted.items():
+                with self.subTest(accepted=given):
+                    self.assertEqual(isolation.expand(given, "--path", {}), want)
+            for given in refused:
+                with self.subTest(refused=given):
+                    with self.assertRaisesRegex(common.ToolError, "still begins with ~ or holds an unexpanded"):
+                        isolation.expand(given, "--path", {})
 
     def test_a_scan_that_ends_early_leaves_no_earlier_pass_behind(self):
         out = os.path.join(self.tmp, "gate", "scan.json")

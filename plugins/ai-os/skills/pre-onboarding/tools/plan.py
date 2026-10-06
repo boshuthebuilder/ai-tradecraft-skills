@@ -16,6 +16,9 @@ row's evidence before the move and the destination's after it, never overwrite, 
 holds nothing but `.DS_Store`, deletes only of copies the manifest marks `redundant`, never inside a pack, and only
 after every other approved row is done and the manifest was regenerated after them, deleted items moved to the Bin
 (never unlinked).
+Every subcommand that takes `--root` also takes `--work`, as the other tools do: its start purges what withheld
+documents left behind (`common.purge_withheld`) in the work folder it resolved, `--work` else the default for the
+folder, and in no other. It keeps no state there of its own.
 A path the rulebook excludes is proposed nothing, and a row whose `from` or `to` is one is refused by `check` and
 `execute` before any hashing: the plan tools never open an excluded file. A `delete` row is refused, before either file
 is hashed, when its copy, the canonical copy it would open to prove the bytes equal, or the document the manifest holds
@@ -598,6 +601,8 @@ def main():
     def with_root(p, writes=True):
         p.add_argument("--root", required=True)
         p.add_argument("--settings-dir")
+        p.add_argument("--work", help="state directory outside the folder (default ~/.ai-os-pre-onboarding/<folder>); "
+                       "the one whose withheld artefacts are purged at the start")
         p.add_argument("--manifest", help="default <root>/_Audit/manifest.json")
         if writes:
             p.add_argument("--read-only-root", action="store_true")
@@ -641,8 +646,9 @@ def main():
         if not os.path.isdir(root):
             raise common.ToolError("root missing: %s" % root)
         settings_dir = common.settings_dir_for(root, a.settings_dir)
+        work = common.work_dir_for(root, a.work)
         common.verify_twins(root, settings_dir)
-        common.purge_at_start(root, settings_dir, common.default_work(root), a, True)
+        common.purge_at_start(root, settings_dir, work, a, True)
     return {"light": light, "migrate": migrate, "return": return_, "approve": approve, "rmdirs": rmdirs,
             "check": check, "execute": execute, "prove": prove}[a.cmd](a)
 

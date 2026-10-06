@@ -166,6 +166,16 @@ def default_work(root):
                                                                                os.path.basename(root)))
 
 
+def work_dir_for(root, given=None):
+    """The work directory of the folder at `root`: `given` (`--work`) made absolute and used as it is (`~` and variables
+    are not expanded), else the folder's default; refused inside the folder. `resolve` and `plan.py`, which keeps no state
+    there and only purges it, both take it from here, so a tool purges the work directory it resolved and no other."""
+    work = os.path.realpath(given) if given else default_work(root)
+    if within(root, work):
+        raise ToolError("--work must be outside the folder: %s" % work)
+    return work
+
+
 def resolve(args, verify=True, extract=None, cards=None, manifest=None):
     """Normalise the common arguments; returns (root, settings_dir, work). A stale twin is refused here, so every
     tool refuses it, unless `verify` is off: only for settings.py (compile is the remedy, check the diagnosis) and
@@ -177,9 +187,7 @@ def resolve(args, verify=True, extract=None, cards=None, manifest=None):
     if not os.path.isdir(root):
         raise ToolError("root missing: %s" % root)
     settings_dir = settings_dir_for(root, args.settings_dir)
-    work = os.path.realpath(args.work) if args.work else default_work(root)
-    if within(root, work):
-        raise ToolError("--work must be outside the folder: %s" % work)
+    work = work_dir_for(root, args.work)
     if verify:
         verify_twins(root, settings_dir)
     os.makedirs(work, exist_ok=True)

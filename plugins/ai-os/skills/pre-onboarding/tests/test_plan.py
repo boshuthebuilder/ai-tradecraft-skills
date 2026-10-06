@@ -124,14 +124,15 @@ class PlanCase(unittest.TestCase):
     def tearDown(self):
         self.assertFalse(os.path.exists(os.path.join(self.home, ".Trash")), "something used the default Bin")
 
-    def run_tool(self, tool, *args, now=None, script=None):
-        """Run a tool with a temporary HOME and every ResourceWarning an error; a file it leaves open fails."""
+    def run_tool(self, tool, *args, now=None, script=None, cwd=None):
+        """Run a tool (in `cwd`, else the current directory) with a temporary HOME and every ResourceWarning an error;
+        a file it leaves open fails."""
         env = dict(os.environ, HOME=self.home, PYTHONWARNINGS="error::ResourceWarning")
         env.pop("PRE_ONBOARDING_NOW", None)
         if now is not None:
             env["PRE_ONBOARDING_NOW"] = str(now)
         cmd = [sys.executable, "-c", script, TOOLS] if script else [sys.executable, os.path.join(TOOLS, tool)]
-        r = subprocess.run(cmd + list(args), capture_output=True, text=True, env=env, timeout=TIMEOUT)
+        r = subprocess.run(cmd + list(args), capture_output=True, text=True, env=env, timeout=TIMEOUT, cwd=cwd)
         self.assertNotIn("ResourceWarning", r.stderr, "%s left a file open" % tool)
         return r.returncode, r.stdout, r.stderr
 
@@ -1308,6 +1309,130 @@ class ExcludedAfterTheAuditPlanTest(PlanCase):
         self.assertEqual(code, 1, out + err)
         self.assertIn("the from path is excluded", self.status(5)[1])
         self.assertEqual(tree_digest(self.root), before)
+
+
+# ---------------------------------------------------------------------------------------------- work folder
+
+class WorkFolderTest(PlanCase):
+    """`--work` as every other tool takes it: the work folder a plan tool purges at its start is the one it resolved
+    (the argument, else the default for the folder), never another."""
+
+    WITHHELD = "IMG_0001.jpg"   # excluded after the audit: its cached section note is what a withheld document leaves
+
+    def setUp(self):
+        super().setUp()
+        twin = os.path.join(self.root, ".familyai", "rulebook.json")
+        write(twin, json.dumps(dict(json.loads(read(twin)), exclude=[self.WITHHELD]), ensure_ascii=False))
+        for kind in ("extract", "cards"):   # the fixture has a record and a card of it: they would add to the counts
+            os.remove(self.path("_Audit/%s/%s.json" % (kind, self.ids[self.WITHHELD])))
+        self.default_work = os.path.join(self.home, ".ai-os-pre-onboarding", "Alex-Personal")
+        self.given_work = os.path.join(self.tmp, "state kept elsewhere")
+
+    def leave_a_note(self, work):
+        """What a withheld document's cached section note looks like, in the work folder `work`."""
+        note = os.path.join(work, "sections", "%s_codex_1_2_abc.txt" % self.ids[self.WITHHELD][:16])
+        write(note, "[section 1 of 2]\nA note.\n")
+        return note
+
+    def commands(self):
+        """Every subcommand that takes --root, with the arguments it needs (`--work` is added by the test)."""
+        paths = os.path.join(self.tmp, "paths.txt")
+        write(paths, "06 Work/Contract.docx\n")
+        write_rows(self.plan, [])
+        out = os.path.join(self.tmp, "proposed")
+        return {"light": ["light", "--root", self.root, "--out", out],
+                "migrate": ["migrate", "--root", self.root, "--project", "Household", "--paths-file", paths,
+                            "--out", out],
+                "return": ["return", "--root", self.root, "--project", "Household", "--paths-file", paths,
+                           "--out", out],
+                "rmdirs": ["rmdirs", "--root", self.root, "--plan", self.plan],
+                "check": ["check", "--root", self.root, "--plan", self.plan],
+                "execute": ["execute", "--root", self.root, "--plan", self.plan, "--bin", self.bin]}
+
+    PURGED = "purged what withheld documents left behind: 1 cached section note\n"
+
+    def test_every_subcommand_with_a_root_purges_the_work_folder_it_was_given_and_no_other(self):
+        for cmd, args in self.commands().items():
+            with self.subTest(cmd=cmd):
+                given, default = self.leave_a_note(self.given_work), self.leave_a_note(self.default_work)
+                before = tree_digest(self.default_work)
+                code, out, err = self.run_plan(*args, "--work", self.given_work)
+                self.assertEqual(code, 0, out + err)
+                self.assertNotIn("Traceback", err)
+                self.assertIn(self.PURGED, err)
+                self.assertFalse(os.path.lexists(given), "the work folder it was given kept the withheld note")
+                self.assertTrue(os.path.isfile(default), "a work folder it was not given was cleared")
+                self.assertEqual(tree_digest(self.default_work), before)
+                shutil.rmtree(self.default_work)
+
+    def test_without_a_work_argument_it_purges_the_default_work_folder_of_the_folder(self):
+        for cmd, args in self.commands().items():
+            with self.subTest(cmd=cmd):
+                default, other = self.leave_a_note(self.default_work), self.leave_a_note(self.given_work)
+                code, out, err = self.run_plan(*args)
+                self.assertEqual(code, 0, out + err)
+                self.assertIn(self.PURGED, err)
+                self.assertFalse(os.path.lexists(default))
+                self.assertTrue(os.path.isfile(other), "a work folder nobody named was cleared")
+                shutil.rmtree(self.given_work)
+
+    def test_a_work_folder_that_does_not_exist_yet_is_no_error(self):
+        missing = os.path.join(self.tmp, "not made yet", "work")
+        for cmd, args in self.commands().items():
+            with self.subTest(cmd=cmd):
+                code, out, err = self.run_plan(*args, "--work", missing)
+                self.assertEqual(code, 0, out + err)
+                self.assertNotIn("Traceback", err)
+
+    def test_a_relative_work_is_made_absolute_from_the_current_directory(self):
+        here = os.path.join(self.tmp, "here")
+        os.makedirs(here)
+        note = self.leave_a_note(os.path.join(here, "rel", "work"))
+        code, out, err = self.run_plan("light", "--root", self.root, "--out", os.path.dirname(self.plan),
+                                       "--work", os.path.join("rel", "work"), cwd=here)
+        self.assertEqual(code, 0, out + err)
+        self.assertIn(self.PURGED, err)
+        self.assertFalse(os.path.lexists(note))
+
+    def test_a_work_folder_inside_the_folder_is_refused_before_anything_is_purged_or_written(self):
+        link = os.path.join(self.tmp, "a link to the folder")
+        os.symlink(self.root, link)
+        for name, work in {"inside": self.path("scratch"), "the folder itself": self.root,
+                           "through a link": os.path.join(link, "scratch")}.items():
+            for cmd, args in self.commands().items():
+                with self.subTest(name, cmd=cmd):
+                    real = os.path.realpath(work)
+                    note = self.leave_a_note(real)   # inside the folder: a purge before the refusal would remove it
+                    default = self.leave_a_note(self.default_work)
+                    before, before_default = tree_digest(self.root), tree_digest(self.default_work)
+                    code, out, err = self.run_plan(*args, "--work", work)
+                    self.assertEqual(code, 2, out + err)
+                    self.assertIn("error: --work must be outside the folder: ", err)
+                    self.assertNotIn("Traceback", err)
+                    self.assertNotIn("purged", err)
+                    self.assertTrue(os.path.isfile(note), "the note in the refused work folder was purged")
+                    self.assertEqual(tree_digest(self.root), before, "the refused run wrote or removed a file")
+                    self.assertTrue(os.path.isfile(default))
+                    self.assertEqual(tree_digest(self.default_work), before_default)
+                    shutil.rmtree(os.path.join(real, "sections"))
+                    shutil.rmtree(self.default_work)
+                    shutil.rmtree(self.path("scratch"), True)
+
+    def test_the_refusal_is_the_other_tools_refusal(self):
+        inside = self.path("scratch")
+        _c, _o, plan_err = self.run_plan("light", "--root", self.root, "--out", os.path.dirname(self.plan),
+                                         "--work", inside)
+        _c, _o, audit_err = self.run_tool("audit.py", "--root", self.root, "--work", inside)
+        self.assertEqual(plan_err, audit_err)
+        self.assertEqual(plan_err, "error: --work must be outside the folder: %s\n" % os.path.realpath(inside))
+
+    def test_the_subcommands_without_a_root_take_no_work_folder(self):
+        for args in (["approve", "--plan", self.plan, "--rows", "all"],
+                     ["prove", "--plan", self.plan, "--before", self.manifest_path, "--after", self.manifest_path]):
+            with self.subTest(cmd=args[0]):
+                code, _o, err = self.run_plan(*args, "--work", self.given_work)
+                self.assertEqual(code, 2)
+                self.assertIn("unrecognized arguments: --work", err)
 
 
 # ---------------------------------------------------------------------------------------------- migrations

@@ -21,7 +21,7 @@ Stated once here; each tool's section below lists only its own.
 | Tool | `--root` | `--settings-dir` | `--work` | `--out` | `--read-only-root` |
 | --- | --- | --- | --- | --- | --- |
 | `audit.py` | yes | yes | yes | output folder | yes |
-| `plan.py` | `light`, `migrate`, `return`, `rmdirs`, `check`, `execute` | as `--root` | no | plan folder, for `light`, `migrate`, `return` | `light`, `migrate`, `return`, `rmdirs` |
+| `plan.py` | `light`, `migrate`, `return`, `rmdirs`, `check`, `execute` | as `--root` | as `--root` | plan folder, for `light`, `migrate`, `return` | `light`, `migrate`, `return`, `rmdirs` |
 | `extract.py` | yes | yes | yes | records folder | yes |
 | `vision.py` | yes | yes | yes | records folder | yes |
 | `cards.py` | yes | yes | yes | cards folder | yes |
@@ -64,6 +64,9 @@ that could carry such a document or its path:
   current path, its copies', the placements in its `rename_history`, and for a document staged for another project the path
   it was staged from, unless a live document that is not withheld holds that path now.
 
+What it purges in a work directory is the one the tool resolved (`--work`, else the default for the folder), `plan.py`
+included, and never another's.
+
 It prints counts, never a path (`purged what withheld documents left behind: 2 cards, 2 extract records`), once on
 standard error, and nothing when there is nothing to purge. `cards.py work` and `vision.py` read the settings and the
 manifest again and purge again before every batch, so an exclusion or a staging made while one runs holds from its next
@@ -86,7 +89,7 @@ error; every other worker exits 3 at its next batch.
 renamed into place, so no reader sees half a file; with `--read-only-root`, a path inside the folder is refused
 before anything is written. State files in the work directory are written directly.
 
-**The default work directory.** `~/.ai-os-pre-onboarding/` and the name of the folder being prepared, taken from the last part of its real path, with every run of one or more characters that are not an ASCII letter, a digit, `.`, `_` or `-` replaced by a single `-`. So a space, an ampersand, a bracket, a tab, an accented letter and a Chinese character are all replaced: `Alex Personal` gives `Alex-Personal`, `Alex  &  Robin (2024)` gives `Alex-Robin-2024-`, `Café` gives `Caf-` and a name of nothing but Chinese characters gives `-`. Two folders whose names differ only in such characters (`Alex Personal`, `Alex  Personal`, `Alex-Personal`) therefore share one work directory, and so does a folder named `-`; give each its own `--work` where that can happen. The directory is made if it is missing, and a `--work` that is given is used as it is (`~` and variables are not expanded by the tool) and refused inside the folder.
+**The default work directory.** `~/.ai-os-pre-onboarding/` and the name of the folder being prepared, taken from the last part of its real path, with every run of one or more characters that are not an ASCII letter, a digit, `.`, `_` or `-` replaced by a single `-`. So a space, an ampersand, a bracket, a tab, an accented letter and a Chinese character are all replaced: `Alex Personal` gives `Alex-Personal`, `Alex  &  Robin (2024)` gives `Alex-Robin-2024-`, `Café` gives `Caf-` and a name of nothing but Chinese characters gives `-`. Two folders whose names differ only in such characters (`Alex Personal`, `Alex  Personal`, `Alex-Personal`) therefore share one work directory, and so does a folder named `-`; give each its own `--work` where that can happen. The directory is made if it is missing, and a `--work` that is given is used as it is (`~` and variables are not expanded by the tool) and refused inside the folder. `plan.py` takes it the same way (`common.work_dir_for`, which `common.resolve` uses too) but keeps no state there: it only purges what withheld documents left in it.
 
 **The clock.** `PRE_ONBOARDING_NOW` (seconds since the epoch) freezes the clock for the tests, so their outputs
 compare byte for byte; nothing else should set it.
@@ -153,6 +156,14 @@ The curation rounds of [`folder-curation` steps 3 to 6](../../folder-curation/SK
 in the plan format of [`move-plan-schema.md`](../../folder-curation/references/move-plan-schema.md). A plan folder
 is `<root>/_Audit/plans/<YYYY-MM-DD>/`; `--out` and `--plan` are read relative to the current directory, not the
 root.
+
+Every subcommand that takes `--root` also takes `--work <dir>`, as the other tools do
+([common flags](#common-flags)), for a folder whose default work directory is shared with another folder or whose
+state is kept elsewhere. It is made absolute from the current directory, used as it is (`~` and variables are not
+expanded) and refused inside the folder (`--work must be outside the folder: <path>`), exactly as in the other
+tools. `plan.py` keeps no state there. What `--work` selects is the directory whose withheld artefacts the tool's
+start purges ([withheld means purged](#common-flags)): the one it resolved, `--work` else the default for the folder,
+and never another. `approve` and `prove` take no `--root` and so no `--work`.
 
 | Subcommand | Does |
 | --- | --- |
@@ -507,12 +518,18 @@ Keeps other projects out of model-facing context. The terms file's format is in
 - **`scan`** reads every file named, and every `.md`, `.json`, `.py`, `.txt`, `.sh`, `.swift`, `.csv`, `.jsonl`,
   `.toml`, `.yaml` and `.yml` file under each folder named, following links into folders (skills are often installed
   as links) with each real folder read once, so a link loop ends; a broken link, or a folder that cannot be
-  read, is an error, never a skip. A path that does not exist is refused. It expands `~` and environment variables in every path itself, so a quoted
-  `~/.codex/AGENTS.md` works. An `--if-present` file (an engine's global instruction file, such as
-  `~/.codex/AGENTS.md` or `~/.gemini/GEMINI.md`) is read when the machine has it. One missing from a folder that
-  exists is not an error: it is listed in `absent` and printed on standard error in plain words. One still holding
-  `~` or `$` after expansion, whose folder does not exist (`~/.codx/AGENTS.md`), or that is a broken link, is refused
-  with exit 2 and no result: that is a typo or an engine the machine lacks, and it must never read as a clean scan.
+  read, is an error, never a skip. A path that does not exist is refused. It expands `~` and environment variables in
+  every `--path` and `--if-present` itself, so a quoted `~/.codex/AGENTS.md` works, and refuses one whose expansion
+  was left undone (exit 2, no result, `--path <path> still begins with ~ or holds an unexpanded $NAME`): a leading `~`
+  or `~user` for a user the machine lacks, or a `$NAME` or `${NAME}` that is not set. Nothing else about a `~` is
+  refused: one inside a name is part of the name, so a path through `Library/Mobile Documents/com~apple~CloudDocs/`
+  (every iCloud Drive path) is accepted for `--path`, `--if-present`, `--terms` and `--out` alike, and so is a lone `$`
+  that no name follows. An `--if-present` file (an engine's global instruction file, such as
+  `~/.codex/AGENTS.md` or `~/.gemini/GEMINI.md`, or an instruction file or Schema page in a folder kept anywhere) is
+  read when the machine has it. One missing from a folder that exists is not an error: it is listed in `absent` and
+  printed on standard error in plain words. One whose expansion was left undone (above), whose folder does not exist
+  (`~/.codx/AGENTS.md`), or that is a broken link, is refused with exit 2 and no result: that is a typo or an engine
+  the machine lacks, and it must never read as a clean scan.
   Read `absent`: it should hold only files the machine really lacks. The paths assume each engine's default home
   (`~/.codex`, `~/.gemini`): a codex under another `CODEX_HOME` needs that folder's files given instead. It prints
   `{checked_at, files_checked, files_with_terms, absent, terms, pass}`, also to `--out`. A file holding a term is
