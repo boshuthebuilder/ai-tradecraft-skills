@@ -74,7 +74,8 @@ Reconcile the wiki **to the files**:
    the ingest itself — the job's own name, usually with the run's date (`## <date> ingest`) — **and**
    every fact under it is of a kind one of the page's other sections already tracks. Then move each
    fact into that section (the row into the table, the bullet into the list), correct any earlier
-   derived line it contradicts — never a `provenance: manual` one, which stays as asserted (rule 2) —
+   derived line it contradicts — never a `provenance: manual` one, nor a line an owner confirmation
+   record backs, which stay as asserted (rule 2) —
    merge sections that describe the same thing, and drop the emptied container, every source citation
    and all manual content carried verbatim. Any other heading, dated or not, is the page's own
    structure: leave it. The deployment's write guards apply to a fold like any other edit (a sharp

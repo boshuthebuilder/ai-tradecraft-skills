@@ -32,6 +32,15 @@ folder-hygiene archetype would *propose* moves and deletions for the owner to ap
 them. Whatever the family: every write goes through the deployment's deterministic guards, and
 anything that touches the owner's own material defaults to propose-only.
 
+One writer that is not a job also touches the owner's folders: the deployment's **capture surface**
+for owner testimony. When the owner states a fact about a matter whose documents sit in the folder, it
+writes an **owner confirmation record** beside those documents: the owner's words verbatim, dated and
+attributed (`wiki-maintenance`, *The shape of a folder*). It is an operator entry point, run on the
+owner's explicit statement, and it holds the only grant to write a record. No model job holds that
+grant. The deployment's guards refuse any job write, filing, move, rename or sweep that would create,
+alter or remove a record, so the record stays a source rather than something a job can launder output
+into.
+
 The first archetype this repo ships is **file-ingest** (see
 `plugins/ai-os/skills/project-onboarding/archetypes/file-ingest/`), whose two standard jobs are:
 
@@ -348,6 +357,13 @@ detail — any AI-OS deployment reproduces the defect unless the spec requires t
   or dismissed** — reference it — and reopen a *resolved* one only when its evidence hash shows the
   underlying facts have changed (then say what changed). Dismissed means the human judged it a non-issue;
   it stays suppressed like an open one.
+- **Owner testimony is injected into every gather context as well.** Every ingest and every reconcile
+  receives the text of every owner confirmation record in the project's folders (and any testimony page
+  the deployment keeps), within the testimony's own bounded budget. Anything that does not fit, or cannot
+  be read, is named. This has to happen on every run because a source reaches the model only once: after
+  its first run it is unchanged, ingest never sees page bodies, and reconcile sees an index of sources,
+  not their text. Without the pin, the next job on the same topic has forgotten what the owner settled
+  and raises it again.
 - **Escalations are decidable in one step.** Each carries a `what_would_resolve` — one sentence naming
   the single decision or action that closes it — and, where the job can name it, an optional
   `proposed_action`. A bare "please check this" is not an escalation; it is noise.

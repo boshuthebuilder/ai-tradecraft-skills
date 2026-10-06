@@ -34,6 +34,12 @@ changed.
     that does not exist, and never re-raise what a record settles.
 - **Every restatement of the rule points back.** `folder-curation`, its `curate.md`, `project-onboarding`
   and `wiki-onboarding` each say in one clause that a record is a source, not an AI artefact.
+- **The architecture states both halves** ([`ARCHITECTURE.md`](plugins/ai-os/ARCHITECTURE.md)):
+  - the capture surface is the only writer of records. It is an operator entry point, not a job, and the
+    guards refuse any job write that would create, alter or remove one.
+  - every ingest and reconcile is shown every record's text, under its own budget, with partiality named.
+    Without that, a job that sees each source only once forgets the record after its first run.
+  - `reconcile.md`'s accretion fold never corrects a line a record backs.
 
 ### Migrating a deployment
 
