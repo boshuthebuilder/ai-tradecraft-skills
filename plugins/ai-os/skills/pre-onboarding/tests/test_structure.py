@@ -104,7 +104,11 @@ class MeasureTest(Built):
         # the structure signals other than the pair of copies are all in the one mixed folder
         self.assertEqual({f for f, flags in flagged.items() if set(flags) - {"duplicate_subtree"}}, {"Money/Misc"})
         # the catch-all's measures: 21 documents directly in it, five categories, the commonest at 10 of 21
-        misc = {r["folder"]: r for r in self.res["half_messy"]["folders"]}["Money/Misc"]
+        rows = {r["folder"]: r for r in self.res["half_messy"]["folders"]}
+        self.assertEqual({f: r["copies_elsewhere"] for f, r in rows.items() if r["copies_elsewhere"]},
+                         {"Money": 4, "Money/Misc": 4, "Money/Misc/old health": 4},
+                         "the copies of Health/2022 are counted where they sit, and not at their original")
+        misc = rows["Money/Misc"]
         self.assertEqual((misc["documents_direct"], misc["categories_direct"], misc["top_category_direct"],
                           misc["top_share_direct"]), (21, 5, "Home & Household", 0.476))
         # the scanner names fall just under the generic-name threshold, and no folder crosses it
@@ -265,6 +269,76 @@ class MeasureTest(Built):
         z = [{"path": "loose.txt", "id": "z", "current": "loose.txt", "canonical": True, "generic": False}]
         self.assertEqual(flags(z, {}, "(root)"), ["root_strays"])
 
+    def test_the_edges_that_the_signals_are_told_apart_by(self):
+        def doc(path, h=None):
+            return {"path": path, "id": h or path, "current": path, "canonical": True, "generic": False}
+
+        def flags(docs, cards, folder):
+            rows, _chain = structure.folder_rows(docs, cards)
+            return {r["folder"]: r["stands_out"] for r in rows}[folder]
+        # a folder with six contents but four cards is not judged for its mix, whatever the four say
+        docs = [doc("A/%d.txt" % i) for i in range(6)]
+        cards = {d["id"]: {"category": "X" if i < 2 else "Y"} for i, d in enumerate(docs[:4])}
+        self.assertNotIn("mixed", flags(docs, cards, "A"))
+        # a duplicate subtree is wholly covered: three of four contents in another folder is not enough
+        four = [doc("A/%d.txt" % i, "h%d" % i) for i in range(4)]
+        part = [doc("B/%d.txt" % i, "h%d" % i) for i in range(3)]
+        self.assertNotIn("duplicate_subtree", flags(four + part, {}, "A"))
+        self.assertIn("duplicate_subtree", flags(four + part + [doc("B/3.txt", "h3")], {}, "A"))
+        # only the start of a run of single-child folders is flagged, and a folder holding a document is no link in it
+        deep = [doc("P/Q/R/S/x.txt")]
+        self.assertEqual({f: "single_child_chain" in v for f, v in [(f, flags(deep, {}, f)) for f in
+                                                                   ("P", "P/Q", "P/Q/R", "P/Q/R/S")]},
+                         {"P": True, "P/Q": False, "P/Q/R": False, "P/Q/R/S": False})
+        holds = [doc("P/x.txt"), doc("P/Q/R/y.txt")]
+        self.assertNotIn("single_child_chain", flags(holds, {}, "P"), "P holds a document, so it is not a link")
+
+    def test_the_spread_ignores_unknown_parties_and_folds_aliases(self):
+        def doc(path, h):
+            return {"path": path, "id": h, "current": path, "canonical": True, "generic": False}
+        docs = [doc("A/1.txt", "1"), doc("B/2.txt", "2"), doc("C/3.txt", "3"), doc("D/4.txt", "4")]
+        cards = {"1": {"party": "Morgan", "parties": ["Unknown", "Kit"], "category": "X"},
+                 "2": {"party": "Morgan", "parties": ["unknown", "Kit Example"], "category": "X"},
+                 "3": {"party": "Morgan", "parties": ["Unknown", "Kit"], "category": "Y"},
+                 "4": {"party": "Morgan", "parties": ["Morgan"], "category": "Y"}}
+        cat, party, owner = structure.subject_spread(docs, cards, {"kit": "Kit Example", "morgan": "Morgan Example"})
+        self.assertEqual(owner, "Morgan Example")
+        self.assertEqual({k: sorted(v) for k, v in party.items()}, {"Kit Example": ["A", "B", "C"]},
+                         "Kit and Kit Example are one party, Unknown none, and the main party is no spread subject")
+        self.assertEqual({k: sorted(v) for k, v in cat.items()}, {"X": ["A", "B"], "Y": ["C", "D"]})
+
+    def test_the_spread_listing_is_capped_but_drops_no_subject_at_the_threshold(self):
+        homes = {"two-%02d" % i: {"a", "b"} for i in range(10)}
+        homes.update({"wide-%d" % i: {"a", "b", "c"} for i in range(2)})
+        with unittest.mock.patch.object(structure, "SPREAD_LISTED", 5):
+            items, wide, unlisted = structure.spread_listing(homes)
+        self.assertEqual(([x["subject"] for x in items], wide, unlisted),
+                         (["wide-0", "wide-1", "two-00", "two-01", "two-02"], 2, 7))
+        self.assertEqual([x["stands_out"] for x in items], [True, True, False, False, False])
+        with unittest.mock.patch.object(structure, "SPREAD_LISTED", 0):
+            items, wide, _unlisted = structure.spread_listing(homes)
+        self.assertEqual([x["subject"] for x in items], ["wide-0", "wide-1"], "a subject at the threshold is always listed")
+        self.assertEqual([x["subject"] for x in self.res["well_kept"]["spread"]["categories"]],
+                         ["Finance & Tax", "Home & Household"], "two homes are listed, and do not stand out")
+
+    def test_a_scanner_name_counts_for_the_canonical_path_alone(self):
+        folder = os.path.join(self.tmp, "cards")
+        os.makedirs(folder)
+        man = {"h": {"id": "h", "current_path": "a/IMG_1.jpg", "flags": [], "generic_name": True,
+                     "copies": [{"path": "a/IMG_1.jpg", "kind": "canonical"}, {"path": "b/Holiday.jpg", "kind": "redundant"}]}}
+        rb = dict(common.DEFAULTS, wiki_dir="X Wiki")
+        docs, cards, left = structure.load_documents(rb, man, folder)
+        self.assertEqual([(d["path"], d["canonical"], d["generic"]) for d in docs],
+                         [("a/IMG_1.jpg", True, True), ("b/Holiday.jpg", False, False)])
+        self.assertEqual((cards, dict(left)), ({}, {}))
+
+    def test_the_sample_is_evenly_spaced_and_never_repeats(self):
+        self.assertEqual(structure.sample([1, 2, 3], 5), [1, 2, 3])
+        self.assertEqual(structure.sample(list(range(9)), 3), [0, 4, 8])
+        self.assertEqual(structure.sample(list(range(9)), 1), [0])
+        self.assertEqual(structure.sample(list(range(21)), 5), [0, 5, 10, 15, 20])
+        self.assertEqual(structure.sample([], 5), [])
+
 
 class ShieldedTest(Built):
     def terms(self):
@@ -353,6 +427,35 @@ class WithheldTest(Built):
                                      "--out", os.path.join(self.tmp, "o", "documents.md"), "--folder", "Money/Pension")
         self.assertEqual(code, 2, err)
         self.assertIn("is not a folder holding live documents", err)
+
+    def test_a_departed_document_is_counted_and_never_listed(self):
+        os.remove(os.path.join(self.root, "Work", "Payslips", "2023", "Payslip 2023-01-31.txt"))
+        self.audit()
+        out = os.path.join(self.tmp, "o", "input.md")
+        res = self.measure(out)
+        self.assertEqual((res["summary"]["departed"], res["summary"]["documents"]), (1, 53 - 2 - 1 - 1))
+        self.assertIn("held for another project 1, excluded 2, departed 1", read(out))
+        self.assertNotIn("Payslip 2023-01-31", read(out) + json.dumps(res))
+
+    def test_a_copy_of_a_readable_document_inside_a_folder_excluded_since_the_audit_is_no_document(self):
+        root = self.copy_of("half_messy")
+        write(os.path.join(root, "CLAUDE.md"), "# rulebook\n")
+        write(os.path.join(root, "AGENTS.md"), "# rulebook\n")
+        write(os.path.join(root, ".familyai", "rulebook.json"), json.dumps(
+            {"version": 1, "rulebook_sha256": hashlib.sha256(b"# rulebook\n").hexdigest(),
+             "exclude": ["Money/Misc/old health"]}))                    # the manifest was audited before the exclusion
+        out = os.path.join(self.tmp, "o", "input.md")
+        code, stdout, err = run("measure", "--root", root, "--work", os.path.join(self.tmp, "w"), "--out", out)
+        self.assertEqual(code, 0, err)
+        res = json.loads(stdout)
+        self.assertEqual((res["summary"]["documents"], res["summary"]["copies"]), (74, 0))
+        self.assertNotIn("old health", stdout + read(out))
+        self.assertEqual(self.flagged_in(res), {"Money/Misc": ["wide", "flat_dump", "mixed", "generic_folder_name"]},
+                         "with its copies out of view, the pair of copies is gone too")
+
+    @staticmethod
+    def flagged_in(res):
+        return {r["folder"]: r["stands_out"] for r in res["folders"] if r["stands_out"]}
 
     def test_the_files_are_registered_and_go_when_the_withheld_set_changes(self):
         out = os.path.join(self.tmp, "o", "input.md")

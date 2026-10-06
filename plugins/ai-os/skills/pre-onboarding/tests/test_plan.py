@@ -1594,16 +1594,22 @@ class ReorgProposalTest(ReorgCase):
                          [("create", "", "03 Home/Old leases/"),
                           ("move", LEASE_PAGES, "03 Home/Old leases/Lease renewal.pages")])
 
-    def test_a_path_in_another_unicode_form_takes_the_manifests_spelling(self):
+    def test_a_name_in_another_unicode_form_than_the_folders_is_the_same_name(self):
+        """A name stored decomposed on disk is written composed by a model: the plan takes the folder's own spelling,
+        which is what the audit records and what the proof then compares."""
         import unicodedata
-        name = "04 Study/Cours de français.pdf"
-        for form in ("NFC", "NFD"):
-            with self.subTest(form=form):
-                if os.path.exists(self.plan):
-                    os.remove(self.plan)
-                self.reorg(["04 Study"], [(unicodedata.normalize(form, name), "04 Study/Reading")])
-                move = next(r for r in read_rows(self.plan) if r["action"] == "move")
-                self.assertEqual(move["from"], next(p for p in self.ids if unicodedata.normalize("NFC", p) == name))
+        composed, decomposed = "Caf\u00e9", unicodedata.normalize("NFD", "Caf\u00e9")
+        write(self.path("07 Misc/%s.txt" % decomposed), "coffee")
+        write(self.path("09 More/%s bar/z.txt" % decomposed), "bar")
+        self.audit()
+        stored = [p for p in self.ids if "Caf" in p]
+        if not any(decomposed in p for p in stored):
+            self.skipTest("this file system stores a name composed whatever form it is written in")
+        self.reorg(["07 Misc"], [("07 Misc/%s.txt" % composed, "09 More/%s bar" % composed)])
+        move = next(r for r in read_rows(self.plan) if r["action"] == "move")
+        self.assertEqual((move["from"], move["to"]), ("07 Misc/%s.txt" % decomposed,
+                                                      "09 More/%s bar/%s.txt" % (decomposed, decomposed)))
+        self.assertEqual([r["action"] for r in read_rows(self.plan)], ["move"], "no folder is created beside the one there")
 
     def test_a_folder_the_moves_empty_but_a_pack_the_rulebook_or_the_schema_names_gets_no_rmdir(self):
         moves = [("04 Study/%s" % n, "07 Misc/Study") for n in ("Cours de français.pdf", "Essay.docx", "Notes.rtf",

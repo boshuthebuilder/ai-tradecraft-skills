@@ -2344,6 +2344,10 @@ class RepathTest(Prepared):
         elsewhere, cards = os.path.join(self.tmp, "extract"), os.path.join(self.tmp, "cards")
         shutil.copytree(self.path("_Audit", "extract"), elsewhere)
         shutil.copytree(self.path("_Audit", "cards"), cards)
+        kept = tree_digest(elsewhere)
+        err = self.repath("--apply", "--read-only-root", "--out", elsewhere, code=2)  # the cards are still in the folder
+        self.assertIn("--read-only-root", err)
+        self.assertEqual((tree_digest(elsewhere), read(self.card)), (kept, before), "a refusal changes nothing")
         self.repath("--apply", "--read-only-root", "--out", elsewhere, "--cards", cards)
         self.assertEqual(json.loads(read(os.path.join(cards, self.eid + ".json")))["card_meta"]["path"], self.MOVED[1])
         self.assertEqual(read(self.card), before)
