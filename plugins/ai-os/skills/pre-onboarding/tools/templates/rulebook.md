@@ -15,8 +15,8 @@ How each field is made:
 - `reserved_extra`: one bullet per name in the twin's `reserved`, saying what it holds, or nothing. The bullets for
   `Outbox`, `Wiki` and the leading `_` rule are fixed: keep them.
 - `how_files_arrive`: the owner's answer on how new files reach the folder, in a few words.
-- `packs`, `active`, `finished`, `working_formats`, `exclusions`: one bullet per entry, each path in backticks, or the
-  word none.
+- `packs`, `active`, `finished`, `working_formats`, `exclusions`, `stays`: one bullet per entry, each path in
+  backticks, or the word none. `stays` is the folders the owner said at the interview must stay where they are.
 - `ai_outputs`: where AI outputs already sit, or none.
 - `people`: one bullet per person or organisation, with every other name it appears under. -->
 # {folder_name}: rulebook
@@ -64,7 +64,10 @@ is onboarded, and a deployment onboards it only once it is empty.
 ## Reorganisation
 
 Depth: {depth}. Nothing moves, is renamed or is removed without a plan row the owner approved. Removed items go to the
-Bin, never unlinked. Emptied folders are kept unless the owner has said otherwise.
+Bin, never unlinked. Emptied folders are kept unless the owner has said otherwise. A re-organisation is proposed only
+for a folder the owner approves after the structure assessment. These folders stay where they are:
+
+{stays}
 
 ## Packs and deliberate copies
 

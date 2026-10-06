@@ -2,7 +2,8 @@
 name: pre-onboarding
 description: >-
   Prepare a lived-in folder for onboarding onto an AI-OS deployment, in an interactive session: audit it, tidy it only
-  through plans the owner approves, extract the full text of every document and write a summary card for each, build
+  through plans the owner approves, extract the full text of every document and write a summary card for each, assess
+  whether its structure needs re-organising and re-organise only the folders the owner approves, build
   its wiki (sections by responsibility; every page written in the voice of the one professional best suited to it,
   against a page contract, with its rationale recorded and accepted by the owner and that professional through a
   model that did not write it), then check the folder meets the hand-off contract and hand it to
@@ -54,7 +55,7 @@ archetype); keeping a wiki that already exists (`wiki-maintenance`).
   would have read, never skipped silently. Ask the operator which engine and
   model the vision lane (`agy` only, a model that reads page images) and the cards use, and which two different
   models draft and review the wiki's pages (those are subagents of the session, not engine calls:
-  [step 7](#7-build-the-wiki)). Name each model by the id its engine accepts: `agy models` lists agy's, and with
+  [step 8](#8-build-the-wiki)). Name each model by the id its engine accepts: `agy models` lists agy's, and with
   `agy` the effort is part of the id. Record each model by the exact id it ran on, in the canary, the `--model` flag and
   the acceptance records alike: for a page the coordinating session writes itself, its own id, and a page's reviewer
   must be a different model from its author, never a second name for the same one.
@@ -114,6 +115,7 @@ archetype); keeping a wiki that already exists (`wiki-maintenance`).
     plans/<YYYY-MM-DD>/      one folder for each round's proposal (folder-curation's shape)
     extract/<id>.json        the full text of each document, page by page
     cards/<id>.json          one summary card per document
+    structure-assessment.md  the records manager's assessment of the folder's structure (step 7)
     wiki-rationale.md        one rationale block per wiki page
     wiki-acceptance.json     the acceptance verdicts
     wiki-acceptance.json.lock  the lock `wiki.py accept` takes, left beside the record; harmless
@@ -172,6 +174,12 @@ interview settles what this preparation adds to the ladder, each a key of the tw
 - **Languages.** `ocr_languages`: the languages the documents are written in, most likely first, as the codes
   [the settings reference](references/settings.md#rulebookjson) lists. The default reads English alone, so ask, then
   check `tesseract --list-langs` ([step 4](#4-extract-the-text)); `settings.py check` reports a code no reader has.
+- **Whether to re-organise.** Not a depth to pick before anyone has looked: ask whether the owner is open to the
+  folder's structure being re-organised at all, and which folders must stay where they are. Record both in the
+  rulebook: `depth` is `light` if they are not open (step 7 is then skipped), `medium` if they are open to it folder
+  by folder, which is the usual answer, and `full` only if they ask for a new shape for most of the folder. Step 7 then
+  looks at the folder and proposes a re-organisation only for the folders they approve, never for one they said must
+  stay.
 - **Packs.** The folders that keep deliberate copies of documents held elsewhere: `packs`, and the words that mark
   them in `pack_keywords`. The default keywords are a personal set, so a company's own packs, such as a year-end
   accounts pack or a payroll year, are unprotected until listed ([examples](references/settings.md#rulebookjson)).
@@ -216,19 +224,20 @@ out the manifest's copy kinds, which decide what a plan may propose to delete, w
 
 A round is [`folder-curation` steps 3 to 6](../folder-curation/SKILL.md#3-propose-the-only-model-step), carried
 out by `plan.py` in a plan folder, `<folder>/_Audit/plans/<YYYY-MM-DD>/` (below `<plan folder>`, and `<plan>` its
-`move-plan.csv`). Every proposal gets a plan folder of its own: `plan.py light`, `migrate` and `return` replace a plan
-nobody has decided in the folder they are given, but refuse (exit 2, nothing written) one with any row approved,
-declined or deferred, and say to choose a new folder. A second proposal on the same day (a round that deletes copies
-often needs one) takes a suffix, `<YYYY-MM-DD>-2`, or a word for what it does, `<YYYY-MM-DD>-migrate`; nothing reads
-the folder's name. Finish curating before step 4 where you can: extract
+`move-plan.csv`). Every proposal gets a plan folder of its own: `plan.py light`, `migrate`, `return` and `reorg`
+replace a plan nobody has decided in the folder they are given, but refuse (exit 2, nothing written) one with any row
+approved, declined or deferred, and say to choose a new folder. A second proposal on the same day (a round that
+deletes copies often needs one) takes a suffix, `<YYYY-MM-DD>-2`, or a word for what it does,
+`<YYYY-MM-DD>-migrate`; nothing reads the folder's name. Finish curating before step 4 where you can: extract
 records and bundles carry the paths they were built from. A round after that is repaired, never read again (*A round
 after extraction*, below).
 
 1. **Propose.** `plan.py light --root "<folder>" --out "<plan folder>"` proposes the light-depth rows: root strays
    (their destination left for the owner), file and folder names with a space at either end or before the
-   extension, and redundant copies outside any pack. Rows for a deeper depth the owner chose follow
-   folder-curation's step 3, written in the same [plan format](../folder-curation/references/move-plan-schema.md);
-   the executor runs `create`, `move`, `rename`, `rmdir` and `delete` rows, and names an approved `convert` row
+   extension, and redundant copies outside any pack. A deeper re-organisation waits for
+   [step 7](#7-assess-the-structure), which decides which folders it is worth proposing for and has `plan.py reorg`
+   write those rows in the same [plan format](../folder-curation/references/move-plan-schema.md). The executor runs
+   `create`, `move`, `rename`, `rmdir` and `delete` rows, and names an approved `convert` row
    and leaves it pending, since a conversion stays the owner's. To stage files for another project, list their
    paths in a file and run
    `plan.py migrate --root "<folder>" --project <Project> --paths-file <file> --out "<plan folder>"`, where
@@ -294,11 +303,12 @@ say), repair what it moved rather than read anything again. Once the round's re-
 `extract.py repath --root "<folder>"` lists each extract record whose path it would rewrite to its document's
 current path, matched by content hash, with nothing read again; run it again with `--apply` to write them. It
 refuses a move to a path that is not in the folder, so it runs only on a manifest the re-audit has made current
-([`repath`](references/tools.md#repath)). Then rebuild the bundles and run `wiki.py drift` (step 7). A card holds its
-document's id and `card_meta.path`, the path it was carded at, which only records how it was made, so a card that moved
-between included paths needs nothing; a card (or record) whose path is withheld is discarded by every tool's start. A
+([`repath`](references/tools.md#repath)); it brings each card's `card_meta.path`, the path it was carded at, up to
+date as well, since a card is keyed by its document's content and needs no other repair. Then rebuild the bundles and
+run `wiki.py drift` (step 8). A card (or record) whose path is withheld is discarded by every tool's start. A
 document still live at a path that is not withheld is read again from there; an excluded or staged document is not read
-again ([withheld means purged](references/tools.md#common-flags)).
+again ([withheld means purged](references/tools.md#common-flags)). The re-organisation of
+[step 7](#7-assess-the-structure) is such a round: it runs once the cards exist, because the assessment reads them.
 
 ### 4. Extract the text
 
@@ -340,7 +350,7 @@ Before any model reads this folder:
 
 `scan` checks every file a model will be shown (the tools' prompts and templates, and the settings the card
 instructions are filled from) for the terms, and exits 1 on any hit or when it found nothing to check; scan the wiki
-briefs and review prompts the same way before a model reads them (step 7). The `--if-present` lines are the global
+briefs and review prompts the same way before a model reads them (step 8). The `--if-present` lines are the global
 files each engine reads whatever the folder: codex's under `~/.codex` (add `~/.agents/skills` where that folder
 exists) and agy's `~/.gemini/GEMINI.md`. They assume each engine's default home: a codex installed under another
 `CODEX_HOME` needs the files in that folder given instead. Drop the lines of an engine this machine lacks, since a
@@ -380,7 +390,7 @@ before the effort was recorded read as not verified, never as a pass: card them 
 exception: the extract records name the engine that read a page and not its model, so readiness cannot require its
 canary, and the hand-off should say which file cleared the vision lane. Each command clears its
 `--out` file before it even reads its command line, so a run that stops early (or is refused) leaves no earlier pass
-behind. Keep the results: they are the record that the gate ran (step 8). No lane reads them (`vision.py` included),
+behind. Keep the results: they are the record that the gate ran (step 9). No lane reads them (`vision.py` included),
 so never start one without passing ones. A failure means the engine's context carries another project: fix its setup
 ([engine isolation](#engine-isolation)) and run the canary again.
 
@@ -448,7 +458,69 @@ document's own text that ends the same way, and writes the cards it could not se
 `cards.py work ... --redo <work>/state/redo_refs.txt`. It runs only under the identifier policy `stated`
 ([identifiers](#identifiers)).
 
-### 7. Build the wiki
+### 7. Assess the structure
+
+The wiki is organised by responsibility, so the owner does not depend on the folder's structure to find anything, and a
+re-organisation has a cost: the owner relearns where things are, and whatever outside the folder points at a moved file
+(a bookmark, an email with a path) breaks. So this step asks whether the structure costs the owner something real, and
+moves files only in the folders the owner approves, from evidence. **"No re-org" is a normal outcome**: record it and
+go on to step 8. The step runs before the wiki is drafted because a page cites documents by path: after a wiki exists,
+a re-organisation leaves its `sources:` and backticked paths dead, which no tool repairs yet (`wiki.py drift` names
+them), so do not run it then. If the owner said at the interview that they are not open to a re-organisation, skip it
+and say so in the hand-off. The roles here are subagents of the session, under the same controls as the wiki's
+([step 8](#8-build-the-wiki): what reaches a subagent, the working directory the session starts from).
+
+1. **Measure.** `structure.py measure --root "<folder>" --terms <terms file> --out <work>/structure/input.md` reads the
+   manifest and the cards, never a document, and writes two working files: the judge's input (the folder tree with
+   counts, the measures, and a card sample of up to five cards per folder) and `<work>/structure/measures.json`. Each
+   signal is a value, zero included, with a `stands_out` flag where it crosses a threshold fixed in the tool and never
+   tuned to a folder: 15 documents directly in a folder, a subject (a category, or a party other than the main one) in
+   3 or more top-level homes, 5 or more contents directly in a folder with no category above 0.6 of them, a duplicate
+   subtree of 3 or more contents, a generic-name share of 0.3, a flat dump, a run of 2 or more single-child folders, a
+   stray at the root. **A flag draws attention and never decides a verdict**, and duplicates and strays alone are
+   the light round's.
+   Documents the tools may not read (staged for another project, excluded) are counted, never listed, and every string
+   written is shielded like the wiki's ([the shield](#5-open-the-gate-to-the-engines)); a folder whose name carries a
+   term reads `[withheld name]` and cannot be named in the record or the mapping, so ask the owner to rename it or
+   exclude it, then measure again. It needs `--terms` or `--no-isolation-terms`, as the wiki commands do, and the
+   cards of step 6.
+2. **Judge.** Fill [`structure-assessment-brief.md`](tools/templates/structure-assessment-brief.md) with the path of
+   `input.md`, save it as `<work>/briefs/structure-assessment.md`, and scan it and the input as step 8 scans the wiki's
+   briefs: `isolation.py scan --terms <terms file> --path <work>/briefs --path <work>/structure --out
+   <work>/state/scan-structure.json`. Brief a fresh subagent as the records manager. Its reply is the record: write it
+   as it came to `<folder>/_Audit/structure-assessment.md` and run `structure.py check --root "<folder>"`, which reports
+   every problem of its shape (the heading and header lines, `Documents that would move: <N> of <M>` with M the live
+   documents, one block per assessed folder with a verdict, evidence and what the owner would relearn, a folder that is
+   really there, and a "no re-org" with no block other than leave as it is). A record that fails goes back to the
+   subagent with the problems listed; never edit it by hand to pass. Leaving a folder as it is is a first-class answer.
+3. **The owner decides the scope, folder by folder.** Show the owner the record: the overall verdict, how many
+   documents would move (`N of M`), and for each folder its verdict, evidence and what they would relearn. A targeted
+   verdict can still move most of the documents, so the count is read beside the label. The owner says yes or no to each
+   folder marked tidy inside or restructure; a folder they decline stays, and a folder they said at the interview must
+   stay is declined. Nothing outside what they approve is proposed. If they approve none, or the verdict is no re-org,
+   record that in the hand-off and go on to step 8.
+4. **Propose the mapping.** `structure.py documents --root "<folder>" --terms <terms file> --folder "<approved
+   folder>" [--folder ...] --out <work>/structure/documents.md` lists every document under the approved folders with its
+   card's fields, shielded. Fill [`structure-mapping-brief.md`](tools/templates/structure-mapping-brief.md), save it as
+   `<work>/briefs/structure-mapping.md`, scan the briefs and files again, and brief the subagent again. Its reply is a
+   mapping, `{"scope": [...], "moves": [{"from": <document or folder>, "to": <folder>}, ...]}`: save it as
+   `<work>/structure/mapping.json` after **replacing its `scope` with exactly the folders the owner approved**, since
+   the model's own list must never be the limit. The owner's existing folders are the destinations, never a blank target
+   tree, and a `from` that is a folder moves everything under it into `to`.
+5. **Plan.** `plan.py reorg --root "<folder>" --mapping <work>/structure/mapping.json --out "<plan folder>"` writes
+   the `create`, `move` and `rmdir` rows ([`reorg`](references/tools.md#reorg)), each document with its manifest hash as
+   evidence. It refuses, naming each row, a `from` outside the scope, a destination file that exists, a source that
+   changed since the audit, a document whose content is already in the destination folder (a duplicate: drop it in a
+   light round), anything inside a pack, a folder the rulebook's `active` or `finished` lists or the Schema routes
+   (update the rulebook first, as the message says), and the system's own names, the wiki folder and the migrations
+   folder. Fix the mapping and run it again. Then the round of [step 3](#3-curation-rounds-each-approved-by-the-owner),
+   items 3 to 6: the owner approves row by row (the `rmdir` rows too, or declines them as `keep_empty_folders` asks;
+   `plan.py rmdirs` is not needed), `check`, `execute`, re-audit and `prove` against the manifest kept from before.
+6. **Bring the records up to date.** `extract.py repath --root "<folder>"`, then again with `--apply`: each extract
+   record's `path` and each card's `card_meta.path` follow the manifest by content hash, and nothing is read again.
+   Bundles are built later, in step 8, so they start from the final paths. Then the wiki, drafted on them.
+
+### 8. Build the wiki
 
 The method is [`wiki-onboarding`](../wiki-onboarding/SKILL.md) under the core wiki rule; this is who holds the pen
 at each stage, and the tool or brief for it. Each role is a model briefed as that role; the agent running the
@@ -612,7 +684,7 @@ In order:
 round ([a round after extraction](#3-curation-rounds-each-approved-by-the-owner)). To move a page,
 `wiki.py move --root "<folder>" --map <file>` rewrites every link to and from it.
 
-### 8. Check readiness
+### 9. Check readiness
 
     python3 <tools>/readiness.py --root "<folder>" --work "<work>" --terms <terms file> --out <work>/readiness.json
 
@@ -623,11 +695,12 @@ on a tool error. Fix each finding in the step that owns it, and run it again. Na
 engine whose canary was not run, are listed in `not_verified`: they do not change the exit code, and are not a pass
 either, so read them and tell the owner.
 
-### 9. Hand off
+### 10. Hand off
 
-Tell the owner what was prepared (the rounds run, the documents read and carded, the pages accepted, anything
-left open). If they read the wiki in Typora, tell them to turn on Preferences, Markdown, Syntax Support,
-Diagrams, then restart Typora, or its charts show as code (the `productivity:portable-markdown` skill, under charts and callouts).
+Tell the owner what was prepared (the rounds run, the structure assessment's verdict and any folder re-organised,
+the documents read and carded, the pages accepted, anything left open). If they read the wiki in Typora, tell them to
+turn on Preferences, Markdown, Syntax Support, Diagrams, then restart Typora, or its charts show as code (the
+`productivity:portable-markdown` skill, under charts and callouts).
 Then run [`project-onboarding`](../project-onboarding/SKILL.md) on the folder from its step 1. It finds
 a wiki with a Schema, so it does not onboard one again, and an audit pair and rulebook, so it stamps the
 folder-curation archetype's `audit` job beside the file-ingest pair. The wiki was built during preparation, and no
@@ -635,7 +708,7 @@ job runs on it until then ([wiki-onboarding step 5](../wiki-onboarding/SKILL.md#
 directory is part of the hand-off: onboarding reads the folder, whether it continues in this session or on the
 deployment, and runs `readiness.py` itself (its step 1). Keep `<work>/readiness.json` and the canary results to show
 the owner what was verified and what was not, and record in the hand-off anything the isolation checks could not
-verify, a session context with other plugins or connectors enabled ([step 7](#7-build-the-wiki)) included.
+verify, a session context with other plugins or connectors enabled ([step 8](#8-build-the-wiki)) included.
 
 ## Engine isolation
 
@@ -644,7 +717,7 @@ verify, a session context with other plugins or connectors enabled ([step 7](#7-
 The rule is the framework's: one login per machine, the context isolated per call
 ([the architecture](../../ARCHITECTURE.md#execution-context-constraints-why-the-indirection-exists)). The
 preparation holds it in `tools/engines.py`, which every engine call goes through, the vision lane's and the cards'
-(the wiki's subagents are not engine calls: [step 7](#7-build-the-wiki)); how, and with which flags, is in
+(the wiki's subagents are not engine calls: [step 8](#8-build-the-wiki)); how, and with which flags, is in
 [the tool reference](references/tools.md#enginespy). Both engines run with the machine's own home and its one
 login: neither can reach that login from another folder without its token file being copied or linked there, and
 a copy that a token refresh rotates logs the main install out. So no per-project state folder is used, and
@@ -753,14 +826,15 @@ How `readiness.py` reports each is in [the tool reference](references/tools.md#r
 | --- | --- | --- |
 | [`audit.py`](references/tools.md#auditpy) | 1, 3 | the manifest, `AUDIT.md` and `summary.json` |
 | [`settings.py`](references/tools.md#settingspy) | 2, 7 | compiles `wiki-schema.json`; checks both twins and the rulebook's facts |
-| [`plan.py`](references/tools.md#planpy) | 3 | curation rounds: `light`, `migrate`, `return`, `approve`, `rmdirs`, `check`, `execute`, `prove` |
-| [`extract.py`](references/tools.md#extractpy) | 4, 3 | full text per page, local tools only (with `iwa.py` and the `page-ocr` helper); `repath` after a later round |
+| [`plan.py`](references/tools.md#planpy) | 3, 7 | curation rounds: `light`, `migrate`, `return`, `reorg`, `approve`, `rmdirs`, `check`, `execute`, `prove` |
+| [`extract.py`](references/tools.md#extractpy) | 4, 3, 7 | full text per page, local tools only (with `iwa.py` and the `page-ocr` helper); `repath` after a later round |
 | [`isolation.py`](references/tools.md#isolationpy) | 5 | the terms scan, the per-model canary and the shield |
 | [`vision.py`](references/tools.md#visionpy) | 6 | the model vision lane for pages local OCR could not read; holds back a document that carries a term |
 | [`cards.py`](references/tools.md#cardspy) | 6 | one card per document, shielded; the whole-chunk join; the contamination guard |
 | [`refs.py`](references/tools.md#refspy) | 6 | restores truncated reference numbers from each card's own source |
-| [`wiki.py`](references/tools.md#wikipy) | 7 | `profile`, `bundles`, `brief`, `chart`, `check`, `rationale`, `deadlines`, `review-prompts`, `accept`, `move`, `drift` |
-| [`readiness.py`](references/tools.md#readinesspy) | 8 | the hand-off contract |
+| [`structure.py`](references/tools.md#structurepy) | 7 | the structure measures, the documents of the approved scope, the assessment record's check |
+| [`wiki.py`](references/tools.md#wikipy) | 8 | `profile`, `bundles`, `brief`, `chart`, `check`, `rationale`, `deadlines`, `review-prompts`, `accept`, `move`, `drift` |
+| [`readiness.py`](references/tools.md#readinesspy) | 9 | the hand-off contract |
 | [`engines.py`](references/tools.md#enginespy) | 5, 6 | the engine adapters every model call goes through |
 
 The flags every tool shares, its exit codes and the files it keeps outside the folder:

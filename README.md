@@ -128,7 +128,8 @@ tidy or has been prepared (`project-onboarding`), and a person who wants a cross
 - **`pre-onboarding`** (entry point): prepare a **lived-in** folder for the system, in an
   interactive session. It audits the folder and tidies it only through plans the owner approves (by
   running `folder-curation`), extracts the full text of every document and writes a summary card for
-  each, builds its wiki (by running `wiki-onboarding` under the core wiki rule), checks the result
+  each, assesses whether its structure needs re-organising and re-organises only the folders the owner approves,
+  builds its wiki (by running `wiki-onboarding` under the core wiki rule), checks the result
   against the **hand-off contract**, and hands it to `project-onboarding`. Ships the tools that do
   the exact parts (`plugins/ai-os/skills/pre-onboarding/tools/`: standard-library Python, with a
   small Swift helper for Apple Vision and local tools (poppler, tesseract, LibreOffice) where
@@ -168,7 +169,7 @@ tidy or has been prepared (`project-onboarding`), and a person who wants a cross
   repeatable: a hash-keyed manifest over the whole library with type classes (an iWork package is
   one item, read directly), duplicate groups that know a submission pack from a redundant copy,
   overlapping homes, files staged for another project, and drift since the last pass. The curate
-  half is **propose-only**: an interview on a fixed depth ladder, then a move-plan the owner
+  half is **propose-only**: an interview on a fixed ladder, then a move-plan the owner
   approves row by row, executed under the shared move guards and proved by a re-audit. Approved
   plans are also how files are staged for another project while a folder is being prepared. The
   curated folder goes back to

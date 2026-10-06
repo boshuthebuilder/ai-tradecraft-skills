@@ -14,7 +14,7 @@ sets it to `pending`, and a decline to `skipped`. A path ending in `/` names a f
 |---|---|---|
 | `seq` | proposer | 1-based integer, execution order |
 | `domain` | proposer | the owner's top-level folder or subject the row belongs to, for per-domain approval |
-| `depth` | proposer | `light`, `medium`, `full`; never above the depth the owner chose for this round |
+| `depth` | proposer | `light`, `medium`, `full`; never above the depth the owner approved for this round (a re-organisation's rows, `plan.py reorg`, are `medium`) |
 | `action` | proposer | `move`, `rename`, `delete`, `convert`, `create`, `rmdir` |
 | `from` | proposer | folder-relative path today (empty for `create`; for `rmdir`, the folder to remove) |
 | `to` | proposer | folder-relative path after (empty for `delete` and `rmdir`); a `move` the proposer cannot place, such as a root stray, is proposed with it empty, and the agent writes the owner's chosen destination here before the row is approved, with a tool that reads and writes CSV and changes no other cell (the preparation's `plan.py` has no command for it, and its `check` and dry-run `execute` fail a row left without one) |
