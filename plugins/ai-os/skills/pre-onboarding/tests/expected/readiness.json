@@ -19,7 +19,9 @@
   "bad_category": 0,
   "extract_paths_stale": 0,
   "contamination": "not verified: no --terms",
-  "paths_naming_terms": "not verified: no --terms"
+  "cards_shield": "not verified: no --terms",
+  "paths_naming_terms": "not verified: no --terms",
+  "history_paths_naming_terms": "not verified: no --terms"
  },
  "isolation": {
   "canary": {
@@ -179,6 +181,10 @@
    "not verified: no --terms"
   ],
   [
+   "records.cards_shield",
+   "not verified: no --terms"
+  ],
+  [
    "records.paths_naming_terms",
    "not verified: no --terms"
   ],
@@ -189,6 +195,6 @@
  ],
  "summary": {
   "findings": 1,
-  "not_verified": 3
+  "not_verified": 4
  }
 }

@@ -31,6 +31,7 @@ sys.path.insert(0, HERE)
 import common  # noqa: E402
 from shield_flag import with_terms_flag  # noqa: E402
 import extract  # noqa: E402
+import isolation  # noqa: E402
 import readiness  # noqa: E402
 FIXTURE = os.path.join(HERE, "fixture", "Alex Personal")
 WIKI = "Alex Personal Wiki"
@@ -42,7 +43,9 @@ TAX = "20 Finance/Tax.md"
 EM = "\u2014"
 NOW = "1719748800"  # 2024-06-30T12:00:00Z, as regen_expected.py freezes it
 TERMS = "# fictional terms for the tests\nZarnwick Farm|Zarnwick\n"
-GREEN_UNVERIFIED = ["records.contamination", "records.paths_naming_terms", "isolation.canary.agy gemini-fake-high"]
+TERMS_DIGEST = isolation.shield_digest({"Zarnwick Farm": ["Zarnwick Farm", "Zarnwick"]})  # of TERMS
+GREEN_UNVERIFIED = ["records.contamination", "records.cards_shield", "records.paths_naming_terms",
+                    "isolation.canary.agy gemini-fake-high"]
 PREPARED = (os.path.join("_Audit", "extract"), os.path.join("_Audit", "cards"),
             os.path.join("_Audit", "wiki-acceptance.json"))
 
@@ -197,12 +200,22 @@ class Prepared(unittest.TestCase):
         return os.path.join(self.work, "state", name)
 
     def canary(self, engine, name=None, **res):
-        """The result file of a canary of `engine` (at the model the fixture's cards ran on, unless `res` says
-        another), written under `name` (default `canary-<engine>.json`)."""
+        """The result file of a canary of `engine` (at the model the fixture's cards ran on, at codex's `low`, against
+        TERMS, unless `res` says otherwise), written under `name` (default `canary-<engine>.json`)."""
         model = {"agy": "gemini-fake-high", "codex": "gpt-fake"}[engine]
         write(os.path.join(self.work, "state", name or "canary-%s.json" % engine),
-              json.dumps(dict({"engine": engine, "checked_at": "2024-06-30T12:00:00+0000", "terms": 1, "model": model},
+              json.dumps(dict({"engine": engine, "checked_at": "2024-06-30T12:00:00+0000", "terms": 1, "model": model,
+                               "effort": "low" if engine == "codex" else None, "terms_sha256": TERMS_DIGEST},
                               **res)))
+
+    def stamp_cards(self, digest=TERMS_DIGEST, **meta):
+        """Every card says it was made under the shield of `digest` (TERMS', unless another is given), with `meta`
+        besides, as a card made by `cards.py work --terms` says it."""
+        cards = os.path.join(self.root, "_Audit", "cards")
+        for name in os.listdir(cards):
+            card = json.loads(read(os.path.join(cards, name)))
+            card["card_meta"] = dict(card["card_meta"], shield_sha256=digest, **meta)
+            write(os.path.join(cards, name), json.dumps(card, ensure_ascii=False, indent=1))
 
 
 ENGLISH_MONTHS = ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
@@ -611,7 +624,9 @@ class GreenTest(Prepared):
         self.assertEqual(res["records"], {"missing_extracts": 0, "missing_cards": 0, "malformed_cards": 0,
                                           "malformed_extracts": 0, "bad_category": 0,
                                           "extract_paths_stale": 0, "contamination": "not verified: no --terms",
-                                          "paths_naming_terms": "not verified: no --terms"})
+                                          "cards_shield": "not verified: no --terms",
+                                          "paths_naming_terms": "not verified: no --terms",
+                                          "history_paths_naming_terms": "not verified: no --terms"})
         self.assertEqual(res["wiki_handoff"], {"rationale_file": "ok", "pages_accepted": "12/12",
                                                "pages_not_accepted": 0, "pages_not_verified": 0,
                                                "records_for_no_page": []})
@@ -621,17 +636,21 @@ class GreenTest(Prepared):
     def test_terms_and_passing_canaries_leave_nothing_unverified(self):
         terms = os.path.join(self.tmp, "terms.txt")
         write(terms, TERMS)
+        self.stamp_cards()
         self.canary("agy", reply="NAMES: Kobelumi", hits=0, usage={}, answered=True, marker="Kobelumi",
-                    model="gemini-fake-high", effort=None, **{"pass": True})
+                    **{"pass": True})
         self.canary("codex", reply="NAMES: Kobelumi", hits=0, usage={}, answered=True, marker="Kobelumi",
-                    model="gpt-fake", effort="low", **{"pass": True})
+                    **{"pass": True})
         res = self.readiness("--terms", terms, code=0)
-        self.assertEqual((res["not_verified"], res["records"]["contamination"], res["records"]["paths_naming_terms"]),
-                         ([], 0, 0))
+        self.assertEqual((res["not_verified"], res["records"]["contamination"], res["records"]["cards_shield"],
+                          res["records"]["paths_naming_terms"], res["records"]["history_paths_naming_terms"]),
+                         ([], 0, 0, 0, 0))
         self.assertEqual(res["isolation"], {"canary": {"agy gemini-fake-high": "passed (model gemini-fake-high)",
-                                                       "codex gpt-fake": "passed (model gpt-fake, effort low)"}})
+                                                       "codex gpt-fake effort low":
+                                                           "passed (model gpt-fake, effort low)"}})
         write(self.work_file("canary-agy.json"), json.dumps({
-            "engine": "agy", "pass": True, "answered": True, "marker": "Kobelumi", "reply": "NAMES: Kobelumi"}))
+            "engine": "agy", "pass": True, "answered": True, "marker": "Kobelumi", "reply": "NAMES: Kobelumi",
+            "terms_sha256": TERMS_DIGEST}))
         res = self.readiness("--terms", terms, code=1)  # a canary that recorded no model clears none the cards ran on
         self.assertEqual(res["isolation"]["canary"]["agy not recorded"], "passed (model not recorded)")
         self.assertEqual([k for k, _v in res["findings"]], ["isolation.canary.agy gemini-fake-high"])
@@ -1217,13 +1236,14 @@ class DashlessRollUpTest(Prepared):
 
 
 class PathsNamingTermsTest(Prepared):
-    """A manifest entry of any state whose path, a copy's path or migration label carries a term is a finding."""
+    """A live or withheld manifest entry whose path, a copy's path or migration label carries a term is a finding; what the
+    manifest keeps as history is information, since no later run sends it."""
 
     def setUp(self):
         super().setUp()
         self.terms = os.path.join(self.tmp, "terms.txt")
         write(self.terms, TERMS)
-        self.canary("agy", reply="NAMES: Kobelumi", hits=0, usage={}, answered=True, marker="Kobelumi", effort=None,
+        self.canary("agy", reply="NAMES: Kobelumi", hits=0, usage={}, answered=True, marker="Kobelumi",
                     **{"pass": True})
 
     def manifest(self, change):
@@ -1233,28 +1253,50 @@ class PathsNamingTermsTest(Prepared):
         change(man, by)
         write(p, json.dumps(man, ensure_ascii=False, indent=1))
 
-    def test_a_copy_a_migration_label_and_a_departed_entry_are_each_found_and_masked(self):
+    def test_a_copy_and_a_migration_label_are_each_found_and_masked(self):
         def plant(man, by):
             by["04 Study/Notes.rtf"]["copies"] = [{"path": "04 Study/Notes.rtf", "kind": "canonical"},
                                                   {"path": "05 Archive/ZARNWICK farm notes.rtf", "kind": "redundant"}]
             by["04 Study/Slides.pptx"]["migration_target"] = "Zarnwick Farm"
-            man["entries"]["f" * 64] = {"id": "f" * 64, "current_path": "Zarnwick Farm/Old.pdf", "class": "document",
-                                        "hashed": True, "flags": ["departed"], "size": 1}
         self.manifest(plant)
         detail = self.one_finding("records.paths_naming_terms", "--terms", self.terms)
-        self.assertTrue(detail.startswith("3 manifest entr(ies) whose path, a copy's path or migration label carries"),
-                        detail)
-        for shown in ("04 Study/Notes.rtf", "04 Study/Slides.pptx", "<term>/Old.pdf"):
+        self.assertTrue(detail.startswith("2 live or withheld manifest entr(ies) whose path, a copy's path or "
+                                          "migration label carries"), detail)
+        for shown in ("04 Study/Notes.rtf", "04 Study/Slides.pptx"):
             self.assertIn(shown, detail)
         self.assertNotIn("Zarnwick", detail, "a term is never written out")
         self.assertIn("neutral migration label", detail)
+
+    def test_a_departed_entry_and_the_names_a_document_had_are_history_not_a_finding(self):
+        """The manifest keeps a departed entry for ever and every entry's first name and earlier paths; no later run sends
+        them, and the operator has no remedy, so they are counted as information."""
+        def plant(man, by):
+            man["entries"]["f" * 64] = {"id": "f" * 64, "current_path": "Zarnwick Farm/Old.pdf", "class": "document",
+                                        "hashed": True, "flags": ["departed"], "size": 1}
+            by["04 Study/Notes.rtf"]["original_name"] = "Zarnwick Farm notes.rtf"
+            by["04 Study/Slides.pptx"]["rename_history"] = [{"path": "Zarnwick Farm/Slides.pptx", "at": "x"},
+                                                           {"path": "04 Study/Slides.pptx", "at": "y"}]
+        self.manifest(plant)
+        res = self.readiness("--terms", self.terms, code=0)
+        self.assertEqual((res["records"]["paths_naming_terms"], res["records"]["history_paths_naming_terms"]), (0, 3))
+        self.assertEqual(res["findings"], [])
+        self.assertNotIn("records.history_paths_naming_terms", [k for k, _v in res["not_verified"]])
+
+    def test_a_live_entry_is_a_finding_and_its_history_is_counted_too(self):
+        def plant(man, by):
+            by["04 Study/Slides.pptx"]["copies"] = [{"path": "Zarnwick/Slides.pptx", "kind": "working_copy"}]
+            by["04 Study/Slides.pptx"]["original_name"] = "Zarnwick slides.pptx"
+        self.manifest(plant)
+        res = self.readiness("--terms", self.terms, code=1)
+        self.assertEqual((res["records"]["paths_naming_terms"], res["records"]["history_paths_naming_terms"]), (1, 1))
 
     def test_a_staged_document_under_a_label_that_is_a_term_is_found(self):
         """A migration label is a folder name under the migrations folder, so it is read for terms like a path."""
         def plant(man, by):
             by["04 Study/Slides.pptx"]["migration_targets"] = ["Neutral", "Zarnwick Farm"]
         self.manifest(plant)
-        self.assertIn("1 manifest entr(ies)", self.one_finding("records.paths_naming_terms", "--terms", self.terms))
+        self.assertIn("1 live or withheld manifest entr(ies)",
+                      self.one_finding("records.paths_naming_terms", "--terms", self.terms))
 
     def test_a_marker_alone_counts_and_a_clean_manifest_is_zero(self):
         res = self.readiness("--terms", self.terms, code=0)
@@ -1273,7 +1315,8 @@ class PathsNamingTermsTest(Prepared):
 
 
 class CanaryPerModelTest(Prepared):
-    """Given the terms file, each engine and exact model the cards ran on needs a passing canary of its own."""
+    """Given the terms file, each engine and exact model the cards ran on, for codex at each effort, needs a passing canary
+    of its own, made against the same terms file."""
 
     OK = dict(reply="NAMES: Kobelumi", hits=0, usage={}, answered=True, marker="Kobelumi", **{"pass": True})
 
@@ -1283,11 +1326,11 @@ class CanaryPerModelTest(Prepared):
         write(self.terms, TERMS)
 
     def meta(self, **meta):
-        """Every card says it ran on `meta` (`via`, `model`, and the rest of `card_meta` as given)."""
+        """Every card says it ran on `meta` (`via`, `model`, and the rest of `card_meta` as given), under TERMS' shield."""
         cards = self.path("_Audit", "cards")
         for name in os.listdir(cards):
             card = json.loads(read(os.path.join(cards, name)))
-            card["card_meta"] = dict(meta)
+            card["card_meta"] = dict({"shield_sha256": TERMS_DIGEST}, **meta)
             write(os.path.join(cards, name), json.dumps(card, ensure_ascii=False, indent=1))
 
     def states(self, *args, code=None):
@@ -1295,7 +1338,7 @@ class CanaryPerModelTest(Prepared):
 
     def test_a_model_the_cards_ran_on_with_no_canary_is_a_finding_not_not_run(self):
         self.meta(via="agy", model="gemini-other")
-        self.canary("agy", effort=None, **self.OK)  # a canary, of another model
+        self.canary("agy", **self.OK)  # a canary, of another model
         res = self.readiness("--terms", self.terms, code=1)
         found = dict(res["findings"])
         self.assertEqual(sorted(found), ["isolation.canary.agy gemini-other"])
@@ -1316,74 +1359,126 @@ class CanaryPerModelTest(Prepared):
 
     def test_one_file_per_model_named_by_engine_and_model(self):
         self.meta(via="agy", model="gemini-other")
-        self.canary("agy", name="canary-agy-gemini-other.json", model="gemini-other", effort=None, **self.OK)
+        self.canary("agy", name="canary-agy-gemini-other.json", model="gemini-other", **self.OK)
         self.assertEqual(self.states(code=0), {"agy gemini-other": "passed (model gemini-other)"})
 
     def test_codex_needs_the_effort_the_cards_ran_at(self):
         self.meta(via="codex", model="gpt-fake", effort="medium")
         self.canary("codex", effort="low", **self.OK)
-        found = dict(self.readiness("--terms", self.terms, code=1)["findings"])
-        text = found["isolation.canary.codex gpt-fake"]
-        self.assertIn("the cards ran at effort medium, and the passing canary at low", text)
+        res = self.readiness("--terms", self.terms, code=1)
+        found = dict(res["findings"])
+        self.assertEqual(sorted(found), ["isolation.canary.codex gpt-fake effort medium"])
+        text = found["isolation.canary.codex gpt-fake effort medium"]
+        self.assertIn("no canary result for codex gpt-fake effort medium", text)
+        self.assertIn("found at effort low", text)
         self.assertIn("--effort medium", text)
         self.canary("codex", name="canary-codex-gpt-fake-medium.json", effort="medium", **self.OK)
         res = self.readiness("--terms", self.terms, code=0)
         self.assertEqual(res["isolation"]["canary"], {
-            "codex gpt-fake (canary-codex-gpt-fake-medium.json)": "passed (model gpt-fake, effort medium)",
-            "codex gpt-fake (canary-codex.json)": "passed (model gpt-fake, effort low)"})
+            "codex gpt-fake effort low": "passed (model gpt-fake, effort low)",
+            "codex gpt-fake effort medium": "passed (model gpt-fake, effort medium)"})
 
-    def test_a_canary_that_records_no_effort_is_not_compared(self):
+    def test_a_canary_that_records_no_effort_clears_no_codex_pair(self):
         self.meta(via="codex", model="gpt-fake", effort="medium")
         self.canary("codex", effort=None, **self.OK)
-        self.states(code=0)
-
-    def test_cards_that_record_no_effort_accept_a_canary_at_any(self):
-        self.meta(via="codex", model="gpt-fake")
-        self.canary("codex", effort="high", **self.OK)
-        self.states(code=0)
-
-    def test_the_light_model_needs_its_own_canary(self):
-        self.meta(via="codex", model="gpt-fake", effort="low", light_model="gpt-light")
-        self.canary("codex", effort="low", **self.OK)
         found = dict(self.readiness("--terms", self.terms, code=1)["findings"])
-        self.assertEqual(sorted(found), ["isolation.canary.codex gpt-light"])
+        self.assertEqual(sorted(found), ["isolation.canary.codex gpt-fake effort medium"])
+        self.assertIn("found at effort none recorded", found["isolation.canary.codex gpt-fake effort medium"])
+
+    def test_cards_that_record_no_effort_are_not_verified_never_a_pass(self):
+        """Codex cards made before the effort was recorded ran at the default then; a canary at any effort clears them
+        only by guesswork, so the pair reads `not verified`, with or without the terms file."""
+        self.meta(via="codex", model="gpt-fake")
+        self.canary("codex", effort="low", **self.OK)
+        for args in (["--terms", self.terms], []):
+            res = self.readiness(*args, code=0)
+            state = res["isolation"]["canary"]["codex gpt-fake (no effort recorded)"]
+            self.assertEqual(state[:len("not verified: the cards record no effort")], "not verified: the cards record no effort")
+            self.assertIn(["isolation.canary.codex gpt-fake (no effort recorded)", state], res["not_verified"])
+
+    def test_the_light_model_needs_a_canary_at_the_effort_it_ran_at(self):
+        """`--light-model` reads section notes at low whatever the main effort is."""
+        self.meta(via="codex", model="gpt-fake", effort="medium", light_model="gpt-light", light_model_effort="low")
+        self.canary("codex", effort="medium", **self.OK)
+        self.canary("codex", name="canary-codex-gpt-light.json", model="gpt-light", effort="high", **self.OK)
+        found = dict(self.readiness("--terms", self.terms, code=1)["findings"])
+        self.assertEqual(sorted(found), ["isolation.canary.codex gpt-light effort low"])
+        self.assertIn("found at effort high", found["isolation.canary.codex gpt-light effort low"])
         self.canary("codex", name="canary-codex-gpt-light.json", model="gpt-light", effort="low", **self.OK)
-        self.assertEqual(set(self.states(code=0)), {"codex gpt-fake", "codex gpt-light"})
+        self.assertEqual(set(self.states(code=0)), {"codex gpt-fake effort medium", "codex gpt-light effort low"})
+
+    def test_one_model_as_main_and_light_needs_a_canary_at_each_effort(self):
+        self.meta(via="codex", model="gpt-fake", effort="high", light_model="gpt-fake", light_model_effort="low")
+        self.canary("codex", effort="high", **self.OK)
+        found = dict(self.readiness("--terms", self.terms, code=1)["findings"])
+        self.assertEqual(sorted(found), ["isolation.canary.codex gpt-fake effort low"])
+        self.canary("codex", name="canary-codex-gpt-fake-low.json", effort="low", **self.OK)
+        self.states(code=0)
 
     def test_two_models_across_the_cards_each_need_one(self):
         cards = self.path("_Audit", "cards")
         names = sorted(os.listdir(cards))
         for i, name in enumerate(names):
             card = json.loads(read(os.path.join(cards, name)))
-            card["card_meta"] = {"via": "agy", "model": "gemini-a" if i % 2 else "gemini-b"}
+            card["card_meta"] = {"via": "agy", "model": "gemini-a" if i % 2 else "gemini-b",
+                                 "shield_sha256": TERMS_DIGEST}
             write(os.path.join(cards, name), json.dumps(card, ensure_ascii=False, indent=1))
-        self.canary("agy", model="gemini-a", effort=None, **self.OK)
+        self.canary("agy", model="gemini-a", **self.OK)
         found = dict(self.readiness("--terms", self.terms, code=1)["findings"])
         self.assertEqual(sorted(found), ["isolation.canary.agy gemini-b"])
 
     def test_a_failed_canary_of_the_model_is_one_finding_not_two(self):
+        self.stamp_cards()
         self.canary("agy", reply="<term>", hits=1, usage={}, **{"pass": False})
         res = self.readiness("--terms", self.terms, code=1)
         self.assertEqual([k for k, _v in res["findings"]], ["isolation.canary.agy gemini-fake-high"])
         self.assertTrue(res["findings"][0][1].startswith("failed: 1 isolation term(s)"))
 
     def test_a_pass_without_the_marker_clears_nothing_given_the_terms_file(self):
+        self.stamp_cards()
         self.canary("agy", reply="NONE", hits=0, usage={}, **{"pass": True})
         found = dict(self.readiness("--terms", self.terms, code=1)["findings"])
         text = found["isolation.canary.agy gemini-fake-high"]
         self.assertTrue(text.startswith("finding: no passing canary for agy gemini-fake-high"), text)
         self.assertIn("records a pass without the invented name", text)
 
+    def test_a_canary_with_no_terms_digest_is_not_verified_and_clears_nothing(self):
+        self.stamp_cards()
+        write(self.work_file("canary-agy.json"), json.dumps({
+            "engine": "agy", "pass": True, "answered": True, "marker": "Kobelumi", "reply": "NAMES: Kobelumi",
+            "model": "gemini-fake-high", "effort": None}))  # as a canary made before the digest was recorded
+        res = self.readiness("--terms", self.terms, code=1)
+        state = res["isolation"]["canary"]["agy gemini-fake-high"]
+        self.assertIn("made before the canary recorded its terms digest; run it again", state)
+        self.assertTrue(state.startswith("finding: no passing canary for agy gemini-fake-high"), state)
+        self.assertEqual([k for k, _v in res["findings"]], ["isolation.canary.agy gemini-fake-high"])
+
+    def test_a_canary_run_against_another_terms_file_clears_nothing(self):
+        self.stamp_cards()
+        self.canary("agy", terms_sha256=isolation.shield_digest({"Another Name": ["Another Name"]}), **self.OK)
+        found = dict(self.readiness("--terms", self.terms, code=1)["findings"])
+        self.assertIn("ran against another terms file than the one given; run it again",
+                      found["isolation.canary.agy gemini-fake-high"])
+
+    def test_without_the_terms_file_the_digest_is_not_compared(self):
+        write(self.work_file("canary-agy.json"), json.dumps({
+            "engine": "agy", "pass": True, "answered": True, "marker": "Kobelumi", "reply": "NAMES: Kobelumi",
+            "model": "gemini-fake-high"}))
+        self.assertEqual(self.readiness(code=0)["isolation"]["canary"]["agy gemini-fake-high"],
+                         "passed (model gemini-fake-high)")
+
     def test_the_older_per_engine_file_name_is_read_and_a_second_file_for_a_model_is_kept_apart(self):
-        self.canary("agy", effort=None, **self.OK)  # canary-agy.json
-        self.canary("agy", name="canary-agy-copy.json", effort=None, **self.OK)
+        self.stamp_cards()
+        self.canary("agy", **self.OK)  # canary-agy.json
+        self.canary("agy", name="canary-agy-copy.json", **self.OK)
         self.assertEqual(self.states(code=0), {"agy gemini-fake-high (canary-agy-copy.json)":
                                                   "passed (model gemini-fake-high)",
                                               "agy gemini-fake-high (canary-agy.json)":
                                                   "passed (model gemini-fake-high)"})
 
     def test_cards_that_record_no_engine_and_model_are_not_verified(self):
-        self.canary("agy", effort=None, **self.OK)
+        self.stamp_cards()
+        self.canary("agy", **self.OK)
         cards = self.path("_Audit", "cards")
         name = sorted(os.listdir(cards))[0]
         card = json.loads(read(os.path.join(cards, name)))
@@ -1407,6 +1502,59 @@ class CanaryPerModelTest(Prepared):
         res = self.readiness("--terms", self.terms)
         self.assertEqual(sorted(res["isolation"]["canary"]), ["agy", "codex"])
         self.assertTrue(res["isolation"]["canary"]["agy"].startswith("not run: no canary-*.json for agy"))
+
+
+class CardsShieldTest(Prepared):
+    """Given the terms file, a card made with no recorded shield, or under another terms file, is counted and not verified."""
+
+    def setUp(self):
+        super().setUp()
+        self.terms = os.path.join(self.tmp, "terms.txt")
+        write(self.terms, TERMS)
+        self.canary("agy", reply="NAMES: Kobelumi", hits=0, usage={}, answered=True, marker="Kobelumi",
+                    **{"pass": True})
+
+    def test_a_card_made_before_the_shield_was_recorded_is_counted_not_a_finding(self):
+        """The fixture's cards say they were made with `--no-isolation-terms` (`none`)."""
+        res = self.readiness("--terms", self.terms, code=0)
+        want = ("not verified for 17 card(s) made with no recorded shield, or under another terms file (their "
+                "contamination is still checked)")
+        self.assertEqual(res["records"]["cards_shield"], want)
+        self.assertEqual(res["records"]["contamination"], 0, "the card's own text is still checked")
+        self.assertEqual(res["findings"], [])
+        self.assertIn(["records.cards_shield", want], res["not_verified"])
+
+    def test_a_card_with_no_shield_key_and_a_card_under_another_terms_file_are_each_counted(self):
+        self.stamp_cards()
+        cards = self.path("_Audit", "cards")
+        names = sorted(os.listdir(cards))
+        card = json.loads(read(os.path.join(cards, names[0])))
+        del card["card_meta"]["shield_sha256"]
+        write(os.path.join(cards, names[0]), json.dumps(card, ensure_ascii=False, indent=1))
+        card = json.loads(read(os.path.join(cards, names[1])))
+        card["card_meta"]["shield_sha256"] = isolation.shield_digest({"Another Name": ["Another Name"]})
+        write(os.path.join(cards, names[1]), json.dumps(card, ensure_ascii=False, indent=1))
+        self.assertTrue(self.readiness("--terms", self.terms, code=0)["records"]["cards_shield"].startswith(
+            "not verified for 2 card(s)"))
+
+    def test_cards_under_these_terms_count_none(self):
+        self.stamp_cards()
+        self.assertEqual(self.readiness("--terms", self.terms, code=0)["records"]["cards_shield"], 0)
+
+    def test_without_the_terms_file_it_is_not_verified(self):
+        self.assertEqual(self.readiness(code=0)["records"]["cards_shield"], "not verified: no --terms")
+
+    def test_a_card_repeating_the_placeholder_is_no_contamination_when_a_term_stands_in_it(self):
+        """A term `Held` is inside `[withheld name]`: a card that repeats a shielded path must not alert on the placeholder."""
+        terms = os.path.join(self.tmp, "held.txt")
+        write(terms, "Held\n")
+        self.stamp_cards(digest=isolation.shield_digest({"Held": ["Held"]}))
+        self.canary("agy", terms_sha256=isolation.shield_digest({"Held": ["Held"]}), reply="NAMES: Kobelumi", hits=0,
+                    usage={}, answered=True, marker="Kobelumi", **{"pass": True})
+        p = self.path("_Audit", "cards", self.ids()["04 Study/Notes.rtf"] + ".json")
+        card = json.loads(read(p))
+        write(p, json.dumps(dict(card, summary=card["summary"] + " Filed under [withheld name]."), indent=1))
+        self.assertEqual(self.readiness("--terms", terms, code=0)["records"]["contamination"], 0)
 
 
 class FindingTest(Prepared):
@@ -1533,15 +1681,17 @@ class FindingTest(Prepared):
     def test_a_failed_canary(self):
         self.canary("codex", reply="<term>", hits=1, usage={}, **{"pass": False})
         res = self.readiness(code=1)
-        self.assertEqual(res["findings"], [["isolation.canary.codex gpt-fake", "failed: 1 isolation term(s) in the "
-                                            "engine's reply, checked 2024-06-30T12:00:00+0000"]])
+        self.assertEqual(res["findings"], [["isolation.canary.codex gpt-fake effort low",
+                                            "failed: 1 isolation term(s) in the engine's reply, checked "
+                                            "2024-06-30T12:00:00+0000"]])
         self.assertIn(["isolation.canary.agy gemini-fake-high", res["isolation"]["canary"]["agy gemini-fake-high"]],
                       res["not_verified"])
         self.canary("codex", error="timeout", **{"pass": False})
-        self.assertIn("the engine gave no usable answer (timeout)", self.one_finding("isolation.canary.codex gpt-fake"))
+        self.assertIn("the engine gave no usable answer (timeout)",
+                      self.one_finding("isolation.canary.codex gpt-fake effort low"))
         self.canary("codex", reply="I cannot list that.", hits=0, answered=False, usage={}, marker="Kobelumi",
                     error="the reply did not repeat the test name Kobelumi", **{"pass": False})
-        finding = self.one_finding("isolation.canary.codex gpt-fake")
+        finding = self.one_finding("isolation.canary.codex gpt-fake effort low")
         self.assertIn("no usable answer (the reply did not repeat the test name Kobelumi", finding)
         self.assertNotIn("0 isolation term(s)", finding)
 
@@ -1764,7 +1914,7 @@ class FindingTest(Prepared):
         res = self.readiness("--terms", terms, "--manifest", self.path("_Audit", "manifest.json"), code=1)
         keys = {k for k, _v in res["findings"]}
         self.assertTrue({"records.extract_paths_stale", "records.malformed_extracts", "records.malformed_cards",
-                         "isolation.canary.codex gpt-fake", "manifest.live_paths_missing", "wiki.problems",
+                         "isolation.canary.codex gpt-fake effort low", "manifest.live_paths_missing", "wiki.problems",
                          "wiki_handoff.rationale_file", "scratch.left_in_audit",
                          "handoff_contract.recurring_dates_in_frontmatter",
                          "handoff_contract.rulebook_reserves_rulebook_filenames"} <= keys, keys)
