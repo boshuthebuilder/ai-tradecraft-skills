@@ -27,7 +27,7 @@ sectioned or none), and `text`: the whole extracted text, with `[page N]` marker
   Essay, Lecture Notes, Reading, Book, Course Material, Presentation, Spreadsheet, Itinerary, Booking
   Confirmation, Menu, Recipe, Medical Report, Prescription, Photo, Screenshot, Unknown. For a company's papers, for
   example VAT Return, Purchase Invoice, Sales Invoice, Credit Note, Delivery Note, Price List, Purchase Order,
-  Staff Contract, Licence, Inspection Report, Insurance Schedule, Lease.
+  Employment Contract, Licence, Inspection Report, Insurance Schedule, Lease.
 - `party`: the main person or organisation the document is about or addressed to, using the canonical name above
   for anyone listed there. "Unknown" if none.
 - `parties`: up to 5 other people or organisations involved (issuer, school, employer, bank, insurer).

@@ -402,8 +402,8 @@ so a photograph folder that doubles overnight is visible.
   submission pack is history and stays whole.
 - **Nothing is permanently deleted.** Deleted copies and emptied folders go to the Bin, each with its
   undo entry, and no copy is deleted until the moves before it are proven. The Bin stays unemptied until the folder
-  is onboarded: in a synced folder a removal reaches every device, while the undo entry and the Bin's copy are on
-  one machine only.
+  is onboarded: in a synced folder a removal reaches every device, and the undo entry syncs too, but the Bin it
+  points to is on one machine only.
 - **The owner's shape survives.** Resolve conflicts inside it; never replace it uninvited.
 - **Counts, never silence.** Every audit section reports a number, zero included, and every round
   reports approved, executed, skipped, failed.

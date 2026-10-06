@@ -6,7 +6,12 @@ then Apple Vision through `page-ocr`, then tesseract, both in the languages the 
 `ocr_languages` (`vision_passes` says how Vision is routed). A page none of them reads cleanly is queued for the model
 vision lane (`vision.py`) and marked `pending_vision`. Office zip formats are parsed directly, rtf/doc/odt/html through
 `textutil`, iWork through the `.iwa` reader (`iwa.py`) with the preview image as a fallback, legacy .ppt/.xls through
-LibreOffice when it is installed. Resumable: an existing record is never rewritten unless `--retry-failed`.
+LibreOffice when it is installed. Resumable: an existing record is never rewritten unless `--retry-failed`, which reads
+again a record that failed, or that was read while a local OCR tier was missing (its `notes` say so).
+
+A document whose current path is under the migrations folder is held for another project, and one the rulebook
+`exclude`s (a listed path, or under one) is excluded: neither is ever read or queued, whatever its flags, and the run's
+log counts each (`held_for_another_project`, `excluded`).
 
     python3 extract.py --root R --lane main --worker 0/4
     python3 extract.py --root R --lane apps
@@ -464,7 +469,7 @@ def process(ctx, e):
         else:
             status = "ok"
     missing = [n for n in ("page-ocr", "tesseract") if not ctx.bins[n]]
-    if missing and any(p["tier"] in ("pending_vision", "blank", "none") for p in pages):
+    if missing and any(p["tier"] in ("pending_vision", "blank", "none", "photo") for p in pages):
         notes.append("local OCR tier not available here: %s" % ", ".join(missing))
     rec = {"id": e["id"], "path": e["current_path"], "class": cls, "status": status,
            "page_count": len(pages), "tiers": dict(tiers), "chars": sum(len(p.get("text", "")) for p in pages),
@@ -474,18 +479,42 @@ def process(ctx, e):
     return rec
 
 
+OCR_MISSING = "local OCR tier not available here"  # the start of the note `process` records for a missing OCR tool
+
+
+def retryable(path):
+    """Whether `--retry-failed` reads the record at `path` again: it failed, it cannot be read, or the only thing wrong
+    with it is a local OCR tier that was missing when it was read (its notes say so), so a corrected `--ocr-bin` or an
+    installed tesseract recovers it."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            rec = json.load(f)
+    except (OSError, ValueError):
+        return True
+    if not isinstance(rec, dict):
+        return True
+    notes = rec.get("notes")
+    return rec.get("status") == "failed" or isinstance(notes, list) and any(
+        isinstance(n, str) and n.startswith(OCR_MISSING) for n in notes)
+
+
 def main():
     ap = common.base_args("Full-text extraction, local tools only")
     ap.add_argument("--lane", choices=["main", "apps"], default="main",
                     help="apps = iWork, legacy office and packages; main = everything else")
     ap.add_argument("--worker", default="0/1")
-    ap.add_argument("--retry-failed", action="store_true")
+    ap.add_argument("--retry-failed", action="store_true",
+                    help="read again a record that failed, or that was read while a local OCR tier was missing")
     ap.add_argument("--manifest", help="default <root>/_Audit/manifest.json")
     ap.add_argument("--out", help="default <root>/_Audit/extract")
-    ap.add_argument("--ocr-bin", help="path to the built page-ocr binary")
+    ap.add_argument("--ocr-bin", help="path to the built page-ocr binary (refused unless an executable file)")
     a = ap.parse_args()
-    root, settings_dir, work = common.resolve(a)
-    langs = common.load_rulebook(root, settings_dir)["ocr_languages"]
+    if a.ocr_bin and not (os.path.isfile(a.ocr_bin) and os.access(a.ocr_bin, os.X_OK)):
+        raise common.ToolError("--ocr-bin %s is not an executable file; build the helper (`swiftc -O page_ocr.swift "
+                               "-o page-ocr`) and give its path, or leave --ocr-bin out" % a.ocr_bin)
+    root, settings_dir, work = common.resolve(a, extract=a.out)
+    rb = common.load_rulebook(root, settings_dir)
+    langs = rb["ocr_languages"]
     ocr_codes(langs, TESSERACT_LANGS)   # an unknown code fails loud before anything is written
     out = os.path.realpath(a.out) if a.out else os.path.join(root, "_Audit", "extract")
     writer = common.Writer(root if a.read_only_root else None)
@@ -497,9 +526,9 @@ def main():
     log("tools:", {k: bool(v) for k, v in ctx.bins.items()})
     with open(a.manifest or os.path.join(root, "_Audit", "manifest.json"), encoding="utf-8") as f:
         man = json.load(f)
-    todo = []
+    todo, held = [], collections.Counter()
     for e in sorted(man["entries"].values(), key=lambda x: x["id"]):
-        if not e.get("hashed") or "departed" in e.get("flags", []):
+        if "departed" in e.get("flags", []):
             continue
         ext = os.path.splitext(e["current_path"])[1].lower()
         is_app = ext in IWORK or ext in LEGACY or bool(e.get("package"))
@@ -507,23 +536,23 @@ def main():
             continue
         if a.lane == "main" and int(e["id"][:8], 16) % wn != wi:
             continue
-        todo.append(e)
-    log("start lane=%s worker=%s todo=%d" % (a.lane, a.worker, len(todo)))
+        why = common.withheld(rb, e["current_path"])
+        if why:
+            held[why] += 1  # staged for another project, or excluded by the owner: never read, whatever its flags
+            continue
+        if e.get("hashed"):
+            todo.append(e)
+    counts = "held_for_another_project=%d excluded=%d" % (held["migrations"], held["excluded"])
+    log("start lane=%s worker=%s todo=%d %s" % (a.lane, a.worker, len(todo), counts))
     os.makedirs(os.path.join(work, "index"), exist_ok=True)
     idx = open(os.path.join(work, "index", "extract_%s.jsonl" % tag), "a", encoding="utf-8")
     done = failed = skipped = 0
     t0 = time.time()
     for i, e in enumerate(todo):
         outp = os.path.join(out, e["id"] + ".json")
-        if os.path.exists(outp):
-            try:
-                with open(outp, encoding="utf-8") as f:
-                    st = json.load(f).get("status")
-            except (OSError, ValueError):
-                st = "failed"
-            if st != "failed" or not a.retry_failed:
-                skipped += 1
-                continue
+        if os.path.exists(outp) and not (a.retry_failed and retryable(outp)):
+            skipped += 1
+            continue
         ctx.cur = e["id"]
         t1 = time.time()
         try:
@@ -543,7 +572,7 @@ def main():
     idx.close()
     ctx.ocr.close()
     shutil.rmtree(ctx.tmp, True)
-    log("finished done=%d failed=%d skipped=%d in %.0fs" % (done, failed, skipped, time.time() - t0))
+    log("finished done=%d failed=%d skipped=%d %s in %.0fs" % (done, failed, skipped, counts, time.time() - t0))
     os.makedirs(os.path.join(work, "state"), exist_ok=True)
     with open(os.path.join(work, "state", "extract_%s.done" % tag), "w") as f:
         f.write(common.now_local())
@@ -599,7 +628,7 @@ def repath(argv):
     ap.add_argument("--out", help="the extract records (default <root>/_Audit/extract)")
     ap.add_argument("--apply", action="store_true", help="write the repathed records (default: a dry run)")
     a = ap.parse_args(argv)
-    root, _settings_dir, _work = common.resolve(a)
+    root, _settings_dir, _work = common.resolve(a, extract=a.out)
     records = os.path.realpath(a.out) if a.out else os.path.join(root, "_Audit", "extract")
     _mpath, entries = wiki.load_manifest(root, a.manifest)
     try:

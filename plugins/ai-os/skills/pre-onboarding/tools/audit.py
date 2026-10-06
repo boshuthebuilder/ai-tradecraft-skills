@@ -4,13 +4,17 @@
 No model calls. Walks the folder, hashes every item (an iWork package counts as one item, hashed over its members),
 groups copies by content, tags each copy canonical, redundant, working copy or pack, finds overlapping homes,
 generic names, unconverted iWork files, hygiene defects, root strays and files staged for another project, and
-merges with the previous manifest so history (first seen, renames, departures) is kept.
+merges with the previous manifest so history (first seen, renames, departures) is kept. An item the rulebook's
+`exclude` lists (a path, or under one) is recorded from the folder's listing alone, its path, size, modification time
+and class, and never opened: it has the synthetic id of an item counted and not hashed, so it is no duplicate of any
+other and no later tool reads it.
 
     python3 audit.py --root <folder> [--out <dir>] [--work <dir>] [--settings-dir <dir>] [--read-only-root]
 
 `--out` defaults to <root>/_Audit; the previous manifest is read from there. Schema family-ai-preprocess-manifest/2.
 """
 import collections
+import hashlib
 import json
 import os
 import re
@@ -28,7 +32,7 @@ BASE_RESERVED = {"AGENTS.md", "CLAUDE.md", "GEMINI.md", ".familyai", "Outbox", "
 IMG = {".jpg", ".jpeg", ".png", ".heic", ".tif", ".tiff", ".gif", ".bmp", ".webp"}
 DOC = {".pdf", ".doc", ".docx", ".odt", ".rtf", ".txt", ".md", ".html", ".htm", ".xlsx", ".xls",
        ".csv", ".pptx", ".ppt", ".pot", ".potx", ".pps", ".ppsx"}
-IWORK = {".pages", ".numbers", ".key"}
+IWORK = set(common.PACKAGE_EXTS)
 EMAIL = {".eml", ".msg", ".emlx"}
 ARCH = {".zip", ".rar", ".7z", ".tgz", ".gz", ".tar"}
 EXPORTS = {".pdf", ".docx", ".doc", ".xlsx", ".xls", ".csv", ".pptx", ".ppt"}
@@ -61,6 +65,26 @@ def near_stem(stem):
     return s
 
 
+def class_of(ext):
+    return ("iwork" if ext in IWORK else "image" if ext in IMG else "document" if ext in DOC else
+            "email" if ext in EMAIL else "archive" if ext in ARCH else "other")
+
+
+def stat_item(full, pkg):
+    """(size, modification time) of an item from the folder's listing alone: a file's own, or a package's members'
+    total size and newest time. No file is opened."""
+    if not pkg:
+        st = os.stat(full)
+        return st.st_size, st.st_mtime
+    size, mt = 0, 0.0
+    for r2, _ds, fs in os.walk(full):
+        for f in fs:
+            st = os.stat(os.path.join(r2, f))
+            size += st.st_size
+            mt = max(mt, st.st_mtime)
+    return size, mt
+
+
 def main():
     ap = common.base_args("Deterministic folder audit")
     ap.add_argument("--out", help="output directory (default <root>/_Audit); the previous manifest is read here")
@@ -68,7 +92,8 @@ def main():
     ap.add_argument("--dataless", choices=["fail", "read"], default="fail",
                     help="iCloud files not on this machine: fail (default, lists them) or read (downloads them)")
     a = ap.parse_args()
-    root, settings_dir, work = common.resolve(a)
+    root, settings_dir, work = common.resolve(
+        a, manifest=os.path.join(os.path.realpath(a.out), "manifest.json") if a.out else None)
     rb = common.load_rulebook(root, settings_dir)
     out = os.path.realpath(a.out) if a.out else os.path.join(root, "_Audit")
     writer = common.Writer(root if a.read_only_root else None)
@@ -125,6 +150,8 @@ def main():
     items.sort()
     for rel, pkg in items:
         full = os.path.join(root, rel)
+        if common.is_excluded(rb, rel):
+            continue  # never read, so never downloaded either
         if pkg:
             dataless += [os.path.relpath(os.path.join(r2, f), root) for r2, _, fs in os.walk(full) for f in fs
                          if common.is_dataless(os.path.join(r2, f))]
@@ -153,9 +180,20 @@ def main():
     newcache = {}
     meta = {}
     done_bytes = 0
+    excluded = 0
     for i, (rel, pkg) in enumerate(items):
         full = os.path.join(root, rel)
         ext = os.path.splitext(rel)[1].lower()
+        if common.is_excluded(rb, rel):
+            # The owner excluded it from reading: record what the folder says (path, size, modification time, class)
+            # and open no file. Its id is the synthetic one of an item counted and not hashed, so it is never matched
+            # to another copy, and every later tool leaves it alone as an entry it cannot read.
+            size, mt = stat_item(full, pkg)
+            h = hashlib.sha256(("%d:%s:%s" % (size, common.iso_utc(mt), rel)).encode()).hexdigest()
+            meta[rel] = dict(id=h, size=size, mtime=mt, cls="iwork" if pkg else class_of(ext), hashed=False,
+                             package=pkg)
+            excluded += 1
+            continue
         if pkg:
             members = []
             size, mt = 0, 0.0
@@ -174,10 +212,8 @@ def main():
         else:
             st = os.stat(full)
             size, mt = st.st_size, st.st_mtime
-            cls = ("iwork" if ext in IWORK else "image" if ext in IMG else "document" if ext in DOC else
-                   "email" if ext in EMAIL else "archive" if ext in ARCH else "other")
+            cls = class_of(ext)
             if cls == "image" and size > img_cap:
-                import hashlib
                 h = hashlib.sha256(("%d:%s:%s" % (size, common.iso_utc(mt), rel)).encode()).hexdigest()
                 meta[rel] = dict(id=h, size=size, mtime=mt, cls=cls, hashed=False, package=False)
                 continue
@@ -190,7 +226,7 @@ def main():
             log("hashed %d/%d  %.1f GB" % (i, len(items), done_bytes / 1e9))
             save_cache()
     save_cache()
-    log("hashing done in %.0fs" % (time.time() - t0))
+    log("hashing done in %.0fs; %d excluded from reading, not hashed" % (time.time() - t0, excluded))
 
     # ---- group, canonical, copy kinds -------------------------------------------------
     groups = collections.defaultdict(list)
@@ -317,15 +353,22 @@ def main():
             "id": h,
             "original_name": old.get("original_name", os.path.basename(c)),
             "current_path": c,
-            "rename_history": old.get("rename_history", []),
+            "rename_history": list(old.get("rename_history", [])),
             "class": m["cls"],
             "size": m["size"],
             "mtime": common.iso_utc(m["mtime"]),
             "hashed": m["hashed"],
             "first_seen": old.get("first_seen", run_at),
         })
-        if old.get("current_path") and old["current_path"] != c:
-            e["rename_history"] = e["rename_history"] + [{"path": c, "at": run_at, "run_id": "audit"}]
+        # a placement per path the document has been at, oldest first, the first included (a manifest an older audit made
+        # lacks it: it is added here, from the path the entry held, before the move is recorded)
+        if not old:
+            e["rename_history"] = [{"path": c, "at": run_at, "run_id": "audit"}]
+        elif old.get("current_path") and old["current_path"] != c:
+            if not any(h.get("path") == old["current_path"] for h in e["rename_history"] if isinstance(h, dict)):
+                e["rename_history"].append({"path": old["current_path"], "at": old.get("first_seen", run_at),
+                                            "run_id": "audit"})
+            e["rename_history"].append({"path": c, "at": run_at, "run_id": "audit"})
         e.pop("copies", None)
         e.pop("synthetic_id", None)
         e.pop("package", None)

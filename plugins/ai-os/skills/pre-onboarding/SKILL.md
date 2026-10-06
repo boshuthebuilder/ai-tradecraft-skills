@@ -48,7 +48,7 @@ archetype); keeping a wiki that already exists (`wiki-maintenance`).
 - **The machine.** The operator's own machine, where the bulk engines are logged in ([engine
   isolation](#engine-isolation)). Local reading uses Apple Vision through a small helper (the OCR helper, below),
   poppler for PDFs, and, when installed, tesseract and LibreOffice. A tool that is missing is named in the records it
-  would have read, never skipped silently (the helper is the one exception, below). Ask the operator which engine and
+  would have read, never skipped silently. Ask the operator which engine and
   model the vision lane (`agy` only, a model that reads page images) and the cards use, and which two different
   models draft and review the wiki's pages (those are subagents of the session, not engine calls:
   [step 7](#7-build-the-wiki)). Name each model by the id its engine accepts: `agy models` lists agy's, and with
@@ -58,8 +58,12 @@ archetype); keeping a wiki that already exists (`wiki-maintenance`).
   the repository, and the same `skills/pre-onboarding/tools/` under the plugin's own folder in an installed plugin
   (the folder this skill was loaded from). Work out its absolute path once and use that path in every command. Every
   tool takes `--root "<folder>"`; working state lives outside the folder, in the work directory, `<work>` below
-  (`--work`, default `~/.ai-os-pre-onboarding/<folder name>`). The common flags, every command and every output are
-  in the [tool reference](references/tools.md#common-flags).
+  (`--work`, default `~/.ai-os-pre-onboarding/<folder name>`, where the name has each run of characters other than
+  ASCII letters, digits, `.`, `_` and `-` written as one `-`: `Sam Catering` gives `Sam-Catering`, and two folders
+  whose names differ only in such characters share one, so give each its own `--work`). Work `<work>` out once as an
+  absolute path with no `~` (a quoted `~` is not expanded) and pass it as `--work` to every tool that takes one (the
+  commands below leave it out for brevity), so no command spells it another way. The common flags, every command and every output are in the
+  [tool reference](references/tools.md#common-flags).
 - **The OCR helper.** Build it once, into the work directory and not the tools folder, since a plugin update may
   replace the tools folder and a helper built there with it: `mkdir -p "<work>"`, then
   `swiftc -O "<tools>/page_ocr.swift" -o "<work>/page-ocr"` (macOS 13 or later; a few seconds), and pass
@@ -67,8 +71,11 @@ archetype); keeping a wiki that already exists (`wiki-maintenance`).
   can read, as an image, into a scratch folder outside the folder being prepared, run `audit.py` and
   `extract.py --lane main --ocr-bin ...` over it with a scratch `--work` of its own, and open its record in the
   scratch `_Audit/extract/`. A page of tier `local_ocr` and engine `vision`, holding the scan's text, proves the
-  helper. Without it a page image is recorded as a `photo`, with no note saying why. Build your own even when a
-  binary is already in the tools folder: it may come from another machine.
+  helper. An `--ocr-bin` that is not an executable file is refused at the start (exit 2). Without a working helper
+  the run still ends, and exits 0: a clean scan image is recorded as a `photo`, with a note naming the missing helper
+  (`local OCR tier not available here: page-ocr`), so the proof on one scan matters; once the helper is corrected,
+  `extract.py --retry-failed` reads those records again. Build your own even when a binary is already in the tools
+  folder: it may come from another machine.
 - **The isolation terms file.** Every name that must never reach a model working on this folder: the people,
   organisations and places of the operator's other projects, and the operator's own identifiers from any other use
   of the engines. It is kept outside the folder, never committed and never shown to a model, so the operator writes
@@ -143,11 +150,15 @@ interview settles what this preparation adds to the ladder, each a key of the tw
   accounts pack or a payroll year, are unprotected until listed ([examples](references/settings.md#rulebookjson)).
 - **Other people's personal data.** If the folder holds staff, customer or supplier papers (contracts, payslips, tax
   and bank details, contact lists), ask what may go to the cloud engines: the vision lane sends page images and the
-  cards send each document's whole text to `agy` or `codex`, under the identifier policy. Record the answer in the
-  rulebook. `boundaries` is free text that no tool enforces. `exclude` is the hard control: `extract.py`,
-  `vision.py` and `cards.py` skip every path it lists, so it is never read, sent or queued, and `audit.py` records it
-  without reading its content. A top-level name in `reserved` is never walked by the audit at all. Anything not
-  excluded is read, and the owner should be told so.
+  cards send each document's whole text to `agy` or `codex`, under the identifier policy, and the wiki's subagents
+  and the session itself are cloud models too, so the session's own model provider receives whatever is not excluded.
+  Record the answer in the rulebook. `boundaries` is free text that no tool enforces. `exclude` is the hard control:
+  list each path (a file or folder relative to the folder, and everything under it, compared ignoring case and
+  Unicode form). The tools refuse an entry that names no path under the folder, or one inside an iWork package
+  (exclude the whole package), and `settings.py check` reports it; `audit.py` records an excluded path from the
+  folder's listing alone, opening no file; `extract.py`, `vision.py` and `cards.py` never read, queue, card or send
+  it; and every tool's start discards what an earlier run made from it. A top-level name in `reserved` is never
+  walked by the audit at all. Anything not excluded is read, and the owner should be told so.
 
 Two things the [hand-off contract](#the-hand-off-contract) checks belong in the rulebook from the start:
 
@@ -158,8 +169,12 @@ Two things the [hand-off contract](#the-hand-off-contract) checks belong in the 
   seems to belong to another project is filed here like any other, and the move is only suggested, by the owner's
   user-tier synthesis; the owner makes it by hand
   ([a project files within itself](../wiki-maintenance/SKILL.md#rules-that-keep-it-safe)). Keep the other project's
-  name out of the rulebook. `readiness.py` reads this part by keyword, line by line, so keep the migrations folder
-  and the words about new files on different lines, as the skeleton does; its wording passes.
+  name out of the rulebook. `readiness.py` reads this part strictly, by keyword, a statement at a time (a paragraph
+  or list item, its wrapped lines joined): any statement that writes the migrations folder's own name, in any letter
+  case and with or without its slash, together with "new file", "drop", "goes to" or "go to" is a finding, a negation
+  included. So say plainly, in a statement of its own that writes the name, that files wait there only while a
+  migration is open and only an approved plan row puts them there, and say in another, without the name, that new
+  files are filed in this folder by the wiki's routing. The skeleton's wording does both and passes.
 
 Then run `settings.py check --root "<folder>"`. Until the wiki exists it reports `wiki-schema.json` as missing;
 fix every other finding now. **Audit again** once the twin is pinned and before any plan is proposed: step 1 worked
@@ -170,10 +185,11 @@ out the manifest's copy kinds, which decide what a plan may propose to delete, w
 
 A round is [`folder-curation` steps 3 to 6](../folder-curation/SKILL.md#3-propose-the-only-model-step), carried
 out by `plan.py` in a plan folder, `<folder>/_Audit/plans/<YYYY-MM-DD>/` (below `<plan folder>`, and `<plan>` its
-`move-plan.csv`). Every proposal gets a plan folder of its own: `plan.py light`, `migrate` and `return` write
-`move-plan.csv` over any plan already in the folder they are given, approvals included. A second proposal on the same
-day (a round that deletes copies often needs one) takes a suffix, `<YYYY-MM-DD>-2`, or a word for what it does,
-`<YYYY-MM-DD>-migrate`; nothing reads the folder's name. Finish curating before step 4 where you can: extract
+`move-plan.csv`). Every proposal gets a plan folder of its own: `plan.py light`, `migrate` and `return` replace a plan
+nobody has decided in the folder they are given, but refuse (exit 2, nothing written) one with any row approved,
+declined or deferred, and say to choose a new folder. A second proposal on the same day (a round that deletes copies
+often needs one) takes a suffix, `<YYYY-MM-DD>-2`, or a word for what it does, `<YYYY-MM-DD>-migrate`; nothing reads
+the folder's name. Finish curating before step 4 where you can: extract
 records and bundles carry the paths they were built from. A round after that is repaired, never read again (*A round
 after extraction*, below).
 
@@ -195,20 +211,22 @@ after extraction*, below).
 3. **Approve.** The owner reads the plan domain by domain and chooses a destination for each stray; write it into
    that row's `to` column ([the plan schema](../folder-curation/references/move-plan-schema.md)) before approving
    the row. No `plan.py` command does it: edit `move-plan.csv` with a tool that reads and writes CSV (its paths hold
-   commas and quotes), change no other cell and keep the row order. `check` (item 4) does not flag a stray left
-   without a destination; the dry run in item 5 refuses it by name. Record each decision as it is made:
+   commas and quotes), change no other cell and keep the row order. `check` (item 4) and the dry run (item 5) both
+   fail a stray left without a destination (`no destination: the owner must choose one before approving`); a stray
+   the owner declines or defers is never run, so it is not refused. Record each decision as it is made:
    `plan.py approve --plan <plan> --rows 1-5,7 --note "<what the owner said>"`, with `--decline` for a no and
    `--defer` for not this round. Then
    `plan.py rmdirs --root "<folder>" --plan <plan>` proposes an `rmdir` row for each top-most folder the approved
    moves empty; the owner approves or declines those too (the rulebook's `keep_empty_folders`).
-4. **Dry run.** `plan.py check --root "<folder>" --plan <plan>`; fix or decline every row that fails.
+4. **Dry run.** `plan.py check --root "<folder>" --plan <plan>`; fix or decline every row that fails. A row whose
+   `from` or `to` is a path the rulebook excludes fails too: no tool opens or moves it, and the owner moves it by hand.
 5. **Execute.** Keep a copy of the manifest the round starts from (for example in
    `<work>/plans/<YYYY-MM-DD>/manifest.before.json`), then run `plan.py execute --root "<folder>" --plan <plan>`
    to print what would happen, and again with `--apply`. Nothing is unlinked: removed items go to the Bin, with an
    undo entry each ([`rmdir` and the Bin](../folder-curation/references/move-plan-schema.md#rmdir-and-the-bin)). Keep
    the Bin (the operator's `~/.Trash`, unless `--bin` names another folder) unemptied until the folder is onboarded,
-   and tell the owner why: for a folder in iCloud Drive a removal reaches every device it syncs to, while the undo log
-   and the Bin's copy are on this machine only.
+   and tell the owner why: for a folder in iCloud Drive a removal reaches every device it syncs to, and so does the
+   plan folder's `undo.log`, but the Bin it points to is on this machine only.
 6. **Prove.** Re-audit (step 1), then
    `plan.py prove --plan <plan> --before <the copy> --after "<folder>/_Audit/manifest.json"`; it must print
    `"ok": true`. Once another project has collected the files staged for it, add
@@ -240,8 +258,10 @@ say), repair what it moved rather than read anything again. Once the round's re-
 `extract.py repath --root "<folder>"` lists each extract record whose path it would rewrite to its document's
 current path, matched by content hash, with nothing read again; run it again with `--apply` to write them. It
 refuses a move to a path that is not in the folder, so it runs only on a manifest the re-audit has made current
-([`repath`](references/tools.md#repath)). Then rebuild the bundles and run `wiki.py drift` (step 7). Cards hold no
-path, only their document's id, so they need nothing.
+([`repath`](references/tools.md#repath)). Then rebuild the bundles and run `wiki.py drift` (step 7). A card holds its
+document's id and `card_meta.path`, the path it was carded at, which only records how it was made, so a card that moved
+between included paths needs nothing; a card (or record) whose path is withheld is discarded by every tool's start, and its
+document is read again ([withheld means purged](references/tools.md#common-flags)).
 
 ### 4. Extract the text
 
@@ -322,8 +342,11 @@ context carries another project: fix its setup ([engine isolation](#engine-isola
 records whose status is `needs_vision`: `cards.py build` counts their documents as waiting for ever, and readiness
 reports their cards as missing, so they never reach the hand-off unread by themselves. Do not leave them queued. Name
 them to the owner (every record whose `status` is `needs_vision`, with its pages), and either find an agy model that
-passes the canary or let the owner decide what becomes of those documents, such as taking them out of the folder, which
-the next audit records as a departure. No tool marks a page unread without the lane.
+passes the canary or let the owner decide what becomes of those documents. The owner can take them out of the folder,
+which the next audit records as a departure, or exclude them in place: a document whose path is in `exclude` is
+released at the next tool's start (`cards.py build` counts it as excluded, not waiting, and readiness expects no card
+for it), and the wiki then does not cover it. That is the owner's choice, recorded in the rulebook. No tool marks a
+page unread without the lane.
 
 **When there is nothing to list.** The gate needs a terms file, and an empty one is refused. Where the operator
 genuinely has no name to keep out (no other project, and no other use of the engines), there is no file, and the
@@ -375,22 +398,36 @@ drafters and the reviewers are tool-using subagents of the operator's own sessio
 models the operator named (a page's reviewer on a different model from its drafter). They do not go through
 `engines.py`, so [the engine rules](#engine-isolation), agy's prompt limit and the no-tools rule among them, bind the
 vision lane and the cards alone. The readers interview is the coordinator's own: it asks the owner and writes the
-answers down, and gives the template to no one. What holds a subagent is what it is shown and told: its brief, the
-Schema page, the bundles and the source files they name, and the core wiki rule, and nothing else in the folder or on
-the machine. It does not read the terms file, `<work>/state`, or anything under `_Audit/` its brief does not name (the
-manifest and `AUDIT.md` name the project a staged file is bound for, and a departed entry keeps it); every brief says
-so. The coordinating session is the operator's own and is not behind this gate, and it needs no name from the terms
-file. Scan what a subagent is given before it reads it, the briefs and review prompts as files:
+answers down, and gives the template to no one.
+
+What reaches a subagent is its brief and what it reads, **and whatever the session loads for every agent it starts**:
+the operator's user-level instruction file and the memory and project instruction files of the working directory the
+session was started in. Those name the operator's other affairs, no brief mentions them, and no engine canary covers
+them. A brief limits what a subagent is told to read: its brief, which carries the Schema's tables (the page brief
+tells the drafter not to open the Schema page), the core wiki rule, the bundles and the source files a bundle line
+names; not the terms file, `<work>/state`, or anything under `_Audit/` the brief does not name (the manifest and
+`AUDIT.md` name the project a staged file is bound for, and a departed entry keeps it). A brief is no isolation, so
+hold two controls. Start the preparation session from a working directory that loads no other project's instructions or
+memory: the folder being prepared, or a neutral empty folder, with no parent folder holding another project's
+instruction file. And scan, before any subagent reads a brief, the briefs and review prompts as files and the global
+files the session loads, with the same `scan` as step 5:
 
     python3 <tools>/isolation.py scan --terms <terms file> --path <work>/briefs --path <work>/reviews \
-        --path "<folder>/CLAUDE.md" --path "<folder>/.familyai" --path "<folder>/<folder name> Wiki/90 Schema" \
+        --path "<folder>/CLAUDE.md" --path "<folder>/.familyai" \
+        --if-present ~/.claude/CLAUDE.md --if-present ~/.claude/projects/<the working directory's path, separators as ->/memory \
         --out <work>/state/scan-wiki.json
 
-`.familyai` has changed since step 5 (the compiled Schema), and a subagent working in the folder loads the rulebook and
-is sent to the Schema page, so they are scanned again with the briefs. `scan` refuses a path that does not exist: leave
-out the Schema page before it is written, and `<work>/reviews` before the first review prompt. It creates `--out`'s
-folder. Save every brief you fill by hand under `<work>/briefs/` (`structure.md`, `contract-<NN>.md`), beside the
-ones `wiki.py brief --out` writes, so that each is a file to scan.
+The `--if-present` lines are for a Claude Code session (its user-level instruction file, and the memory index it loads
+for its working directory); give the equivalent files of another coordinating agent, and any other file the session
+loads, and drop a line whose folder does not exist, as in step 5. `.familyai` has changed since step 5 (the compiled
+Schema), and a subagent working in the folder loads the rulebook, so both are scanned again with the briefs. `scan`
+refuses a path that does not exist: leave out `<work>/reviews` before the first review prompt. It creates `--out`'s
+folder. If the scan finds a term in a file the session loads, the wiki stage cannot be isolated in that session: run it
+from a session whose user-level files hold nothing from another project, or tell the owner the wiki stage is not
+verified. The coordinating session is the operator's own and is not behind this gate, and it needs no name from the terms
+file. Save every brief you fill by hand under `<work>/briefs/` (`structure.md`, `contract-<NN>.md`), beside the ones
+`wiki.py brief --out` writes, so that each is a file to scan, and leave out of them every routing row, path and name
+that belongs to the migrations folder or an excluded path (a brief the tool renders already does).
 
 | Stage | Who holds the pen | Brief or tool | Method |
 | --- | --- | --- | --- |
@@ -404,7 +441,8 @@ ones `wiki.py brief --out` writes, so that each is a file to scan.
 The briefs are templates in [`tools/templates/`](tools/templates/): to brief a role, fill the template's fields (its
 opening comment says how each is made) and give it to a subagent, then take the JSON it returns to the owner. The
 librarian picks each page's professional from
-[the professional catalogue](../wiki-maintenance/references/professionals.md), as its note on choosing says. What the sections share is the coordinator's to write
+[the professional catalogue](../wiki-maintenance/references/professionals.md), as its note on choosing says. What the
+sections share is the coordinator's to write
 ([step 4a](../wiki-onboarding/SKILL.md#4a-draft-the-pages-when-every-document-has-been-read), *JSON returns*).
 
 In order:
@@ -447,7 +485,9 @@ In order:
 6. The coordinator writes what the sections share, from the returns. It writes `00 Index` in the chief of staff's
    voice, from the drafters' Index entries and open questions, and the other fixed pages (the Log, a People alias
    table). It renders `01 Deadlines` with `wiki.py deadlines --root "<folder>"`, from the pages' `deadline`,
-   `deadlines` and `recurring` frontmatter (a dry run; `--write` writes the page), never by hand. For every page it
+   `deadlines` and `recurring` frontmatter (a dry run; `--write` writes the page; exit 1 means a page's frontmatter
+   needs mending, exit 2 that a page uses YAML the tool does not read), never by hand, and before any acceptance, since
+   the page written is new text. For every page it
    writes, the Schema and the folder notes included, it makes a return file by hand in `<work>/returns/`: an object
    with a `pages` list, each entry the page's `path` and its `rationale` block (the heading and five lines), so that
    `wiki.py rationale --root "<folder>" --returns <work>/returns` writes `_Audit/wiki-rationale.md` with a block for
@@ -472,7 +512,7 @@ round ([a round after extraction](#3-curation-rounds-each-approved-by-the-owner)
 
 ### 8. Check readiness
 
-    python3 <tools>/readiness.py --root "<folder>" --terms <terms file> --out <work>/readiness.json
+    python3 <tools>/readiness.py --root "<folder>" --work "<work>" --terms <terms file> --out <work>/readiness.json
 
 The [hand-off contract](#the-hand-off-contract), checked ([`readiness.py`](references/tools.md#readinesspy)). It
 exits 0 when nothing is found, 1 on any finding, each listed in `findings` with the report key that holds it, and 2

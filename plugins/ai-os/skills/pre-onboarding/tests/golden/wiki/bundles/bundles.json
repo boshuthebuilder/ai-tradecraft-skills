@@ -1,6 +1,7 @@
 {
- "manifest_sha256": "9bd5c88fd9430483a61ee917026b79744c83bf3f6e329bba3dc4795dde30d66e",
+ "manifest_sha256": "6d541039321cc59dbd949478ecca8aef4f2806ef495f08d11f97cca36f22a129",
  "routing_sha256": "2304d9b5b9b8a8e8898c23756a89b22df45cd9fe43a03793e9eeaf5dad6a66d4",
+ "withheld_sha256": "1025b1aa60da34b4a351191983c1bca99f1de3e303746fce077fd765d46e6034",
  "arguments": {},
  "text_cap": 12000,
  "sections": {
@@ -21,5 +22,7 @@
  "unrouted": [
   "IMG_0001.jpg"
  ],
- "uncarded": []
+ "uncarded": [],
+ "held_for_another_project": 1,
+ "excluded": 0
 }

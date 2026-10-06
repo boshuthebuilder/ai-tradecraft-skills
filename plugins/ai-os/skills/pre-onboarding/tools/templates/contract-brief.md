@@ -3,7 +3,8 @@ braces; doubled braces are literal. Save the filled brief as `<work>/briefs/cont
 `section`: the section's number and name as the Layout has them (`20 Finance`). `professional`: the professional or
 professionals the Layout names for it. `owner_context`, `readers`: as in `structure-brief.md`. `section_rows`: the
 section's Layout row and any Page professionals rows under it, copied as they stand with their header rows.
-`routing`: the Routing rows that target the section, copied the same way. `bundle`: the path of the section's
+`routing`: the Routing rows that target the section, copied the same way, leaving out any row whose prefix is the
+migrations folder or an excluded path. `bundle`: the path of the section's
 `bundle_<NN>.jsonl` in the bundles folder, which the subagent opens; not its contents. -->
 # Contract brief: {section}
 

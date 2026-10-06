@@ -14,6 +14,7 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOOLS = os.path.join(HERE, "..", "tools")
+TIMEOUT = 600  # seconds: a tool that hangs fails its test instead of the run
 sys.path.insert(0, TOOLS)
 sys.path.insert(0, HERE)
 import common  # noqa: E402
@@ -71,7 +72,7 @@ class RefsTest(unittest.TestCase):
     def refs(self, *extra, root=None):
         cmd = [sys.executable, os.path.join(TOOLS, "refs.py"), "--root", root or self.root, "--work", self.work,
                "--cards", self.cards, "--extract", self.extract] + list(extra)
-        r = subprocess.run(cmd, capture_output=True, text=True, env=self.env)
+        r = subprocess.run(cmd, capture_output=True, text=True, env=self.env, timeout=TIMEOUT)
         self.assertNotIn("ResourceWarning", r.stderr, "refs.py left a file open")
         return r.returncode, r.stdout, r.stderr
 

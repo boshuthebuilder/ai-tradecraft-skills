@@ -27,18 +27,28 @@ Every page that exists or is planned. Link only to these pages, by relative path
 
 The bundles in `{bundles_dir}` hold one JSON line per document routed to a section: its path, copies, card
 (title, type, parties, date, summary, key facts) and, for an active section, its text. They were checked fresh
-against the current manifest and routing before this brief was made. Open a source file itself when a bundle line
-is not enough.
+against the current manifest and routing before this brief was made. Open a source file itself only when a bundle
+line names it and is not enough. A path this brief marks withheld, any path under the migrations folder and any path
+the owner excluded is never opened, read or cited: `wiki.py check` refuses a page that cites one. A routing row into
+such a folder is not a source.
+
+## The Schema's tables
+
+The wiki's Schema page is not given to you: use these tables, which are its own with the routing rows into withheld
+folders taken out, and do not open the Schema page.
+
+{schema_tables}
 
 ## What you may read
 
-This brief, the Schema page, the core wiki rule, the bundles above and the source files they list or your pages
-cite. Read nothing else: not the manifest or `AUDIT.md`, nothing else under `_Audit/`, and nothing outside this
-folder.
+This brief, the core wiki rule, the bundles above and the source files a bundle line names. To check a dated rule (a
+rate, a threshold, a deadline), which the core wiki rule asks you to do, read the issuing authority's own publication
+and no other site, and flag the rule as unchecked if you cannot. Read nothing else: not the Schema page, the manifest
+or `AUDIT.md`, nothing else under `_Audit/`, and nothing else outside this folder.
 
 ## What to do
 
-1. Read the Schema page, `{schema_path}`, and the core wiki rule: its page contracts, rich pages, outside
+1. Read the Schema's tables above and the core wiki rule: its page contracts, rich pages, outside
    knowledge and history pages are how each page is written.
 2. Write each page to its path under `{wiki_dir}/`, to its contract and in its professional's voice. Draw any
    chart with `wiki.py chart`, from the page's own cited rows.
@@ -59,8 +69,9 @@ folder.
 
 The checker, and later the hand-off check, read every page as plain text, so write to these rules:
 
-- **No em dash** in the body outside inline code. A source title, supplier name or menu name that holds one goes
-  inside backticks; elsewhere use a comma, a colon or two sentences.
+- **No em dash** in the body outside inline code, nor in any `note` or `deadline_note` value, which the Deadlines
+  page copies. A source title, supplier name or menu name that holds one goes inside backticks in the body; elsewhere
+  use a comma, a colon or two sentences.
 - **Frontmatter** is plain `key: value` pairs at the left edge between `---` fences. Quote every `note` and
   `deadline_note`: an unquoted value with a colon and a space in it, a bare `yes`, `no`, `on` or `off`, or a time such
   as `12:30` is read as something other than text, and the page cannot be verified.

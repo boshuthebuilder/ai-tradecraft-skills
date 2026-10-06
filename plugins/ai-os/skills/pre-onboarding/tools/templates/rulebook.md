@@ -1,17 +1,18 @@
 <!-- Stage: the rulebook, written with the owner's interview (SKILL.md step 2). Filled by the coordinating agent from
 the owner's answers: replace every field in braces, delete a section the folder has no use for (never the reserved
-names, new files or migrations sections), and drop this comment; doubled braces are literal. **Pen:** the coordinating
-agent writes it and the owner agrees it before the twin is pinned. Save it as `CLAUDE.md`, copy it byte for byte to
-`AGENTS.md`, and write `.familyai/rulebook.json` from the same answers. The wiki it names is built under
-[the core wiki rule](../../../wiki-maintenance/SKILL.md#the-core-wiki-rule). `readiness.py` reads the new files and
-migrations sections by keyword, one line at a time: keep the migrations folder's name and the words about new files
-on different lines, as below, and they pass. Never name another project in this file.
+names, the new files section or the migrations section), and remove this comment; doubled braces are literal.
+**Pen:** the coordinating agent writes it and the owner agrees it before the twin is pinned. Save it as `CLAUDE.md`,
+copy it byte for byte to `AGENTS.md`, and write `.familyai/rulebook.json` from the same answers. The wiki it names is
+built under [the core wiki rule](../../../wiki-maintenance/SKILL.md#the-core-wiki-rule). `readiness.py` reads the
+rulebook strictly, a statement at a time: any statement that names the migrations folder together with a routing word
+is a finding, a negation included. Keep the wording below, which names the folder only where it says that approved plan
+rows stage files there, and says elsewhere, without naming it, that new files are filed in this folder. Never name
+another project in this file.
 How each field is made:
 - `folder_name`: the folder's own name. `folder_description`: the twin's `folder_description`.
 - `users_and_boundaries`: the owner's answers on who uses the folder and what is held apart.
-- `inbox`, `migrations_dir`, `wiki_dir`: the twin's values (`_Inbox`, `_Migrations` and `<folder name> Wiki` unless
-  the owner chose others). `depth`, `identifiers`, `ocr_languages`: the twin's values.
-- `reserved_extra`: one bullet per name in the twin's `reserved`, or nothing.
+- `inbox`, `migrations_dir`, `wiki_dir`, `depth`, `identifiers`, `ocr_languages`: the twin's values.
+- `reserved_extra`: one bullet per name in the twin's `reserved`, saying what it holds, or nothing.
 - `how_files_arrive`: the owner's answer on how new files reach the folder, in a few words.
 - `packs`, `active`, `finished`, `working_formats`, `exclusions`: one bullet per entry, each path in backticks, or the
   word none.
@@ -32,14 +33,14 @@ file: change this one, copy it over the other, and review `.familyai/rulebook.js
 
 ## Reserved names
 
-These top-level names are the system's, never the owner's content, and are never read as documents:
+These top-level names are the system's, and none is one of the owner's documents:
 
 - `CLAUDE.md` and `AGENTS.md`: this rulebook and its copy.
 - `GEMINI.md`: the name another engine reads its instructions from. It is reserved and never written here.
 - `.familyai`: the machine-readable twins of this rulebook and of the wiki's Schema.
 - `_Audit`: the audit, the plans, the extract records and the cards.
-- `{inbox}`: the drop point for incoming material.
-- `{migrations_dir}`: described under Migrations, below.
+- `{inbox}`: where incoming material lands. It is read only to file what lands in it.
+- `{migrations_dir}`: described under Migrations, below. It is not read.
 - `{wiki_dir}`: the wiki.
 {reserved_extra}
 

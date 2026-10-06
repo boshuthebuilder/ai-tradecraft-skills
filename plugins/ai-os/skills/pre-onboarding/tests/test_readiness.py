@@ -25,6 +25,7 @@ import urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOOLS = os.path.realpath(os.path.join(HERE, "..", "tools"))
+TIMEOUT = 600  # seconds: a tool that hangs fails its test instead of the run
 sys.path.insert(0, TOOLS)
 import common  # noqa: E402
 import extract  # noqa: E402
@@ -57,7 +58,7 @@ def write(path, text):
 
 def run(tool, *args):
     r = subprocess.run([sys.executable, os.path.join(TOOLS, tool)] + list(args), capture_output=True, text=True,
-                       encoding="utf-8", env=dict(os.environ, PRE_ONBOARDING_NOW=NOW))
+                       encoding="utf-8", env=dict(os.environ, PRE_ONBOARDING_NOW=NOW), timeout=TIMEOUT)
     return r.returncode, r.stdout, r.stderr
 
 
@@ -366,6 +367,112 @@ class RollUpFormsTest(unittest.TestCase):
         self.assertIn(readiness.INTRO, readiness.ROLL_UP_LINES)
 
 
+class RoutesNewFilesOutTest(unittest.TestCase):
+    """The rulebook check reads prose by keyword, strictly: a statement naming `_Migrations/` with "new file", "drop",
+    "goes to" or "go to" reads as routing new files there, whatever else it says. A negation is not read: a sentence can
+    hold one and still route, and a missed route is not safe where a false finding is (the operator rewords the line)."""
+
+    ROUTING = (
+        # the plain statements
+        "New files that belong to another project go to `_Migrations/<Project>/`.",
+        "Files that may belong to another project are dropped into `_Migrations/`.",
+        "A new file for another project goes to `_Migrations/<Project>/`.",
+        "NEW FILES GO TO `_Migrations/`.",
+        "New files go to `_Migrations/`; an approved row in the plan then moves them on.",
+        "New files go to `_Migrations/` once the owner has approved the plan row for them.",
+        # a negation that does not govern the routing
+        "New files that do not belong here go to `_Migrations/`.",
+        "Files that are not for this project go to `_Migrations/<Project>/`.",
+        "New files not about the household go to `_Migrations/`.",
+        "Do not keep new files here, drop them into `_Migrations/`.",
+        "Never put new files in the inbox; they go to `_Migrations/<Project>/`.",
+        "New files go to `_Migrations/`, not to the inbox.",
+        "New files go to `_Migrations/`. Nothing else is filed there.",
+        "Do not file new files in the inbox, but let them go to `_Migrations/` by hand.",
+        "- A file that seems to belong to another project is not filed here:\n  it is dropped into `_Migrations/`.",
+        # wrapped, so that a negation on one line sits beside the routing on the next
+        "Never leave new files in the inbox\nNew files go to `_Migrations/`",
+        "Never leave new files in the inbox\nand they go to `_Migrations/`.",
+        "- New files that belong to another\n  project go to `_Migrations/<Project>/`.",
+        # a correct statement the rule still reads as routing: reword it (the finding says how)
+        "New files never go to `_Migrations/`.",
+        "No new file is dropped into `_Migrations/`.",
+        "`_Migrations/` never receives new files.",
+        "New files go to `_Inbox/`, and the owner decides what goes to `_Migrations/`.",
+        "`_Inbox/` is the drop point; `_Migrations/<Project>/` holds files approved for another project.",
+    )
+    NOT_ROUTING = (
+        "`_Migrations/<Project>/`: files the owner approved moving to another project.",
+        "Files the owner approved wait in `_Migrations/<Project>/` until their project collects them.",
+        "Staging happens only through an approved row in a plan, into `_Migrations/<Project>/`.",
+        "- Files the owner approved for another project wait in `_Migrations/<Project>/`, put there only by an approved\n"
+        "  row in a plan.",
+        "New files are filed within this folder by the wiki's routing, never routed to the migrations folder.",
+        "New files go to `_Inbox/`. Nothing is staged without an approved plan row.",
+        "```\n_Inbox/            the drop point\n_Migrations/<Project>/    approved files\n```",
+    )
+
+    def routing(self, text, folder="_Migrations"):
+        return readiness.routes_new_files_out(text, folder)
+
+    def test_every_statement_that_names_the_folder_with_a_routing_word_is_flagged(self):
+        for sentence in self.ROUTING:
+            with self.subTest(sentence=sentence):
+                self.assertEqual(len(self.routing(sentence)), 1)
+
+    def test_the_wording_that_describes_staging_through_plan_rows_alone_passes(self):
+        for sentence in self.NOT_ROUTING:
+            with self.subTest(sentence=sentence):
+                self.assertEqual(self.routing(sentence), [])
+
+    def test_the_rulebook_template_and_the_fixture_pass(self):
+        skill = read(os.path.join(HERE, "..", "SKILL.md"))
+        step = skill[skill.index("new files are filed within this folder"):].split("\n\nThen run", 1)[0]
+        self.assertEqual(self.routing(step), [], "the wording the skill gives for the rulebook")
+        self.assertEqual(self.routing(read(os.path.join(FIXTURE, "CLAUDE.md"))), [])
+
+    def test_a_statement_not_naming_the_folder_is_not_read(self):
+        self.assertEqual(self.routing("New files go to the migrations folder."), [])
+        self.assertEqual(self.routing("New files go to `_Inbox/`."), [])
+
+    def test_the_folder_is_the_one_given(self):
+        text = "New files go to `_Leaving/`. Approved files wait in `_Migrations/`."
+        self.assertEqual(self.routing(text, "_Leaving"), [text])
+        self.assertEqual(len(self.routing(text)), 1)  # one statement names both: the folder asked for is `_Migrations/`
+        self.assertEqual(self.routing("New files go to `_Leaving/`.\n\nApproved files wait in `_Migrations/`."), [])
+
+    def test_a_wrapped_line_is_read_with_the_one_it_continues(self):
+        text = ("- New files never\n  go to `_Migrations/`.\n- Approved files wait there.\n\nA heading follows\n\n"
+                "## Rules\ngo to `_Migrations/`\n")
+        self.assertEqual(self.routing(text), ["New files never go to `_Migrations/`.", "go to `_Migrations/`"])
+
+    def test_the_folder_is_named_with_or_without_its_slash_and_in_any_letter_case(self):
+        for sentence in ("New files go to _Migrations.", "New files go to `_migrations`", "Drop new files in _MIGRATIONS",
+                         "New files go to `_Migrations`, then wait", "Go to (_migrations) with new files",
+                         "- new files: _Migrations"):
+            with self.subTest(sentence=sentence):
+                self.assertEqual(len(self.routing(sentence)), 1)
+        self.assertEqual(len(self.routing("New files go to `_Leaving`.", "_leaving")), 1)
+
+    def test_a_longer_name_is_not_the_folder(self):
+        for sentence in ("New files go to `_Migrations2/`.", "New files go to `my_Migrations/`.",
+                         "New files go to `x_Migrations_old`.", "New files go to the migrations folder."):
+            with self.subTest(sentence=sentence):
+                self.assertEqual(self.routing(sentence), [])
+
+    def test_a_list_item_is_read_with_the_lead_in_that_ends_with_a_colon(self):
+        text = "New files go to:\n- `_Migrations`\n- `_Inbox/`\n"
+        self.assertEqual(self.routing(text), ["New files go to: `_Migrations`"])
+        self.assertEqual(self.routing("New files go to:\n\n- `_Migrations`\n"), [], "a blank line ends the lead-in")
+        self.assertEqual(self.routing("Approved files wait in:\n- `_Migrations/<Project>/`\n"), [])
+
+    def test_a_table_row_a_heading_and_a_line_of_code_stand_alone(self):
+        text = "## New files\n| a | go to `_Migrations/` |\n| b | filed here |\n"
+        self.assertEqual(self.routing(text), ["| a | go to `_Migrations/` |"])
+        fenced = "```\nnew files here\n_Migrations/<Project>/\n```\n"
+        self.assertEqual(self.routing(fenced), [], "the words and the folder are on different lines of the block")
+
+
 class MigrationsClearedTest(unittest.TestCase):
     """`migrations_cleared`: the migrations folder holds no file. It lists names and never opens a file; `.DS_Store`
     and empty folders do not count, and anything else does, an iCloud placeholder included."""
@@ -538,7 +645,8 @@ class GreenTest(Prepared):
         self.assertEqual((res["manifest"]["live_entries"], res["manifest"]["departed_entries"]), (17, 1))
 
     def test_out_is_refused_inside_a_read_only_root(self):
-        self.assertIn("--read-only-root", self.refused("--out", self.path("readiness.json"), "--read-only-root"))
+        self.assertIn("readiness reports are working files, never written inside the folder",
+                      self.refused("--out", self.path("readiness.json"), "--read-only-root"))
         out = os.path.join(self.tmp, "readiness.json")
         self.readiness("--out", out, "--read-only-root", code=0)
         self.assertEqual(json.loads(read(out))["findings"], [])
@@ -657,6 +765,29 @@ class ContractTest(Prepared):
         self.assertIn("routes new files to _Migrations/ (1 line(s))",
                       self.one_finding("handoff_contract.new_files_routed_within_folder"))
 
+    def test_a_rulebook_that_describes_staging_through_plan_rows_alone_passes(self):
+        self.edit_rulebook("\n## Formats and packs",
+                           "- New files are filed in this folder by the wiki's routing, never routed to the migrations\n"
+                           "  folder; one that seems to belong to another project is filed here like any other.\n"
+                           "- Files the owner approved for another project wait in `_Migrations/<Project>/`, put\n"
+                           "  there only by an approved row in a plan.\n\n## Formats and packs")
+        res = self.readiness(code=0)
+        self.assertEqual(res["handoff_contract"]["new_files_routed_within_folder"], "ok")
+
+    def test_a_negated_sentence_beside_the_folder_is_a_finding_that_says_how_to_reword_it(self):
+        self.edit_rulebook("\n## Formats and packs", "- New files never go to `_Migrations/`.\n\n## Formats and packs")
+        detail = self.one_finding("handoff_contract.new_files_routed_within_folder")
+        self.assertIn("routes new files to _Migrations/ (1 line(s))", detail)
+        self.assertIn("describe staging only through approved plan rows, say that new files are filed in this folder by "
+                      "the wiki's routing, and keep those words off any line that names _Migrations/", detail)
+
+    def test_a_rulebook_that_routes_new_files_to_the_migrations_folder_fails_wherever_it_wraps(self):
+        self.edit_rulebook("\n## Formats and packs",
+                           "- A new file that belongs to another project\n  goes to `_Migrations/<Project>/`.\n\n"
+                           "## Formats and packs")
+        self.assertIn("routes new files to _Migrations/ (1 line(s))",
+                      self.one_finding("handoff_contract.new_files_routed_within_folder"))
+
     MIGRATIONS = ("_Migrations", "Other Project", "02 Finance", "Old invoice.pdf")
     UNCLEARED = ("finding: _Migrations/ holds 1 file(s) (Other Project: 1); a folder is onboarded only once its "
                  "migrations folder is empty, so the owner clears it by hand")
@@ -664,6 +795,88 @@ class ContractTest(Prepared):
     def test_a_file_in_the_migrations_folder(self):
         write(self.path(*self.MIGRATIONS), "staged for another project")
         self.assertEqual(self.one_finding("handoff_contract.migrations_folder_cleared"), self.UNCLEARED)
+
+    def stage_and_audit(self):
+        """The staged file written, the folder audited again: the manifest now holds it, flagged `migrating`."""
+        write(self.path(*self.MIGRATIONS), "Invoice for the other project.")
+        self.tool("audit.py")
+        entry, = [e for e in self.json_file("_Audit", "manifest.json")["entries"].values()
+                  if e["current_path"].startswith("_Migrations/")]
+        self.assertEqual(entry["flags"], ["migrating"])
+        return entry["id"]
+
+    def test_a_staged_document_needs_no_extract_record_or_card(self):
+        """Held for another project, it is read by no tool: only the clearance of the migrations folder blocks."""
+        self.stage_and_audit()
+        res = self.readiness()
+        self.assertEqual(res["manifest"]["migrating"], 1)
+        self.assertEqual((res["records"]["missing_extracts"], res["records"]["missing_cards"]), (0, 0))
+        self.assertEqual([f[0] for f in res["findings"]], ["handoff_contract.migrations_folder_cleared"])
+
+    def exclude(self, *paths):
+        twin = self.path(".familyai", "rulebook.json")
+        write(twin, json.dumps(dict(self.json_file(".familyai", "rulebook.json"), exclude=list(paths)),
+                               ensure_ascii=False, indent=1))
+
+    def test_the_result_written_with_out_is_registered_and_removed_when_the_withheld_set_changes(self):
+        """The result names documents and pages; the command registers it under the withheld digest itself."""
+        out = os.path.join(self.tmp, "readiness.json")
+        res = self.readiness("--out", out)
+        with open(os.path.join(self.work, "state", "rendered.json"), encoding="utf-8") as f:
+            self.assertIn(os.path.abspath(out), {i["path"] for i in json.load(f)})
+        self.assertEqual(json.loads(read(out)), res)
+        self.readiness()
+        self.assertTrue(os.path.isfile(out), "removed though the withheld set had not changed")
+        self.exclude("06 Work")
+        got, _o, err = run("readiness.py", "--root", self.root, "--work", self.work)
+        self.assertIn(got, (0, 1), err)
+        self.assertIn("purged what withheld documents left behind: ", err)
+        self.assertFalse(os.path.exists(out), "the result was left on disk after the withheld set changed")
+
+    def test_the_result_is_never_written_inside_the_folder(self):
+        before = tree_digest(self.root)
+        shouted = os.path.join(os.path.dirname(self.root), os.path.basename(self.root).upper())  # as a macOS volume opens it
+        for inside in (self.path("_Audit", "readiness.json"), self.path("readiness.json"),
+                       os.path.join(shouted, "_Audit", "readiness.json"), os.path.join(shouted, "readiness.json")):
+            got, out, err = run("readiness.py", "--root", self.root, "--work", self.work, "--out", inside)
+            self.assertEqual(got, 2, out + err)
+            self.assertIn("readiness reports are working files, never written inside the folder", err)
+            self.assertFalse(os.path.exists(inside))
+        self.assertEqual(tree_digest(self.root), before)
+
+    def test_an_excluded_document_needs_no_extract_record_or_card(self):
+        """Excluded by the owner, it is read by no tool: no record or card is expected, and none was made."""
+        eid = self.ids()["06 Work/Contract.docx"]
+        for sub in ("extract", "cards"):
+            os.remove(self.path("_Audit", sub, eid + ".json"))
+        self.exclude("06 Work")
+        self.tool("audit.py")
+        entry, = [e for e in self.json_file("_Audit", "manifest.json")["entries"].values()
+                  if e["current_path"] == "06 Work/Contract.docx" and "departed" not in e["flags"]]
+        self.assertEqual((entry["hashed"], entry["synthetic_id"]), (False, True))
+        res = self.readiness()
+        # `06 Work/Essay.docx` is excluded with its folder, and its record named that path, so the purge discarded the
+        # record and card with it: its identical copy at an included path is the document now, read again from there
+        self.assertEqual((res["records"]["missing_extracts"], res["records"]["missing_cards"]), (1, 1))
+        self.assertNotIn("Contract", json.dumps(res["findings"]), "the excluded document is named as missing")
+
+    def test_an_excluded_document_a_manifest_still_hashes_needs_no_record_either(self):
+        """A manifest an earlier audit made, which read the file: the path decides, not whether it was hashed."""
+        eid = self.ids()["06 Work/Contract.docx"]
+        for sub in ("extract", "cards"):
+            os.remove(self.path("_Audit", sub, eid + ".json"))
+        self.exclude("06 Work/Contract.docx")
+        self.assertEqual(self.readiness()["records"]["missing_extracts"], 0)
+
+    def test_a_record_kept_at_the_path_a_staged_document_had_is_not_stale(self):
+        eid = self.stage_and_audit()
+        write(self.path("_Audit", "extract", eid + ".json"),
+              json.dumps({"id": eid, "path": "02 Finance/Old invoice.pdf", "class": "document", "status": "ok",
+                          "page_count": 1, "tiers": {"text_layer": 1}, "chars": 5, "extractor": "x",
+                          "pages": [{"n": 1, "tier": "text_layer", "text": "Hello"}]}))
+        res = self.readiness()
+        self.assertEqual(res["records"]["extract_paths_stale"], 0)
+        self.assertEqual([f[0] for f in res["findings"]], ["handoff_contract.migrations_folder_cleared"])
 
     def test_an_evicted_placeholder_in_the_migrations_folder_is_a_finding(self):
         write(self.path("_Migrations", "Other Project", ".Old invoice.pdf.icloud"), "")
@@ -1633,7 +1846,7 @@ class FixtureBuildTest(unittest.TestCase):
         for rel in PREPARED:
             (shutil.rmtree if os.path.isdir(os.path.join(root, rel)) else os.remove)(os.path.join(root, rel))
         r = subprocess.run([sys.executable, os.path.join(HERE, "fixture", "build.py"), "--prepared-only", "--out", tmp],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, timeout=TIMEOUT)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(tree_digest(root), tree_digest(FIXTURE), "run build.py --prepared-only and commit the result")
 

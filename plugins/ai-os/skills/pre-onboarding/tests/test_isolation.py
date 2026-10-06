@@ -15,6 +15,7 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOOLS = os.path.join(HERE, "..", "tools")
+TIMEOUT = 600  # seconds: a tool that hangs fails its test instead of the run
 sys.path.insert(0, TOOLS)
 sys.path.insert(0, HERE)
 import common  # noqa: E402
@@ -48,7 +49,7 @@ class Case(unittest.TestCase):
 
     def iso(self, *args):
         r = subprocess.run([sys.executable, os.path.join(TOOLS, "isolation.py")] + list(args), capture_output=True,
-                           text=True, env=self.env)
+                           text=True, env=self.env, timeout=TIMEOUT)
         self.assertNotIn("ResourceWarning", r.stderr, "isolation.py left a file or process open")
         return r.returncode, r.stdout, r.stderr
 

@@ -28,6 +28,7 @@ import urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOOLS = os.path.realpath(os.path.join(HERE, "..", "tools"))
+TIMEOUT = 600  # seconds: a tool that hangs fails its test instead of the run
 SKILLS = os.path.realpath(os.path.join(HERE, "..", ".."))
 FIXTURE = os.path.join(HERE, "fixture", "Alex Personal")
 MANIFEST = os.path.join(HERE, "expected", "manifest.json")
@@ -136,7 +137,7 @@ def write(path, text):
 
 def run(tool, *args):
     r = subprocess.run([sys.executable, os.path.join(TOOLS, tool)] + list(args), capture_output=True, text=True,
-                       encoding="utf-8")
+                       encoding="utf-8", timeout=TIMEOUT)
     return r.returncode, r.stdout, r.stderr
 
 
@@ -177,6 +178,8 @@ def make_copy(parent):
     if code:
         raise AssertionError(err)
     for eid, entry in json.loads(read(MANIFEST))["entries"].items():
+        if entry["current_path"].startswith("_Migrations/"):
+            continue  # a document held for another project has no record or card: every tool's start purges them
         card, extract = card_and_extract(eid, entry)
         write(os.path.join(audit, "cards", eid + ".json"), json.dumps(card, ensure_ascii=False, indent=1))
         write(os.path.join(audit, "extract", eid + ".json"), json.dumps(extract, ensure_ascii=False, indent=1))
@@ -277,6 +280,35 @@ class ProfileTest(Copy):
     def test_golden(self):
         self.assertEqual(self.ok("profile"), read(os.path.join(GOLDEN, "profile.json")))
 
+    def exclude(self, *paths):
+        twin = os.path.join(self.root, ".familyai", "rulebook.json")
+        write(twin, json.dumps(dict(json.loads(read(twin)), exclude=list(paths)), ensure_ascii=False, indent=1))
+
+    def test_an_excluded_document_is_counted_and_never_profiled_or_named(self):
+        self.exclude("06 Work")
+        text = self.ok("profile")
+        res = json.loads(text)
+        self.assertEqual({k: res[k] for k in ("documents", "carded", "copies", "migrating", "excluded")},
+                         {"documents": 15, "carded": 15, "copies": 5, "migrating": 1, "excluded": 2})
+        self.assertNotIn("06 Work", text, "a folder, a path or a copy of an excluded document named in the profile")
+        self.assertNotIn("06 Work", [r["folder"] for r in res["folders"]])
+        archive = {r["folder"]: r for r in res["folders"]}["05 Archive"]
+        self.assertEqual(archive["copies_of"], {"04 Study": 3}, "the copies of Essay.docx are not counted")
+        self.exclude("05 Archive")  # a copy under an excluded path is named by no one's profile either
+        text = self.ok("profile")
+        self.assertNotIn("05 Archive", text)
+        self.assertEqual(json.loads(text)["copies"], 7 - 4)
+
+    def test_a_copy_under_the_migrations_folder_is_never_named(self):
+        man = json.loads(read(os.path.join(self.root, "_Audit", "manifest.json")))
+        entry = next(e for e in man["entries"].values() if e["current_path"] == "03 Home/Lease renewal.pdf")
+        entry["copies"] = [{"path": entry["current_path"], "kind": "canonical"},
+                           {"path": "_Migrations/Other Project/Lease renewal.pdf", "kind": "working_copy"}]
+        write(os.path.join(self.root, "_Audit", "manifest.json"), json.dumps(man))
+        text = self.ok("profile")
+        self.assertNotIn("Other Project", text)
+        self.assertEqual(json.loads(text)["copies"], 7)
+
     def test_folders_copies_dates_and_parties(self):
         res = self.profile()
         self.assertEqual({k: res[k] for k in ("documents", "carded", "uncarded", "copies", "migrating", "departed")},
@@ -328,7 +360,8 @@ class BundlesTest(Copy):
         res = self.build()
         self.assertEqual(tree_digest(self.root), before, "bundles wrote inside the folder")
         self.assertEqual(res, {"routed": 16, "sections": {"10": 2, "20": 6, "30": 4, "40": 4}, "compact": {"40": 2},
-                               "unrouted": ["IMG_0001.jpg"], "uncarded": []})
+                               "unrouted": ["IMG_0001.jpg"], "uncarded": [], "held_for_another_project": 1,
+                               "excluded": 0})
         names = sorted(os.listdir(self.bundles_dir()))
         self.assertEqual(names, sorted(os.listdir(os.path.join(GOLDEN, "bundles"))))
         first = {n: read(os.path.join(self.bundles_dir(), n), "rb") for n in names}
@@ -374,6 +407,138 @@ class BundlesTest(Copy):
         self.assertEqual([wiki.route(ws, p) for p in ("02 Finance/a.pdf", "02 Finance/Scratch/a.pdf", "a.pdf")],
                          ["20", None, None])
 
+    def exclude(self, *paths):
+        twin = os.path.join(self.root, ".familyai", "rulebook.json")
+        write(twin, json.dumps(dict(json.loads(read(twin)), exclude=list(paths)), ensure_ascii=False, indent=1))
+
+    def bundle_text(self):
+        return "".join(read(os.path.join(self.bundles_dir(), n)) for n in sorted(os.listdir(self.bundles_dir())))
+
+    def test_an_excluded_document_is_in_no_bundle_list_or_record_and_is_counted(self):
+        ids = {e["current_path"]: h for h, e in json.loads(read(MANIFEST))["entries"].items()}
+        os.remove(os.path.join(self.root, "_Audit", "cards", ids["06 Work/Contract.docx"] + ".json"))  # no card
+        self.exclude("06 Work", "05 Archive")
+        res = self.build()
+        self.assertEqual((res["excluded"], res["held_for_another_project"], res["uncarded"], res["unrouted"]),
+                         (2, 1, [], ["IMG_0001.jpg"]), "withheld is neither uncarded nor unrouted")
+        self.assertEqual(res["sections"]["20"], 4)
+        text = self.bundle_text()
+        for named in ("06 Work", "05 Archive", "Contract", "Essay"):
+            self.assertNotIn(named, text, "an excluded document, or a copy of one, is named in a bundle")
+        rows = [json.loads(x) for x in read(os.path.join(self.bundles_dir(), "bundle_40.jsonl")).splitlines()]
+        self.assertEqual({r["path"]: r["copies"] for r in rows if r["path"] == "04 Study/Slides.pptx"},
+                         {"04 Study/Slides.pptx": []}, "the copy of Slides.pptx in the excluded 05 Archive is named")
+        self.assertEqual(json.loads(read(os.path.join(self.bundles_dir(), "bundles.json")))["excluded"], 2)
+
+    def test_a_copy_staged_for_another_project_is_in_no_bundle(self):
+        man = json.loads(read(os.path.join(self.root, "_Audit", "manifest.json")))
+        entry = next(e for e in man["entries"].values() if e["current_path"] == "03 Home/Lease renewal.pdf")
+        entry["copies"] = [{"path": entry["current_path"], "kind": "canonical"},
+                           {"path": "_Migrations/Other Project/Lease renewal.pdf", "kind": "working_copy"}]
+        write(os.path.join(self.root, "_Audit", "manifest.json"), json.dumps(man))
+        self.build()
+        self.assertNotIn("Other Project", self.bundle_text())
+
+    def test_bundles_built_before_an_exclusion_are_purged_at_the_start_and_a_rebuild_drops_the_document(self):
+        self.build()
+        self.assertIn("Contract.docx", self.bundle_text())
+        self.exclude("06 Work")  # the owner excludes it; the manifest has not moved, so only the withheld set says so
+        for cmd, args in (("bundles", ["--reuse"]), ("brief", ["--page", BRIEF_PAGES[0]])):
+            with self.subTest(cmd=cmd):
+                self.exclude()  # the bundles are rebuilt as they were, then the exclusion is made again
+                self.build()
+                self.exclude("06 Work")
+                err = self.refused(cmd, *args)
+                self.assertIn("purged what withheld documents left behind: 5 bundle files", err)
+                self.assertNotIn("06 Work", err, "the purge names counts, never paths")
+                self.assertIn("no bundles in", err)
+                self.assertEqual(sorted(os.listdir(self.bundles_dir())), [],
+                                 "the bundles holding the excluded documents were left on disk")
+        self.build()
+        self.assertNotIn("Contract.docx", self.bundle_text())
+        self.brief(BRIEF_PAGES[0])
+
+    def test_bundles_the_purge_does_not_know_are_removed_by_the_consumer_that_finds_them_stale(self):
+        out = os.path.join(self.tmp, "kept-bundles")
+        self.ok("bundles", "--out", out, code=1)
+        os.remove(os.path.join(self.work, "state", "rendered.json"))
+        self.assertIn("Contract.docx", read(os.path.join(out, "bundle_20.jsonl")) + read(os.path.join(out, "bundle_30.jsonl"))
+                      + read(os.path.join(out, "bundle_10.jsonl")) + read(os.path.join(out, "bundle_40.jsonl")))
+        self.exclude("06 Work")
+        for cmd, args in (("bundles", ["--reuse", "--out", out]), ("brief", ["--page", BRIEF_PAGES[0], "--bundles", out])):
+            with self.subTest(cmd=cmd):
+                err = self.refused(cmd, *args)
+                self.assertIn("stale bundles", err)
+                self.assertIn("held for another project or excluded", err)
+                self.assertIn("so the bundles were removed", err)
+                self.assertEqual(sorted(os.listdir(out)), [], "the bundles holding the excluded documents were left")
+                self.exclude()
+                self.ok("bundles", "--out", out, code=1)
+                os.remove(os.path.join(self.work, "state", "rendered.json"))
+                self.exclude("06 Work")
+
+    def test_the_withheld_set_is_judged_before_the_manifest_so_a_reaudit_never_leaves_stale_bundles_on_disk(self):
+        out = os.path.join(self.tmp, "kept-bundles")
+        self.ok("bundles", "--out", out, code=1)
+        os.remove(os.path.join(self.work, "state", "rendered.json"))  # a folder the purge has not been told about
+        manifest = os.path.join(self.root, "_Audit", "manifest.json")
+        write(manifest, json.dumps(json.loads(read(manifest)), indent=2))  # the manifest's bytes moved too: a re-audit
+        self.exclude("06 Work")
+        err = self.refused("bundles", "--reuse", "--out", out)
+        self.assertIn("so the bundles were removed", err)
+        self.assertNotIn("records manifest sha256", err)
+        self.assertEqual(sorted(os.listdir(out)), [])
+
+    def test_a_brief_marks_a_page_that_already_cites_a_withheld_document_and_names_no_path(self):
+        """The Tax page cites `06 Work/Contract.docx` three times (a `sources:` entry and two spans): once the folder is
+        excluded the drafting agent is told to take each citation, and every fact drawn from it, off the page."""
+        self.exclude("06 Work")
+        self.build()
+        brief = self.brief(BRIEF_PAGES[0], BRIEF_PAGES[1])
+        entry = lambda page: re.search(r"^### %s\n(.*?)(?=^### |\Z)" % re.escape(page), brief, re.S | re.M).group(1)
+        tax, cash = entry(BRIEF_PAGES[0]), entry(BRIEF_PAGES[1])
+        self.assertRegex(tax, r"- Withheld citation: lines \d+, \d+, \d+ cite a document the tools may not read "
+                              r"\(excluded\)\. Take each citation off the page, and every fact drawn from that "
+                              r"document with it; do not open the document, and do not name its path\.")
+        self.assertNotIn("Withheld citation", cash, "a page that cites nothing withheld carries no note")
+        for named in ("06 Work", "Contract"):
+            self.assertNotIn(named, brief)
+        self.exclude()
+        self.build()
+        self.assertNotIn("Withheld citation", self.brief(BRIEF_PAGES[0]))
+
+    def test_a_brief_does_not_name_a_withheld_folder_in_its_routes(self):
+        self.exclude("06 Work")
+        self.build()
+        brief = self.brief(BRIEF_PAGES[0])
+        self.assertNotIn("06 Work", brief)
+        self.assertIn("  - 1 route to a withheld folder, not shown", brief)
+        self.assertIn("  - `02 Finance/`: 20 Bank accounts and Cash position", brief)
+
+    def test_a_brief_embeds_the_schemas_tables_without_the_withheld_routes_and_never_names_the_schema_page(self):
+        self.exclude("06 Work")
+        self.build()
+        brief = self.brief(BRIEF_PAGES[0])
+        tables = brief.split("## The Schema's tables")[1].split("## What to do")[0]
+        for heading in ("### Layout", "### Routing", "### Page contracts", "### Page professionals"):
+            self.assertIn(heading, tables)
+        self.assertIn("| `02 Finance/` | 20 Bank accounts and Cash position |", tables)
+        self.assertIn("1 routing row into a withheld folder is not shown.", tables)
+        self.assertIn("| 20 Finance/Tax.md | chartered tax adviser | annual tax position letter | exact, dated |", tables)
+        self.assertNotIn(os.path.join(self.root, WIKI, "90 Schema", "90 Schema.md"), brief,
+                         "the brief sends the author to the page that lists the routes")
+        self.assertNotIn("Read the Schema page", brief)
+        self.assertIn("do not open the Schema page", brief)
+        self.assertIn("A path this brief marks withheld, any path under the migrations folder and any path the owner "
+                      "excluded is never opened, read or cited", " ".join(brief.split()))
+        self.assertNotIn("Open a source file itself when", brief)
+
+    def test_a_brief_with_nothing_withheld_shows_every_route_and_no_note(self):
+        self.build()
+        tables = self.brief(BRIEF_PAGES[0]).split("## The Schema's tables")[1].split("## What to do")[0]
+        self.assertIn("| `06 Work/` | 20 Tax (employment income) |", tables)
+        self.assertNotIn("not shown", tables)
+
     def test_a_rebuild_leaves_only_its_own_files(self):
         write(os.path.join(self.bundles_dir(), "bundle_99.jsonl"), "{}\n")
         write(os.path.join(self.bundles_dir(), "notes.txt"), "kept\n")
@@ -394,23 +559,37 @@ class StaleTest(Copy):
                 self.assertIn(why, err)
                 self.assertIn("rebuild them: wiki.py bundles --root", err)
 
+
     def test_fresh_bundles_are_reused(self):
         built = self.ok("bundles", code=1)
         self.assertEqual(self.ok("bundles", "--reuse", code=1), built)
         self.brief(BRIEF_PAGES[0])
 
-    def test_a_migration_makes_bundles_stale(self):
-        self.ok("bundles", code=1)
+    def migrate_the_contract(self):
         os.renames(os.path.join(self.root, "06 Work", "Contract.docx"),
                    os.path.join(self.root, "_Migrations", "Other Project", "06 Work", "Contract.docx"))
         code, _out, err = run("audit.py", "--root", self.root, "--work", self.work)
         self.assertEqual(code, 0, err)
-        self.assert_stale("after any migration or re-audit")
+
+    def purged_by(self, cmd, *args):
         self.ok("bundles", code=1)
-        rows = read(os.path.join(self.bundles_dir(), "bundle_20.jsonl"))
-        self.assertNotIn("06 Work/Contract.docx", rows)
+        self.assertIn("06 Work/Contract.docx", read(os.path.join(self.bundles_dir(), "bundle_20.jsonl")))
+        self.migrate_the_contract()
+        err = self.refused(cmd, *args)
+        self.assertIn("purged what withheld documents left behind: 5 bundle files, 1 card, 1 extract record", err)
+        self.assertNotIn("Contract", err, "the purge names counts, never paths")
+        self.assertIn("no bundles in", err)
+        self.assertEqual(os.listdir(self.bundles_dir()), [])
+        self.ok("bundles", code=1)
+        self.assertNotIn("06 Work/Contract.docx", read(os.path.join(self.bundles_dir(), "bundle_20.jsonl")))
         self.ok("bundles", "--reuse", code=1)
         self.brief(BRIEF_PAGES[0])
+
+    def test_a_migration_purges_the_bundles_before_a_reuse_reads_them(self):
+        self.purged_by("bundles", "--reuse")
+
+    def test_a_migration_purges_the_bundles_before_a_brief_reads_them(self):
+        self.purged_by("brief", "--page", BRIEF_PAGES[0])
 
     def test_any_manifest_change_makes_bundles_stale(self):
         self.ok("bundles", code=1)
@@ -499,7 +678,7 @@ class BriefTest(Copy):
         line = next(x.strip() for x in text.splitlines() if " check --root " in x)
         cmd = shlex.split(line)
         self.assertEqual((cmd[0], cmd[1], cmd[2]), ("python3", os.path.join(TOOLS, "wiki.py"), "check"))
-        r = subprocess.run([sys.executable] + cmd[1:], capture_output=True, text=True, encoding="utf-8")
+        r = subprocess.run([sys.executable] + cmd[1:], capture_output=True, text=True, encoding="utf-8", timeout=TIMEOUT)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(json.loads(r.stdout)["problems"], 0)
 
@@ -668,9 +847,41 @@ class DriftTest(Copy):
                          {"departed_paths": 1, "migrating_paths": 2, "citing_departed": 1, "citing_migrating": 2,
                           "pages_citing": 2})
         self.assertEqual(res["departed"], [["30 Home/30 Home.md", notes, "03 Home/Lease notes .txt"]])
-        self.assertEqual(res["migrating"], [["20 Finance/Cash position.md", 8, "02 Finance/Old invoice.pdf"],
+        self.assertEqual(res["migrating"], [["20 Finance/Cash position.md", 8, "withheld (held for another project)"],
                                             ["20 Finance/Cash position.md", at,
-                                             "_Migrations/Other Project/02 Finance/Old invoice.pdf"]])
+                                             "withheld (held for another project)"]])
+        report = self.ok("drift", code=1)
+        for named in ("Old invoice", "Other Project", "_Migrations"):
+            self.assertNotIn(named, report, "the report names a document held for another project")
+        self.assertIn("03 Home/Lease notes .txt", report, "a departed document that is not withheld is still named")
+
+    def test_a_departed_document_under_an_excluded_path_is_named_as_withheld(self):
+        os.remove(os.path.join(self.root, "03 Home", "Lease notes .txt"))
+        code, _out, err = run("audit.py", "--root", self.root, "--work", self.work)
+        self.assertEqual(code, 0, err)
+        with open(self.page("30 Home/30 Home.md"), "a", encoding="utf-8") as f:
+            f.write("\nSee also `03 Home/Lease notes .txt`.\n")
+        twin = os.path.join(self.root, ".familyai", "rulebook.json")
+        write(twin, json.dumps(dict(json.loads(read(twin)), exclude=["03 Home"]), ensure_ascii=False, indent=1))
+        res = self.drift(code=1)
+        self.assertEqual([c[2] for c in res["departed"]], ["withheld (excluded)", "withheld (excluded)"])
+        self.assertNotIn("Lease notes", json.dumps(res))
+
+    def test_a_departed_or_staged_path_is_found_however_it_is_spelt(self):
+        """A path is compared as `common.fold` compares it, normalised: another letter case, a dot segment, a doubled slash and
+        percent escapes name the same path, and a staged path is one `common.in_migrations` says is."""
+        os.remove(os.path.join(self.root, "03 Home", "Lease notes .txt"))
+        code, _out, err = run("audit.py", "--root", self.root, "--work", self.work)
+        self.assertEqual(code, 0, err)
+        with open(self.page("30 Home/30 Home.md"), "a", encoding="utf-8") as f:
+            f.write("\nSee `03 HOME/./Lease notes .txt` and `03%20Home//Lease notes .txt`.\n")
+        with open(self.page("20 Finance/Cash position.md"), "a", encoding="utf-8") as f:
+            f.write("\nSee `_MIGRATIONS/Other Project/02 Finance/Old invoice.pdf`, `./_migrations//Other Project/02 Finance/"
+                    "Old invoice.pdf`, and the invoice's old path `02 FINANCE/OLD INVOICE.pdf`.\n")
+        res = self.drift(code=1)
+        self.assertEqual((res["citing_departed"], res["citing_migrating"]), (3, 3), "the page's own citation and two variants")
+        self.assertEqual({c[2] for c in res["migrating"]}, {"withheld (held for another project)"})
+        self.assertNotIn("Old invoice", json.dumps(res).replace("OLD INVOICE", ""))
 
     def test_an_edited_file_is_not_departed(self):
         with open(os.path.join(self.root, "03 Home", "Lease notes .txt"), "a", encoding="utf-8") as f:
@@ -832,12 +1043,17 @@ class MalformedInputTest(Copy):
 
     def setUp(self):
         super().setUp()
-        self.ok("bundles", code=1)
-        self.meta = os.path.join(self.bundles_dir(), "bundles.json")
+        # bundles in a folder the purge has not been told about (it always looks in <work>/bundles, and in every folder a
+        # bundles run registered), so the consumers' own checks of bundles.json are what these tests reach
+        self.out = os.path.join(self.tmp, "kept-bundles")
+        self.ok("bundles", "--out", self.out, code=1)
+        os.remove(os.path.join(self.work, "state", "rendered.json"))
+        self.meta = os.path.join(self.out, "bundles.json")
         self.ids = {e["current_path"]: h for h, e in json.loads(read(MANIFEST))["entries"].items()}
 
     def consumers(self, why):
-        for cmd, args in (("brief", ["--page", BRIEF_PAGES[0]]), ("bundles", ["--reuse"])):
+        for cmd, args in (("brief", ["--page", BRIEF_PAGES[0], "--bundles", self.out]),
+                          ("bundles", ["--reuse", "--out", self.out])):
             with self.subTest(cmd=cmd, why=why):
                 self.assertIn(why, self.refused(cmd, *args))
 
@@ -845,17 +1061,30 @@ class MalformedInputTest(Copy):
         good = json.loads(read(self.meta))
         write(self.meta, "[]")
         self.consumers("expected a JSON object")
-        for key in ("sections", "compact", "files"):
+        for key in ("sections", "compact", "files", "excluded", "held_for_another_project"):
             write(self.meta, json.dumps({k: v for k, v in good.items() if k != key}))
             self.consumers("not a bundles.json that wiki.py bundles wrote (%s missing or malformed)" % key)
         write(self.meta, json.dumps(dict(good, sections={"20": "six"})))
         self.consumers("(sections missing or malformed)")
 
+    def test_bundles_without_the_withheld_digest_are_stale_and_removed_before_anything_else_is_judged(self):
+        good = json.loads(read(self.meta))
+        for broken in ({k: v for k, v in good.items() if k != "withheld_sha256"}, dict(good, withheld_sha256=5),
+                       dict(good, withheld_sha256="0" * 64)):
+            for cmd, args in (("brief", ["--page", BRIEF_PAGES[0], "--bundles", self.out]),
+                              ("bundles", ["--reuse", "--out", self.out])):
+                with self.subTest(cmd=cmd, broken=str(broken.get("withheld_sha256"))[:4]):
+                    self.ok("bundles", "--out", self.out, code=1)
+                    os.remove(os.path.join(self.work, "state", "rendered.json"))
+                    write(self.meta, json.dumps(broken))
+                    self.assertIn("stale bundles", self.refused(cmd, *args))
+                    self.assertEqual(os.listdir(self.out), [], "the bundles were left on disk")
+
     def test_bundles_json_is_a_directory(self):
         os.remove(self.meta)
         os.makedirs(self.meta)
         self.consumers("cannot read %s" % self.meta)
-        self.assertIn("is a directory; bundles.json must be a file", self.refused("bundles"))
+        self.assertIn("is a directory; bundles.json must be a file", self.refused("bundles", "--out", self.out))
 
     def test_bundles_out_is_a_file(self):
         path = os.path.join(self.tmp, "a-file")
@@ -921,6 +1150,90 @@ class MalformedInputTest(Copy):
             with self.subTest(cmd=cmd, flag=flag):
                 self.assertIn("%s %s is a file, not a folder of %s records" % (flag, path, kind),
                               self.refused(cmd, flag, path))
+
+
+class RenderedOutputsTest(Copy):
+    """Every file a wiki.py command writes that carries manifest, card or path data is registered under the withheld
+    digest by the command itself, so the next tool's start removes it once the withheld set changes. Each file is written
+    by the real command; a command that stops registering its output leaves its file behind and fails here."""
+
+    def exclude(self, *paths):
+        twin = os.path.join(self.root, ".familyai", "rulebook.json")
+        write(twin, json.dumps(dict(json.loads(read(twin)), exclude=list(paths)), ensure_ascii=False, indent=1))
+
+    def write_everything(self):
+        """{command: the file it wrote}, each command run once with its output outside the folder."""
+        made = {}
+        for cmd in ("profile", "check", "drift"):
+            made[cmd] = os.path.join(self.tmp, "out", cmd + ".json")
+            code, _o, err = self.wiki(cmd, "--out", made[cmd])
+            self.assertIn(code, (0, 1), err)
+        rows = os.path.join(self.tmp, "rows.csv")
+        write(rows, "label,value,unit,source\n" + "".join(
+            "%s,%d,GBP,02 Finance/Bank statement 2024-03.pdf\n" % (k, n) for n, k in enumerate("abc", 1)))
+        made["chart"] = os.path.join(self.tmp, "out", "chart.md")
+        self.ok("chart", "--kind", "bar", "--data", rows, "--title", "t", "--out", made["chart"])
+        self.ok("bundles", code=1)
+        made["brief"] = os.path.join(self.tmp, "out", "brief.md")
+        self.ok("brief", "--page", BRIEF_PAGES[0], "--out", made["brief"])
+        prompts = os.path.join(self.tmp, "out", "prompts")
+        self.ok("review-prompts", "--page", BRIEF_PAGES[0], "--author-model", "a", "--reviewer-model", "b", "--out", prompts)
+        base = os.path.join(prompts, "20 Finance", "Tax")
+        made["review owner prompt"], made["review professional prompt"] = base + ".owner.md", base + ".professional.md"
+        return made
+
+    def registered(self):
+        with open(os.path.join(self.work, "state", "rendered.json"), encoding="utf-8") as f:
+            return {i["path"] for i in json.load(f)}
+
+    def test_every_output_is_registered_kept_while_the_withheld_set_is_the_same_and_removed_when_it_changes(self):
+        made = self.write_everything()
+        for what, path in made.items():
+            with self.subTest(what=what):
+                self.assertTrue(os.path.isfile(path), "the command wrote nothing")
+                self.assertIn(os.path.abspath(path), self.registered())
+        self.ok("profile")  # a later tool with nothing withheld that was not before: nothing is purged
+        self.assertEqual([w for w, path in made.items() if not os.path.isfile(path)], [])
+        self.exclude("06 Work")
+        code, _out, err = self.wiki("profile")
+        self.assertEqual(code, 0, err)
+        self.assertIn("purged what withheld documents left behind: ", err)
+        for what, path in made.items():
+            with self.subTest(what=what):
+                self.assertFalse(os.path.exists(path), "%s was left on disk after the withheld set changed" % what)
+        self.assertNotIn("06 Work", err)
+
+
+    def test_a_report_with_manifest_or_path_data_is_never_written_inside_the_folder(self):
+        rows = os.path.join(self.tmp, "rows.csv")
+        write(rows, "label,value,unit,source\n" + "".join(
+            "%s,%d,GBP,02 Finance/Bank statement 2024-03.pdf\n" % (k, n) for n, k in enumerate("abc", 1)))
+        before = tree_digest(self.root)
+        for cmd, args in (("profile", []), ("check", []), ("drift", []),
+                          ("chart", ["--kind", "bar", "--data", rows, "--title", "t"]),
+                          ("brief", ["--page", BRIEF_PAGES[0]]),
+                          ("review-prompts", ["--page", BRIEF_PAGES[0], "--author-model", "a", "--reviewer-model", "b"])):
+            shouted = os.path.join(os.path.dirname(self.root), os.path.basename(self.root).upper())  # as a macOS volume opens it
+            for inside in (os.path.join(self.root, "_Audit", cmd + ".out"), os.path.join(self.root, cmd + ".out"),
+                           os.path.join(shouted, "_Audit", cmd + ".out"), os.path.join(shouted, cmd + ".out")):
+                with self.subTest(cmd=cmd, out=os.path.relpath(inside, self.root)):
+                    if cmd in ("brief", "review-prompts"):
+                        self.ok("bundles", code=1)
+                    code, out, err = self.wiki(cmd, *args, "--out", inside)
+                    self.assertEqual(code, 2, out + err)
+                    self.assertIn("are working files, never written inside the folder", err)
+                    self.assertNotIn("Traceback", err)
+        self.assertEqual(tree_digest(self.root), before, "a refused command wrote into the folder")
+
+    def test_bundles_built_in_a_folder_of_the_users_choosing_are_registered_and_purged_too(self):
+        out = os.path.join(self.tmp, "out", "my-bundles")
+        self.ok("bundles", "--out", out, code=1)
+        self.assertIn(os.path.abspath(out), self.registered())
+        self.exclude("06 Work")
+        code, _o, err = self.wiki("profile")
+        self.assertEqual(code, 0, err)
+        self.assertIn("5 bundle files", err)
+        self.assertEqual(os.listdir(out), [], "the bundles were left on disk after the withheld set changed")
 
 
 class RebuildTest(Copy):

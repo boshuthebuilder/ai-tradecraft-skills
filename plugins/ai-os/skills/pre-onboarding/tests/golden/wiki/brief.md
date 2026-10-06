@@ -84,18 +84,71 @@ Every page that exists or is planned. Link only to these pages, by relative path
 
 The bundles in `<tmp>/a/work/bundles` hold one JSON line per document routed to a section: its path, copies, card
 (title, type, parties, date, summary, key facts) and, for an active section, its text. They were checked fresh
-against the current manifest and routing before this brief was made. Open a source file itself when a bundle line
-is not enough.
+against the current manifest and routing before this brief was made. Open a source file itself only when a bundle
+line names it and is not enough. A path this brief marks withheld, any path under the migrations folder and any path
+the owner excluded is never opened, read or cited: `wiki.py check` refuses a page that cites one. A routing row into
+such a folder is not a source.
+
+## The Schema's tables
+
+The wiki's Schema page is not given to you: use these tables, which are its own with the routing rows into withheld
+folders taken out, and do not open the Schema page.
+
+### Layout
+
+| Section | Pages | Professional lens | Kind |
+| --- | --- | --- | --- |
+| 00 Index | dashboard | chief of staff | fixed |
+| 01 Deadlines | every forward date, rolled up | chief of staff | fixed, derived |
+| 02 People | everyone who appears | personal assistant | fixed |
+| 10 Identity | passport | immigration adviser | active |
+| 20 Finance | Bank accounts; Cash position; Tax | private banker; CFO; chartered tax adviser | active |
+| 30 Home | lease, bills | household manager | active |
+| 40 Study | courses and certificates | academic registrar | history |
+| 90 Schema | this page | librarian | fixed |
+| 91 Log | append-only history | librarian | fixed |
+
+### Routing
+
+| Files under | Section and page |
+| --- | --- |
+| `01 Identity/` | 10 Identity |
+| `02 Finance/Tax/` | 20 Tax |
+| `02 Finance/` | 20 Bank accounts and Cash position |
+| `03 Home/` | 30 Home |
+| `04 Study/` | 40 Study |
+| `05 Archive/` | 40 Study |
+| `06 Work/` | 20 Tax (employment income) |
+| `_Inbox/` | filed by the routing above |
+
+### Page contracts
+
+| Section (professional) | Reader | Questions, most important first | Fields every page carries |
+| --- | --- | --- | --- |
+| 10 Identity (immigration adviser) | Alex | 1. When does the passport expire? 2. Which numbers would an application need? | number, issue date, expiry, scan path |
+| 20 Finance (private banker; CFO; chartered tax adviser) | Alex | 1. Is anything due? 2. What came in and went out? 3. What is the tax position? | account, period, balances, tax year, amounts |
+| 30 Home (household manager) | Alex | 1. Where does Alex live and on what terms? 2. What bills are due? | address, landlord, term, rent, bills |
+| 40 Study (academic registrar) | Alex | 1. Which courses and certificates are held? 2. Where are they? | course, school, dates, result, path |
+
+### Page professionals
+
+| Page | Professional | Deliverable | Tone |
+| --- | --- | --- | --- |
+| 20 Finance/20 Finance.md | private banker | finance overview | measured |
+| 20 Finance/Bank accounts.md | private banker | accounts schedule | measured |
+| 20 Finance/Cash position.md | CFO | cash note | numerate, brief |
+| 20 Finance/Tax.md | chartered tax adviser | annual tax position letter | exact, dated |
 
 ## What you may read
 
-This brief, the Schema page, the core wiki rule, the bundles above and the source files they list or your pages
-cite. Read nothing else: not the manifest or `AUDIT.md`, nothing else under `_Audit/`, and nothing outside this
-folder.
+This brief, the core wiki rule, the bundles above and the source files a bundle line names. To check a dated rule (a
+rate, a threshold, a deadline), which the core wiki rule asks you to do, read the issuing authority's own publication
+and no other site, and flag the rule as unchecked if you cannot. Read nothing else: not the Schema page, the manifest
+or `AUDIT.md`, nothing else under `_Audit/`, and nothing else outside this folder.
 
 ## What to do
 
-1. Read the Schema page, `<tmp>/a/Alex Personal/Alex Personal Wiki/90 Schema/90 Schema.md`, and the core wiki rule: its page contracts, rich pages, outside
+1. Read the Schema's tables above and the core wiki rule: its page contracts, rich pages, outside
    knowledge and history pages are how each page is written.
 2. Write each page to its path under `<tmp>/a/Alex Personal/Alex Personal Wiki/`, to its contract and in its professional's voice. Draw any
    chart with `wiki.py chart`, from the page's own cited rows.
@@ -140,8 +193,9 @@ folder.
 
 The checker, and later the hand-off check, read every page as plain text, so write to these rules:
 
-- **No em dash** in the body outside inline code. A source title, supplier name or menu name that holds one goes
-  inside backticks; elsewhere use a comma, a colon or two sentences.
+- **No em dash** in the body outside inline code, nor in any `note` or `deadline_note` value, which the Deadlines
+  page copies. A source title, supplier name or menu name that holds one goes inside backticks in the body; elsewhere
+  use a comma, a colon or two sentences.
 - **Frontmatter** is plain `key: value` pairs at the left edge between `---` fences. Quote every `note` and
   `deadline_note`: an unquoted value with a colon and a space in it, a bare `yes`, `no`, `on` or `off`, or a time such
   as `12:30` is read as something other than text, and the page cannot be verified.

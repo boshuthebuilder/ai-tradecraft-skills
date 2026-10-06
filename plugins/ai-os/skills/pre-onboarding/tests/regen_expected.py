@@ -20,6 +20,7 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOOLS = os.path.join(HERE, "..", "tools")
+TIMEOUT = 600  # seconds: a tool that hangs fails its test instead of the run
 FIXTURE = os.path.join(HERE, "fixture", "Alex Personal")
 EXPECTED = os.path.join(HERE, "expected")
 NOW = "1719748800"          # 2024-06-30T12:00:00Z
@@ -48,7 +49,7 @@ def copy_fixture(dst):
 
 def run(tool, *args, env=None, ok=(0, 1)):
     r = subprocess.run([sys.executable, os.path.join(TOOLS, tool)] + list(args), capture_output=True, text=True,
-                       env=env)
+                       env=env, timeout=TIMEOUT)
     if r.returncode not in ok:
         raise SystemExit("%s failed (%d): %s" % (tool, r.returncode, r.stderr[-800:]))
     return r.stdout

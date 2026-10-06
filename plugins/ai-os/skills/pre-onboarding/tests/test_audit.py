@@ -18,6 +18,7 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOOLS = os.path.join(HERE, "..", "tools")
+TIMEOUT = 600  # seconds: a tool that hangs fails its test instead of the run
 FIXTURE = os.path.join(HERE, "fixture", "Alex Personal")
 EXPECTED = os.path.join(HERE, "expected")
 NOW = 1719748800            # 2024-06-30T12:00:00Z, the frozen clock of expected/
@@ -55,6 +56,29 @@ common.run_main(audit.main)
 """
 
 
+# audit.py with every file under the named folders (argv 2, separated by `|`) made unopenable: a read of one raises.
+NEVER_OPENED = """
+import builtins
+import os
+import sys
+sys.path.insert(0, sys.argv[1])
+import audit
+import common
+fragments, real_open = sys.argv[2].split("|"), builtins.open
+
+
+def guarded(p, *a, **k):
+    if isinstance(p, str) and any(f in p.replace(os.sep, "/") for f in fragments):
+        raise AssertionError("opened " + p)
+    return real_open(p, *a, **k)
+
+
+builtins.open = guarded
+sys.argv = ["audit.py"] + sys.argv[3:]
+common.run_main(audit.main)
+"""
+
+
 def read(path, mode="r"):
     with open(path, mode, **({} if "b" in mode else {"encoding": "utf-8"})) as f:
         return f.read()
@@ -71,7 +95,7 @@ def run(tool, *args, now=NOW, script=None):
     open fails the test."""
     env = dict(os.environ, PRE_ONBOARDING_NOW=str(now), PYTHONWARNINGS="error::ResourceWarning")
     cmd = [sys.executable, "-c", script, TOOLS] if script else [sys.executable, os.path.join(TOOLS, tool)]
-    r = subprocess.run(cmd + list(args), capture_output=True, text=True, env=env)
+    r = subprocess.run(cmd + list(args), capture_output=True, text=True, env=env, timeout=TIMEOUT)
     if "ResourceWarning" in r.stderr:
         raise AssertionError("%s left a file open:\n%s" % (tool, r.stderr[-2000:]))
     return r.returncode, r.stdout, r.stderr
@@ -538,6 +562,80 @@ class WalkTest(AuditCase):
         self.assertIn("Hidden 3, symlinks 2, cloud-only placeholders 1, not downloaded 0.", self.report(root))
 
 
+class ExcludedTest(AuditCase):
+    """A path the rulebook `exclude`s is recorded from the folder's listing and never opened."""
+
+    FILES = {"Staff/pay.txt": "Salary for the nanny.", "Staff/Bills/Gas.pdf": "gas", "Staff/Photo.jpg": "a photo",
+             "Staff/Pages.pages/Index/Document.iwa": "package member one",
+             "Staff/Pages.pages/preview.jpg": "package member two", "Letters/Private.pdf": "private",
+             "Letters/Kept.pdf": "kept", "Bills/Gas.pdf": "gas", "Staffing/Agency.txt": "a different folder"}
+
+    def folder_with(self, exclude=("Staff", "Letters/Private.pdf"), parent="x"):
+        return self.folder(dict(self.pinned(exclude=list(exclude)), **self.FILES), parent=parent)
+
+    def test_an_excluded_path_is_recorded_from_the_listing_and_never_opened(self):
+        root = self.folder_with()
+        for rel in self.FILES:
+            os.utime(os.path.join(root, rel), (MTIME, MTIME))
+        work = os.path.join(os.path.dirname(root), "work")
+        code, _o, err = run("audit.py", "Alex Papers/Staff/|Alex Papers/Letters/Private.pdf", "--root", root, "--work",
+                            work, "--out", self.out(root), "--read-only-root", script=NEVER_OPENED)
+        self.assertEqual(code, 0, err)
+        entries = by_path(json.loads(read(os.path.join(self.out(root), "manifest.json"))))
+        excluded = {"Staff/pay.txt": "document", "Staff/Bills/Gas.pdf": "document", "Staff/Photo.jpg": "image",
+                    "Staff/Pages.pages": "iwork", "Letters/Private.pdf": "document"}
+        for rel, cls in excluded.items():
+            with self.subTest(rel):
+                e = entries[rel]
+                full = os.path.join(root, rel)
+                if os.path.isdir(full):
+                    members = [os.stat(os.path.join(d, f)) for d, _ds, fs in os.walk(full) for f in fs]
+                    size, mtime = sum(m.st_size for m in members), max(m.st_mtime for m in members)
+                else:
+                    size, mtime = os.stat(full).st_size, os.stat(full).st_mtime
+                self.assertEqual((e["hashed"], e["synthetic_id"], e["class"], e["size"]), (False, True, cls, size))
+                self.assertEqual(e["id"], hashlib.sha256(("%d:%s:%s" % (size, common.iso_utc(mtime), rel)).encode())
+                                 .hexdigest(), "a synthetic id: no byte of the file is in it")
+                self.assertNotIn("copies", e)
+        self.assertEqual(entries["Staff/Pages.pages"].get("package"), True)
+        for rel in ("Letters/Kept.pdf", "Bills/Gas.pdf", "Staffing/Agency.txt"):
+            self.assertTrue(entries[rel]["hashed"], rel)
+        self.assertNotIn("copies", entries["Bills/Gas.pdf"], "an excluded copy is no duplicate of an included file")
+        cache = read(os.path.join(work, "hashcache.json"))
+        self.assertNotIn("Staff/", cache)
+        self.assertNotIn("Private", cache)
+
+    def test_an_exclusion_that_names_no_path_is_refused_and_nothing_is_written(self):
+        for entry in ("Staf", "Staff/nobody.txt"):
+            with self.subTest(entry):
+                root = self.folder_with(exclude=[entry], parent="bad" + str(len(entry)))
+                code, _o, err = run("audit.py", "--root", root, "--work", os.path.join(self.tmp, "work"), "--out",
+                                    self.out(root), "--read-only-root")
+                self.assertEqual(code, 2)
+                self.assertIn("exclude entry %r is not a path under" % entry, err)
+                self.assertFalse(os.path.exists(os.path.join(self.out(root), "manifest.json")))
+
+    def test_a_case_variant_of_an_excluded_path_excludes_it(self):
+        """macOS opens `staff/pay.txt` for `Staff/pay.txt`, so the owner's `staff` means the folder."""
+        root = self.folder_with(exclude=["staff", "LETTERS/private.pdf"], parent="case")
+        entries = by_path(self.audit(root))
+        for rel in ("Staff/pay.txt", "Staff/Bills/Gas.pdf", "Letters/Private.pdf"):
+            self.assertEqual((entries[rel]["hashed"], entries[rel]["synthetic_id"]), (False, True), rel)
+        self.assertTrue(entries["Letters/Kept.pdf"]["hashed"])
+
+    def test_dropping_an_exclusion_reads_the_file_at_the_next_audit(self):
+        root = self.folder_with(exclude=["Staff"])
+        first = by_path(self.audit(root))["Staff/pay.txt"]
+        self.assertEqual((first["hashed"], first["synthetic_id"]), (False, True))
+        write(os.path.join(root, ".familyai", "rulebook.json"),
+              json.dumps(dict(json.loads(read(os.path.join(root, ".familyai", "rulebook.json"))), exclude=[])))
+        second = self.audit(root)
+        now = by_path(second)["Staff/pay.txt"]
+        self.assertEqual((now["hashed"], now["id"]), (True, hashlib.sha256(b"Salary for the nanny.").hexdigest()))
+        self.assertNotIn("synthetic_id", now)
+        self.assertIn("departed", second["entries"][first["id"]]["flags"], "the unread entry is history")
+
+
 class MigratingTest(AuditCase):
     def test_the_fixture_staged_file(self):
         root = self.fixture()
@@ -587,6 +685,48 @@ class MigratingTest(AuditCase):
 class HistoryTest(AuditCase):
     """The manifest merges with the previous pass: renames are recorded, departures kept and stamped once."""
 
+    def test_the_first_placement_is_recorded_and_a_move_chain_keeps_every_path(self):
+        """manifest-schema.md: `rename_history` is a placement per path, oldest first, the first included. A document moved
+        by an approved row and then staged from where it moved to must still name the path it started at."""
+        root = self.fixture()
+        t1, t2, t3 = NOW, NOW + 86400, NOW + 2 * 86400
+        m1 = self.audit(root, now=t1)
+        for e in m1["entries"].values():
+            self.assertEqual(e["rename_history"], [{"path": e["current_path"], "at": common.iso_utc(t1),
+                                                    "run_id": "audit"}], e["current_path"])
+        os.rename(os.path.join(root, "04 Study", "Notes.rtf"), os.path.join(root, "04 Study", "Class notes.rtf"))
+        m2 = self.audit(root, now=t2)
+        notes = by_path(m2)["04 Study/Class notes.rtf"]
+        self.assertEqual([h["path"] for h in notes["rename_history"]], ["04 Study/Notes.rtf", "04 Study/Class notes.rtf"])
+        staged = os.path.join(root, "_Migrations", "Other Project", "04 Study")
+        os.makedirs(staged)
+        os.rename(os.path.join(root, "04 Study", "Class notes.rtf"), os.path.join(staged, "Class notes.rtf"))
+        m3 = self.audit(root, now=t3)
+        entry = by_path(m3)["_Migrations/Other Project/04 Study/Class notes.rtf"]
+        self.assertEqual(entry["id"], notes["id"])
+        self.assertEqual([(h["path"], h["at"]) for h in entry["rename_history"]],
+                         [("04 Study/Notes.rtf", common.iso_utc(t1)), ("04 Study/Class notes.rtf", common.iso_utc(t2)),
+                          ("_Migrations/Other Project/04 Study/Class notes.rtf", common.iso_utc(t3))])
+
+    def test_a_manifest_without_the_first_placement_is_read_as_before_and_completed_at_the_first_move(self):
+        root = self.fixture()
+        t1, t2, t3 = NOW, NOW + 86400, NOW + 2 * 86400
+        self.audit(root, now=t1)
+        path = os.path.join(self.out(root), "manifest.json")
+        old = json.loads(read(path))
+        for e in old["entries"].values():
+            e["rename_history"] = []  # what an audit that did not record it left
+        write(path, json.dumps(old))
+        m2 = self.audit(root, now=t2)
+        self.assertEqual([e["rename_history"] for e in m2["entries"].values() if e["rename_history"]], [],
+                         "an entry that has not moved is left as it was")
+        os.rename(os.path.join(root, "04 Study", "Notes.rtf"), os.path.join(root, "04 Study", "Class notes.rtf"))
+        m3 = self.audit(root, now=t3)
+        moved = by_path(m3)["04 Study/Class notes.rtf"]
+        self.assertEqual([(h["path"], h["at"]) for h in moved["rename_history"]],
+                         [("04 Study/Notes.rtf", common.iso_utc(t1)), ("04 Study/Class notes.rtf", common.iso_utc(t3))],
+                         "the path the entry held is recorded first, at the time it was first seen")
+
     def test_departed_entries_and_drift(self):
         root = self.fixture()
         t1, t2, t3, t4 = NOW, NOW + 86400, NOW + 2 * 86400, NOW + 3 * 86400
@@ -612,7 +752,9 @@ class HistoryTest(AuditCase):
         self.assertEqual(e2[lease]["current_path"], "03 Home/Lease notes.txt")
         self.assertEqual(e2[lease]["original_name"], "Lease notes .txt")
         self.assertEqual(e2[lease]["first_seen"], common.iso_utc(t1))
-        self.assertEqual(e2[lease]["rename_history"], [{"path": "03 Home/Lease notes.txt", "at": common.iso_utc(t2),
+        self.assertEqual(e2[lease]["rename_history"], [{"path": "03 Home/Lease notes .txt", "at": common.iso_utc(t1),
+                                                        "run_id": "audit"},
+                                                       {"path": "03 Home/Lease notes.txt", "at": common.iso_utc(t2),
                                                         "run_id": "audit"}])
         self.assertEqual(e2[lease]["flags"], [])                                                # the defect is gone
         self.assertNotIn("look_reason", e2[lease])
