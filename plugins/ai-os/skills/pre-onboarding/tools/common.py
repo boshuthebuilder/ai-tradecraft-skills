@@ -571,6 +571,21 @@ def prior_paths(rb, entries):
     return out
 
 
+def live_document_paths(rb, entries):
+    """{path: id} for every path a live document that the tools may read holds: each path of each entry that is not
+    `departed` and whose current path is not withheld (a copy listed in `copies` is a path of its own), except a path
+    that is itself withheld (a copy of a readable document inside an excluded folder). The one reading of "the
+    documents of the folder" that `plan.py reorg` and `structure.py` share."""
+    out = {}
+    for h, e in entries.items():
+        if "departed" in e.get("flags", []) or withheld(rb, e["current_path"]):
+            continue
+        for p in [c["path"] for c in e.get("copies", [])] or [e["current_path"]]:
+            if not withheld(rb, p):
+                out[p] = h
+    return out
+
+
 def withheld_paths(rb, entries):
     """{fold(path): why} (as `withheld`) for every path that names a withheld document, the one source `check`, `drift`,
     `review-prompts` and the bundles digest share: the current path and every copy's of a live entry withheld by its

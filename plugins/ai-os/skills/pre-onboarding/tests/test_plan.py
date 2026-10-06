@@ -1491,5 +1491,395 @@ class MigrationRoundTest(PlanCase):
         self.assertEqual(tree_digest(self.root, skip=("_Audit",)), original)
 
 
+# ---------------------------------------------------------------------------------------------- reorg
+
+CLOUD_ONLY = """
+import sys
+sys.path.insert(0, sys.argv[1])
+import common
+import plan
+common.is_dataless = lambda path: path.endswith("b.txt")
+sys.argv = ["plan.py"] + sys.argv[2:]
+common.run_main(plan.main)
+"""
+
+
+class ReorgCase(PlanCase):
+    """The fixture copy with a few invented folders of plain files, so that a mapping has something to move: `07 Misc`
+    (a, b, dup, and Sub/c), `08 Other` (a, original) and `09 More` (a), all of different bytes but `dup` and `original`,
+    `10 Wrap/Inner/z`, a folder that holds only a folder, and `12 Decks/Slides.key`, an iWork package."""
+
+    FILES = {"07 Misc/a.txt": "alpha", "07 Misc/b.txt": "bravo", "07 Misc/Sub/c.txt": "charlie",
+             "07 Misc/dup.txt": "original", "08 Other/a.txt": "alpha two", "08 Other/original.txt": "original",
+             "09 More/a.txt": "alpha three", "10 Wrap/Inner/z.txt": "zulu", "12 Decks/Slides.key/Index/Doc.iwa": "iwa"}
+
+    def prepare(self):
+        for rel, text in self.FILES.items():
+            write(self.path(rel), text)
+
+    def mapping(self, scope, moves, name="mapping.json"):
+        path = os.path.join(self.tmp, name)
+        write(path, json.dumps({"scope": scope, "moves": [{"from": f, "to": t} for f, t in moves]}))
+        return path
+
+    def reorg(self, scope, moves, out=None, code=0, extra=(), **kw):
+        out = out or os.path.dirname(self.plan)
+        got, o, err = self.run_plan("reorg", "--root", self.root, "--mapping", self.mapping(scope, moves), "--out", out,
+                                    *extra, **kw)
+        self.assertEqual(got, code, o + err)
+        self.assertNotIn("Traceback", err)
+        return (o, err)
+
+    def refuses(self, scope, moves, *whys, extra=()):
+        """The mapping is refused with every one of `whys`, naming each, nothing written and the folder untouched."""
+        before = tree_digest(self.root)
+        _o, err = self.reorg(scope, moves, code=2, extra=extra)
+        self.assertIn("refused, nothing written", err)
+        for why in whys:
+            self.assertIn(why, err)
+        self.assertFalse(os.path.exists(self.plan), "a refusal writes no plan")
+        self.assertEqual(tree_digest(self.root), before)
+        return err
+
+    def proposal(self, scope, moves):
+        self.reorg(scope, moves)
+        return [(r["action"], r["from"], r["to"]) for r in read_rows(self.plan)]
+
+
+class ReorgProposalTest(ReorgCase):
+    def test_files_and_folders_expand_to_create_move_and_rmdir_rows(self):
+        out, err = self.reorg(["06 Work", "07 Misc"], [("06 Work/Contract.docx", "06 Work/Employment"),
+                                                       ("07 Misc", "11 Filed/Misc")])
+        self.assertIn("create 4, move 5 (from 2 mapping row(s)), rmdir 1", out)
+        rows = read_rows(self.plan)
+        self.assertEqual([(r["seq"], r["action"], r["from"], r["to"]) for r in rows], [
+            ("1", "create", "", "11 Filed/"), ("2", "create", "", "06 Work/Employment/"),
+            ("3", "create", "", "11 Filed/Misc/"), ("4", "create", "", "11 Filed/Misc/Sub/"),
+            ("5", "move", "06 Work/Contract.docx", "06 Work/Employment/Contract.docx"),
+            ("6", "move", "07 Misc/Sub/c.txt", "11 Filed/Misc/Sub/c.txt"),
+            ("7", "move", "07 Misc/a.txt", "11 Filed/Misc/a.txt"),
+            ("8", "move", "07 Misc/b.txt", "11 Filed/Misc/b.txt"),
+            ("9", "move", "07 Misc/dup.txt", "11 Filed/Misc/dup.txt"),
+            ("10", "rmdir", "07 Misc/", "")])
+        moves = [r for r in rows if r["action"] == "move"]
+        self.assertTrue(all(r["depth"] == "medium" and r["status"] == "proposed" and r["approved"] == "" for r in rows))
+        self.assertEqual([r["evidence"] for r in moves], [self.ids[r["from"]] for r in moves],
+                         "each move carries the manifest's id of its document")
+        self.assertEqual([r["domain"] for r in rows], ["11 Filed", "06 Work", "11 Filed", "11 Filed", "06 Work",
+                                                       "07 Misc", "07 Misc", "07 Misc", "07 Misc", "07 Misc"])
+        self.assertEqual(moves[0]["reason"], "re-organisation: the approved mapping files it under 06 Work/Employment")
+        self.assertEqual(moves[1]["reason"], "re-organisation: the approved mapping moves everything under 07 Misc/ "
+                         "to 11 Filed/Misc")
+        self.assertEqual(rows[-1]["needs_a_look"], "empty only if every move out of it is approved; the owner may "
+                         "decline it (keep_empty_folders)")
+
+    def test_a_folder_merges_into_a_folder_that_exists_keeping_its_structure(self):
+        self.assertEqual(self.proposal(["07 Misc"], [("07 Misc/Sub", "08 Other")]), [
+            ("move", "07 Misc/Sub/c.txt", "08 Other/c.txt"), ("rmdir", "07 Misc/Sub/", "")])
+        write(self.path("07 Misc/Sub/deeper/d.txt"), "delta")
+        self.audit()
+        os.remove(self.plan)
+        self.assertEqual(self.proposal(["07 Misc"], [("07 Misc/Sub", "08 Other")]), [
+            ("create", "", "08 Other/deeper/"), ("move", "07 Misc/Sub/c.txt", "08 Other/c.txt"),
+            ("move", "07 Misc/Sub/deeper/d.txt", "08 Other/deeper/d.txt"), ("rmdir", "07 Misc/Sub/", "")])
+
+    def test_a_move_row_carries_the_copy_kind_and_a_trailing_slash_is_ignored(self):
+        self.proposal(["04 Study"], [("04 Study/Slides.pptx/", "04 Study/Reading/")])
+        move = next(r for r in read_rows(self.plan) if r["action"] == "move")
+        self.assertEqual((move["from"], move["to"], move["kind"]), ("04 Study/Slides.pptx",
+                                                                      "04 Study/Reading/Slides.pptx", "canonical"))
+
+    def test_a_package_moves_as_one_document(self):
+        self.assertEqual(self.proposal(["03 Home"], [(LEASE_PAGES, "03 Home/Old leases")]),
+                         [("create", "", "03 Home/Old leases/"),
+                          ("move", LEASE_PAGES, "03 Home/Old leases/Lease renewal.pages")])
+
+    def test_a_path_in_another_unicode_form_takes_the_manifests_spelling(self):
+        import unicodedata
+        name = "04 Study/Cours de français.pdf"
+        for form in ("NFC", "NFD"):
+            with self.subTest(form=form):
+                if os.path.exists(self.plan):
+                    os.remove(self.plan)
+                self.reorg(["04 Study"], [(unicodedata.normalize(form, name), "04 Study/Reading")])
+                move = next(r for r in read_rows(self.plan) if r["action"] == "move")
+                self.assertEqual(move["from"], next(p for p in self.ids if unicodedata.normalize("NFC", p) == name))
+
+    def test_a_folder_the_moves_empty_but_a_pack_the_rulebook_or_the_schema_names_gets_no_rmdir(self):
+        moves = [("04 Study/%s" % n, "07 Misc/Study") for n in ("Cours de français.pdf", "Essay.docx", "Notes.rtf",
+                                                                  "Slides.pptx", "中文课程.pdf")]
+        out, _err = self.reorg(["04 Study"], moves)
+        self.assertNotIn("rmdir", [r["action"] for r in read_rows(self.plan)])
+        self.assertIn("no rmdir row for 1 emptied folder(s) that a pack, the rulebook or the Schema names: 04 Study", out)
+
+    def test_a_folder_the_moves_empty_above_the_scope_gets_no_rmdir_and_the_scope_folder_does(self):
+        out, _err = self.reorg(["10 Wrap/Inner"], [("10 Wrap/Inner/z.txt", "09 More")])
+        self.assertEqual([(r["action"], r["from"]) for r in read_rows(self.plan)],
+                         [("move", "10 Wrap/Inner/z.txt"), ("rmdir", "10 Wrap/Inner/")])
+        self.assertIn("no rmdir row for 1 emptied folder(s) that lie outside the scope: 10 Wrap", out)
+
+    def test_files_the_owner_excluded_stay_where_they_are_and_are_counted(self):
+        p = self.path(".familyai/rulebook.json")
+        data = json.loads(read(p))
+        data["exclude"] = ["07 Misc/Sub"]
+        write(p, json.dumps(data, indent=1))
+        self.audit()
+        out, _err = self.reorg(["07 Misc"], [("07 Misc", "08 Other/Misc")])
+        self.assertIn("left where they are: 1 path(s) under a folder that moves, which no tool may read", out)
+        rows = read_rows(self.plan)
+        self.assertEqual(sorted(r["from"] for r in rows if r["action"] == "move"),
+                         ["07 Misc/a.txt", "07 Misc/b.txt", "07 Misc/dup.txt"])
+        self.assertNotIn("rmdir", [r["action"] for r in rows], "the folder still holds the excluded file")
+        self.assertNotIn("Sub", read(self.plan), "the excluded path is named nowhere in the plan")
+
+    def test_a_proposal_does_not_replace_a_plan_the_owner_has_begun_to_decide(self):
+        self.reorg(["07 Misc"], [("07 Misc/a.txt", "11 Filed")])
+        self.run_plan("approve", "--plan", self.plan, "--rows", "1", "--note", "Alex agreed")
+        before = tree_digest(os.path.dirname(self.plan))
+        _o, err = self.reorg(["07 Misc"], [("07 Misc/b.txt", "09 More")], code=2)
+        self.assertIn("already holds 1 approved, declined or deferred row(s)", err)
+        self.assertEqual(tree_digest(os.path.dirname(self.plan)), before)
+
+    def test_read_only_root(self):
+        inside = self.path("_Audit/plans/2026-01-01")
+        _o, err = self.reorg(["07 Misc"], [("07 Misc/b.txt", "09 More")], out=inside, code=2, extra=["--read-only-root"])
+        self.assertIn("--read-only-root", err)
+        self.assertFalse(os.path.exists(os.path.join(inside, "move-plan.csv")))
+        elsewhere = os.path.join(self.tmp, "elsewhere")
+        self.reorg(["07 Misc"], [("07 Misc/b.txt", "09 More")], out=elsewhere, extra=["--read-only-root"])
+        self.assertTrue(os.path.exists(os.path.join(elsewhere, "move-plan.csv")))
+
+
+class ReorgRefusalTest(ReorgCase):
+    def test_a_mapping_of_the_wrong_shape_is_refused_by_name(self):
+        cases = [("not json", "not valid JSON"), ("[]", "expected a JSON object"),
+                 ('{"scope": ["07 Misc"]}', "the mapping is {\"scope\": [...], \"moves\": [...]}"),
+                 ('{"scope": ["07 Misc"], "moves": [], "note": 1}', "the keys ['moves', 'note', 'scope']"),
+                 ('{"scope": [], "moves": [{"from": "a", "to": "b"}]}', "scope must be a non-empty list of folders"),
+                 ('{"scope": [1], "moves": [{"from": "a", "to": "b"}]}', "scope must be a non-empty list of folders"),
+                 ('{"scope": ["07 Misc"], "moves": []}', "moves must be a non-empty list"),
+                 ('{"scope": ["07 Misc"], "moves": [{"from": "a"}]}', "moves[0] must be"),
+                 ('{"scope": ["07 Misc"], "moves": [{"from": "a", "to": "b", "why": "c"}]}', "moves[0] must be"),
+                 ('{"scope": ["07 Misc"], "moves": [{"from": "a", "to": 1}]}', "moves[0] must be")]
+        for text, why in cases:
+            with self.subTest(text=text):
+                path = os.path.join(self.tmp, "m.json")
+                write(path, text)
+                code, o, err = self.run_plan("reorg", "--root", self.root, "--mapping", path, "--out",
+                                             os.path.dirname(self.plan))
+                self.assertEqual(code, 2, o + err)
+                self.assertIn(why, err)
+                self.assertFalse(os.path.exists(self.plan))
+        code, _o, err = self.run_plan("reorg", "--root", self.root, "--mapping", os.path.join(self.tmp, "none.json"),
+                                      "--out", os.path.dirname(self.plan))
+        self.assertEqual(code, 2, err)
+        self.assertIn("cannot read the mapping", err)
+
+    def test_a_path_that_is_not_relative_to_the_folder(self):
+        for bad in ("", "/07 Misc/a.txt", "07 Misc/../08 Other/a.txt", "07 Misc//a.txt", "./07 Misc/a.txt",
+                    "07 Misc/a\u0001.txt"):
+            with self.subTest(bad=bad):
+                self.refuses(["07 Misc"], [(bad, "09 More")], "is not a path relative to the folder")
+        self.refuses(["07 Misc"], [("07 Misc/b.txt", "09 More/../x")], "moves[0] to")
+        self.refuses(["../07 Misc"], [("07 Misc/b.txt", "09 More")], "scope[0] path")
+
+    def test_a_from_that_is_nothing_or_outside_the_scope(self):
+        err = self.refuses(["07 Misc"], [("07 Misc/missing.txt", "09 More"), ("08 Other/a.txt", "09 More"),
+                                         ("07 Misc/b.txt", "09 More")],
+                           "moves[0]: '07 Misc/missing.txt' is neither a live document nor a folder holding one",
+                           "moves[1]: '08 Other/a.txt' is outside the folders the owner approved (scope)")
+        self.assertNotIn("moves[2]", err, "the row in scope is not refused")
+        self.refuses(["07 Misc"], [("07", "09 More")], "'07' is neither a live document nor a folder")
+        self.refuses(["07 Misc/Sub"], [("07 Misc", "09 More")], "'07 Misc' is outside the folders the owner approved")
+        self.refuses(["Nowhere"], [("07 Misc/b.txt", "09 More")], "scope[0]: 'Nowhere' is not a folder holding live "
+                                                                  "documents")
+
+    def test_a_document_the_owner_excluded_or_staged_is_refused_without_naming_its_path(self):
+        p = self.path(".familyai/rulebook.json")
+        data = json.loads(read(p))
+        data["exclude"] = ["08 Other"]
+        write(p, json.dumps(data, indent=1))
+        self.audit()
+        err = self.refuses(["07 Misc", "08 Other"], [("08 Other/a.txt", "09 More"), ("08 Other", "09 More"),
+                                                    ("07 Misc/a.txt", "08 Other")],
+                           "moves[0]: its from path is excluded: no tool opens, hashes or moves it",
+                           "moves[1]: its from path is excluded", "moves[2]: its to path is excluded",
+                           "scope[1]: the folder is excluded")
+        self.assertNotIn("original", err)
+        err = self.refuses(["_Migrations/Other Project"], [("_Migrations/Other Project/02 Finance/Old invoice.pdf",
+                                                            "09 More")],
+                           "scope[0]: the folder is held for another project",
+                           "moves[0]: its from path is held for another project")
+        self.assertNotIn("Old invoice", err)
+
+    def test_nothing_inside_a_pack_moves_or_is_filed_into_one(self):
+        pack = "01 Identity/Passport renewal 2021"
+        self.refuses(["01 Identity"], [(pack + "/Application form.docx", "01 Identity/Docs")],
+                     "moves[0]: 1 of its documents are inside a pack (01 Identity/Passport renewal 2021/Application form"
+                     ".docx): copies in a pack are never moved")
+        self.refuses(["01 Identity"], [(pack, "01 Identity/Docs")], "2 of its documents are inside a pack")
+        self.refuses(["07 Misc"], [("07 Misc/b.txt", pack)], "moves[0]: '%s' is inside a pack" % pack)
+
+    def test_a_folder_the_rulebook_names_is_not_moved_whole(self):
+        for folder, key in (("02 Finance", "active"), ("04 Study", "finished")):
+            with self.subTest(folder=folder):
+                self.refuses([folder], [(folder, "09 More")],
+                             "moves[0]: moving %r whole leaves `%s` in .familyai/rulebook.json naming a folder that "
+                             "is gone; update it first (edit CLAUDE.md, its AGENTS.md copy and .familyai/rulebook.json, "
+                             "then re-pin rulebook_sha256), then propose again" % (folder, key))
+        p = self.path(".familyai/rulebook.json")
+        data = json.loads(read(p))
+        data["active"].append("07 Misc/Sub")
+        write(p, json.dumps(data, indent=1))
+        self.refuses(["07 Misc"], [("07 Misc", "09 More")], "moving '07 Misc' whole leaves `active` in .familyai")
+        self.assertEqual(self.proposal(["07 Misc"], [("07 Misc/Sub/c.txt", "09 More")])[0][0], "move",
+                         "a document in a named folder moves; only a whole folder is refused")
+
+    def test_a_folder_the_schema_routes_is_not_moved_whole_once_it_is_compiled(self):
+        self.assertEqual(self.proposal(["02 Finance"], [("02 Finance/Tax", "07 Misc")])[0][0], "move")
+        os.remove(self.plan)
+        code, _o, err = self.run_tool("settings.py", "compile", "--root", self.root, "--work",
+                                      os.path.join(self.tmp, "work"))
+        self.assertEqual(code, 0, err)
+        self.refuses(["02 Finance"], [("02 Finance/Tax", "07 Misc")],
+                     "moving '02 Finance/Tax' whole leaves the Routing table of Alex Personal Wiki/90 Schema/90 "
+                     "Schema.md naming a folder that is gone; update it first (edit that page, then run settings.py "
+                     "compile), then propose again")
+        self.assertEqual(self.proposal(["02 Finance"], [("02 Finance/Tax/Tax return 2023.pdf", "07 Misc")])[0][0],
+                         "move")
+
+    def test_a_destination_the_system_keeps(self):
+        for to in ("_Audit/x", "_Inbox", "_Migrations/Household", "Alex Personal Wiki/20 Finance", ".familyai", "Outbox",
+                   "Wiki/x", "CLAUDE.md/x", "_whatever", ".hidden/x", "ALEX PERSONAL WIKI/x"):
+            with self.subTest(to=to):
+                self.refuses(["07 Misc"], [("07 Misc/b.txt", to)], "is a name the system reserves")
+
+    def test_a_destination_that_is_not_a_place_for_a_document(self):
+        self.refuses(["07 Misc"], [("07 Misc/b.txt", "03 Home/Lease notes .txt")],
+                     "'03 Home/Lease notes .txt' exists and is not a folder")
+        self.refuses(["07 Misc"], [("07 Misc/b.txt", "12 Decks/Slides.key/Index")],
+                     "'12 Decks/Slides.key/Index' is inside the package '12 Decks/Slides.key', which is one document")
+        self.refuses(["07 Misc"], [("07 Misc/b.txt", "09 more")], "the folder '09 More' is spelled '09 more' in "
+                                                                  "'09 more'; spell it as the folder is")
+        self.refuses(["07 Misc"], [("07 Misc/b.txt", "09 More/New ")],
+                     "'09 More/New ' would create a folder named with a space at either end")
+        self.refuses(["07 Misc"], [("07 Misc", "07 Misc"), ("07 Misc/Sub", "07 Misc/Sub/deeper")],
+                     "moves[0]: '07 Misc' is the folder it moves, or inside it",
+                     "moves[1]: '07 Misc/Sub/deeper' is the folder it moves, or inside it")
+
+    def test_a_destination_file_that_exists_or_is_claimed_twice_or_is_where_the_document_already_is(self):
+        self.refuses(["07 Misc"], [("07 Misc/a.txt", "08 Other")],
+                     "moves[0]: the destination '08 Other/a.txt' exists (nothing is overwritten)")
+        self.refuses(["07 Misc", "09 More"], [("07 Misc/a.txt", "11 New"), ("09 More/a.txt", "11 New")],
+                     "moves[1]: '09 More/a.txt' and '07 Misc/a.txt' both move to '11 New/a.txt'")
+        self.refuses(["07 Misc"], [("07 Misc/a.txt", "07 Misc")], "moves[0]: '07 Misc/a.txt' is in '07 Misc' already")
+        write(self.path("08 Other/B.TXT"), "case")                  # a file on disk the manifest has not seen
+        self.refuses(["07 Misc"], [("07 Misc/b.txt", "08 Other")], "the destination '08 Other/b.txt' exists")
+        self.refuses(["07 Misc"], [("07 Misc/a.txt", "11 New"), ("07 Misc", "11 New")],
+                     "'07 Misc/a.txt' is also moved by moves[0]")
+
+    def test_a_duplicate_of_what_the_destination_holds_is_left_to_the_light_round(self):
+        err = self.refuses(["07 Misc"], [("07 Misc/dup.txt", "08 Other")],
+                           "moves[0]: the content of '07 Misc/dup.txt' already lives at '08 Other/original.txt' once "
+                           "the moves are done (a duplicate): drop the copy with the light round (plan.py light) and "
+                           "leave it out of the mapping")
+        self.assertNotIn("destination", err)
+        # in a sub-folder of the destination counts; a copy that moves out of it does not; a copy moving in does
+        self.refuses(["07 Misc", "08 Other"], [("07 Misc/dup.txt", "08 Other"), ("08 Other/original.txt", "08 Other/Sub")],
+                     "already lives at '08 Other/Sub/original.txt'")
+        self.assertEqual(self.proposal(["07 Misc", "08 Other"], [("07 Misc/dup.txt", "08 Other"),
+                                                                 ("08 Other/original.txt", "11 Else")])[:2],
+                         [("create", "", "11 Else/"), ("move", "07 Misc/dup.txt", "08 Other/dup.txt")])
+        os.remove(self.plan)
+        self.refuses(["07 Misc", "08 Other"], [("07 Misc/dup.txt", "11 New"), ("08 Other/original.txt", "11 New/Sub")],
+                     "already lives at '11 New/")
+
+    def test_a_copy_may_move_to_a_new_place_but_not_over_its_original(self):
+        self.assertEqual(self.proposal(["05 Archive"], [("05 Archive/Essay.docx", "04 Study/Old")]),
+                         [("create", "", "04 Study/Old/"), ("move", "05 Archive/Essay.docx", "04 Study/Old/Essay.docx")])
+        os.remove(self.plan)
+        self.refuses(["05 Archive"], [("05 Archive/Essay.docx", "04 Study")],
+                     "the destination '04 Study/Essay.docx' exists (nothing is overwritten)")
+
+    def test_a_source_that_changed_is_gone_or_cloud_only(self):
+        write(self.path("07 Misc/b.txt"), "changed since the audit")
+        self.refuses(["07 Misc"], [("07 Misc/b.txt", "09 More"), ("07 Misc/a.txt", "11 New")],
+                     "moves[0]: '07 Misc/b.txt' no longer hashes to its manifest id: it changed since the audit; "
+                     "re-audit first")
+        write(self.path("07 Misc/b.txt"), "bravo")
+        os.remove(self.path("07 Misc/a.txt"))
+        self.refuses(["07 Misc"], [("07 Misc/a.txt", "11 New")], "moves[0]: '07 Misc/a.txt' is not on disk: the "
+                                                                  "manifest is older than the folder; re-audit first")
+
+    def test_the_hash_is_the_last_check_and_opens_only_a_clean_mapping(self):
+        write(self.path("07 Misc/b.txt"), "changed")
+        err = self.refuses(["07 Misc"], [("07 Misc/b.txt", "08 Other"), ("07 Misc/a.txt", "08 Other")],
+                           "the destination '08 Other/a.txt' exists")
+        self.assertNotIn("no longer hashes", err, "a mapping with another fault is refused before any file is opened")
+
+    def test_the_hash_check_runs_for_every_source_of_a_folder(self):
+        write(self.path("07 Misc/Sub/c.txt"), "changed")
+        self.refuses(["07 Misc"], [("07 Misc", "11 New")], "'07 Misc/Sub/c.txt' no longer hashes to its manifest id")
+
+    def test_every_refusal_is_named_at_once(self):
+        err = self.refuses(["07 Misc"], [("07 Misc/missing.txt", "09 More"), ("07 Misc/a.txt", "_x"),
+                                         ("08 Other/a.txt", "09 More")], "3 problem(s)", "moves[0]", "moves[1]",
+                           "moves[2]")
+        self.assertEqual(err.count("\n  "), 3)
+
+
+class ReorgRoundTest(ReorgCase):
+    """A proposal runs through the existing approval, check, execute, re-audit and prove, and undoes."""
+
+    def test_the_round_executes_proves_and_undoes(self):
+        original = tree_digest(self.root, skip=("_Audit",))
+        self.reorg(["06 Work", "07 Misc"], [("06 Work/Contract.docx", "06 Work/Employment"), ("07 Misc", "11 Filed/Misc")])
+        self.run_plan("approve", "--plan", self.plan, "--rows", "all", "--note", "Alex agreed")
+        code, out, err = self.run_plan("check", "--root", self.root, "--plan", self.plan)
+        self.assertEqual((code, out.strip().splitlines()[-1]), (0, "rows ok 10 failed 0"), out + err)
+        before = os.path.join(self.tmp, "manifest.before.json")
+        shutil.copy(self.manifest_path, before)
+        code, out, err = self.execute()
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual({r["status"] for r in read_rows(self.plan)}, {"done"})
+        for rel in ("11 Filed/Misc/Sub/c.txt", "11 Filed/Misc/a.txt", "06 Work/Employment/Contract.docx"):
+            self.assertTrue(os.path.isfile(self.path(rel)), rel)
+        self.assertFalse(os.path.exists(self.path("07 Misc")))
+        self.assertEqual(self.bin_names(), ["07 Misc"])
+        self.audit()
+        code, proof, err = self.run_plan("prove", "--plan", self.plan, "--before", before, "--after", self.manifest_path)
+        self.assertEqual(code, 0, proof + err)
+        self.assertEqual(json.loads(proof)["rows_checked"], 5)
+        for x in reversed([x for x in self.undo_lines() if x["phase"] == "done"]):
+            src = os.path.join(self.root, x["undo"]["from"].rstrip("/"))
+            dst = os.path.join(self.root, x["undo"]["to"].rstrip("/"))
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            os.rename(src, dst)
+        self.assertEqual(tree_digest(self.root, skip=("_Audit",)), original)
+        self.assertEqual(self.bin_names(), [])
+
+    def test_an_rmdir_the_owner_approves_over_a_move_they_decline_fails_loud_and_loses_nothing(self):
+        self.reorg(["07 Misc"], [("07 Misc/Sub", "08 Other")])
+        rows = read_rows(self.plan)
+        self.assertEqual([r["action"] for r in rows], ["move", "rmdir"])
+        self.run_plan("approve", "--plan", self.plan, "--rows", "1", "--decline", "--note", "keep it")
+        self.run_plan("approve", "--plan", self.plan, "--rows", "2", "--note", "tidy")
+        code, out, err = self.execute()
+        self.assertEqual(code, 1, out + err)
+        self.assertIn("FAILED row 2 folder not empty", out)
+        self.assertTrue(os.path.isfile(self.path("07 Misc/Sub/c.txt")))
+        self.assertEqual(self.bin_names(), [])
+
+    def test_a_cloud_only_source_is_refused_in_the_run_that_would_hash_it(self):
+        before = tree_digest(self.root)
+        code, out, err = self.run_tool("plan.py", "reorg", "--root", self.root, "--mapping", self.mapping(
+            ["07 Misc"], [("07 Misc/b.txt", "09 More")]), "--out", os.path.dirname(self.plan), script=CLOUD_ONLY)
+        self.assertEqual(code, 2, out + err)
+        self.assertIn("moves[0]: '07 Misc/b.txt' is a cloud-only file, so it cannot be checked without downloading it; "
+                      "download it first", err)
+        self.assertEqual(tree_digest(self.root), before)
+        self.assertFalse(os.path.exists(self.plan))
+
+
 if __name__ == "__main__":
     unittest.main()

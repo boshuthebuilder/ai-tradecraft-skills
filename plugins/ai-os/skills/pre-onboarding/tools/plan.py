@@ -4,6 +4,7 @@
     plan.py light    --root R --out <plan dir>              propose a light-depth round (strays, name defects, redundant copies)
     plan.py migrate  --root R --project P --paths-file F --out <plan dir>   stage files for another project
     plan.py return   --root R --project P --paths-file F --out <plan dir>   bring staged files back
+    plan.py reorg    --root R --mapping <json> --out <plan dir>   propose the re-organisation the owner approved
     plan.py approve  --plan <csv> --rows 1-5,7 --note "..." [--decline | --defer]   record the owner's decision
     plan.py rmdirs   --root R --plan <csv>                  add rows removing folders the approved moves empty
     plan.py check    --root R --plan <csv>                  dry-run every row, including delete rows
@@ -23,15 +24,20 @@ A path the rulebook excludes is proposed nothing, and a row whose `from` or `to`
 `execute` before any hashing: the plan tools never open an excluded file. A `delete` row is refused, before either file
 is hashed, when its copy, the canonical copy it would open to prove the bytes equal, or the document the manifest holds
 the copy of is withheld (excluded, or staged for another project), even in a manifest audited before the exclusion.
+`reorg` turns a mapping the owner approved, `{"scope": [folder, ...], "moves": [{"from": <file or folder>, "to":
+<folder>}, ...]}`, into `create`, per-file `move` and `rmdir` rows (`reorg`, below); the executor, `check` and `prove`
+need nothing new for them.
 Two-phase undo log: an `intent` line before each change and a `done` line with its reverse after. A failed row stops
 its domain. A `convert` row is the owner's or the deployment's: the executor names it, leaves it pending and goes on.
 """
+import collections
 import csv
 import io
 import json
 import os
 import sys
 import time
+import unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common  # noqa: E402
@@ -492,6 +498,292 @@ def _write_round(a, root, rows, review):
     return 0
 
 
+# ------------------------------------------------------------------------------------ reorg
+
+REORG_REASON_FILE = "re-organisation: the approved mapping files it under %s"
+REORG_REASON_FOLDER = "re-organisation: the approved mapping moves everything under %s/ to %s"
+SAMPLE_LIMIT = 3  # paths a refusal names for one mapping row that covers many documents
+
+
+def read_mapping(path):
+    """The mapping, `{"scope": [folder, ...], "moves": [{"from": path, "to": folder}, ...]}`: exactly those keys, a
+    non-empty list of folders and a non-empty list of moves, each with exactly a `from` and a `to`, all text. Anything
+    else is refused by name."""
+    try:
+        data = common.read_json_object(path)
+    except OSError as e:
+        raise common.ToolError("cannot read the mapping %s (%s)" % (path, e.strerror or e))
+    if set(data) != {"scope", "moves"}:
+        raise common.ToolError("%s: the mapping is {\"scope\": [...], \"moves\": [...]}; it has the keys %s"
+                               % (path, sorted(data)))
+    scope, moves = data["scope"], data["moves"]
+    if not (isinstance(scope, list) and scope and all(isinstance(x, str) for x in scope)):
+        raise common.ToolError("%s: scope must be a non-empty list of folders, the ones the owner approved" % path)
+    if not (isinstance(moves, list) and moves):
+        raise common.ToolError("%s: moves must be a non-empty list of {\"from\": ..., \"to\": ...}" % path)
+    for i, m in enumerate(moves):
+        if not (isinstance(m, dict) and set(m) == {"from", "to"} and all(isinstance(m[k], str) for k in m)):
+            raise common.ToolError("%s: moves[%d] must be {\"from\": <file or folder>, \"to\": <folder>}, both text"
+                                   % (path, i))
+    return scope, moves
+
+
+def mapping_path(value, where):
+    """`value`, a folder-relative path of the mapping, in Unicode NFC with one trailing `/` taken off: refused when it
+    is empty or absolute, or has an empty part, a `.` or `..` part or a control character."""
+    p = unicodedata.normalize("NFC", value[:-1] if value.endswith("/") else value)
+    if not p or p.startswith("/") or any(x in ("", ".", "..") for x in p.split("/")) or any(
+            ord(ch) < 0x20 or ord(ch) == 0x7F for ch in p):
+        raise ValueError("%s %r is not a path relative to the folder, with no empty, . or .. part" % (where, value))
+    return p
+
+
+def named_folders(root, rb, settings_dir):
+    """{fold(folder): where it is named} for every folder the rulebook's `active` and `finished` list and the compiled
+    Schema's Routing table routes (each prefix less its closing `/`): a folder that moves whole would leave those
+    naming a folder that is gone. Without a compiled Schema (the wiki is built after this step) routing names none."""
+    named = {}
+    for key in ("active", "finished"):
+        for f in rb[key]:
+            named.setdefault(common.fold(f.rstrip("/")), "`%s` in .familyai/rulebook.json" % key)
+    ws = common.load_wiki_schema(root, settings_dir, required=False)
+    for r in ws["routing"] if ws else ():
+        named.setdefault(common.fold(r["prefix"].rstrip("/")), "the Routing table of %s" % ws["schema_path"])
+    return named
+
+
+def destination(root, to):
+    """(`to` with each part that exists spelled as its folder has it, why `to` cannot be a destination or None). A part
+    that differs from its folder's only in Unicode form is the same name and takes the folder's spelling, since the
+    audit records the folder's; one that differs in case is refused, since the proof of the move would then see another
+    path than the plan's. Refused too: a part that exists as a file, or inside an iWork package (one document), and a
+    folder to create whose name has a space at either end."""
+    parts, cur = to.split("/"), root
+    for i, part in enumerate(parts):
+        names = os.listdir(cur) if os.path.isdir(cur) else []
+        same = [n for n in names if unicodedata.normalize("NFC", n) == part]
+        like = [n for n in names if common.fold(n) == common.fold(part)]
+        if not same and like:
+            return to, "the folder %r is spelled %r in %r; spell it as the folder is" % (
+                like[0], part, "/".join(parts[:i + 1]))
+        if same:
+            parts[i] = same[0]
+        elif part != part.strip():
+            return to, "%r would create a folder named with a space at either end" % "/".join(parts[:i + 1])
+        cur = os.path.join(cur, parts[i])
+        if os.path.lexists(cur) and not os.path.isdir(cur):
+            return to, "%r exists and is not a folder" % "/".join(parts[:i + 1])
+        if os.path.isdir(cur) and os.path.splitext(parts[i])[1].lower() in IWORK:
+            return to, "%r is inside the package %r, which is one document" % (to, "/".join(parts[:i + 1]))
+    return "/".join(parts), None
+
+
+def reorg(a):
+    """Propose the re-organisation the owner approved, `--mapping`, as a plan in `--out`: a `create` row for each
+    destination folder that does not exist (shallowest first), a `move` row for each document that moves (evidence its
+    manifest id, `kind` its copy kind), then an `rmdir` row for each top-most folder the moves empty, all `proposed`,
+    depth `medium`. A `from` that is a document is one row; a `from` that is a folder moves its whole content, each
+    live document under it, to the same place under `to` (the folder is then emptied), and a file the owner excluded
+    stays where it is. `to` is a folder that exists or is created, never the folder's root. Rows run in the existing
+    executor, `check` and `prove`.
+
+    It refuses, writing nothing, and names each refusal (a mapping row by its index, `moves[2]`): a mapping that is not
+    the shape above; a `from` that is not a live document or a folder holding one, or lies outside every `scope` folder;
+    a document the owner excluded or staged for another project (named by its row, never its path); anything inside a
+    pack, on either side; a folder that moves whole while the rulebook's `active` or `finished` lists it or the
+    compiled Schema routes it (the message says which file to edit first); a destination that is a name the system
+    reserves, is excluded or staged, is a file, is inside a package or is spelled other than its folder is; a
+    destination file that exists, or two documents to one path; a document whose content already lives in the
+    destination folder once the moves are done (a duplicate: the light round drops it); a document that is not on disk,
+    is cloud-only or no longer hashes to its manifest id. A folder the moves empty gets no `rmdir` row when a pack, the
+    rulebook or the Schema names it or it lies outside every `scope` folder, and the output says so."""
+    refuse_decided(a.out)
+    root = os.path.realpath(a.root)
+    guard = Guard(root)
+    settings_dir = common.settings_dir_for(root, a.settings_dir)
+    rb = common.load_rulebook(root, settings_dir)
+    entries = load_manifest(a.manifest or os.path.join(root, "_Audit", "manifest.json"))
+    scope, moves = read_mapping(a.mapping)
+    in_pack = common.pack_matcher(root, rb)
+    named = named_folders(root, rb, settings_dir)
+    where = live_paths(entries)                                 # every live path, a withheld one too
+    live = common.live_document_paths(rb, entries)              # the ones the tools may read
+    at = common.withheld_paths(rb, entries)
+    folders = {"/".join(p.split("/")[:i]) for p in live for i in range(1, len(p.split("/")))}
+    spelling = {unicodedata.normalize("NFC", p): p for p in list(where) + sorted(folders)}  # the manifest's own
+    reserved = {common.fold(x) for x in common.reserved_names(rb)} | {"outbox", "wiki"}
+    problems = []
+
+    def refuse(label, why):
+        problems.append("%s: %s" % (label, why))
+
+    def under(path, folder):
+        f = common.fold(folder)
+        return common.fold(path) == f or common.fold(path).startswith(f + "/")
+
+    def listed(path, label, what):
+        """`path` as the manifest spells it, or None after a refusal that names `label`."""
+        try:
+            norm = mapping_path(path, "%s %s" % (label, what))
+        except ValueError as ex:
+            refuse(label, str(ex))
+            return None
+        return spelling.get(norm, norm)
+
+    scopes = []
+    for i, s in enumerate(scope):
+        label = "scope[%d]" % i
+        s = listed(s, label, "path")
+        if s is None:
+            continue
+        why = common.path_withheld(rb, at, s)
+        if why:
+            refuse(label, "the folder is %s: no tool opens or moves anything in it" % common.WITHHELD_WHY[why])
+        elif s not in folders:
+            refuse(label, "%r is not a folder holding live documents" % s)
+        else:
+            scopes.append(s)
+
+    moved = {}                   # source path -> (destination path, mapping row)
+    row_of = {}                  # mapping row -> (from, to, "file" or "folder")
+    left_in_place = 0
+    for i, m in enumerate(moves):
+        label = "moves[%d]" % i
+        src = listed(m["from"], label, "from")
+        try:
+            to = mapping_path(m["to"], label + " to")
+        except ValueError as ex:
+            refuse(label, str(ex))
+            continue
+        if src is None:
+            continue
+        why = common.path_withheld(rb, at, src)
+        if why:
+            refuse(label, "its from path is %s: no tool opens, hashes or moves it; the owner decides it by hand"
+                   % common.WITHHELD_WHY[why])
+            continue
+        if src in live:
+            kind, paths = "file", [src]
+        elif src in folders:
+            kind, paths = "folder", sorted(p for p in live if p.startswith(src + "/"))
+            left_in_place += sum(1 for p in where if p.startswith(src + "/") and p not in live)
+        else:
+            refuse(label, "%r is neither a live document nor a folder holding one" % src)
+            continue
+        if not any(under(src, s) for s in scopes):
+            refuse(label, "%r is outside the folders the owner approved (scope)" % src)
+            continue
+        top = common.fold(to.split("/")[0])
+        why = common.withheld(rb, to)
+        to, bad = destination(root, to)
+        if top in reserved or top.startswith(("_", ".")):
+            bad = "%r is a name the system reserves, never a place for the owner's documents" % to
+        elif why:
+            bad = "its to path is %s: no tool opens, hashes or moves into it; the owner decides it by hand" % (
+                common.WITHHELD_WHY[why])
+        elif in_pack(to):
+            bad = "%r is inside a pack: copies in a pack are history, and a document is never filed into one" % to
+        elif kind == "folder" and under(to, src):
+            bad = "%r is the folder it moves, or inside it" % to
+        if bad:
+            refuse(label, bad)
+            continue
+        packed = [p for p in paths if where[p][1] == "pack" or in_pack(os.path.dirname(p))]
+        if packed:
+            refuse(label, "%d of its documents are inside a pack (%s): copies in a pack are never moved" % (
+                len(packed), "; ".join(packed[:SAMPLE_LIMIT])))
+            continue
+        hit = sorted(n for n in named if kind == "folder" and under(n, src))
+        if hit:
+            refuse(label, "moving %r whole leaves %s naming a folder that is gone; update it first (%s), then propose "
+                   "again" % (src, named[hit[0]], "edit CLAUDE.md, its AGENTS.md copy and .familyai/rulebook.json, "
+                                                  "then re-pin rulebook_sha256" if "rulebook.json" in named[hit[0]]
+                   else "edit that page, then run settings.py compile"))
+            continue
+        row_of[i] = (src, to, kind)
+        for p in paths:
+            dst = to + "/" + (os.path.basename(p) if kind == "file" else p[len(src) + 1:])
+            if p in moved:
+                refuse(label, "%r is also moved by moves[%d]" % (p, moved[p][1]))
+            else:
+                moved[p] = (dst, i)
+
+    taken = {common.fold(p) for p in spelling.values()}
+    owners = {}
+    for p, (dst, i) in sorted(moved.items()):
+        if dst == p:
+            refuse("moves[%d]" % i, "%r is in %r already" % (p, row_of[i][1]))
+        elif common.fold(dst) in owners:
+            refuse("moves[%d]" % i, "%r and %r both move to %r" % (p, owners[common.fold(dst)], dst))
+        elif common.fold(dst) in taken or os.path.lexists(os.path.join(root, dst)):
+            refuse("moves[%d]" % i, "the destination %r exists (nothing is overwritten)" % dst)
+        owners.setdefault(common.fold(dst), p)
+    paths_of = {}
+    for p, h in live.items():
+        paths_of.setdefault(h, []).append(moved[p][0] if p in moved else p)
+    for p, (dst, i) in sorted(moved.items()):
+        twins = sorted(q for q in paths_of[live[p]] if q != dst and under(q, row_of[i][1]))
+        if twins:
+            refuse("moves[%d]" % i, "the content of %r already lives at %r once the moves are done (a duplicate): "
+                   "drop the copy with the light round (plan.py light) and leave it out of the mapping"
+                   % (p, twins[0]))
+
+    for p in sorted(moved) if not problems else ():       # hashing opens the files: only once nothing else is wrong
+        label = "moves[%d]" % moved[p][1]
+        try:
+            src, _dst = guard.inside(p), guard.inside(moved[p][0])
+        except ValueError as ex:
+            refuse(label, str(ex))
+            continue
+        if not is_item(src):
+            refuse(label, "%r is not on disk: the manifest is older than the folder; re-audit first" % p)
+        elif common.is_dataless(src):
+            refuse(label, "%r is a cloud-only file, so it cannot be checked without downloading it; download it "
+                   "first" % p)
+        elif common.content_id(src) != live[p]:
+            refuse(label, "%r no longer hashes to its manifest id: it changed since the audit; re-audit first" % p)
+    if problems:
+        raise common.ToolError("refused, nothing written: %d problem(s):\n  %s" % (len(problems),
+                                                                                    "\n  ".join(problems)))
+
+    made = set()
+    for p in moved:
+        d = os.path.dirname(moved[p][0])
+        while d and not os.path.isdir(os.path.join(root, d)):
+            made.add(d)
+            d = os.path.dirname(d)
+    rows = [new_row(domain=domain_of(d + "/"), depth="medium", action="create", to=d + "/",
+                    reason="a home the approved mapping needs") for d in sorted(made, key=lambda x: (x.count("/"), x))]
+    for p in sorted(moved):
+        src, to, kind = row_of[moved[p][1]]
+        rows.append(new_row(domain=domain_of(p), depth="medium", action="move", **{"from": p}, to=moved[p][0],
+                            evidence=live[p], kind=where[p][1],
+                            reason=REORG_REASON_FILE % to if kind == "file" else REORG_REASON_FOLDER % (src, to)))
+    emptied = emptied_folders(root, set(moved))
+    outside = [d for d in top_most(emptied) if not any(under(d, s) for s in scopes)]
+    kept = []
+    for d in top_most([d for d in emptied if any(under(d, s) for s in scopes)]):
+        if common.fold(d) in named or in_pack(d) or common.withheld(rb, d):
+            kept.append(d)
+            continue
+        rows.append(new_row(domain=domain_of(d + "/"), depth="medium", action="rmdir", **{"from": d + "/"},
+                            reason="emptied by the moves in this plan",
+                            needs_a_look="empty only if every move out of it is approved; the owner may decline it "
+                                         "(keep_empty_folders)"))
+    out = os.path.join(os.path.abspath(a.out), "move-plan.csv")
+    write_plan(common.Writer(root if a.read_only_root else None), out, number(rows))
+    counts = collections.Counter(r["action"] for r in rows)
+    print("%d rows -> %s" % (len(rows), out))
+    print("create %d, move %d (from %d mapping row(s)), rmdir %d" % (counts["create"], counts["move"], len(moves),
+                                                                   counts["rmdir"]))
+    if left_in_place:
+        print("left where they are: %d path(s) under a folder that moves, which no tool may read" % left_in_place)
+    for what, found in (("a pack, the rulebook or the Schema names", kept), ("lie outside the scope", outside)):
+        if found:
+            print("no rmdir row for %d emptied folder(s) that %s: %s" % (len(found), what, "; ".join(found)))
+    return 0
+
+
 def parse_rows(spec):
     out = set()
     for part in spec.split(","):
@@ -519,11 +811,10 @@ def approve(a):
     return 0
 
 
-def rmdirs(a):
-    """Add rows for the top-most folders that hold nothing but the files the approved move rows take away."""
-    root = os.path.realpath(a.root)
-    rows = read_plan(a.plan)
-    moving = {r["from"] for r in rows if r["action"] == "move" and r["approved"] == "approved"}
+def emptied_folders(root, moving):
+    """The folders, relative to `root` and sorted, that hold nothing but `.DS_Store` and the paths in `moving` (the
+    sources of the move rows), so that they are empty once those moves are done. `rmdirs` and `reorg` both propose from
+    it."""
     cands = set()
     for p in moving:
         d = os.path.dirname(p)
@@ -544,8 +835,21 @@ def rmdirs(a):
                     return False
         return True
 
-    empty = sorted(d for d in cands if empties(d))
-    top = [d for d in empty if not any(d != e and d.startswith(e + "/") for e in empty)]
+    return sorted(d for d in cands if empties(d))
+
+
+def top_most(folders):
+    """The folders of `folders` that no other of them lies under: one `rmdir` row takes the emptied folders below it
+    to the Bin with it."""
+    return [d for d in folders if not any(d != e and d.startswith(e + "/") for e in folders)]
+
+
+def rmdirs(a):
+    """Add rows for the top-most folders that hold nothing but the files the approved move rows take away."""
+    root = os.path.realpath(a.root)
+    rows = read_plan(a.plan)
+    moving = {r["from"] for r in rows if r["action"] == "move" and r["approved"] == "approved"}
+    top = top_most(emptied_folders(root, moving))
     have = {r["from"] for r in rows if r["action"] == "rmdir"}
     t = common.now_local()
     for d in top:
@@ -617,6 +921,9 @@ def main():
         p.add_argument("--paths-file", required=True)
         p.add_argument("--out", required=True)
         p.add_argument("--reason")
+    p = with_root(sub.add_parser("reorg"))
+    p.add_argument("--mapping", required=True, help="the approved mapping: {\"scope\": [...], \"moves\": [...]}")
+    p.add_argument("--out", required=True)
     p = sub.add_parser("approve")
     p.add_argument("--plan", required=True)
     p.add_argument("--rows", required=True, help="e.g. 1-5,7 or all")
@@ -649,8 +956,8 @@ def main():
         work = common.work_dir_for(root, a.work)
         common.verify_twins(root, settings_dir)
         common.purge_at_start(root, settings_dir, work, a, True)
-    return {"light": light, "migrate": migrate, "return": return_, "approve": approve, "rmdirs": rmdirs,
-            "check": check, "execute": execute, "prove": prove}[a.cmd](a)
+    return {"light": light, "migrate": migrate, "return": return_, "reorg": reorg, "approve": approve,
+            "rmdirs": rmdirs, "check": check, "execute": execute, "prove": prove}[a.cmd](a)
 
 
 if __name__ == "__main__":
