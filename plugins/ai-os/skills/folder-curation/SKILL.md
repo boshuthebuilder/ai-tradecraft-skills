@@ -221,7 +221,9 @@ Show the audit, then ask, in this order, and record every answer in the rulebook
    folder's structure being re-organised at all, and which folders must stay where they are. The scope comes from an
    assessment of the structure ([`pre-onboarding` step 7](../pre-onboarding/SKILL.md#7-assess-the-structure)): it names
    the folders where a re-organisation is worth proposing, the owner approves each folder, and the plan never exceeds
-   what they approved. The depth ladder below is what that assessment decides, folder by folder.
+   what they approved. The depth ladder below is what that assessment decides, folder by folder. The answers bind the
+   tools: `plan.py reorg` refuses to run on a rulebook that records depth light, and takes the folders that must stay
+   as `keep`, from which it moves nothing.
 3. **How new files arrive** today (a scanner to the root, attachments saved into subfolders,
    batches from a desktop), and whether anyone else writes to the folder. This decides the inbox.
 4. **Which folders are closed matters** (ingested once as history, marked superseded) and which are

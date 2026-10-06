@@ -176,10 +176,11 @@ interview settles what this preparation adds to the ladder, each a key of the tw
   check `tesseract --list-langs` ([step 4](#4-extract-the-text)); `settings.py check` reports a code no reader has.
 - **Whether to re-organise.** Not a depth to pick before anyone has looked: ask whether the owner is open to the
   folder's structure being re-organised at all, and which folders must stay where they are. Record both in the
-  rulebook: `depth` is `light` if they are not open (step 7 is then skipped), `medium` if they are open to it folder
-  by folder, which is the usual answer, and `full` only if they ask for a new shape for most of the folder. Step 7 then
-  looks at the folder and proposes a re-organisation only for the folders they approve, never for one they said must
-  stay.
+  rulebook: `depth` is `light` if they are not open (step 7 is then skipped, and `plan.py reorg` refuses to run),
+  `medium` if they are open to it folder by folder, which is the usual answer, and `full` only if they ask for a new
+  shape for most of the folder; the folders that must stay are written in the rulebook's text (no key of the twin holds
+  them). Step 7 then looks at the folder and proposes a re-organisation only for the folders they approve, and carries
+  the folders that must stay into the mapping, where `plan.py reorg` refuses to move anything out of them.
 - **Packs.** The folders that keep deliberate copies of documents held elsewhere: `packs`, and the words that mark
   them in `pack_keywords`. The default keywords are a personal set, so a company's own packs, such as a year-end
   accounts pack or a payroll year, are unprotected until listed ([examples](references/settings.md#rulebookjson)).
@@ -466,8 +467,9 @@ re-organisation has a cost: the owner relearns where things are, and whatever ou
 moves files only in the folders the owner approves, from evidence. **"No re-org" is a normal outcome**: record it and
 go on to step 8. The step runs before the wiki is drafted because a page cites documents by path: after a wiki exists,
 a re-organisation leaves its `sources:` and backticked paths dead, which no tool repairs yet (`wiki.py drift` names
-them), so do not run it then. If the owner said at the interview that they are not open to a re-organisation, skip it
-and say so in the hand-off. The roles here are subagents of the session, under the same controls as the wiki's
+them), so do not run it then. If the owner said at the interview that they are not open to a re-organisation (`depth`
+`light`), skip it and say so in the hand-off: `plan.py reorg` refuses to run on a `light` rulebook. The roles here are
+subagents of the session, under the same controls as the wiki's
 ([step 8](#8-build-the-wiki): what reaches a subagent, the working directory the session starts from).
 
 1. **Measure.** `structure.py measure --root "<folder>" --terms <terms file> --out <work>/structure/input.md` reads the
@@ -479,7 +481,8 @@ and say so in the hand-off. The roles here are subagents of the session, under t
    subtree of 3 or more contents, a generic-name share of 0.3, a flat dump, a run of 2 or more single-child folders, a
    stray at the root. **A flag draws attention and never decides a verdict**, and duplicates and strays alone are
    the light round's.
-   Documents the tools may not read (staged for another project, excluded) are counted, never listed, and every string
+   Documents the tools may not read (staged for another project, excluded) are counted a path at a time, copies
+   included, never listed, and every string
    written is shielded like the wiki's ([the shield](#5-open-the-gate-to-the-engines)); a folder whose name carries a
    term reads `[withheld name]` and cannot be named in the record or the mapping, so ask the owner to rename it or
    exclude it, then measure again. It needs `--terms` or `--no-isolation-terms`, as the wiki commands do, and the
@@ -491,29 +494,37 @@ and say so in the hand-off. The roles here are subagents of the session, under t
    as it came to `<folder>/_Audit/structure-assessment.md` and run `structure.py check --root "<folder>"`, which reports
    every problem of its shape (the heading and header lines, `Documents that would move: <N> of <M>` with M the live
    documents, one block per assessed folder with a verdict, evidence and what the owner would relearn, a folder that is
-   really there, and a "no re-org" with no block other than leave as it is). A record that fails goes back to the
+   really there, a folder named in either Unicode form, and a record that contradicts itself: "no re-org" with a block
+   that moves anything or with documents to move, or a restructure, a tidy inside, a targeted or a full verdict beside
+   an N of 0). A record that fails goes back to the
    subagent with the problems listed; never edit it by hand to pass. Leaving a folder as it is is a first-class answer.
 3. **The owner decides the scope, folder by folder.** Show the owner the record: the overall verdict, how many
    documents would move (`N of M`), and for each folder its verdict, evidence and what they would relearn. A targeted
    verdict can still move most of the documents, so the count is read beside the label. The owner says yes or no to each
    folder marked tidy inside or restructure; a folder they decline stays, and a folder they said at the interview must
-   stay is declined. Nothing outside what they approve is proposed. If they approve none, or the verdict is no re-org,
-   record that in the hand-off and go on to step 8.
+   stay is declined. The record does not know which folders must stay, so the owner's answers, not the record, bind
+   the tool: step 4 hands them to `plan.py reorg` as `keep`. Nothing outside what they approve is proposed. If they
+   approve none, or the verdict is no re-org, record that in the hand-off and go on to step 8.
 4. **Propose the mapping.** `structure.py documents --root "<folder>" --terms <terms file> --folder "<approved
    folder>" [--folder ...] --out <work>/structure/documents.md` lists every document under the approved folders with its
    card's fields, shielded. Fill [`structure-mapping-brief.md`](tools/templates/structure-mapping-brief.md), save it as
    `<work>/briefs/structure-mapping.md`, scan the briefs and files again, and brief the subagent again. Its reply is a
-   mapping, `{"scope": [...], "moves": [{"from": <document or folder>, "to": <folder>}, ...]}`: save it as
-   `<work>/structure/mapping.json` after **replacing its `scope` with exactly the folders the owner approved**, since
-   the model's own list must never be the limit. The owner's existing folders are the destinations, never a blank target
-   tree, and a `from` that is a folder moves everything under it into `to`.
+   mapping, `{"scope": [...], "keep": [...], "moves": [{"from": <document or folder>, "to": <folder>}, ...]}`: save it
+   as `<work>/structure/mapping.json` after **replacing its `scope` with exactly the folders the owner approved and its
+   `keep` with exactly the folders the owner said must stay where they are** (`[]` when none), since the model's own
+   lists must never be the limit. The owner's existing folders are the destinations, never a blank target tree, and a
+   `from` that is a folder moves everything under it into `to`.
 5. **Plan.** `plan.py reorg --root "<folder>" --mapping <work>/structure/mapping.json --out "<plan folder>"` writes
    the `create`, `move` and `rmdir` rows ([`reorg`](references/tools.md#reorg)), each document with its manifest hash as
-   evidence. It refuses, naming each row, a `from` outside the scope, a destination file that exists, a source that
-   changed since the audit, a document whose content is already in the destination folder (a duplicate: drop it in a
-   light round), anything inside a pack, a folder the rulebook's `active` or `finished` lists or the Schema routes
-   (update the rulebook first, as the message says), and the system's own names, the wiki folder and the migrations
-   folder. Fix the mapping and run it again. Then the round of [step 3](#3-curation-rounds-each-approved-by-the-owner),
+   evidence. It refuses to run at all on a `light` rulebook, and otherwise refuses, naming each row, a `from` outside
+   the scope or under a `keep` folder, a destination file that exists, a source that changed since the audit, a document
+   whose content is already in the destination folder (a duplicate: drop it in a light round), anything inside a pack,
+   a folder the rulebook's `active` or `finished` lists or the Schema routes (update the rulebook first, as the message
+   says), and the system's own names, the wiki folder and the migrations folder, whether named as the destination or
+   reached below it by a folder that moves whole. It names each new top-level folder it would create: only a `full`
+   verdict the owner approved allows one, so check the list against the record before approving, and send the mapping
+   back otherwise. Fix the mapping and run it again. Then the round of
+   [step 3](#3-curation-rounds-each-approved-by-the-owner),
    items 3 to 6: the owner approves row by row (the `rmdir` rows too, or declines them as `keep_empty_folders` asks;
    `plan.py rmdirs` is not needed), `check`, `execute`, re-audit and `prove` against the manifest kept from before.
 6. **Bring the records up to date.** `extract.py repath --root "<folder>"`, then again with `--apply`: each extract
@@ -824,11 +835,11 @@ How `readiness.py` reports each is in [the tool reference](references/tools.md#r
 
 | Tool | Step | What it does |
 | --- | --- | --- |
-| [`audit.py`](references/tools.md#auditpy) | 1, 3 | the manifest, `AUDIT.md` and `summary.json` |
-| [`settings.py`](references/tools.md#settingspy) | 2, 7 | compiles `wiki-schema.json`; checks both twins and the rulebook's facts |
+| [`audit.py`](references/tools.md#auditpy) | 1, 3, 7 | the manifest, `AUDIT.md` and `summary.json` |
+| [`settings.py`](references/tools.md#settingspy) | 2, 8 | compiles `wiki-schema.json`; checks both twins and the rulebook's facts |
 | [`plan.py`](references/tools.md#planpy) | 3, 7 | curation rounds: `light`, `migrate`, `return`, `reorg`, `approve`, `rmdirs`, `check`, `execute`, `prove` |
 | [`extract.py`](references/tools.md#extractpy) | 4, 3, 7 | full text per page, local tools only (with `iwa.py` and the `page-ocr` helper); `repath` after a later round |
-| [`isolation.py`](references/tools.md#isolationpy) | 5 | the terms scan, the per-model canary and the shield |
+| [`isolation.py`](references/tools.md#isolationpy) | 5, 7, 8 | the terms scan, the per-model canary and the shield |
 | [`vision.py`](references/tools.md#visionpy) | 6 | the model vision lane for pages local OCR could not read; holds back a document that carries a term |
 | [`cards.py`](references/tools.md#cardspy) | 6 | one card per document, shielded; the whole-chunk join; the contamination guard |
 | [`refs.py`](references/tools.md#refspy) | 6 | restores truncated reference numbers from each card's own source |

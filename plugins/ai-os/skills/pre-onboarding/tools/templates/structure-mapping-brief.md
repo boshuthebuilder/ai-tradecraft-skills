@@ -3,8 +3,10 @@ step 7). Filled by the coordinating agent and given to a subagent, the records m
 doubled braces are literal. Save the filled brief as `<work>/briefs/structure-mapping.md`, so that it is scanned.
 `input_file`: the absolute path of the file `structure.py measure --out` wrote. `documents_file`: the absolute path of
 the file `structure.py documents --out` wrote for the folders the owner approved. `scope`: one line for each folder the
-owner approved, with the record's verdict for it and what the record says the owner would relearn. The reply is the
-mapping `plan.py reorg --mapping` reads; the coordinator replaces its `scope` with the owner's own list. -->
+owner approved, with the record's verdict for it and what the record says the owner would relearn. `keep`: one line for
+each folder the owner said must stay where it is, or `none`. `overall`: the record's overall verdict (no re-org,
+targeted or full). The reply is the mapping `plan.py reorg --mapping` reads; the coordinator replaces its `scope` and
+`keep` with the owner's own lists. -->
 # Structure mapping brief
 
 The mapping that follows the structure assessment in [`pre-onboarding`](../../SKILL.md#7-assess-the-structure), before
@@ -24,10 +26,17 @@ The owner approved these folders, and only these. Nothing outside them is moved 
 
 {scope}
 
+These folders must stay where they are. Nothing is moved out of them, whatever the record says:
+
+{keep}
+
 ## Rules
 
 - **The owner's shape stays.** Use the folders the tree already has as destinations. Create a folder only where none is
-  the right home, and then below an existing top-level folder. Never a blank target tree, and no new scheme.
+  the right home, and then below an existing top-level folder. The record's overall verdict is {overall}: a new
+  top-level folder is allowed only when it is full, and the owner approved it, since the owner's existing top-level
+  folders are the shape that stays. `plan.py reorg` names each new top-level folder it would create. Never a blank
+  target tree, and no new scheme.
 - **Cover what is in scope.** Go through every sub-folder of each approved folder, and give a row to each document or
   folder that belongs somewhere else. What stays needs no row.
 - **A document, or a folder as a whole.** A `from` that is a document moves that document into the folder `to`, keeping
@@ -45,5 +54,6 @@ JSON only, exactly this shape:
 
 ```json
 {{"scope": [<the folders listed under Scope, copied exactly>],
+ "keep": [<the folders that must stay, copied exactly; empty when there are none>],
  "moves": [{{"from": "<a document or a folder>", "to": "<a folder that exists or is to be created>"}}]}}
 ```

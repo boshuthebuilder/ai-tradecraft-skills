@@ -16,7 +16,8 @@ How each field is made:
   `Outbox`, `Wiki` and the leading `_` rule are fixed: keep them.
 - `how_files_arrive`: the owner's answer on how new files reach the folder, in a few words.
 - `packs`, `active`, `finished`, `working_formats`, `exclusions`, `stays`: one bullet per entry, each path in
-  backticks, or the word none. `stays` is the folders the owner said at the interview must stay where they are.
+  backticks, or the word none. `stays` is the folders the owner said at the interview must stay where they are, which
+  step 7 of the skill hands to `plan.py reorg` as the mapping's `keep`; no key of the twin holds them.
 - `ai_outputs`: where AI outputs already sit, or none.
 - `people`: one bullet per person or organisation, with every other name it appears under. -->
 # {folder_name}: rulebook

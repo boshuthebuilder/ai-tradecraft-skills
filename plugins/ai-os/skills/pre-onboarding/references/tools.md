@@ -251,11 +251,18 @@ same way. A proposal nobody has decided is replaced, so a round can be proposed 
     plan.py reorg --root <folder> --mapping <mapping.json> --out <plan folder> [--manifest <file>]
 
 Turns the mapping the owner approved ([pre-onboarding step 7](../SKILL.md#7-assess-the-structure)) into a plan, all
-rows `proposed` and at depth `medium`. The mapping is exactly
+rows `proposed` and at depth `medium`. It refuses to run at all (exit 2, before it reads the mapping) when the rulebook
+records `depth` `light`, or none, which is `light`: the owner is not open to a re-organisation, and must agree a change
+first (record `medium` or `full` in `CLAUDE.md` and `.familyai/rulebook.json`, re-pin `rulebook_sha256`). The mapping is
+exactly
 
-    {"scope": ["<folder>", ...], "moves": [{"from": "<a document or a folder>", "to": "<a folder>"}, ...]}
+    {"scope": ["<folder>", ...], "keep": ["<folder>", ...],
+     "moves": [{"from": "<a document or a folder>", "to": "<a folder>"}, ...]}
 
-`scope` is the folders the owner approved, and a `from` must lie in one. A `from` that is a document is one row. A
+`scope` is the folders the owner approved, and a `from` must lie in one. `keep` is the folders the owner said must stay
+where they are (`[]` when none; the key is required, so that leaving it out is never read as none): no document under
+one is moved, whichever row names it, and a `scope` inside one is refused. Both lists name folders that hold live
+documents. A `from` that is a document is one row. A
 `from` that is a folder moves its whole content: each live document under it goes to the same place under `to`, keeping
 its sub-folders, and the folder is then empty; a file the owner excluded stays where it is, counted. `to` is a folder
 that exists or is created (never the folder's root), and its existing parts must be spelled as the folder spells them. A
@@ -267,7 +274,9 @@ copy kind, one row for each path that holds a content, a copy included), and an 
 the moves empty inside the scope, with a `needs_a_look` saying it is empty only if every move out of it is approved and
 that the owner may decline it (`keep_empty_folders`), as `rmdirs` proposes. A folder that a pack, the rulebook's
 `active` or `finished`, or the compiled Schema's Routing table names gets no `rmdir` row, and neither does one outside
-the scope; the output says which. `execute`, `check`, the re-audit and `prove` run the rows as they run any others, and
+the scope, nor one that any row moves a document into (or that lies above such a destination): it would not be empty
+when the row runs; the output says which. It also names each new top-level folder the plan creates, so that the owner
+can weigh it against the verdict (only a `full` one approved by the owner allows it). `execute`, `check`, the re-audit and `prove` run the rows as they run any others, and
 a plan folder the owner has begun to decide is not replaced ([the same refusal as `light`](#light)).
 
 It refuses (exit 2, `refused, nothing written: <n> problem(s):`, one line for each, a mapping row named by its index,
@@ -275,10 +284,16 @@ It refuses (exit 2, `refused, nothing written: <n> problem(s):`, one line for ea
 
 - a mapping that is not that shape, a path that is empty, absolute or holds an empty, `.` or `..` part or a control
   character, and a `scope` entry that is no folder holding live documents;
-- a `from` that is neither a live document nor a folder holding one, or lies outside every `scope` folder;
+- a `from` that is neither a live document nor a folder holding one, or lies outside every `scope` folder, or has a
+  document under a `keep` folder (counted, with the first kept folder named);
 - a `from` or a `scope` that is withheld, staged for another project or excluded (named by its row, never its path: no
   tool opens, hashes or moves it), and a `to` that is excluded or under the migrations folder;
 - anything inside a pack, a document filed into a pack, and a document whose manifest copy kind is `pack`;
+- a document whose FINAL path, the destination and what lies under it for a folder that moves whole, is inside a pack,
+  under an excluded path or in the migrations folder (a name the system reserves starts every final path, so the
+  destination check already refuses it): one refusal for each row and kind,
+  counting the documents, never naming an excluded path, and found before the destination-exists check, so that a
+  withheld file already there is not named as one that exists;
 - a folder that moves whole while it is, or holds, a folder the rulebook's `active` or `finished` lists or the compiled
   Schema routes (without a compiled Schema, which the wiki's step creates, the routing names none); the message says
   which file to edit first: the rulebook (`CLAUDE.md`, its `AGENTS.md` copy and `.familyai/rulebook.json`, then re-pin
@@ -535,7 +550,9 @@ Reads the manifest and the cards (a missing cards folder is refused; a card-less
 `without_card`), never a document. A *document* is a live path (a copy is a document of its own); a *content* is one
 manifest entry. A departed document and one the tools may not read (staged for another project, or excluded:
 [`common.withheld`](#held-for-another-project-and-excluded)) are left out of every figure and only counted
-(`departed`, `held_for_another_project`, `excluded`), never named. A folder with no live document below it is not in
+(`departed`, `held_for_another_project`, `excluded`), never named, a path at a time as the documents are: two copies of
+a live document under the migrations folder count 2 held, and a content excluded under two paths counts 2, so that
+`documents` and those three add up to every path the manifest holds. A folder with no live document below it is not in
 the manifest, so it is not measured. Shares over contents are over distinct contents, so a copy never inflates a
 subject.
 
@@ -546,7 +563,7 @@ at thresholds fixed in the tool (`PARAMS`, written into the output) before any j
 | --- | --- |
 | `wide` | at least 15 documents directly in the folder; `flat_dump` adds that it has no sub-folder |
 | `mixed` | at least 5 carded contents directly in it, the commonest category at most 0.6 of them |
-| `duplicate_subtree` | at least 3 contents, every one also in one other folder that is not nested with it (any depth) |
+| `duplicate_subtree` | at least 3 contents, every one also in one other folder that is not nested with it (any depth); counted where the copied set starts, so a folder that only wraps it (no document of its own, one sub-folder) is neither counted again nor named as the other folder |
 | `generic_names` | at least 5 canonical documents below it, at least 0.3 of them named like a device or scanner default (the audit's `generic_name`) |
 | `generic_folder_name` | named like New folder, Stuff, Misc, Other or Downloads |
 | `single_child_chain` | starts a run of at least 2 folders that each hold one folder and no document |
@@ -582,7 +599,10 @@ not a sample. A `--folder` that is no folder holding live documents is refused.
 Checks the record, `<folder>/_Audit/structure-assessment.md` unless `--record` names another, against the manifest, and
 prints `overall`, `documents` (the live documents, as `measure` counts them), `would_move`, `blocks`, `verdicts` (the
 counts), `problems`, `ok` and `top_level_folders_without_block` (a count: a folder with no block is left as it is).
-Exit 0 when it has no problem, 1 when it has any (all of them are listed), 2 when the record is missing or not UTF-8.
+A heading is compared to the manifest's folders in Unicode NFC, and a folder stored decomposed is found by its composed
+name (the one rule `plan.py reorg` and `documents --folder` use, `common.as_spelled`); a case that differs is another
+name. Exit 0 when it has no problem, 1 when it has any (all of them are listed), 2 when the record is missing or not
+UTF-8.
 The record is:
 
     # Structure assessment
@@ -600,9 +620,10 @@ and the problems it finds are: a title, header line or block line out of place, 
 text; an `Overall` or a `Verdict` that is not one of the values above; N or M that is not a whole number, M that is not
 the live document count (audit and measure again if the manifest changed), N over M; a block whose heading is no folder
 holding live documents, a folder given twice, a heading the shield hid (`[withheld name]`: rename or exclude the folder,
-then measure again) and no block at all; and three contradictions: `no re-org` with a block that is tidy inside or
-restructure, `no re-org` with N above 0, and `targeted` or `full` with every block leave as it is. It prints counts and
-never a folder of the manifest.
+then measure again) and no block at all; and the contradictions: `no re-org` with a block that is tidy inside or
+restructure, `no re-org` with N above 0, `targeted` or `full` with every block leave as it is, and N of 0 beside a
+`targeted` or `full` verdict or a block that is tidy inside or restructure (a document renamed or sent to another
+folder counts as moved). It prints counts and never a folder of the manifest.
 
 ## `vision.py`
 

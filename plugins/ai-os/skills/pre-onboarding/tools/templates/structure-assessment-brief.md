@@ -44,9 +44,10 @@ Then one overall verdict for the whole folder:
 - **full**: most of the top-level structure needs a new shape.
 
 Say how much would move: `Documents that would move: <N> of <M>`, M the number of documents the file gives for the
-whole folder, and N the documents that the folders you marked tidy inside or restructure would send somewhere else. A
-copy the light tidy would drop, and a stray it would place, are not counted. A targeted verdict can still move most of
-the documents, and this line is how the owner sees it.
+whole folder, and N the documents that the folders you marked tidy inside or restructure would rename or send
+somewhere else. A copy the light tidy would drop, and a stray it would place, are not counted. A targeted verdict can
+still move most of the documents, and this line is how the owner sees it. N is never 0 beside a tidy inside, a
+restructure, a targeted or a full verdict, and is 0 for no re-org.
 
 ## Reply
 

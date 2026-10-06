@@ -21,22 +21,30 @@ versioned interface ([`AGENTS.md`](AGENTS.md)), and no skill name, archetype lay
   them, a duplicate subtree of 3 or more contents, a generic-name share of 0.3, a single-child chain of 2 or more
   folders, a generic folder name and a stray at the root. A flag draws attention and never decides a verdict. It writes
   the measures and the judge's input (the tree, the measures, a deterministic card sample), shielded like the wiki's
-  files; documents the tools may not read are counted, never listed. `documents` lists every document under the approved
-  folders with its card's fields for the mapping's author. `check` validates the assessment record,
+  files; documents the tools may not read are counted, never listed, a path at a time (two copies held for another
+  project are 2). A duplicate subtree is counted once, where the copied set starts, not again at each folder that wraps
+  it. `documents` lists every document under the approved folders with its card's fields for the mapping's author.
+  Folder names are compared in Unicode NFC, as `plan.py reorg` compares them (one rule, `common.as_spelled`), so a
+  folder stored decomposed is found by its composed name. `check` validates the assessment record,
   `_Audit/structure-assessment.md`: the header (`Overall`: no re-org, targeted or full; `Reason`; `Documents that would
   move: N of M`), one block per folder with a verdict (leave as it is, tidy inside or restructure), its evidence and
   what the owner would relearn, each folder present, and the contradictions (`no re-org` with a block that moves, or
-  with documents to move, and `targeted` or `full` with nothing to do).
-- **`plan.py reorg`** turns a mapping the owner approved, `{"scope": [...], "moves": [{"from": <document or folder>,
-  "to": <folder>}]}`, into `create`, per-document `move` (evidence the manifest's hash) and `rmdir` rows in the existing
-  plan format; a folder `from` moves its whole content. It refuses, naming each row and writing nothing: a `from`
-  outside the scope, a destination that exists, a source that changed since the audit, a document whose content already
-  lives in the destination folder (a duplicate, left to the light round), anything inside a pack, a folder the rulebook's
-  `active` or `finished` lists or the Schema routes while it moves whole (the message says which file to edit), and the
-  system's own names, the wiki folder and the migrations folder. Execution, `check`, re-audit, `prove` and the undo log
-  are the existing ones.
-- **Two briefs**: `structure-assessment-brief.md` for the records manager (leaving a folder as it is is the default and a
-  first-class answer) and `structure-mapping-brief.md` for the mapping of the approved folders.
+  with documents to move; `targeted` or `full` with nothing to do; N of 0 beside a `targeted` or `full` verdict or a
+  block that is tidy inside or restructure).
+- **`plan.py reorg`** turns a mapping the owner approved, `{"scope": [...], "keep": [...], "moves": [{"from": <document
+  or folder>, "to": <folder>}]}`, into `create`, per-document `move` (evidence the manifest's hash) and `rmdir` rows in
+  the existing plan format; a folder `from` moves its whole content. `keep` is the folders the owner said must stay
+  where they are. It refuses to run when the rulebook records `depth` `light` (the owner is not open to a
+  re-organisation). It refuses, naming each row and writing nothing: a `from` outside the scope or under a `keep`
+  folder, a destination that exists, a source that changed since the audit, a document whose content already lives in
+  the destination folder (a duplicate, left to the light round), anything inside a pack, a folder the rulebook's
+  `active` or `finished` lists or the Schema routes while it moves whole (the message says which file to edit), the
+  system's own names, the wiki folder and the migrations folder, and a document whose FINAL path, below the destination
+  for a folder that moves whole, lies in a pack or under an excluded path or the migrations folder. It proposes no `rmdir`
+  for a folder a move files a document into, and names each new top-level folder it would create. Execution, `check`,
+  re-audit, `prove` and the undo log are the existing ones.
+- **Two briefs**: `structure-assessment-brief.md` for the records manager (leaving a folder as it is is the default
+  and a first-class answer) and `structure-mapping-brief.md` for the mapping of the approved folders.
 - **`pre-onboarding` step 7, Assess the structure**: measure, judge (a subagent on the brief, its record checked), the
   owner decides the scope folder by folder, then `plan.py reorg`, the existing round, `extract.py repath`, and only then
   the wiki. "No re-org" is a normal outcome: record it and go on.
@@ -48,9 +56,12 @@ versioned interface ([`AGENTS.md`](AGENTS.md)), and no skill name, archetype lay
   `card_meta.path` is left and counted.
 - **The interview no longer asks the owner to pick a depth up front** (`pre-onboarding` step 2 and `folder-curation`
   interview item 2): it asks whether they are open to re-organising at all and what must stay where it is. The scope
-  comes from the assessment. `folder-curation`'s depth ladder keeps light as the default tidy, and medium and full become
-  what the assessment decides, per folder; the wiki is still the clean taxonomy and a taxonomy is still never invented
-  (the mapping covers the folders in scope). The rulebook skeleton gains a `stays` field.
+  comes from the assessment, and the answers bind the tools without a new key in `.familyai/rulebook.json`: `depth`
+  `light` makes `plan.py reorg` refuse, and the folders that must stay go into the mapping's `keep`.
+  `folder-curation`'s depth ladder keeps light as the default tidy, and medium and full become what the assessment
+  decides, per folder; the wiki is still the clean taxonomy and a taxonomy is still never invented (the mapping covers
+  the folders in scope). The rulebook skeleton gains a `stays` field, which is text in `CLAUDE.md`
+  only: the twin's format and defaults are unchanged.
 - **The steps after the cards are renumbered**: Build the wiki is step 8, Check readiness step 9 and Hand off step 10,
   with every link and mention in the repository updated. A deployment that links the old anchors
   (`#7-build-the-wiki`, `#8-check-readiness`, `#9-hand-off`) should follow them.
@@ -58,7 +69,8 @@ versioned interface ([`AGENTS.md`](AGENTS.md)), and no skill name, archetype lay
 ### Migrating a deployment
 
 Nothing is required to advance the pin. A deployment that runs the preparation tools gains step 7 between the cards and
-the wiki; a folder prepared before this release needs no change.
+the wiki; a folder prepared before this release needs no change. `rulebook.json` has no new key, so a deployment that
+refuses a key it does not know reads every prepared folder as before.
 
 ### Placeholders
 
