@@ -11,9 +11,12 @@ text, show the term is genuine content of that document. Lines starting with `#`
 The scan reads every file named, and every model-facing file (prompts, templates, schemas, code, config such as
 `config.toml` or `jobs.yaml`) under a folder named, following links into folders (skills are often installed as
 links) with each real folder read once, so a link loop ends; a broken link is an error, never a skip. A path that
-does not exist is an error and a scan that checked no file fails. Paths are expanded here (`~` and environment variables), so a quoted `~` works. An --if-present file
-(an engine's global instructions) is read when the machine has it and listed in `absent`, and on stderr, when it
-does not; but a path still holding `~` or `$` after expansion, or one whose folder does not exist, is an error:
+does not exist is an error and a scan that checked no file fails. Every --path and --if-present is expanded here (`~`
+and environment variables), so a quoted `~` works, and is an error when an expansion is left undone: a leading `~` or
+`~user` for a user this machine lacks, or a `$NAME` that is not set. A `~` inside a name is part of the name and is
+accepted (every iCloud Drive path has one, in `com~apple~CloudDocs`). An --if-present file (an engine's global
+instructions, or a file in a folder kept anywhere) is read when the machine has it and listed in `absent`, and on
+stderr, when it does not; but a path whose expansion was left undone, or one whose folder does not exist, is an error:
 that is a typo, not an optional file, and a typo must never read as a clean scan. A file with terms is reported as
 `<n>:<path>`, where n is the index of the path argument it came from (--path first, then --if-present) and the path
 is relative to that argument (a named file: its own name), with every term and marker in it replaced by `<term>`;
@@ -160,20 +163,29 @@ def masked(text, evidence):
     return text
 
 
-def expand(path):
-    return os.path.expanduser(os.path.expandvars(path))
+UNSET_VARIABLE = re.compile(r"\$(\w+|\{[^}]*\})", re.ASCII)  # what `os.path.expandvars` reads as a variable
+
+
+def expand(path, option, evidence):
+    """`path` with `~` and environment variables expanded. An expansion left undone is a typo and an error, named for
+    its `option`: a path that still begins with `~` (a `~user` this machine lacks) or still holds a `$NAME` (a variable
+    that is not set). A `~` or `$` inside a name is part of the name and is kept: `com~apple~CloudDocs` is the folder
+    every iCloud Drive path runs through."""
+    p = os.path.expanduser(os.path.expandvars(path))
+    if p.startswith("~") or UNSET_VARIABLE.search(p):
+        raise common.ToolError("%s %s still begins with ~ or holds an unexpanded $NAME after expansion: give a path "
+                               "this machine can resolve" % (option, masked(p, evidence)))
+    return p
 
 
 def present_paths(given, evidence):
     """(the --if-present paths this machine has, the ones it lacks), each expanded. Only a file missing from a folder
-    that exists counts as lacking; a path still holding `~` or `$` (a quoted tilde, an unset variable), or one whose
-    folder is missing, is a typo and an error, so that a mistake cannot read as a clean scan."""
+    that exists counts as lacking; a path whose expansion was left undone (a quoted tilde of a user this machine lacks,
+    an unset variable), or one whose folder is missing, is a typo and an error, so that a mistake cannot read as a clean
+    scan."""
     have, lack = [], []
     for raw in given or []:
-        p = expand(raw)
-        if "~" in p or "$" in p:
-            raise common.ToolError("--if-present %s still holds ~ or $ after expansion: give a path this machine can "
-                                   "resolve" % masked(p, evidence))
+        p = expand(raw, "--if-present", evidence)
         if os.path.islink(p) and not os.path.exists(p):
             raise common.ToolError("--if-present %s is a broken link, not an absent file" % masked(p, evidence))
         if os.path.exists(p):
@@ -215,12 +227,13 @@ def walk_files(top, evidence):
 def scan(a):
     evidence = load_terms(a.terms)
     found, checked = {}, 0
+    given = [expand(p, "--path", evidence) for p in a.path]
     present, lacking = present_paths(a.if_present, evidence)
     absent = [masked(p, evidence) for p in lacking]
     for p in absent:
         print("absent, and not an error: %s (this machine has no such file, so nothing was read there)" % p,
               file=sys.stderr)
-    for n, p in enumerate([expand(p) for p in a.path] + present):
+    for n, p in enumerate(given + present):
         if os.path.isfile(p):
             base, files = os.path.dirname(p), [p]
         elif os.path.isdir(p):
@@ -300,7 +313,7 @@ def main():
     p.add_argument("--path", action="append", required=True)
     p.add_argument("--if-present", action="append", help="a model-facing file read when this machine has it (an "
                    "engine's global instructions); one missing from a folder that exists is listed as absent, one "
-                   "whose folder is missing or that still holds ~ or $ is an error")
+                   "whose folder is missing or whose ~ or $NAME was left unexpanded is an error")
     p.add_argument("--out", help="also write the result here, as the gate's liveness artefact")
     p = sub.add_parser("canary", allow_abbrev=False)
     p.add_argument("--terms", required=True)

@@ -544,6 +544,15 @@ class EveryToolIsWiredTest(unittest.TestCase):
         self.assertIn("purge_at_start(root, settings_dir, work, args, verify, extract, cards, manifest)",
                       self.source("common.py"))
 
+    def test_plan_py_and_the_common_loader_resolve_the_work_directory_in_one_place(self):
+        """What `plan.py` purges is the work directory `common.work_dir_for` gives it, the function `common.resolve`
+        uses for every other tool: not `common.default_work`, which would clear a folder it was not given."""
+        plan, common_src = self.source("plan.py"), self.source("common.py")
+        self.assertIn("work = common.work_dir_for(root, a.work)", plan)
+        self.assertIn("common.purge_at_start(root, settings_dir, work, a, True)", plan)
+        self.assertNotIn("default_work", plan)
+        self.assertIn("work = work_dir_for(root, args.work)", common_src)
+
     def test_the_workers_purge_again_before_each_batch(self):
         self.assertIn("common.purge_withheld(", self.source("vision.py"))
         cards = self.source("cards.py")
