@@ -34,6 +34,12 @@ Stated once here; each tool's section below lists only its own.
 `plan.py`'s subcommands with `--root`, `extract.py`, `vision.py`, `cards.py`, `wiki.py` and `readiness.py` also take
 `--manifest <file>` (default `<root>/_Audit/manifest.json`).
 
+**The isolation flags.** `cards.py work`, `vision.py` and `wiki.py`'s `profile`, `bundles`, `brief` and `review-prompts`
+each need `--terms <file>` (the operator's terms file) or `--no-isolation-terms` (the stated decision that nothing is to
+be kept out), and refuse neither, or both, before they read anything (exit 2, `give --terms (the isolation list) or
+--no-isolation-terms`). With a terms file they send and write nothing that carries a term: see [the
+shield](cards.md#the-shield).
+
 **The stale-twin gate.** Every tool that takes `--root` refuses a stale, unpinned or malformed settings twin before
 it reads or writes anything, except `settings.py` (`compile` is the remedy, `check` the diagnosis) and
 `readiness.py`, which report it ([stale twins](settings.md#stale-twins)).
@@ -96,10 +102,13 @@ compare byte for byte; nothing else should set it.
 
 ## Before the first run
 
-- **The OCR helper.** Build it once in the tools folder: `swiftc -O page_ocr.swift -o page-ocr` (macOS 13 or later),
-  or give its path with `extract.py --ocr-bin`, which must be an executable file: any other path (missing, a folder,
-  not executable) is refused at the start (exit 2, naming it) and nothing is read, since a helper that is not there
-  would otherwise read every scan as a photo.
+- **The OCR helper.** Build it once, into the work directory and not the tools folder (a plugin update may replace
+  the tools folder, and a helper built there with it): `swiftc -O "<tools>/page_ocr.swift" -o "<work>/page-ocr"` (macOS
+  13 or later). The build is quick, a few seconds; the first page it reads is slower, about a minute while Vision
+  prepares its model, which is not a hang. Give its path to every `extract.py` run with `--ocr-bin "<work>/page-ocr"`; it
+  must be an executable file: any other path (missing, a folder, not executable) is refused at the start (exit 2, naming
+  it) and nothing is read, since a helper that is not there would otherwise read every scan as a photo. A binary already
+  in the tools folder may come from another machine: build your own.
 - **Local readers** `extract.py` finds on the `PATH` or in the usual install folders: `pdftotext`, `pdfinfo` and
   `pdftoppm` (poppler; needed for PDFs), `tesseract` (the second OCR tier), `textutil` and `sips` (macOS; `.doc`,
   `.rtf`, `.odt` and `.html`, and resizing queued page images), `soffice` (LibreOffice; legacy `.ppt` and `.xls`).
@@ -124,6 +133,12 @@ document started at be judged once the document was moved by a round and then st
   the wiki folder, the rulebook's `reserved` names, and every `_`-prefixed folder except the migrations folder.
   Dot files and folders are counted as hidden, `.icloud` files as cloud placeholders and symbolic links as links;
   none is followed. An iWork package is one item, hashed by the manifest's package hash rule.
+- **Nothing at the top is skipped silently.** Each top-level name the walk skips that is not the tool's own or the
+  deployment's expected machinery (`_Audit`, `.familyai`, the rulebook files and the wiki folder) is recorded with the
+  number of files under it: `summary.json` `not_audited` (`{name: count}`), the `Not audited` section of `AUDIT.md`
+  with the reason (a reserved name, or a leading `_`, which marks a system folder the deployment also never reads) and
+  a log line. A folder holding `Outbox/`, `Wiki/` (when its wiki folder is named otherwise), `_Old invoices/` and
+  `Invoices/` reports the first three. A skipped name the owner also excluded is left out: `exclude` already says so.
 - **What it hashes.** Every item in full, except an image over the rulebook's `image_cap_mb`, which is counted with
   a synthetic id. Hashes are cached in `--cache` (default `<work>/hashcache.json`) by path, size and modification
   time.
@@ -149,6 +164,13 @@ document started at be judged once the document was moved by a round and then st
   reports it as a finding). A typo would otherwise exclude nothing, and the owner's exclusion would reach the engines
   without a word; and an excluded path that is deleted must come out of `exclude`. Dropping an exclusion hashes the file
   at the next audit, and the entry made while it was excluded becomes history.
+- **Audited before an exclusion.** An entry an earlier audit made for a document that now lies under an excluded path
+  would keep the file's name and its real content hash, so the audit drops it (the entry, and a copy's path in it)
+  rather than carrying it as `departed`, and the log counts them. `summary.json` `excluded` counts the excluded items,
+  apart from `count_only`, which is the images over the cap; `AUDIT.md` has a row for each, and lists no excluded
+  item's path in any section (generic names, hygiene, root strays, near matches for an unconverted iWork file,
+  migrations); its top-level table counts them. An excluded item takes no part in the iWork pairing, so it is no
+  candidate for an included file.
 
 ## `plan.py`
 
@@ -204,6 +226,9 @@ The paths file holds one folder-relative path per line; blank lines and lines st
 - **`migrate`** writes a `move` row per listed path to `<migrations folder>/<Project>/<path>`, in domain
   `Migrations`, `kind` the moved path's copy kind (empty when its entry has one path), `needs_a_look` naming the
   copies that stay behind. A listed path ending in `/` stands for every live path under it, copies included.
+  `<Project>` is only the name of the folder the files wait in, so give it a neutral label that holds no name from the
+  isolation terms file: it becomes a path in the manifest (`migration_target`), and `readiness.py` reports an entry whose
+  label carries a term (`paths_naming_terms`).
 - **`return`** writes a `move` row per listed path from `<migrations folder>/<Project>/<path>` back to `<path>`. It
   adds no `rmdir` row: once the return rows are approved, `rmdirs` proposes the folder they empty.
 
@@ -424,7 +449,8 @@ running and restarts it if it stalls; its first run compiles Vision's model, whi
 
 ## `vision.py`
 
-    vision.py --root <folder> --model <vision model> [--worker <k>/<N>] [--out <dir>] [--lanes <markers>]
+    vision.py --root <folder> --model <vision model> (--terms <file> | --no-isolation-terms) [--worker <k>/<N>]
+              [--out <dir>] [--lanes <markers>]
 
 The vision lane: a model reads the page images local OCR could not read cleanly. It drains `<work>/vision_queue/`,
 taking the images of records still `needs_vision` whose id falls to worker k of N, six to a call. Each call copies its
@@ -444,6 +470,15 @@ line counts the documents of each kind by the manifest (`finished; held for anot
 settings and the manifest are read again, and the purge run again, before each batch, so a round that stages or excludes a
 document while the lane runs is seen, and a missing or malformed manifest stops the lane (exit 2) rather than read as
 nothing held.
+
+**Isolation terms.** An image cannot be shielded, so a document that carries a term has none sent. With `--terms`, a
+document whose manifest path, or whose extract record's text on any page (`text` or `local_text`), holds a term or a
+marker has its queued pages taken off the queue and marked `unread`, its local text kept, with a note saying that an
+isolation term held it (its record then reads `partial`), so the lane still ends; the log's last line counts those
+documents (`held for an isolation term: <n>`) and never names one. The residual: a term that is visible only on a page
+local OCR could not read cannot be found before the image is sent, so the lane cannot promise an image holds none. The
+owner's alternative is to exclude such a document (`exclude`), which no tool then reads, sends or queues. With
+`--no-isolation-terms` nothing is held, and the log says so.
 
 It sleeps through quota, stops (exit 3) while `<work>/state/ALERT` exists, and stops (exit 2) on a credential file or
 a setup problem, which is not counted as a failed try. It exits once every done marker named in `--lanes` (default
@@ -510,7 +545,7 @@ are in the file, pinned by its tests, and what is still provisional is marked th
 ## `isolation.py`
 
     isolation.py scan   --terms <file> --path <file or folder> [--path ...] [--if-present <file> ...] [--out <result.json>]
-    isolation.py canary --terms <file> --engine agy|codex [--model <id>] --out <result.json>
+    isolation.py canary --terms <file> --engine agy|codex [--model <id>] [--effort <level>] --out <result.json>
 
 Keeps other projects out of model-facing context. The terms file's format is in
 [the card contract](cards.md#the-terms-file); `agy` needs `--model`.
@@ -546,7 +581,8 @@ Keeps other projects out of model-facing context. The terms file's format is in
   separated by commas, starting with that one, and nothing else. It writes `{engine, checked_at, terms, marker,
   model, effort, reply, usage, hits, answered, pass}` (and `error` when there is one) to `--out`, the reply and any
   error with their terms masked, and prints it without the reply. `model` is the id given (`cli-default` when none)
-  and `effort` is the codex effort the canary ran at (`low`; agy's is part of its model id, so `null`). `answered` is
+  and `effort` is the codex effort the canary ran at (`--effort`, default `low`; agy's is part of its model id, so `null`,
+  and `--effort` with agy is refused: choose the effort with `--model`). `answered` is
   true only when, after surrounding whitespace, the reply is a **single line** that is `NAMES:` and a
   comma-separated list, whose first item is the invented name (any case) and whose every item is name-like: one to
   six words, none of `. ! ? ; :` (or `*` or a backtick) inside it, no word (any case) from the closed set i, me, my,
@@ -560,10 +596,16 @@ Keeps other projects out of model-facing context. The terms file's format is in
   model is shown, and the contamination check on every card, cover that. Exit 0 on a pass.
 
 Neither writes a term out, and each removes its `--out` file before it even parses its command line, so a run that
-stops early or is refused (a missing `--terms` or `--model`, a bad path) leaves no earlier pass behind. The result files are the record that the gate ran: `readiness.py` reads each engine's
-canary from `<work>/state/canary-<engine>.json` ([`isolation.canary`](#readinesspy)), and no tool reads the scan's.
-With nothing to list there is no terms file, so neither can run, and readiness reports each canary as `not run`
-([the skill](../SKILL.md#5-open-the-gate-to-the-engines)).
+stops early or is refused (a missing `--terms` or `--model`, a bad path) leaves no earlier pass behind. The result files are the record that the gate ran. A canary clears one engine at one model and one
+effort, so run one for each model a lane uses and write each to a file of its own, `<work>/state/canary-<engine>-<model>.json`
+(a codex model run at two efforts adds the effort to the name): `readiness.py` reads every `canary-*.json` there
+([`isolation.canary`](#readinesspy)) and, given the terms file, requires a passing one for each engine and exact model the
+cards record; no tool reads the scan's. With nothing to list there is no terms file, so neither can run, and readiness
+reports each canary as `not run` ([the skill](../SKILL.md#5-open-the-gate-to-the-engines)).
+
+`isolation.py` is also the one home of **the shield** (`isolation.shield`, `shield_value`, `shield_digest`, `carries`),
+which the tools that send or write text use ([the card contract](cards.md#the-shield)): each term and marker replaced by
+`[withheld name]`, by the case-insensitive substring match the scan uses, longest first, in one pass.
 
 ## `cards.py`
 
@@ -581,8 +623,8 @@ One card per live document. What a card holds, how it is written and joined, and
 | `--manifest` | the manifest, which says which documents are held for another project (required) | `<root>/_Audit/manifest.json` |
 | `--engine` | `agy` or `codex` | `agy` |
 | `--model` | the engine's model id (with `agy`, the effort is part of the id); `agy` without one is refused | none |
-| `--effort` | `codex` reasoning effort | `medium` |
-| `--light-model` | `codex` model for section notes, run at low effort | the main engine |
+| `--effort` | `codex` reasoning effort; recorded on each card, and the canary must have run at it | `medium` |
+| `--light-model` | `codex` model for section notes, run at low effort; recorded on each card | the main engine |
 | `--terms`, `--no-isolation-terms` | the isolation list, or the logged statement that none is needed; `work` needs one of them | none |
 | `--worker` | take every Nth batch file, from the kth | `0/1` |
 | `--redo` | a file of ids to card again, one per line | none |
@@ -597,14 +639,24 @@ whatever its flags and wherever its extract record says it was read: its record,
 live`, a withheld record not counted as waiting), and `work` reads the settings and the manifest and purges again
 before every batch, then drops it from a batch planned before it was staged or excluded and from a `--redo` file, so it
 is never sent to the engine and no card is written for it; the worker's last log line counts the ones it held
-(`worker finished; held for another project: <n>; excluded: <n>; not live: <n>`). A missing or malformed manifest is
+(`worker finished; held for another project: <n>; excluded: <n>; not live: <n>; shielded: <n>`). A missing or malformed manifest is
 refused (exit 2). Each card records `card_meta.path`, the manifest's path of its document when it was written.
+
+**The shield.** Every path and text a call carries is shielded first ([the card contract](cards.md#the-shield)): the
+items of a group or single call, the section prompt's path and section text, and the opening text and notes of a
+sectioned document. The card records `card_meta.shielded`, how many times a term stood in its document's path and text
+(a count, never the term), when it is above zero, and the log and the closing line count the documents shielded. The
+contamination guard compares each card with that shielded text, so a card that names any term writes the alert.
+`card_meta` also records `via`, `model`, and for `codex` `effort` and, with `--light-model`, `light_model`: what
+`readiness.py` needs to require a canary for each.
 
 `--redo` plans each id as a first run would (its size decides: a long document is read in sections, reusing the
 cached notes), and refuses an id with no extract record. Batches go in `<work>/batches/`, section notes in
 `<work>/sections/`, each file named by the document, the engine, the section and a hash of the section's own text, the budget, the model
-and effort that wrote the notes and the prompt (so a changed budget, model or prompt never reuses old notes; a cached
-file that is empty or lacks its `[section k of n]` header is read again). To force a re-read, delete the document's
+and effort that wrote the notes, the prompt and the sha256 of the terms' forms (so a changed budget, model, prompt or
+terms file never reuses old notes, and a note cached with no shield is never reused under one; a cached
+file that is empty or lacks its `[section k of n]` header is read again, and a cached note is shielded again when it is read;
+its first line, `[path] <path>`, holds the real path, which a purge reads). To force a re-read, delete the document's
 files in `<work>/sections/` (they start with the first 16 characters of its id). `--section-chars` and
 `--section-tokens` under 1,000 are refused; a worker writes `<work>/state/cards<k>.done`
 (or `redo<k>.done`) when it finishes, and stops (exit 3) while `<work>/state/ALERT` exists.
@@ -625,7 +677,9 @@ under any identifier policy but `stated`. `--cards` and `--extract` default to `
     settings.py check   --root <folder> [--out <file>]
 
 `compile` writes `wiki-schema.json` from the Schema page's tables; `check` reports both twins' state and the
-rulebook's facts, exit 1 on any finding. Formats, rules and findings: [the settings reference](settings.md).
+rulebook's facts, exit 1 on any finding, and reads each `ocr_languages` entry against the codes `extract.py` reads (one
+list, `common.TESSERACT_LANGS`), reporting one it does not know in the words `extract.py` would stop with. Formats,
+rules and findings: [the settings reference](settings.md).
 
 ## `wiki.py`
 
@@ -655,9 +709,19 @@ owner's gate record and is kept, where `--read-only-root` allows.
 Malformed input (a manifest, card, extract record or `bundles.json` of the wrong shape, or a file where a folder
 must be) is refused by name, exit 2.
 
+**The isolation flags.** `profile`, `bundles`, `brief` and `review-prompts` write what a model will read, so each needs
+`--terms <file>` or `--no-isolation-terms` ([the flags](#common-flags)). With a terms file, every string they write (a path,
+a card field, extract text, a page's text, a folder or party name) is shielded first, each term and marker replaced by
+`[withheld name]` ([the shield](cards.md#the-shield)), and they say on standard error how many occurrences were replaced,
+never which. The placeholder stands in a path, so a path that carries a term is not one a command can open: a brief or a
+bundle that has to name one is a reason to ask the owner to rename the file or exclude it. Prefer full names in the terms
+file, since a short term also masks inside longer words, which garbles the word and never leaks it. A page's sha256 in a
+review prompt is the one thing left as it was: `accept` compares it with the page on disk.
+
 ### `profile`
 
-    wiki.py profile --root <folder> [--depth 2] [--parties 5] [--cards <dir>] [--extract <dir>] [--out <file>]
+    wiki.py profile --root <folder> (--terms <file> | --no-isolation-terms) [--depth 2] [--parties 5]
+                    [--cards <dir>] [--extract <dir>] [--out <file>]
 
 For the readers interview and the librarian: per top-level folder and subfolder down to `--depth`, its live
 documents (by current path), the copies held there of documents living elsewhere (and the folders those live in),
@@ -676,7 +740,8 @@ mirrors others:
 
 ### `bundles`
 
-    wiki.py bundles --root <folder> [--out <dir>] [--reuse] [--text-cap 12000] [--cards <dir>] [--extract <dir>]
+    wiki.py bundles --root <folder> (--terms <file> | --no-isolation-terms) [--out <dir>] [--reuse] [--text-cap 12000]
+                    [--cards <dir>] [--extract <dir>]
 
 Routes every live manifest entry that is not withheld ([`common.withheld`](#held-for-another-project-and-excluded):
 staged under the migrations folder, or excluded by the rulebook) by the compiled routing (its longest matching prefix; a
@@ -692,8 +757,10 @@ under a withheld path is left out too); it is counted in the summary the command
 
 `bundles.json` records `manifest_sha256`, `routing_sha256` (the routing rows and section kinds), `withheld_sha256` (the
 digest `common.withheld_digest` gives: the exclusions, the migrations folder, which documents are withheld and every
-path, copies included, that they hold), `arguments` (the
-non-default `--settings-dir`, `--manifest`, `--cards`, `--extract` and `--text-cap` it was built with), `text_cap`,
+path, copies included, that they hold), `shield` (`{terms, sha256}`: whether terms were given, and the sha256 of the sorted
+forms, never the forms), `arguments` (the
+non-default `--settings-dir`, `--manifest`, `--cards`, `--extract` and `--text-cap` it was built with, and the `--terms` file's path or
+`--no-isolation-terms`), `text_cap`,
 the counts per section, the files, the withheld counts, and the `unrouted` and `uncarded` paths; either list non-empty
 exits 1. A
 rebuild removes `bundles.json` before anything else, so one that fails part way leaves none to trust, and removes
@@ -703,11 +770,12 @@ section files it no longer writes.
 bundles whose recorded `manifest_sha256` differs from the current manifest's, whose `routing_sha256` differs from
 the current Schema's, whose `withheld_sha256` differs from the withheld set now (the migrations folder or `exclude` in
 `rulebook.json` changed, which the manifest alone does not show: a bundle built before an exclusion would hold the
-excluded document), or whose files are missing, and name the command that rebuilds them with the recorded
-`arguments`. Every tool's start already purges bundles built under another withheld set ([withheld means
+excluded document), whose `shield` differs from the caller's (a different terms file, `--terms` against
+`--no-isolation-terms`, or bundles made before the shield was recorded, which may hold a term this run withholds), or
+whose files are missing, and name the command that rebuilds them with the recorded `arguments`, under the caller's shield. Every tool's start already purges bundles built under another withheld set ([withheld means
 purged](#common-flags)), so the refusal then reads `no bundles in <dir>`. A bundles folder the purge has not been told
 about (built before it, or moved) is judged by the consumer: the withheld digest is checked **before** the manifest's,
-so a re-audit never leaves stale bundles on disk, and when it differs the bundle files are **removed** before the
+so a re-audit never leaves stale bundles on disk, and when it, or the shield, differs the bundle files are **removed** before the
 refusal, since they hold documents that must not be in one (a brief rendered earlier, kept by whoever asked for
 `--out`, still points at them: render it again). `--reuse` also refuses bundles built with other `--cards`, `--extract` or `--text-cap` than the ones
 it is given. Every curation round ends in a re-audit that rewrites the manifest, so bundles built before it are
@@ -715,7 +783,8 @@ refused rather than read.
 
 ### `brief`
 
-    wiki.py brief --root <folder> --page <page> [--page <page> ...] [--bundles <dir>] [--out <file>]
+    wiki.py brief --root <folder> (--terms <file> | --no-isolation-terms) --page <page> [--page <page> ...]
+                  [--bundles <dir>] [--out <file>]
 
 Renders `templates/page-brief.md` for a set of pages, sorted, so the order given does not matter: each page's
 professional, deliverable and tone ([a page's professional](settings.md#a-pages-professional)) and its section's
@@ -875,8 +944,8 @@ by path, so the same blocks give the same bytes however they are grouped. The de
 
 ### `review-prompts`
 
-    wiki.py review-prompts --root <folder> --page <page> [--page <page> ...] --author-model <model>
-                           --reviewer-model <model> [--sample 5] [--cards <dir>] [--out <dir>]
+    wiki.py review-prompts --root <folder> (--terms <file> | --no-isolation-terms) --page <page> [--page <page> ...]
+                           --author-model <model> --reviewer-model <model> [--sample 5] [--cards <dir>] [--out <dir>]
 
 Renders, for each page, `templates/review-owner.md` (the contract's reader and questions, in order, or for a
 `fixed` section a note that its shape is the method's) and `templates/review-professional.md` (the page's
@@ -1209,17 +1278,28 @@ same way, which is not a finding and not a pass either, and does not change the 
   document's path and the reason, with no absolute path; remove it and run `extract.py` again),
   `bad_category` (outside the rulebook's `card_categories`), `extract_paths_stale` (a record whose path is not the
   manifest's; the finding names the [`extract.py repath`](#repath) command that repairs it, after the malformed
-  extract records, which `repath` cannot read, are dealt with) and `contamination` (a
-  card naming an isolation term its own source lacks, by `cards.py`'s rule; `not verified` without `--terms`). A
+  extract records, which `repath` cannot read, are dealt with), `contamination` (a
+  card naming an isolation term, compared with its document's text as the engine was sent it, shielded, so any term a
+  card names is a finding, and so is one a card made before the shield names under the old excuse that its source
+  carried it; `not verified` without `--terms`) and `paths_naming_terms` (manifest entries of any state, live, departed
+  or withheld, whose current path, any copy's path or `migration_target` / `migration_targets` carries a term or marker:
+  a finding, its samples masked as `<term>`, which also covers a migration label, a folder name under the migrations
+  folder; `not verified` without `--terms`). A
   count above zero is one finding. A check that needed a card or extract record that could not be read says so for
   that document rather than reading it clean: `bad_category`, `extract_paths_stale` and `contamination` become `not
   verified for N document(s) whose ... is malformed` (after the count, `1; not verified ...`, when some documents were checked and
   one held a finding), and are listed in `not_verified`.
-- `isolation.canary`: per engine (`agy` and `codex`), the result `isolation.py canary --out` wrote to
-  `<work>/state/canary-<engine>.json`: `passed (model M, effort E)`, `failed: ...` (a finding), `not run: ...` (not
-  verified) or `not verified: ...` (a pass recorded without `answered` and the invented `marker`, so from a canary a
-  refusal could pass: run it again). A pass names the model that was cleared (`model not recorded` for a result that
-  has none), so a reader can compare it with `card_meta.model` of the cards; nothing compares them for you.
+- `isolation.canary`: one entry for each canary result `isolation.py canary --out` wrote, every
+  `<work>/state/canary-*.json` (the older `canary-<engine>.json` names among them), keyed `"<engine> <model>"` (a file
+  that shares its key with another is keyed with its file name too): `passed (model M, effort E)`, `failed: ...` (a
+  finding) or `not verified: ...` (a pass recorded without `answered` and the invented `marker`, so from a canary a
+  refusal could pass: run it again). A file that is not a canary result for `agy` or `codex` is a tool error. The cards
+  record the engine and model they ran on (`card_meta.via`, `card_meta.model`, for `codex` `card_meta.effort`, and
+  `card_meta.light_model` when `--light-model` was used), and **given `--terms`, each such pair needs a passing canary for
+  that engine and exact model** (for `codex`, at the effort the cards record when the canary records one): a pair without
+  one is `finding: ...` and names the command to run, never `not run`. Without `--terms` a pair with no canary is `not
+  run: ...` (not verified). A card that records no engine and model, or an engine the canary cannot check, is not
+  verified. With no card to name a pair, an engine with no canary file reads `not run`, keyed by the engine alone.
 - `wiki`: [`wiki.py check`](#check-1)'s report, reading the Schema from `--settings-dir`; its `problems` are one
   finding and its not-verified states are listed.
 - `wiki_handoff`: `rationale_file`, a finding when `_Audit/wiki-rationale.md` is missing (`check` reports it `not
@@ -1463,4 +1543,4 @@ In the work directory, never in the folder:
 | `state/redo_done_<k>.txt` | `cards.py work --redo` | ids re-carded so far |
 | `state/redo_refs.txt` | `refs.py --apply` | ids to re-card |
 | `state/ALERT` | `cards.py work` | a contamination alert; every worker stops while it exists |
-| `state/canary-<engine>.json` | `isolation.py canary --out` | the canary's result, which `readiness.py` reads |
+| `state/canary-<engine>-<model>.json` | `isolation.py canary --out` | the canary's result, one per engine and model a lane uses; `readiness.py` reads every `canary-*.json` |

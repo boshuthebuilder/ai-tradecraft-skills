@@ -25,7 +25,7 @@ An unknown version, an unknown key or a value of the wrong shape fails loud.
 | `inbox` | folder name | `_Inbox` | the drop point at the top of the folder; onboarding sets it up, so preparation does not create it |
 | `migrations_dir` | folder name | `_Migrations` | where files the owner approved for another project wait |
 | `wiki_dir` | folder name | `<folder name> Wiki` | the wiki folder; must be exactly `<folder name> Wiki` |
-| `reserved` | list of names | `[]` | top-level names reserved beyond the fixed set below; the audit never walks one, so nothing in a reserved folder is extracted, carded or sent |
+| `reserved` | list of names | `[]` | top-level names reserved beyond the fixed set below; the audit never walks one, so nothing in a reserved folder is extracted, carded or sent (it also skips `Outbox`, `Wiki` and any top-level folder whose name begins with `_` but the migrations folder, whatever the rulebook says) |
 | `depth` | `light`, `medium` or `full` | `light` | the reorganisation depth the owner chose ([`folder-curation`'s ladder](../../folder-curation/SKILL.md#the-depth-ladder)) |
 | `packs` | list of folder paths | `[]` | submission records, whose copies are never deleted, in addition to the folders the audit's pack keywords match; each an existing folder, relative and named exactly, or the tools refuse to run. Audit again after changing `packs`, `pack_keywords` or `reserved`, before any plan is proposed |
 | `working_formats` | list of extensions | `[]` | formats the owner keeps working in, such as `.pages` |
@@ -38,10 +38,14 @@ An unknown version, an unknown key or a value of the wrong shape fails loud.
 | `exclude` | list of paths | `[]` | paths the owner excluded from reading, each a file or folder relative to the folder (no leading `/`, no `..`), and everything under it, matched by whole part ignoring case and Unicode form; every tool that reads the settings refuses a path that names nothing, and one inside a package (an iWork `.pages`, `.numbers` or `.key` folder, which the audit reads as one item: exclude the whole package) (the loader checks both), the audit records them without opening them, no tool reads, sends to an engine or queues them ([held for another project, and excluded](tools.md#held-for-another-project-and-excluded)), and every tool's start discards what an earlier run made from them ([withheld means purged](tools.md#common-flags)) (a top-level name in `reserved` is never walked by the audit at all) |
 | `keep_empty_folders` | `true` or `false` | `true` | whether emptied folders stay (the owner declines the [`rmdir` rows](../../folder-curation/references/move-plan-schema.md#rmdir-and-the-bin) among their own folders) |
 | `image_cap_mb`, `pack_keywords` | number, list of patterns | `25`; `application`, `passport`, `renew`, `visa`, `submission`, `evidence` | audit tunables; a folder whose packs go by other words lists its own patterns, each a valid regular expression that matches part of a folder's path, ignoring case (one that can match without consuming any text is refused, and a folder name that makes one do so stops the audit); an empty list turns keyword packs off. The defaults are a personal set, and a company's packs go by other words: `year-end` or `accounts pack` for a year-end accounts pack, `payroll` for a payroll year, beside or instead of the defaults, each specific enough not to match folders that are not packs |
-| `ocr_languages` | list of BCP 47 codes | `["en-GB"]` | the languages local OCR reads in, most likely first; tesseract needs each one's data installed (`tesseract --list-langs` lists it), or it reads nothing and says nothing; it knows `en`, `fr`, `de` and `es` in any region, `zh-Hans` (or `zh-CN`, `zh-SG`) and `zh-Hant` (or `zh-TW`, `zh-HK`, `zh-MO`), in any letter case, and any other code fails loud |
+| `ocr_languages` | list of BCP 47 codes | `["en-GB"]` | the languages local OCR reads in, most likely first; ask the owner at the interview, since the default reads English alone; tesseract needs each one's data installed (`tesseract --list-langs` lists it), or it reads nothing and says nothing; it knows `en`, `fr`, `de` and `es` in any region, `zh-Hans` (or `zh-CN`, `zh-SG`) and `zh-Hant` (or `zh-TW`, `zh-HK`, `zh-MO`), in any letter case, and any other code fails loud: `extract.py` refuses it at its start, and `settings.py check` reports it as a finding, in the same words, from the one list (`common.TESSERACT_LANGS`) |
 
 **Reserved names.** The rulebook must name every top-level name the system reserves: `CLAUDE.md`, `AGENTS.md`,
-`GEMINI.md`, `.familyai`, `_Audit`, the inbox, the migrations folder, the wiki folder, then anything in `reserved`.
+`GEMINI.md`, `.familyai`, `_Audit`, the inbox, the migrations folder, the wiki folder, then anything in `reserved`
+(`settings.py check` verifies those). It should also say that `Outbox` and `Wiki` are never walked, and that a top-level
+folder beginning with `_` is a system folder, which the audit skips and the deployment never reads; the skeleton
+([`rulebook.md`](../tools/templates/rulebook.md)) does. The audit's `Not audited` section lists each of those the folder
+holds, with its item count, for the owner to read.
 
 **Pinning.** Once the owner has agreed the rulebook, write the twin from it and record the rulebook's hash
 (`shasum -a 256 CLAUDE.md`) as `rulebook_sha256`. The pin records a review, not only a hash: after any edit to the
@@ -69,6 +73,8 @@ policy (an absent one stated as absent). Headers are fixed, word for word:
 
 A Page contracts table written before the Reader column (`Section (professional) \| Questions, most important
 first \| Fields every page carries`) still compiles, with no reader; `check` reports it until the column is added.
+The table may also hold its header row alone while the contracts are still to be drafted: it compiles with no
+contracts, and `check` lists each section that is not `fixed` as having no page contract until its row is added.
 
 What each cell holds:
 
@@ -186,7 +192,9 @@ defect gives one finding. It checks:
 - `CLAUDE.md` and `AGENTS.md` are byte-identical;
 - the twin was compiled from a Schema inside the wiki folder;
 - the Page contracts table has its Reader column;
-- every section that is not `fixed` has a page contract.
+- every section that is not `fixed` has a page contract;
+- each `ocr_languages` entry is one `extract.py` reads (`status.ocr_languages`), the finding being the message
+  `extract.py` would stop with.
 
 These are the facts code can hold. Whether the rest of `rulebook.json` says what the rulebook's prose says is the
 review that pinning records.

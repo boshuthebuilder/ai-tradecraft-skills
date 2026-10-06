@@ -40,7 +40,7 @@ The tool adds:
 | Field | What it holds |
 | --- | --- |
 | `category_raw` | the engine's category, when it was not one of `card_categories`; the card's `category` is then `Other` |
-| `card_meta` | `model` (the `--model` given, or `cli-default`), `via` (the engine), `batch`, `created_at` and `path` (the manifest's path of the document when the card was written; a purge reads it, no card consumer does); `refs.py --apply` appends to its `fixes` |
+| `card_meta` | `model` (the `--model` given, or `cli-default`), `via` (the engine), for `codex` `effort` and, when `--light-model` was used, `light_model` (what `readiness.py` needs to require a canary for each), `batch`, `created_at`, `path` (the manifest's path of the document when the card was written; a purge reads it, no card consumer does) and `shielded` (how many times a term stood in the document's path and text, when above zero; a count, never the term); `refs.py --apply` appends to its `fixes` |
 
 A password or an activation code is never written on a card, under any identifier policy.
 
@@ -60,11 +60,11 @@ One prompt per call, in three parts:
 | Key | What it holds |
 | --- | --- |
 | `id` | a short id the call issues: `d1`, `d2` and so on |
-| `path` | the document's path in the folder, from the manifest (`current_path`), never from its extract record |
+| `path` | the document's path in the folder, from the manifest (`current_path`), never from its extract record; shielded |
 | `class` | its manifest class |
 | `page_count` | its page count |
 | `read` | how its text was obtained: `text_layer`, `local_ocr`, `vision`, `mixed`, `sectioned` or `none` |
-| `text` | every page's text, each after a `[page N]` marker; pages read only as a photo are left out |
+| `text` | every page's text, each after a `[page N]` marker; pages read only as a photo are left out; shielded |
 
 `read` comes from the tiers of the record's pages, blank pages aside: `none` when nothing else was read (only
 photo, unread or unrendered pages), the one tier when there is only one (a zip listing counts as `text_layer`),
@@ -117,8 +117,9 @@ is about 28,000), where 60,000 characters would have left none.
   at line breaks, a line still too long at any character, so that every call fits (with `agy`, under its byte
   limit). Each section gets its own call asking for notes of at most 200 words, from the light engine
   (`--light-model` at low effort for `codex`, otherwise the same engine), cached in `<work>/sections/`, each file named
-  by a hash of the section's own text, the budget, the model and effort that wrote the notes and the prompt, so a
-  rerun does not pay for them again and a changed budget, model or prompt never reuses old notes. A cached file that
+  by a hash of the section's own text, the budget, the model and effort that wrote the notes, the prompt and the sha256
+  of the terms' forms, so a rerun does not pay for them again and a changed budget, model, prompt or terms file never
+  reuses old notes. A cached note is shielded again when it is read. A cached file that
   is empty, or lacks its `[section k of n]` header, is a miss. To force a re-read, delete the document's files in
   `<work>/sections/` (they start with the first 16 characters of its id). A section budget under 1,000 (characters
   or estimated tokens) is refused. A section that fails three times, returns no notes, or is over `agy`'s 180,000-byte prompt limit
@@ -183,23 +184,49 @@ must not reach a model working on the folder, the operator's own identifiers fro
 name, the folder's own organisation or an identifier the folder shares with the operator's other affairs (a home
 address, a tax reference). The folder's own settings (`.familyai/rulebook.json` lists its people) are scanned for
 every term, so a shared name would fail every scan. One term per line, optionally
-followed by markers, `Term|marker|marker`: shorter forms whose presence in a
-document's own text shows the term is genuine content of that document. Blank lines and lines starting with `#`
-are ignored. A missing or empty file is refused. `cards.py work` needs `--terms`, or `--no-isolation-terms` to
-state, in its log, that there is genuinely nothing to list; the skill's step 5 says what that leaves unverified.
+followed by markers, `Term|marker|marker`: shorter forms that the shield withholds too. Blank lines and lines starting with `#`
+are ignored. A missing or empty file is refused. Matching is by case-insensitive substring, wherever the form stands, so
+prefer full names: a short term also matches inside longer words (a term `Ann` masks the start of `Annual`), which
+garbles the word and never leaks the term. `cards.py work`, `vision.py` and `wiki.py`'s `profile`, `bundles`, `brief` and
+`review-prompts` need `--terms`, or `--no-isolation-terms` to state that there is genuinely nothing to list (the cards'
+log records it); the skill's step 5 says what that leaves unverified.
 
 ### Before any call
 
 `isolation.py scan` checks every file a model will be shown for the terms, and `isolation.py canary` asks each
-engine to list every name in its context ([the tool reference](tools.md#isolationpy)). `cards.py` does not read the
-canary's result (only `readiness.py` does, at hand-off); running it first is the operator's step.
+engine to list every name in its context ([the tool reference](tools.md#isolationpy)), one canary for each exact model
+and effort a lane will use. `cards.py` does not read the canary's result (only `readiness.py` does, at hand-off);
+running it first is the operator's step.
+
+### The shield
+
+A call never carries a term. `isolation.shield` replaces each term and marker of the list, whatever its case, by the
+placeholder `[withheld name]`, in one pass, by the same substring match the scan uses, so the two always agree, and
+counts what it replaced. A term is never written anywhere.
+
+- **`cards.py`** shields every path and text it sends: the items of a group or a single call, the section prompt's path
+  and section text, and a sectioned document's opening text and notes (a cached note is shielded again when read). A
+  document that carries a term is still carded, from its text with the term withheld, and its card records
+  `card_meta.shielded`.
+- **`vision.py`** cannot shield an image, so a document whose manifest path, or whose extract record's text on any page
+  (`text` or `local_text`), carries a term has no image sent: its queued pages are marked `unread`, its local text kept.
+  The residual: a term visible only on a page local OCR could not read cannot be found before the image is sent.
+- **`wiki.py`**: `profile`, `bundles`, `brief` and `review-prompts` shield every string they write (paths, card fields,
+  extract text, page text); a page's sha256 in a review prompt is left as it was.
+- **`readiness.py --terms`** finds what the shield could not prevent: a card that names a term (the engine was never
+  shown one), a manifest path, copy path or migration label that carries one, and a model the cards ran on with no
+  passing canary.
+
+A document the owner would rather not have sent at all, even shielded, is the owner's to exclude (`exclude` in
+`rulebook.json`): no tool reads, sends or queues it. A path or text that carried a term reads with the placeholder in it,
+so the operator should expect an unreadable name and may rename the file.
 
 ### Every card, before it is written
 
-The contamination guard. A term the card names (anywhere in its JSON, ignoring case) is contamination unless the
-card's own source, the full text of its extract record, carries the term or one of its markers (ignoring case; a
-marker made only of letters, digits, spaces, `.`, `&` and `-` must stand as a whole word, any other may appear
-anywhere). Every card of a batch is checked before any is written: the first contaminated card writes
+The contamination guard. The card is compared with its document's path and text as the call was sent, shielded, in
+which no term survives; the model was never shown a term, so a card that names one (anywhere in its JSON, ignoring case)
+did not take it from the document, and its source cannot excuse it. (Before the shield, a term the document itself
+carried was excused: that excuse is gone, and `readiness.py` finds cards made under it.) Every card of a batch is checked before any is written: the first contaminated card writes
 `<work>/state/ALERT`, naming the card and how many terms, no card of that batch is written, and its worker stops
 (exit 2, as any refusal does, with `error:` on standard error); every other `cards.py work` worker and the vision
 lane then stop at their next batch while the file is there (exit 3, the exit code that means "stopped by an alert").
@@ -210,7 +237,9 @@ the term came from before removing the file.
 
 `readiness.py --terms <file>` runs the same guard over the card of every live document `extract.py` reads (its
 `card_meta` aside) and reports how many are contaminated, a count above zero being one finding; without `--terms`
-it reports the check as not verified ([`records`](tools.md#readinesspy)).
+it reports the check as not verified ([`records`](tools.md#readinesspy)). It also counts the manifest entries whose path
+or migration label carries a term, and requires a passing canary for each engine and exact model the cards' `card_meta`
+records.
 
 ## Repair from the card's own source
 

@@ -623,9 +623,10 @@ with no inline maintainer, the scheduled passes are the primary path.
   round every year lives in its own page's `recurring:` list, never in a table kept by hand on the
   Deadlines page. A page the Schema marks `derived` (the Deadlines roll-up, an open-questions list built
   from the pages) holds nothing written by hand. **An empty roll-up must say why:** zero
-  rows found while derived pages exist is a likely keying fault, rendered as a loud banner on the
-  Deadlines page (a `> [!warning]` callout, its marker alone on its line, then "roll-up found no
-  frontmatter deadlines across N pages") — never a bare "None". A
+  rows found while derived pages exist is a likely keying fault, rendered as a loud one-line banner on the
+  Deadlines page (a quoted line in bold, `> **Roll-up found no frontmatter deadlines across N readable pages:
+  likely a keying fault, not a deadline-free wiki.**`, then the sentence that says to record each date as a
+  frontmatter key on the page that owns it), never a bare "None". A
   deployment's deterministic roll-up enforces this in code (prose can't hold it); a hand-kept wiki
   applies it by hand.
 - **A project files within itself; the owner's synthesis proposes migrations.** Keep a wiki about *its

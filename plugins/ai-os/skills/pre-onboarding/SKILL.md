@@ -45,6 +45,9 @@ archetype); keeping a wiki that already exists (`wiki-maintenance`).
 
 ## Before you start
 
+- **Who is who.** The *operator* runs this session and keeps the isolation terms file; the *owner* decides about the
+  folder: what is excluded, what moves, what the wiki says. They may be the same person, and the text below says
+  which of the two it means.
 - **The machine.** The operator's own machine, where the bulk engines are logged in ([engine
   isolation](#engine-isolation)). Local reading uses Apple Vision through a small helper (the OCR helper, below),
   poppler for PDFs, and, when installed, tesseract and LibreOffice. A tool that is missing is named in the records it
@@ -52,7 +55,9 @@ archetype); keeping a wiki that already exists (`wiki-maintenance`).
   model the vision lane (`agy` only, a model that reads page images) and the cards use, and which two different
   models draft and review the wiki's pages (those are subagents of the session, not engine calls:
   [step 7](#7-build-the-wiki)). Name each model by the id its engine accepts: `agy models` lists agy's, and with
-  `agy` the effort is part of the id.
+  `agy` the effort is part of the id. Record each model by the exact id it ran on, in the canary, the `--model` flag and
+  the acceptance records alike: for a page the coordinating session writes itself, its own id, and a page's reviewer
+  must be a different model from its author, never a second name for the same one.
 - **The tools.** Run each as `python3 <tools>/<tool>.py` (standard-library Python 3.9 or later), where `<tools>` is
   this skill's `tools/` folder, beside this `SKILL.md`: `plugins/ai-os/skills/pre-onboarding/tools/` in a checkout of
   the repository, and the same `skills/pre-onboarding/tools/` under the plugin's own folder in an installed plugin
@@ -66,7 +71,8 @@ archetype); keeping a wiki that already exists (`wiki-maintenance`).
   [tool reference](references/tools.md#common-flags).
 - **The OCR helper.** Build it once, into the work directory and not the tools folder, since a plugin update may
   replace the tools folder and a helper built there with it: `mkdir -p "<work>"`, then
-  `swiftc -O "<tools>/page_ocr.swift" -o "<work>/page-ocr"` (macOS 13 or later; a few seconds), and pass
+  `swiftc -O "<tools>/page_ocr.swift" -o "<work>/page-ocr"` (macOS 13 or later; the build is quick, a few seconds, and
+  the first page it reads takes about a minute while Vision prepares its model, which is not a hang), and pass
   `--ocr-bin "<work>/page-ocr"` to every `extract.py` run. Prove it before the long run: copy one scan whose text you
   can read, as an image, into a scratch folder outside the folder being prepared, run `audit.py` and
   `extract.py --lane main --ocr-bin ...` over it with a scratch `--work` of its own, and open its record in the
@@ -82,9 +88,12 @@ archetype); keeping a wiki that already exists (`wiki-maintenance`).
   it in their own editor and gives the session its path alone; the names never enter the conversation. List only
   names distinct to the other projects: never the owner's own name, this folder's own organisation, or an
   identifier it shares with the operator's other affairs (a home address, a tax reference), since the folder's own
-  settings name its people and every scan of them would fail. Ask the operator for the path; the format is in
-  [the card contract](references/cards.md#the-terms-file). Where there is genuinely nothing to list, step 5 says
-  what runs instead.
+  settings name its people and every scan of them would fail. Matching is by case-insensitive substring, so prefer full
+  names: a short term also masks inside longer words, which garbles the word and never leaks it. Ask the operator for
+  the path, and settle the file before the first audit ([step 1](#1-audit)); the format is in
+  [the card contract](references/cards.md#the-terms-file), and what the tools do with it, [the
+  shield](references/cards.md#the-shield), in [step 5](#5-open-the-gate-to-the-engines). Where there is genuinely nothing
+  to list, step 5 says what runs instead.
 - **The owner is in the session.** Nothing in the owner's material changes without an approved plan row, and every
   structural choice in the wiki is the owner's to agree. Plan the session around the owner's decisions.
 
@@ -121,6 +130,14 @@ included, or a named not-verified state.
 
 ### 1. Audit
 
+**Before the first audit,** settle two things, because the audit hashes every file it is not told to leave alone.
+Ask the owner which paths must never be read (staff papers, medical files, anything that must not reach a cloud
+engine) and record them as `exclude` in `.familyai/rulebook.json`, beside a first `CLAUDE.md` and `AGENTS.md` the
+twin is pinned to; [step 2](#2-interview-the-owner-write-the-rulebook-and-its-twin) completes both. And settle the
+isolation terms file with the operator ([Before you start](#before-you-start)). An excluded file's path is still
+recorded, from the folder's listing alone, so where the names themselves are confidential the owner moves that folder
+out of the folder before preparation.
+
     python3 <tools>/audit.py --root "<folder>"
 
 The hash-keyed manifest (`family-ai-preprocess-manifest/2`), `AUDIT.md` and `summary.json` in `_Audit/`, merged
@@ -128,7 +145,10 @@ with the manifest already there so history is kept. What the audit finds and why
 [`folder-curation` step 1](../folder-curation/SKILL.md#1-audit-deterministic-never-moves-anything). A file kept
 only in the cloud stops the audit with a list: download it, or, with the owner's say-so, pass `--dataless read`,
 which makes the audit download every cloud-only file under the folder (on a large folder, most of what the owner keeps
-in the cloud). Show the owner `AUDIT.md` before asking anything. This first audit is a look: it runs again once the
+in the cloud). Show the owner `AUDIT.md` before asking anything, its **Not audited** section included: the walk skips
+`Outbox`, `Wiki`, every name the rulebook reserves and every top-level folder that begins with `_` (a system folder,
+which the deployment never reads either), and that section names each one the folder holds with its item count, so the
+owner can say whether anything under one needs preparing. This first audit is a look: it runs again once the
 interview has settled the packs ([step 2](#2-interview-the-owner-write-the-rulebook-and-its-twin)).
 
 ### 2. Interview the owner; write the rulebook and its twin
@@ -145,6 +165,9 @@ interview settles what this preparation adds to the ladder, each a key of the tw
   the owner agree them: the default categories are a personal set ([the list](references/settings.md#rulebookjson)),
   and a company wants its own. List `Other` if it is to be allowed: a card the engine places outside the list becomes
   `Other`, and `readiness.py` reports it as a `bad_category` unless the list holds it.
+- **Languages.** `ocr_languages`: the languages the documents are written in, most likely first, as the codes
+  [the settings reference](references/settings.md#rulebookjson) lists. The default reads English alone, so ask, then
+  check `tesseract --list-langs` ([step 4](#4-extract-the-text)); `settings.py check` reports a code no reader has.
 - **Packs.** The folders that keep deliberate copies of documents held elsewhere: `packs`, and the words that mark
   them in `pack_keywords`. The default keywords are a personal set, so a company's own packs, such as a year-end
   accounts pack or a payroll year, are unprotected until listed ([examples](references/settings.md#rulebookjson)).
@@ -158,11 +181,14 @@ interview settles what this preparation adds to the ladder, each a key of the tw
   (exclude the whole package), and `settings.py check` reports it; `audit.py` records an excluded path from the
   folder's listing alone, opening no file; `extract.py`, `vision.py` and `cards.py` never read, queue, card or send
   it; and every tool's start discards what an earlier run made from it. A top-level name in `reserved` is never
-  walked by the audit at all. Anything not excluded is read, and the owner should be told so.
+  walked by the audit at all. Anything not excluded is read, and the owner should be told so. Names from the
+  operator's terms file are withheld from every call whatever the owner decides ([the shield](#5-open-the-gate-to-the-engines)),
+  but a document that must reach no model at all, shielded or not, is the owner's to exclude.
 
 Two things the [hand-off contract](#the-hand-off-contract) checks belong in the rulebook from the start:
 
-- every name the system reserves at the top of the folder, `GEMINI.md` included, and every pack
+- every name the system reserves at the top of the folder, `GEMINI.md` included, with `Outbox`, `Wiki` and the rule
+  that a top-level folder beginning with `_` is a system folder (the audit skips them all, and the skeleton says so), and every pack
   ([the list](references/settings.md#rulebookjson)); a pack listed in `rulebook.json` must be an existing folder,
   named exactly, or the audit and plan tools refuse to run;
 - new files are filed within this folder by the wiki's routing, never routed to the migrations folder: a file that
@@ -202,13 +228,15 @@ after extraction*, below).
    and leaves it pending, since a conversion stays the owner's. To stage files for another project, list their
    paths in a file and run
    `plan.py migrate --root "<folder>" --project <Project> --paths-file <file> --out "<plan folder>"`, where
-   `<Project>` is only the name of the folder the files are staged in, any label the owner will recognise;
-   `plan.py return` brings staged files back (`rmdirs`, below, proposes removing the folder it empties).
+   `<Project>` is only the name of the folder the files are staged in: a neutral label the owner will recognise, with
+   no name from the terms file, since it becomes a path in the manifest and `readiness.py` flags one that carries a
+   term; `plan.py return` brings staged files back (`rmdirs`, below, proposes removing the folder it empties).
 2. **Show the owner the actual files**
    ([a boundary is confirmed with its files](../folder-curation/SKILL.md#2-interview-the-owner-a-fixed-ladder-one-pass)).
    The owner reads `review.tsv`, which lists every staged path with its copy kind and the copies that stay behind,
    and a `MISSING` line for each listed path the manifest does not know. Correct the paths file and propose the
-   round again until the list is what the owner means.
+   round again until the list is what the owner means. A copy that stays behind in the folder is a live document: it is
+   read, carded and sent to the engines (shielded), so the owner moves it too, or accepts that it stays.
 3. **Approve.** The owner reads the plan domain by domain and chooses a destination for each stray; write it into
    that row's `to` column ([the plan schema](../folder-curation/references/move-plan-schema.md)) before approving
    the row. No `plan.py` command does it: edit `move-plan.csv` with a tool that reads and writes CSV (its paths hold
@@ -246,7 +274,10 @@ after extraction*, below).
 `project-onboarding` stops while the migrations folder holds any file. The owner empties it, each staged file
 collected by its own project (a departure `prove` expects by name, item 6) or brought back by an approved `return`
 round, until nothing is left but `.DS_Store` and empty folders. An empty `<Project>/` folder left behind is fine:
-`rmdirs` proposes removing only a folder that approved moves emptied, not one emptied by hand. `extract.py`,
+`rmdirs` proposes removing only a folder that approved moves emptied, not one emptied by hand. After the owner clears
+it, audit again: the cleared files depart the manifest. A `prove` run over the round that staged them needs
+`--allow-departed-under "<migrations folder>/<Project>/"` for each project whose files were collected or removed by hand
+(item 6); after a `return` round, or when nothing was cleared, it needs none. `extract.py`,
 `vision.py` and `cards.py` skip every entry under the migrations folder, whatever its flags, and count it as held for
 another project, so a staged file's text, pages and path never reach an engine; clear the folder before step 4 where
 you can, so nothing waits on it. A departed entry stays in the manifest for ever, with its old path and its target
@@ -300,8 +331,8 @@ Before any model reads this folder:
     python3 <tools>/isolation.py scan   --terms <terms file> --path <tools> --path "<folder>/.familyai" \
         --if-present ~/.codex/AGENTS.md --if-present ~/.codex/AGENTS.override.md --if-present ~/.codex/skills \
         --if-present ~/.gemini/GEMINI.md --out <work>/state/scan.json
-    python3 <tools>/isolation.py canary --terms <terms file> --engine <engine> --model <model> \
-        --out <work>/state/canary-<engine>.json
+    python3 <tools>/isolation.py canary --terms <terms file> --engine <engine> --model <model> [--effort <level>] \
+        --out <work>/state/canary-<engine>-<model>.json
 
 `scan` checks every file a model will be shown (the tools' prompts and templates, and the settings the card
 instructions are filled from) for the terms, and exits 1 on any hit or when it found nothing to check; scan the wiki
@@ -325,22 +356,38 @@ words, none of `. ! ? ; :` inside, no pronoun or negation from a small closed se
 line, a fence, bold, a bullet or an item that fails the name-like test fails as unanswered: an honest reply in another shape costs a
 rerun and never gives a false pass. It cannot prove that a model withholding names deliberately holds nothing back (a
 well-formed line holding only the invented name passes); no reply can prove an absence. The scan above, and the
-contamination check on every card, cover that. Run the canary for each engine you
-will use, with the `--model` the cards will use: models of one engine answer differently, and some refuse the
-question outright, which fails the canary. In one measured run a Flash-tier Gemini model refused it where a Pro-tier
-one answered, so canary the exact model and effort a lane will use, never a sibling of it. The same model can decline on one run and answer on the next: a decline
-proves nothing either way, so run the canary again. A model that declines three runs in a row cannot be cleared for
-this folder, so card with one that answers. The result records the `model` and `effort` that were cleared, and `readiness.py` names them: compare
-them with the model the cards ran on (`card_meta.model`). A codex `--light-model` is not covered by the engine's
-one result, and neither is the vision model when it differs from the card model on `agy`: canary it as well, to a
-result file of its own, `<work>/state/canary-agy-vision.json`. `readiness.py` reads one file per engine and names
-the model that file cleared, so leave `canary-agy.json` to the card model's result (one result covers both when they
-are the same model; with the cards on `codex`, it is the vision model's) and say in the hand-off which file cleared
-the vision lane. Each command clears its `--out` file before it even reads its command line, so a
-run that stops early (or is refused) leaves no earlier pass behind. Keep both results: they are the record
-that the gate ran, and `readiness.py` reads each engine's canary from `<work>/state/canary-<engine>.json` (step 8).
-No lane reads them (`vision.py` included), so never start one without passing ones. A failure means the engine's
-context carries another project: fix its setup ([engine isolation](#engine-isolation)) and run the canary again.
+contamination check on every card, cover that. Run **one canary for each exact model and effort a lane uses**, never a
+sibling of it: models of one engine answer differently, and some refuse the question outright, which fails the
+canary (in one measured run a Flash-tier Gemini model refused it where a Pro-tier one answered). That is the card
+model on `agy` or `codex` (a codex canary runs at `--effort`, default `low`, and the cards at their own `--effort`,
+default `medium`; the two must match, so canary with the effort the cards will use, `--effort medium` for the default;
+agy has none to set, because its effort is part of its model id, and `--effort` with agy is refused), a codex
+`--light-model`, and the vision model when it differs from the card model. Write each to a file of
+its own, `<work>/state/canary-<engine>-<model>.json` (a codex model run at two efforts adds the effort to the name).
+The same model can decline on one run and answer on the next: a decline proves nothing either way, so run the canary
+again. A model that declines three runs in a row cannot be cleared for this folder, so card with one that answers.
+Each result records the `model` and `effort` that were cleared. The cards record the model, engine and effort they ran
+on, and `readiness.py`, given the terms file, reads every `canary-*.json` and **requires a passing one for every
+engine and model the cards ran on**; a model with none is a finding, not a gap to remember. The vision model is the
+exception: the extract records name the engine that read a page and not its model, so readiness cannot require its
+canary, and the hand-off should say which file cleared the vision lane. Each command clears its
+`--out` file before it even reads its command line, so a run that stops early (or is refused) leaves no earlier pass
+behind. Keep the results: they are the record that the gate ran (step 8). No lane reads them (`vision.py` included),
+so never start one without passing ones. A failure means the engine's context carries another project: fix its setup
+([engine isolation](#engine-isolation)) and run the canary again.
+
+**The shield.** The scan and the canary check the setup; the shield keeps a term out of the calls themselves. Given
+the terms file, `cards.py`, `vision.py` and the wiki's `profile`, `bundles`, `brief` and `review-prompts` replace every
+term and marker in every path and text they send or write with `[withheld name]`, whatever its case, and say how many
+they replaced. A document that carries a term is still carded, from its text with the term withheld, and its card
+records the count (`card_meta.shielded`). Matching is by case-insensitive substring, so prefer full names in the terms
+file. An image cannot be shielded: the vision lane sends none of a document whose path or whose extract text carries a
+term, marks its queued pages `unread` with the local text kept, and counts such documents in its log. The residual is a
+term visible only on a page that local OCR could not read, which nothing can find before the image is sent. A document
+that must reach no model at all, even shielded, the owner excludes. `readiness.py --terms` then reports what the shield
+could not prevent: a card that names a term (the engine was never shown one), a manifest path, copy path or migration
+label that carries one, and a model with no canary. Each of the four commands refuses to run without `--terms` or
+`--no-isolation-terms`, so that running unshielded is always a stated decision.
 
 **When no agy model passes.** The vision lane cannot run. The pages local OCR could not read stay `pending_vision` in
 records whose status is `needs_vision`: `cards.py build` counts their documents as waiting for ever, and readiness
@@ -354,13 +401,14 @@ page unread without the lane.
 
 **When there is nothing to list.** The gate needs a terms file, and an empty one is refused. Where the operator
 genuinely has no name to keep out (no other project, and no other use of the engines), there is no file, and the
-canary is not run: readiness reports each engine's canary as `not run`, a named not-verified state and never a
-pass. Run the cards with `--no-isolation-terms`, which their log records, and readiness without `--terms`, which
-reports the contamination check as not verified too. Tell the owner why.
+canary is not run: readiness reports each canary the cards need as `not run`, a named not-verified state and never a
+pass. Run the cards, the vision lane and the wiki's `profile`, `bundles`, `brief` and `review-prompts` with
+`--no-isolation-terms` (the cards' and the lane's log records it), and readiness without `--terms`, which reports the
+contamination and path checks as not verified too. Tell the owner why.
 
 ### 6. The vision lane and the cards
 
-    python3 <tools>/vision.py --root "<folder>" --model <vision model> \
+    python3 <tools>/vision.py --root "<folder>" --model <vision model> --terms <terms file> \
         --lanes extract_main0,extract_main1,extract_main2,extract_main3,extract_apps0
     python3 <tools>/cards.py build --root "<folder>"
     python3 <tools>/cards.py work  --root "<folder>" --engine <engine> --model <model> --terms <terms file> \
@@ -370,7 +418,8 @@ The vision lane, which runs on `agy` only, reads the page images queued in step 
 lane named in `--lanes` has finished and its queue is empty. Then `cards.py build` plans batches from the finished
 records (run it again if it reports records still waiting), and `cards.py work` has the engine write one card per
 document. What a card holds, how the answers are joined to their documents and how each card is checked against
-the terms are [the card contract](references/cards.md). A card that names a term its own document does not carry writes
+the terms are [the card contract](references/cards.md). A card that names any term (its document was sent with every
+term withheld, so none came from it) writes
 `<work>/state/ALERT` and stops every worker (the worker that found it exits 2, as any refusal does; every other
 worker, and the vision lane, exits 3 at its next batch while the file exists): find where the term came from before
 you remove the file. A document
@@ -414,7 +463,10 @@ anything under `_Audit/` the brief does not name (the manifest and `AUDIT.md` na
 for, and a departed entry keeps it). A brief is no isolation, so hold three controls. Start the preparation session
 from a working directory that loads no other project's instructions or memory: the folder being prepared, or a neutral
 empty folder, with no instruction file in any parent folder. Have the coordinator write no memory during the wiki
-stage, since a later subagent would load it. And scan, before any subagent reads a brief, the briefs and review prompts
+stage, since a later subagent would load it. A session also loads more than files: its plugin and skill listings, its
+connectors' instructions and its hooks reach every subagent it starts, and a scan of files cannot see them, so prepare in
+a session with no other plugins or connectors enabled, or record in the hand-off that this context was not verified.
+And scan, before any subagent reads a brief, the briefs and review prompts
 as files and every file the session loads, with the same `scan` as step 5:
 
     python3 <tools>/isolation.py scan --terms <terms file> --path <work>/briefs --path <work>/reviews \
@@ -465,8 +517,9 @@ sections share is the coordinator's to write
 
 In order:
 
-1. `wiki.py profile --root "<folder>" --out <work>/profile.json`: the folder's shape, per folder, for the readers
-   interview and the librarian.
+1. `wiki.py profile --root "<folder>" --terms <terms file> --out <work>/profile.json`: the folder's shape, per folder,
+   for the readers interview and the librarian. This command and `bundles`, `brief` and `review-prompts` below take
+   `--terms <terms file>` (or `--no-isolation-terms`), and shield what they write ([the shield](#5-open-the-gate-to-the-engines)).
 2. Hold the readers interview; brief the librarian with the readers' answers; confirm the proposal with
    wiki-onboarding step 3's questions, asking only what the rulebook does not already answer; agree the sections,
    routing and each page's professional with the owner. Create the wiki folder, `<folder name> Wiki/`, and its
@@ -480,7 +533,7 @@ In order:
    sections, who reads the wiki and for what, each section's purpose and trigger documents, and the identifier,
    currency, date and unit policy, an absent one stated as absent. Then run `settings.py compile --root "<folder>"`
    and `settings.py check --root "<folder>"`.
-3. `wiki.py bundles --root "<folder>"` routes every live document to its section's evidence bundle, in
+3. `wiki.py bundles --root "<folder>" --terms <terms file>` routes every live document to its section's evidence bundle, in
    `<work>/bundles` by default. It lists what it cannot route and what has no card: fix the routing (edit the
    Schema, compile again) or card the document (step 6), until both lists are empty.
 4. Brief each section's professional, or all of a section's professionals together where it has several, to draft
@@ -491,7 +544,7 @@ In order:
    Page professionals, each Layout section's folder note and the pages on disk, with the pages being briefed added:
    list every page the wiki will hold in Page professionals first, and each brief's map (`brief` prints it) is
    complete. Then render a brief per group of pages:
-   `wiki.py brief --root "<folder>" --page "<NN Section>/<Page>.md" [--page ...] --out <work>/briefs/<NN>.md`.
+   `wiki.py brief --root "<folder>" --terms <terms file> --page "<NN Section>/<Page>.md" [--page ...] --out <work>/briefs/<NN>.md`.
    Scan the briefs (above), then draft as step 4a sets out. A section whose bundle is very large (check
    `wc -c` on its `bundle_<NN>.jsonl`) is split across agents by page, or by year where it holds a page a year, and
    each agent is told which lines of the bundle are its own (a folder prefix or a year in the path), so that it reads
@@ -507,19 +560,26 @@ In order:
    needs mending, exit 2 that a page uses YAML the tool does not read), never by hand, and before any acceptance, since
    the page written is new text. For every page it
    writes, the Schema and the folder notes included, it makes a return file by hand in `<work>/returns/`: an object
-   with a `pages` list, each entry the page's `path` and its `rationale` block (the heading and five lines), so that
-   `wiki.py rationale --root "<folder>" --returns <work>/returns` writes `_Audit/wiki-rationale.md` with a block for
-   every page. Then run `wiki.py check --root "<folder>"` over the whole wiki until it reports zero problems, and scan
+   with a `pages` list, each entry the page's `path` and its `rationale` block (the heading and five lines, joined by
+   `\n` in the JSON string):
+
+       {"pages": [{"path": "90 Schema/90 Schema.md",
+                   "rationale": "### 90 Schema/90 Schema.md\n- Reader and use: ...\n- Professional lens: ...\n- Shape: ...\n- Changed from the previous page: first version\n- Left out or flagged: nothing"}]}
+
+   so that `wiki.py rationale --root "<folder>" --returns <work>/returns` writes `_Audit/wiki-rationale.md` with a block
+   for every page. Then run `wiki.py check --root "<folder>"` over the whole wiki until it reports zero problems, and scan
    the pages themselves for the terms, since `readiness.py` checks the cards and not the pages:
    `isolation.py scan --terms <terms file> --path "<folder>/<folder name> Wiki" --path "<folder>/_Audit/wiki-rationale.md"
    --out <work>/state/scan-pages.json`. A term in a page stops acceptance until the page is rewritten.
 7. Accept every page as [wiki-onboarding step 6](../wiki-onboarding/SKILL.md#6-reader-acceptance-the-owners-lens-and-the-professionals)
    runs it and [the core rule's acceptance](../wiki-maintenance/SKILL.md#acceptance) sets it out, through a model
-   other than the one that drafted it (below, `<A>` drafted the page and `<B>` reviews it). Finish every edit first,
+   other than the one that drafted it (below, `<A>` drafted the page and `<B>` reviews it, each by the exact id it ran on;
+   for a page the coordinator wrote, `<A>` is the coordinator's own id, and `<B>` must be a different model, not an
+   alias of it). Finish every edit first,
    the last `91 Log` line included, since any later edit to a page voids its acceptance; then accept the section
    pages, then `01 Deadlines`, `90 Schema` and `91 Log`, and the Index last, against its children (that step also says
    what a reviewer judges on a fixed page).
-   `wiki.py review-prompts --root "<folder>" --page "<page>" [--page ...] --author-model <A> --reviewer-model <B>`
+   `wiki.py review-prompts --root "<folder>" --terms <terms file> --page "<page>" [--page ...] --author-model <A> --reviewer-model <B>`
    renders each page's owner and professional prompts in `<work>/reviews/`; scan them, give each to `<B>`, add a
    `response` to each finding in its reply, and record the reply with
    `wiki.py accept --root "<folder>" --reply <file> --author-model <A> --reviewer-model <B>`. `wiki.py check` then
@@ -535,8 +595,9 @@ round ([a round after extraction](#3-curation-rounds-each-approved-by-the-owner)
 
     python3 <tools>/readiness.py --root "<folder>" --work "<work>" --terms <terms file> --out <work>/readiness.json
 
-The [hand-off contract](#the-hand-off-contract), checked ([`readiness.py`](references/tools.md#readinesspy)). It
-exits 0 when nothing is found, 1 on any finding, each listed in `findings` with the report key that holds it, and 2
+The [hand-off contract](#the-hand-off-contract), checked ([`readiness.py`](references/tools.md#readinesspy)). Given the
+terms file it also finds what the shield could not prevent and requires a passing canary for every model the cards ran
+on. It exits 0 when nothing is found, 1 on any finding, each listed in `findings` with the report key that holds it, and 2
 on a tool error. Fix each finding in the step that owns it, and run it again. Named not-verified states, such as an
 engine whose canary was not run, are listed in `not_verified`: they do not change the exit code, and are not a pass
 either, so read them and tell the owner.
@@ -545,14 +606,15 @@ either, so read them and tell the owner.
 
 Tell the owner what was prepared (the rounds run, the documents read and carded, the pages accepted, anything
 left open). If they read the wiki in Typora, tell them to turn on Preferences, Markdown, Syntax Support,
-Diagrams, then restart Typora, or its charts show as code ([portable-markdown](../../../productivity/skills/portable-markdown/SKILL.md#charts-and-callouts)).
+Diagrams, then restart Typora, or its charts show as code (the `productivity:portable-markdown` skill, under charts and callouts).
 Then run [`project-onboarding`](../project-onboarding/SKILL.md) on the folder from its step 1. It finds
 a wiki with a Schema, so it does not onboard one again, and an audit pair and rulebook, so it stamps the
 folder-curation archetype's `audit` job beside the file-ingest pair. The wiki was built during preparation, and no
 job runs on it until then ([wiki-onboarding step 5](../wiki-onboarding/SKILL.md#5-hand-off)). Nothing in the work
 directory is part of the hand-off: onboarding reads the folder, whether it continues in this session or on the
 deployment, and runs `readiness.py` itself (its step 1). Keep `<work>/readiness.json` and the canary results to show
-the owner what was verified and what was not.
+the owner what was verified and what was not, and record in the hand-off anything the isolation checks could not
+verify, a session context with other plugins or connectors enabled ([step 7](#7-build-the-wiki)) included.
 
 ## Engine isolation
 
@@ -594,15 +656,19 @@ isolation comes from what each call is given and what it is denied:
   beside a refused command, is caught too, but its absence proves nothing. Re-probe on an agy upgrade (about six
   calls).
 
-The canary checks the isolation before the first call (step 5), and the contamination guard after, on every card.
-Three layers hold the rule, and each covers what the others cannot:
+The canary checks the isolation before the first call (step 5), the shield keeps a term out of every call, and the
+contamination guard checks every card after. Four layers hold the rule, and each covers what the others cannot:
 
 - **The canary** checks a cooperating engine: that it answers the question in the required form (one `NAMES:` line,
   an invented name first, short comma-separated names), and that its answer names no banned term. It cannot prove that a model withholding names
   deliberately holds nothing back: no reply can prove an absence, and the invented name is in the message, not in an
   instruction file.
 - **The scan** reads every file a model is shown, including the global files each engine reads.
-- **The contamination check** reads every card, against its own source.
+- **The shield** replaces every term in every path and text the tools send or write, so a document that carries a term
+  reaches the engine with it withheld. An image cannot be shielded, so the vision lane holds back a document whose path
+  or text carries a term; what it cannot see is a term only a page image shows.
+- **The contamination check** reads every card, against its document as the engine was sent it: the engine was never
+  shown a term, so any term a card names came from elsewhere.
 
 ## Identifiers
 
@@ -628,9 +694,11 @@ What a deployment relies on when it onboards a prepared folder, and what `readin
 - **The manifest is current**: its counts are reported (live, departed and migrating entries, root strays,
   redundant copies, hygiene defects, unconverted iWork files), and no live entry's current path is gone.
 - **Every live document `extract.py` reads has an extract record and a card**; each card's category is one the
-  rulebook allows, each record's path agrees with the manifest (`extract.py repath` repairs one that does not), and
-  no card names an isolation term its own document does not carry.
-- **The gate ran**: each engine's canary passed, or was not run, which is reported as not verified.
+  rulebook allows, each record's path agrees with the manifest (`extract.py repath` repairs one that does not), no
+  card names an isolation term (each was made from its document with every term withheld), and no manifest path, copy
+  path or migration label carries one.
+- **The gate ran**: every engine and model the cards ran on has a passing canary, or the terms check was not run, which
+  is reported as not verified.
 - **The wiki** is at `<folder name> Wiki/`, with the fixed pages `00 Index`, `01 Deadlines`, `90 Schema` and
   `91 Log`, and `wiki.py check` reports zero problems (numbered sections, frontmatter, `sources:` lists and
   folder-relative backticked paths that exist, links, em dashes, coverage, charts, rationale blocks).
@@ -666,9 +734,9 @@ How `readiness.py` reports each is in [the tool reference](references/tools.md#r
 | [`settings.py`](references/tools.md#settingspy) | 2, 7 | compiles `wiki-schema.json`; checks both twins and the rulebook's facts |
 | [`plan.py`](references/tools.md#planpy) | 3 | curation rounds: `light`, `migrate`, `return`, `approve`, `rmdirs`, `check`, `execute`, `prove` |
 | [`extract.py`](references/tools.md#extractpy) | 4, 3 | full text per page, local tools only (with `iwa.py` and the `page-ocr` helper); `repath` after a later round |
-| [`isolation.py`](references/tools.md#isolationpy) | 5 | the terms scan and the per-engine canary |
-| [`vision.py`](references/tools.md#visionpy) | 6 | the model vision lane for pages local OCR could not read |
-| [`cards.py`](references/tools.md#cardspy) | 6 | one card per document; the whole-chunk join; the contamination guard |
+| [`isolation.py`](references/tools.md#isolationpy) | 5 | the terms scan, the per-model canary and the shield |
+| [`vision.py`](references/tools.md#visionpy) | 6 | the model vision lane for pages local OCR could not read; holds back a document that carries a term |
+| [`cards.py`](references/tools.md#cardspy) | 6 | one card per document, shielded; the whole-chunk join; the contamination guard |
 | [`refs.py`](references/tools.md#refspy) | 6 | restores truncated reference numbers from each card's own source |
 | [`wiki.py`](references/tools.md#wikipy) | 7 | `profile`, `bundles`, `brief`, `chart`, `check`, `rationale`, `deadlines`, `review-prompts`, `accept`, `move`, `drift` |
 | [`readiness.py`](references/tools.md#readinesspy) | 8 | the hand-off contract |
