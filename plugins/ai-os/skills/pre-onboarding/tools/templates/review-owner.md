@@ -16,6 +16,8 @@ The acceptance stage of [the core wiki rule](../../../wiki-maintenance/SKILL.md#
 
 {page_text}
 
+Open no source file: the owner's lens judges the page as its reader would, from the page alone.
+
 ## Judge
 
 In the owner's lens, as the rule's *Acceptance* sets it out:

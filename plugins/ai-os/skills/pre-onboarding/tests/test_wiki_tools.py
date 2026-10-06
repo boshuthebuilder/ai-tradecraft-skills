@@ -806,7 +806,85 @@ class ShieldTest(Copy):
         meta = json.loads(read(os.path.join(self.bundles_dir(), "bundles.json")))
         ev = wiki.isolation.load_terms(self.terms)
         self.assertEqual(meta["shield"], {"terms": True, "sha256": wiki.isolation.shield_digest(ev)})
-        self.assertEqual(meta["arguments"], {"--terms": os.path.realpath(self.terms)})
+        self.assertEqual(meta["arguments"], {"--terms": "<terms file>"}, "the terms file's path is never recorded")
+
+    def bundle_rows(self, number):
+        return [json.loads(x) for x in read(os.path.join(self.bundles_dir(), "bundle_%s.jsonl" % number)).splitlines()]
+
+    def test_a_bundle_line_for_a_document_that_carries_a_term_is_marked_shielded(self):
+        """The line reads `[withheld name]` for the name, but the source file still holds it: a drafter must be told, in
+        the line itself, never to open it."""
+        self.ok("bundles", "--terms", self.terms, code=1)
+        marked = {r["path"]: r.get("shielded") for n in ("10", "20", "30", "40") for r in self.bundle_rows(n)}
+        self.assertTrue(marked["06 Work/Contract.docx"], "its text carries a term")
+        self.assertTrue(marked["03 Home/Lease renewal.pdf"], "its text carries a term")
+        self.assertTrue(marked["03 Home/Lease renewal.pages"], "its card names a term, which the line shielded")
+        self.assertIsNone(marked["01 Identity/Passport scan.pdf"], "a document that carries no term is not marked")
+        self.assertIsNone(marked["02 Finance/Bank statement 2024-03.pdf"])
+        self.ok("bundles", "--no-isolation-terms", code=1)
+        self.assertEqual({r.get("shielded") for n in ("10", "20", "30", "40") for r in self.bundle_rows(n)}, {None},
+                         "nothing is marked when nothing is shielded")
+
+    def test_a_term_across_the_text_cap_is_shielded_before_the_cut(self):
+        """The cut falls inside the name: cut first, the shield no longer finds it and the first part reaches the bundle."""
+        ids = {e["current_path"]: h for h, e in json.loads(read(MANIFEST))["entries"].items()}
+        text = RECORDS["06 Work/Contract.docx"][-1]
+        cap = ("[page 1]\n" + text).index("Trading")
+        self.ok("bundles", "--terms", self.terms, "--text-cap", str(cap), code=1)
+        row = next(r for r in self.bundle_rows("20") if r["path"] == "06 Work/Contract.docx")
+        self.assertEqual(row["id"], ids["06 Work/Contract.docx"][:12])
+        self.assertNotIn("robin", row["text"].lower())
+        self.assertIn("[... text truncated,", row["text"])
+        self.assertTrue(row["shielded"])
+
+    def test_bundles_json_never_records_the_terms_file_path(self):
+        """The path may carry a term (a list kept beside another affair's files), and bundles.json sits where the drafters
+        are sent: it records a fixed placeholder, and the rebuild is asked under the caller's own flag."""
+        elsewhere = os.path.join(self.tmp, "Example Lettings notes", "isolation.txt")
+        write(elsewhere, self.TERMS)
+        self.ok("bundles", "--terms", elsewhere, code=1)
+        raw = read(os.path.join(self.bundles_dir(), "bundles.json"))
+        self.assertNotIn("Example Lettings", raw)
+        self.assertNotIn("isolation.txt", raw)
+        self.assertEqual(json.loads(raw)["arguments"], {"--terms": "<terms file>"})
+        for name in os.listdir(self.bundles_dir()):
+            self.assertNotIn("Example Lettings notes", read(os.path.join(self.bundles_dir(), name)))
+        other = os.path.join(self.tmp, "other-terms.txt")
+        write(other, "Another Name\n")
+        err = self.refused("brief", "--page", BRIEF_PAGES[0], "--terms", other)
+        self.assertIn("--terms %s" % shlex.quote(os.path.realpath(other)), err.split("rebuild them: ")[1])
+
+    def review_prompt(self, *flags, lens="professional"):
+        out = os.path.join(self.tmp, "prompts-%d" % len(flags))
+        code, stdout, err = self.wiki("review-prompts", "--page", BRIEF_PAGES[0], "--author-model", "a",
+                                      "--reviewer-model", "b", "--out", out, *flags)
+        self.assertEqual(code, 0, stdout + err)
+        return read(os.path.join(out, "20 Finance", "Tax.%s.md" % lens))
+
+    def test_a_review_prompt_never_directs_a_reviewer_to_a_document_that_carries_a_term(self):
+        """A shielded source still has its name in the file: it is listed as one not to open, none of its facts is sampled, and
+        the templates say never to open it."""
+        prompt = self.review_prompt("--terms", self.terms)
+        sources = prompt.split("## Its sources")[1].split("## Facts to check")[0]
+        self.assertIn("- `06 Work/Contract.docx`: do not open; it carries a name kept from you", sources)
+        facts = prompt.split("## Facts to check")[1].split("## Judge")[0]
+        self.assertNotIn("06 Work/Contract.docx", facts, "a fact of a source the reviewer may not open was sampled")
+        self.assertIn("Tax return 2022 to 2023", sources, "a source that carries no term is listed as before")
+        flat = " ".join(prompt.split())
+        self.assertIn("never open its file", flat)
+        self.assertIn('Open each source above that is not marked "do not open"', flat)
+        owner = self.review_prompt("--terms", self.terms, lens="owner")
+        self.assertIn("Open no source file", owner)
+        plain = self.review_prompt("--no-isolation-terms")
+        self.assertNotIn("do not open; it carries", plain)
+        self.assertIn("`06 Work/Contract.docx`, ", plain.split("## Facts to check")[1], "unshielded, its facts are sampled")
+
+    def test_the_brief_tells_a_drafter_never_to_open_a_source_a_bundle_line_marks_shielded(self):
+        self.build("--terms", self.terms)
+        text = self.ok("brief", "--page", BRIEF_PAGES[0], "--terms", self.terms)
+        flat = " ".join(text.split())
+        self.assertIn('A bundle line marked `"shielded": true`', flat)
+        self.assertIn("never open its file", flat)
 
     def test_a_path_in_the_unrouted_list_is_shielded(self):
         man = json.loads(read(os.path.join(self.root, "_Audit", "manifest.json")))
