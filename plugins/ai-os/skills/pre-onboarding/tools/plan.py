@@ -647,13 +647,20 @@ def reorg(a):
         return top in reserved or top.startswith(("_", "."))
 
     def folders_listed(names, key):
-        """The folders of `names` (a mapping list called `key`) as the manifest spells them, each refused when it is
-        withheld or holds no live document."""
+        """The folders of `names` (a mapping list called `key`) as the manifest spells them. A `scope` folder is refused
+        when it is withheld or holds no live document. A `keep` folder only has to be a folder on disk: one that is
+        withheld or holds no live document is the owner's answer copied as given, and nothing in it can move anyway."""
         out = []
         for i, f in enumerate(names):
             label = "%s[%d]" % (key, i)
             f = listed(f, label, "path")
             if f is None:
+                continue
+            if key == "keep":
+                if os.path.isdir(os.path.join(root, f)) and not os.path.islink(os.path.join(root, f)):
+                    out.append((label, f))
+                else:
+                    refuse(label, "%r is not a folder in the folder" % f)
                 continue
             why = common.path_withheld(rb, at, f)
             if why:

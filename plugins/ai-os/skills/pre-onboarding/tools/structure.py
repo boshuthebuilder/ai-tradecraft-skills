@@ -28,8 +28,10 @@ is a value, zero included, with a `stands_out` flag where it crosses the thresho
     wide                  at least 15 documents directly in the folder (a `flat_dump` when it has no sub-folder)
     mixed                 at least 5 carded contents directly in it, the commonest category holding at most 0.6 of them
     duplicate_subtree     at least 3 contents, every one of which also lives in one other folder that is not nested
-                          with it (any depth), counted where the copied set starts: a folder that only wraps it (no
-                          document of its own, one sub-folder) is not counted again, nor named as the other folder
+                          with it (any depth). Each folder that meets this is counted, both folders of a copied pair
+                          among them, and so is a folder above several copied sub-folders as well as each of those;
+                          only a folder that merely wraps one (no document of its own, one sub-folder) is not counted
+                          again, nor named as the other folder
     generic_names         at least 5 canonical documents below it, at least 0.3 of them named like a scanner or device
                           default (the audit's `generic_name`)
     generic_folder_name   named like New folder, Stuff, Misc, Other or Downloads

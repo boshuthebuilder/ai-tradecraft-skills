@@ -1759,14 +1759,23 @@ class ReorgRefusalTest(ReorgCase):
         self.assertNotIn("moves[3]", err, "a document outside the kept folder moves")
         self.assertEqual(self.proposal(["07 Misc"], [("07 Misc/a.txt", "11 Filed")], keep=keep)[-1][1], "07 Misc/a.txt")
         os.remove(self.plan)
-        # a kept folder is no scope, may be given with a slash, and must be a folder with live documents
+        # a kept folder is no scope, may be given with a slash, and must be a folder in the folder
         self.refuses(["07 Misc/Sub"], [("07 Misc/Sub/c.txt", "09 More")],
                      "scope[0]: '07 Misc/Sub' lies inside '07 Misc/Sub', which the owner said must stay where it is",
                      keep=["07 Misc/Sub/"])
-        self.refuses(["07 Misc"], [("07 Misc/a.txt", "11 Filed")], "keep[0]: 'Nowhere' is not a folder holding live "
-                                                                  "documents", "keep[1]: '07 Misc/a.txt' is not a "
-                                                                  "folder holding live documents",
-                     keep=["Nowhere", "07 Misc/a.txt"])
+        self.refuses(["07 Misc"], [("07 Misc/a.txt", "11 Filed")], "keep[0]: 'Nowhere' is not a folder in the folder",
+                     "keep[1]: '07 Misc/a.txt' is not a folder in the folder", keep=["Nowhere", "07 Misc/a.txt"])
+
+    def test_a_kept_folder_that_is_excluded_or_empty_is_accepted_as_given(self):
+        """The owner's must-stay answer is copied as given: a kept folder they also excluded, or one with no document a
+        re-org could move, holds nothing that could move, so it never blocks the mapping."""
+        write(self.path("15 Priv/note.txt"), "a private note")
+        data = json.loads(read(self.path(".familyai/rulebook.json")))
+        self.rulebook(exclude=data["exclude"] + ["15 Priv"])
+        self.audit()
+        os.makedirs(self.path("17 Empty"))
+        self.assertEqual(self.proposal(["07 Misc"], [("07 Misc/a.txt", "11 Filed")], keep=["15 Priv", "17 Empty"])
+                         [-1][1], "07 Misc/a.txt")
 
     def test_a_folder_moved_whole_is_checked_at_every_final_path(self):
         data = json.loads(read(self.path(".familyai/rulebook.json")))

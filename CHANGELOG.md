@@ -22,8 +22,8 @@ versioned interface ([`AGENTS.md`](AGENTS.md)), and no skill name, archetype lay
   folders, a generic folder name and a stray at the root. A flag draws attention and never decides a verdict. It writes
   the measures and the judge's input (the tree, the measures, a deterministic card sample), shielded like the wiki's
   files; documents the tools may not read are counted, never listed, a path at a time (two copies held for another
-  project are 2). A duplicate subtree is counted once, where the copied set starts, not again at each folder that wraps
-  it. `documents` lists every document under the approved folders with its card's fields for the mapping's author.
+  project are 2). A duplicate subtree is not counted again at a folder that only wraps it (no document of its own, one
+  sub-folder). `documents` lists every document under the approved folders with its card's fields for the mapping's author.
   Folder names are compared in Unicode NFC, as `plan.py reorg` compares them (one rule, `common.as_spelled`), so a
   folder stored decomposed is found by its composed name. `check` validates the assessment record,
   `_Audit/structure-assessment.md`: the header (`Overall`: no re-org, targeted or full; `Reason`; `Documents that would
@@ -34,7 +34,7 @@ versioned interface ([`AGENTS.md`](AGENTS.md)), and no skill name, archetype lay
 - **`plan.py reorg`** turns a mapping the owner approved, `{"scope": [...], "keep": [...], "moves": [{"from": <document
   or folder>, "to": <folder>}]}`, into `create`, per-document `move` (evidence the manifest's hash) and `rmdir` rows in
   the existing plan format; a folder `from` moves its whole content. `keep` is the folders the owner said must stay
-  where they are. It refuses to run when the rulebook records `depth` `light` (the owner is not open to a
+  where they are, copied as given: one the owner also excluded, or one with nothing to move, is accepted. It refuses to run when the rulebook records `depth` `light` (the owner is not open to a
   re-organisation). It refuses, naming each row and writing nothing: a `from` outside the scope or under a `keep`
   folder, a destination that exists, a source that changed since the audit, a document whose content already lives in
   the destination folder (a duplicate, left to the light round), anything inside a pack, a folder the rulebook's

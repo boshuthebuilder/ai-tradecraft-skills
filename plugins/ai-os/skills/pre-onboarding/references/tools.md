@@ -261,8 +261,8 @@ exactly
 
 `scope` is the folders the owner approved, and a `from` must lie in one. `keep` is the folders the owner said must stay
 where they are (`[]` when none; the key is required, so that leaving it out is never read as none): no document under
-one is moved, whichever row names it, and a `scope` inside one is refused. Both lists name folders that hold live
-documents. A `from` that is a document is one row. A
+one is moved, whichever row names it, and a `scope` inside one is refused. A `scope` folder holds live documents. A `keep` folder only has to be a folder in the folder: one
+the owner excluded, or one with nothing a re-org could move, is accepted as given, since nothing in it moves anyway. A `from` that is a document is one row. A
 `from` that is a folder moves its whole content: each live document under it goes to the same place under `to`, keeping
 its sub-folders, and the folder is then empty; a file the owner excluded stays where it is, counted. `to` is a folder
 that exists or is created (never the folder's root), and its existing parts must be spelled as the folder spells them. A
@@ -563,7 +563,7 @@ at thresholds fixed in the tool (`PARAMS`, written into the output) before any j
 | --- | --- |
 | `wide` | at least 15 documents directly in the folder; `flat_dump` adds that it has no sub-folder |
 | `mixed` | at least 5 carded contents directly in it, the commonest category at most 0.6 of them |
-| `duplicate_subtree` | at least 3 contents, every one also in one other folder that is not nested with it (any depth); counted where the copied set starts, so a folder that only wraps it (no document of its own, one sub-folder) is neither counted again nor named as the other folder |
+| `duplicate_subtree` | at least 3 contents, every one also in one other folder that is not nested with it (any depth); each folder that meets it is counted (both folders of a copied pair, and a folder above several copied sub-folders as well as each of those), but a folder that only wraps one (no document of its own, one sub-folder) is neither counted again nor named as the other folder |
 | `generic_names` | at least 5 canonical documents below it, at least 0.3 of them named like a device or scanner default (the audit's `generic_name`) |
 | `generic_folder_name` | named like New folder, Stuff, Misc, Other or Downloads |
 | `single_child_chain` | starts a run of at least 2 folders that each hold one folder and no document |
