@@ -861,17 +861,24 @@ class ShieldTest(Copy):
         self.assertEqual(code, 0, stdout + err)
         return read(os.path.join(out, "20 Finance", "Tax.%s.md" % lens))
 
+    DO_NOT_OPEN = "do not open; it carries a name kept from you"
+
     def test_a_review_prompt_never_directs_a_reviewer_to_a_document_that_carries_a_term(self):
-        """A shielded source still has its name in the file: it is listed as one not to open, none of its facts is sampled, and
-        the templates say never to open it."""
+        """A shielded source still has its name in the file: it is listed as one not to open, none of its facts is sampled,
+        and the templates say never to open it. Which documents those are is the bundles' rule: a document whose card
+        names a term is shielded though its extract text does not, as the Tax return here."""
         prompt = self.review_prompt("--terms", self.terms)
         sources = prompt.split("## Its sources")[1].split("## Facts to check")[0]
-        self.assertIn("- `06 Work/Contract.docx`: do not open; it carries a name kept from you", sources)
+        for path in ("06 Work/Contract.docx", "02 Finance/Tax/Tax return 2023.pdf", "06 Work/Essay.docx"):
+            self.assertIn("- `%s`: %s" % (path, self.DO_NOT_OPEN), sources)
+        self.assertIn("- `02 Finance/Tax/Budget.numbers`: Household budget, 2023", sources,
+                      "a source that carries no term is listed as before")
         facts = prompt.split("## Facts to check")[1].split("## Judge")[0]
-        self.assertNotIn("06 Work/Contract.docx", facts, "a fact of a source the reviewer may not open was sampled")
-        self.assertIn("Tax return 2022 to 2023", sources, "a source that carries no term is listed as before")
+        for path in ("06 Work/Contract.docx", "02 Finance/Tax/Tax return 2023.pdf", "06 Work/Essay.docx"):
+            self.assertNotIn(path, facts, "a fact of a source the reviewer may not open was sampled")
+        self.assertIn("`02 Finance/Tax/Budget.numbers`, date: 2023", facts)
         flat = " ".join(prompt.split())
-        self.assertIn("never open its file", flat)
+        self.assertIn("never open it", flat)
         self.assertIn('Open each source above that is not marked "do not open"', flat)
         owner = self.review_prompt("--terms", self.terms, lens="owner")
         self.assertIn("Open no source file", owner)
@@ -879,12 +886,97 @@ class ShieldTest(Copy):
         self.assertNotIn("do not open; it carries", plain)
         self.assertIn("`06 Work/Contract.docx`, ", plain.split("## Facts to check")[1], "unshielded, its facts are sampled")
 
+    def test_bundles_and_review_prompts_agree_on_which_documents_are_shielded(self):
+        self.ok("bundles", "--terms", self.terms, code=1)
+        marked = {r["path"] for n in ("10", "20", "30", "40") for r in self.bundle_rows(n) if r.get("shielded")}
+        prompt = self.review_prompt("--terms", self.terms)
+        sources = prompt.split("## Its sources")[1].split("## Facts to check")[0]
+        cited = {l.split("`")[1] for l in sources.splitlines() if l.startswith("- `")}
+        refused = {l.split("`")[1] for l in sources.splitlines() if self.DO_NOT_OPEN in l}
+        self.assertEqual(refused, cited & marked)
+        self.assertTrue(refused)
+
+    def test_a_document_whose_card_or_extract_record_is_missing_or_unreadable_is_never_listed_as_clean(self):
+        """Fail closed: a record that cannot be read cannot show the document carries no term."""
+        ids = {e["current_path"]: h for h, e in json.loads(read(MANIFEST))["entries"].items()}
+        extract = os.path.join(self.root, "_Audit", "extract")
+        cards = os.path.join(self.root, "_Audit", "cards")
+        cases = {"no extract record": lambda h: os.remove(os.path.join(extract, h + ".json")),
+                 "a malformed extract record": lambda h: write(os.path.join(extract, h + ".json"), "["),
+                 "no card": lambda h: os.remove(os.path.join(cards, h + ".json")),
+                 "a malformed card": lambda h: write(os.path.join(cards, h + ".json"), "[]")}
+        for name, damage in cases.items():
+            with self.subTest(name):
+                copy = make_copy(os.path.join(self.tmp, "m%d" % len(name)))
+                work = os.path.join(self.tmp, "m%d" % len(name), "work")
+                target = ids["02 Finance/Tax/Budget.numbers"]  # a document that carries no term
+                damage_root = os.path.join(copy, "_Audit")
+                extract, cards = os.path.join(damage_root, "extract"), os.path.join(damage_root, "cards")
+                damage(target)
+                out = os.path.join(self.tmp, "prompts-m%d" % len(name))
+                code, stdout, err = self.wiki("review-prompts", "--page", BRIEF_PAGES[0], "--author-model", "a",
+                                              "--reviewer-model", "b", "--out", out, "--terms", self.terms,
+                                              root=copy, work=work)
+                self.assertEqual(code, 0, stdout + err)
+                text = read(os.path.join(out, "20 Finance", "Tax.professional.md"))
+                sources = text.split("## Its sources")[1].split("## Facts to check")[0]
+                self.assertIn("- `02 Finance/Tax/Budget.numbers`: %s" % self.DO_NOT_OPEN, sources)
+                self.assertNotIn("Budget.numbers`, date", text)
+
+    def test_a_folder_a_page_cites_is_marked_when_a_shielded_document_is_under_it(self):
+        """A reviewer opening the folder would find the file: it is marked, with how many and never which."""
+        page = self.page(BRIEF_PAGES[0])
+        write(page, read(page) + "\nThe employment papers are in `06 Work/`, the rest in `03 Home/`, `04 Study/` and "
+                                 "`01 Identity/`.\n")
+        prompt = self.review_prompt("--terms", self.terms)
+        sources = prompt.split("## Its sources")[1].split("## Facts to check")[0]
+        line = {l.split("`")[1]: l for l in sources.splitlines() if l.startswith("- `0")}
+        self.assertEqual(line["06 Work/"], "- `06 Work/`: a folder, 2 files directly in it; do not open it: 2 documents "
+                                           "under it carry a name kept from you, so work from the bundle for that folder")
+        self.assertIn("do not open it: 3 documents under it carry", line["03 Home/"])
+        self.assertIn("do not open it: 1 document under it carries", line["04 Study/"],
+                      "a copy of a shielded document counts, whichever folder holds it")
+        self.assertEqual(line["01 Identity/"], "- `01 Identity/`: a folder, 1 file directly in it")
+        plain = self.review_prompt("--no-isolation-terms")
+        self.assertIn("- `06 Work/`: a folder, 2 files directly in it\n", plain)
+
+    def test_a_folder_holding_only_subfolders_is_marked_too(self):
+        """No file directly in the folder, but a shielded document two levels down: the folder is still not to be opened."""
+        man = {"h1": {"current_path": "Papers/Old/Lease.pdf"}, "h2": {"current_path": "Papers/New/Rent.pdf"}}
+        held = {"Papers/Old/Lease.pdf": "h1", "Papers/New/Rent.pdf": "h2"}
+        evidence = {"Zarnwick Farm": ["Zarnwick Farm"]}
+        cards = os.path.join(self.tmp, "cards")
+        extract = os.path.join(self.tmp, "extract")
+        for h, text in (("h1", "Lease of Zarnwick Farm"), ("h2", "Rent for the flat")):
+            write(os.path.join(cards, h + ".json"), json.dumps(
+                {"id": h, "doc_type": "Letter", "party": "Alex", "parties": [], "doc_date": "", "title": "T" + h,
+                 "summary": "S", "key_facts": {"dates": [], "amounts": [], "reference_numbers": []},
+                 "category": "Other", "language": "en", "sensitive": False}))
+            write(os.path.join(extract, h + ".json"), json.dumps({"id": h, "pages": [{"n": 1, "text": text}]}))
+        sources = wiki.SourceShield(man, held, evidence, cards, extract)
+        rb = dict(common.DEFAULTS, wiki_dir="W")
+        lines, facts, _hidden = wiki.page_sources("See `Papers/`.", man, held, cards, rb, {}, sources)
+        self.assertEqual(lines, ["- `Papers/`: a folder, 0 files directly in it; do not open it: 1 document under it "
+                                 "carries a name kept from you, so work from the bundle for that folder"])
+        clean = wiki.SourceShield(man, held, {}, cards, extract)
+        self.assertEqual(wiki.page_sources("See `Papers/`.", man, held, cards, rb, {}, clean)[0],
+                         ["- `Papers/`: not a document or folder in the manifest"], "nothing is marked without terms")
+
+    def test_the_brief_says_how_many_of_the_sources_a_page_cites_are_shielded(self):
+        self.build("--terms", self.terms)
+        text = self.ok("brief", "--page", BRIEF_PAGES[0], "--terms", self.terms)
+        self.assertIn("- Shielded sources: 3 sources this page cites (a document, or a folder holding one) carry a name "
+                      "kept from you. Never open them: the bundle line for each holds what you may use.", text)
+        self.build("--no-isolation-terms")
+        self.assertNotIn("Shielded sources", self.ok("brief", "--page", BRIEF_PAGES[0], "--no-isolation-terms"))
+
     def test_the_brief_tells_a_drafter_never_to_open_a_source_a_bundle_line_marks_shielded(self):
         self.build("--terms", self.terms)
         text = self.ok("brief", "--page", BRIEF_PAGES[0], "--terms", self.terms)
         flat = " ".join(text.split())
         self.assertIn('A bundle line marked `"shielded": true`', flat)
         self.assertIn("never open its file", flat)
+        self.assertIn('A page entry that lists "Shielded sources"', flat)
 
     def test_a_path_in_the_unrouted_list_is_shielded(self):
         man = json.loads(read(os.path.join(self.root, "_Audit", "manifest.json")))

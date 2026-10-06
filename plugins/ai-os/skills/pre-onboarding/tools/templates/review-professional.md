@@ -23,8 +23,8 @@ page ({author_model} wrote it), reading it as {professional}. You judge the page
 ## Its sources
 
 The folder is `{root}`; the page names each source by its folder-relative path. **A source marked "do not open" is a
-document whose text or path carries a name kept from you: never open its file.** Judge the page against its card as
-the line gives it, and say in a finding what you could not check:
+document, or a folder holding one, that carries a name kept from you: never open it.** Judge the page against its
+card (or, for a folder, the bundle) as the line gives it, and say in a finding what you could not check:
 
 {sources}
 

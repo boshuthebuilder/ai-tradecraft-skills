@@ -386,6 +386,52 @@ class Shielded:
             print("shielded %d occurrence(s) of an isolation term in %s" % (self.count, what), file=sys.stderr)
 
 
+def shielded_document(h, entry, evidence, cards_dir, extract_dir, card=None, xr=None):
+    """Whether document `h`, which the manifest holds as `entry`, is shielded: a subagent must not open it, because its
+    file still holds a name the isolation list withholds. It is when its path, any copy's path, its extract text or any
+    field of its card carries a term or marker, or its card records that it was shielded when carded. The one rule
+    `bundles`, `brief` and `review-prompts` all use. It fails closed: a card or extract record that is missing or cannot be
+    read counts as shielded, never as clean. Without `evidence` nothing is shielded. `card` and `xr` are the records, when
+    the caller has read them already."""
+    if not evidence:
+        return False
+    names = [entry["current_path"]] + [c["path"] for c in entry.get("copies", []) if isinstance(c, dict)]
+    if any(isolation.carries(n, evidence) for n in names):
+        return True
+    try:
+        card = load_card(cards_dir, h) if card is None else card
+        if xr is None and os.path.exists(os.path.join(extract_dir, h + ".json")):
+            xr = load_extract(extract_dir, h, os.path.join(cards_dir, h + ".json"))
+    except (common.ToolError, OSError):
+        return True
+    if card is None or xr is None:
+        return True
+    meta = card.get("card_meta")
+    fields = json.dumps({k: v for k, v in card.items() if k != "card_meta"}, ensure_ascii=False)
+    return bool(isinstance(meta, dict) and meta.get("shielded")) or isolation.carries(fields, evidence) \
+        or isolation.carries(full_text(xr), evidence)
+
+
+class SourceShield:
+    """`shielded_document` for the documents a page cites, read once each: `document(h)`, and `under(folder)`, how many of
+    the documents under a folder (by the paths the manifest holds, copies included) are shielded."""
+
+    def __init__(self, man, held, evidence, cards_dir, extract_dir):
+        self.man, self.held, self.evidence = man, held, evidence
+        self.cards_dir, self.extract_dir, self.known = cards_dir, extract_dir, {}
+
+    def document(self, h):
+        if h not in self.known:
+            self.known[h] = shielded_document(h, self.man[h], self.evidence, self.cards_dir, self.extract_dir)
+        return self.known[h]
+
+    def under(self, folder):
+        if not self.evidence:
+            return 0
+        prefix = folder.rstrip("/") + "/"
+        return sum(1 for h in {h for p, h in self.held.items() if p.startswith(prefix)} if self.document(h))
+
+
 # ------------------------------------------------------------------------------------ profile
 
 def people_names(rb):
@@ -666,11 +712,11 @@ def bundles(a):
             rec.update({"summary": c.get("summary"), "key_facts": c.get("key_facts")})
             if active:
                 rec["text"] = full
-        before = shield.count
+        marked = shielded_document(h, e, shield.evidence, cards_dir, extract_dir, card=c, xr=xr)
         rec = {k: v if k == "id" else shield.value(v) for k, v in rec.items()}  # the whole text first: the cut follows
         if "text" in rec and len(rec["text"]) > a.text_cap:
             rec["text"] = rec["text"][:a.text_cap] + "\n[... text truncated, %d chars total]" % len(rec["text"])
-        if shield.count > before or isolation.carries(full, shield.evidence):
+        if marked:
             rec["shielded"] = True  # a drafter must not open the source: its file still holds the name
         bund[sec].append(rec)
         counts[sec] += 1
@@ -730,10 +776,18 @@ def withheld_note(found):
                        "s" if len(found) == 1 else "", " or ".join(why)))
 
 
-def page_entry(p, state, sec, voice, contract, ws, bundle, rb, found=()):
+def shielded_note(n):
+    """The line a brief gives a page that cites shielded sources: how many, never which."""
+    return ("- Shielded sources: %d source%s this page cites (a document, or a folder holding one) carr%s a name kept from "
+            "you. Never open %s: the bundle line for each holds what you may use." % (
+                n, "" if n == 1 else "s", "ies" if n == 1 else "y", "it" if n == 1 else "them"))
+
+
+def page_entry(p, state, sec, voice, contract, ws, bundle, rb, found=(), shielded=0):
     lines = ["### %s" % p, "",
              "- Status: %s" % ("exists (revise it)" if state == "exists" else "planned (write it)")]
     lines += [withheld_note(found)] if found else []
+    lines += [shielded_note(shielded)] if shielded else []
     lines += [
              "- Section: %s %s, %s%s" % (sec["number"], sec["name"], sec["kind"],
                                          ", derived" if sec["derived"] else ""),
@@ -858,6 +912,10 @@ def brief(a):
     contracts = {c["number"]: c for c in ws["contracts"]}
     pmap = page_map(ws, wiki, pages)
     entries, skeletons, cites = [], [], withheld_citer(root, rb, man, ws)
+    held, _withheld_at = held_paths(rb, man)
+    built = meta["arguments"]
+    sources = SourceShield(man, held, shield.evidence, built.get("--cards", os.path.join(root, "_Audit", "cards")),
+                           built.get("--extract", os.path.join(root, "_Audit", "extract")))
     for p in pages:
         sec = section_of(ws, p)
         contract = contracts.get(sec["number"])
@@ -869,8 +927,10 @@ def brief(a):
         bundle = ("`%s` (%d document%s%s)" % (os.path.join(bdir, f), n, "" if n == 1 else "s",
                                               ", %d of them compact: listed without summary or text" % k if k else "")
                   if f else "none: no carded document routes to this section")
-        found = cites(p, read_text(os.path.join(wiki, *p.split("/")))) if pmap[p] == "exists" else []
-        entries.append(page_entry(p, pmap[p], sec, voices[p], contract, ws, bundle, rb, found))
+        page_text = read_text(os.path.join(wiki, *p.split("/"))) if pmap[p] == "exists" else None
+        found = cites(p, page_text) if page_text is not None else []
+        entries.append(page_entry(p, pmap[p], sec, voices[p], contract, ws, bundle, rb, found,
+                                  shielded_cited(page_text, held, sources) if page_text is not None else 0))
         skeletons.append(rationale_skeleton(p, pmap[p], voices[p], contract))
     checker = ["python3", os.path.join(HERE, "wiki.py"), "check", "--root", root, "--work", work]
     checker += ["--settings-dir", settings_dir] if a.settings_dir else []
@@ -1598,30 +1658,15 @@ def held_paths(rb, man):
     return held, common.withheld_paths(rb, man)
 
 
-def carries_a_term(h, entry, card, extract_dir, evidence):
-    """Whether document `h`, which the manifest holds as `entry` and `card` describes, carries a term of the isolation list:
-    its path or a copy's, its extract text, or a card that records it was shielded. Such a source is one a reviewer must not
-    open: its file still holds the name the prompt withholds."""
-    if not evidence:
-        return False
-    names = [entry["current_path"]] + [c["path"] for c in entry.get("copies", [])]
-    meta = card.get("card_meta") if isinstance(card, dict) else None
-    if any(isolation.carries(n, evidence) for n in names) or (isinstance(meta, dict) and meta.get("shielded")):
-        return True
-    if os.path.exists(os.path.join(extract_dir, h + ".json")):
-        return isolation.carries(full_text(load_extract(extract_dir, h, os.path.join(extract_dir, h + ".json"))),
-                                 evidence)
-    return False
-
-
-def page_sources(text, man, held, cards_dir, rb, withheld_at, extract_dir=None, evidence=None):
+def page_sources(text, man, held, cards_dir, rb, withheld_at, sources=None):
     """(the lines listing what the page cites, its facts, how many cited paths are withheld): documents with their
     card's title, folders with the paths held directly in them, anything else holding `/` as not in the manifest;
     facts as in fact_sample, each under its document's current path, so a document cited by two of its paths gives its
     facts once. A cited path that is withheld (`common.path_withheld`) is named as withheld and nothing else: no
-    card, title, fact or canonical path is read, and no folder count includes it. Given the isolation `evidence`, a cited
-    document that carries a term (`carries_a_term`) is listed as one not to open, read from its bundle line or card
-    alone, and none of its facts is sampled."""
+    card, title, fact or canonical path is read, and no folder count includes it. Given a `SourceShield`, a cited
+    document that is shielded (`shielded_document`) is listed as one not to open, read from its bundle line or card alone,
+    and none of its facts is sampled; so is a cited folder with a shielded document under it, with how many, never which."""
+    sources = sources or SourceShield(man, held, {}, None, None)
     by_folder = collections.Counter(p.rsplit("/", 1)[0] for p in held if "/" in p)
     lines, facts, hidden = [], set(), 0
     for path in sorted({span for _l, span in citations(text)}):
@@ -1632,24 +1677,35 @@ def page_sources(text, man, held, cards_dir, rb, withheld_at, extract_dir=None, 
                          % (path, common.WITHHELD_WHY[why]))
         elif path in held:
             h = held[path]
-            card = load_card(cards_dir, h)
-            current = man[h]["current_path"]
-            if carries_a_term(h, man[h], card, extract_dir, evidence):
+            if sources.document(h):
                 lines.append("- `%s`: do not open; it carries a name kept from you (the prompt shows `[withheld name]` "
                              "for it), so judge the page against its card alone" % path)
                 continue
+            card = load_card(cards_dir, h)
+            current = man[h]["current_path"]
             lines.append("- `%s`: %s%s" % (path, card.get("title") or "untitled card" if card else "no card",
                                            ", a copy of `%s`" % current if current != path else ""))
             kf = card.get("key_facts") if card and isinstance(card.get("key_facts"), dict) else {}
             for kind in FACT_KINDS:
                 values = kf.get(kind) if isinstance(kf.get(kind), list) else []
                 facts.update((current, kind, v.strip()) for v in values if isinstance(v, str) and v.strip())
-        elif by_folder[path.rstrip("/")]:
-            n = by_folder[path.rstrip("/")]
-            lines.append("- `%s`: a folder, %d file%s directly in it" % (path, n, "" if n == 1 else "s"))
+        elif by_folder[path.rstrip("/")] or sources.under(path):
+            n, m = by_folder[path.rstrip("/")], sources.under(path)
+            lines.append("- `%s`: a folder, %d file%s directly in it%s" % (
+                path, n, "" if n == 1 else "s",
+                "; do not open it: %d document%s under it %s a name kept from you, so work from the bundle for "
+                "that folder" % (m, "" if m == 1 else "s", "carries" if m == 1 else "carry") if m else ""))
         elif "/" in path:
             lines.append("- `%s`: not a document or folder in the manifest" % path)
     return lines, sorted(facts), hidden
+
+
+def shielded_cited(text, held, sources):
+    """How many of the sources a page cites are shielded: documents (`shielded_document`) and folders with one under them."""
+    n = 0
+    for path in {span for _l, span in citations(text)}:
+        n += bool(sources.document(held[path])) if path in held else bool(sources.under(path))
+    return n
 
 
 def section_routes(rb, ws, number):
@@ -1713,6 +1769,7 @@ def review_prompts(a):
     cards_dir, extract_dir = cards_dirs(a, root)
     contracts = {c["number"]: c for c in ws["contracts"]}
     held, withheld_at = held_paths(rb, man)
+    source_shield = SourceShield(man, held, shield.evidence, cards_dir, extract_dir)
     cites = withheld_citer(root, rb, man, ws)
     writer, written, withheld_cited, refused = common.Writer(root), [], {}, []
     for p in pages:
@@ -1735,7 +1792,7 @@ def review_prompts(a):
         questions = ("\n".join("%d. %s" % (i, q) for i, q in enumerate(contract["questions"], 1)) if contract else
                      "None in the Schema: the section is fixed, so its shape is the method's (`wiki-onboarding` and "
                      "`wiki-maintenance`). Judge whether %s can use the page for what that shape is for." % reader)
-        sources, facts, hidden = page_sources(text, man, held, cards_dir, rb, withheld_at, extract_dir, shield.evidence)
+        sources, facts, hidden = page_sources(text, man, held, cards_dir, rb, withheld_at, source_shield)
         if hidden:
             withheld_cited[p] = hidden
         sample = fact_sample(p, facts, a.sample)
