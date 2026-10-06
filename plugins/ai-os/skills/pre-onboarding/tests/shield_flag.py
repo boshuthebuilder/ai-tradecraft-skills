@@ -1,10 +1,11 @@
 """`--no-isolation-terms` for the tools that require a stated choice, in tests about something else.
 
-`vision.py` and `wiki.py` `profile`, `bundles`, `brief` and `review-prompts` refuse a command line with neither
-`--terms` nor `--no-isolation-terms`; a test that is not about the shield states the second, as an operator with no
-other project to isolate would.
+`vision.py`, `structure.py` `measure` and `documents` and `wiki.py` `profile`, `bundles`, `brief` and `review-prompts`
+refuse a command line with neither `--terms` nor `--no-isolation-terms`; a test that is not about the shield states
+the second, as an operator with no other project to isolate would.
 """
-SHIELDED = {"vision.py": None, "wiki.py": ("profile", "bundles", "brief", "review-prompts")}
+SHIELDED = {"vision.py": None, "wiki.py": ("profile", "bundles", "brief", "review-prompts"),
+            "structure.py": ("measure", "documents")}
 
 
 def with_terms_flag(tool, args):
