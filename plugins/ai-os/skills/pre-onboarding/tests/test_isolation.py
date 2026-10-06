@@ -86,6 +86,76 @@ class TermsTest(Case):
         self.assertEqual(isolation.contamination('{"summary": "Council tax."}', "", ev), [])
 
 
+class ShieldTest(Case):
+    """`isolation.shield`: every term and marker replaced, by the match `hits` and `masked` use, and counted."""
+
+    def setUp(self):
+        super().setUp()
+        self.ev = isolation.load_terms(self.terms)
+
+    def test_every_term_and_marker_is_replaced_whatever_its_case_and_counted(self):
+        text = "Rent to Zarnwick Farm; ZARNWICK too, zarnwick farm again, Other Project, and 青石湾 1号."
+        got, n = isolation.shield(text, self.ev)
+        self.assertEqual(got, "Rent to [withheld name]; [withheld name] too, [withheld name] again, [withheld name], "
+                              "and [withheld name] 1号.")
+        self.assertEqual(n, 5)
+        self.assertEqual(isolation.hits(got, self.ev), [], "the scan finds nothing in what the shield made")
+
+    def test_the_longest_form_goes_first_and_a_form_is_never_replaced_inside_the_placeholder(self):
+        ev = {"Zarnwick Farm": ["Zarnwick Farm", "Zarnwick"], "withheld": ["withheld"], "name": ["name"]}
+        got, n = isolation.shield("Zarnwick Farm, Zarnwick and the farm", ev)
+        self.assertEqual((got, n), ("[withheld name], [withheld name] and the farm", 2))
+        self.assertEqual(isolation.shield("[withheld name]", {"x": ["Zarnwick"]}), ("[withheld name]", 0))
+
+    def test_a_short_term_masks_inside_a_longer_word_and_never_leaks(self):
+        got, n = isolation.shield("Zarnwickshire and a Ziggurat", {"Zarn": ["Zarn"]})
+        self.assertEqual((got, n), ("[withheld name]wickshire and a Ziggurat", 1))
+
+    def test_regex_characters_in_a_term_are_literal(self):
+        ev = {"A.B (C)": ["A.B (C)"]}
+        self.assertEqual(isolation.shield("a.b (c) and AXB (C)", ev), ("[withheld name] and AXB (C)", 1))
+
+    def test_carries_is_whether_the_shield_would_replace_anything(self):
+        for text, want in (("Rent to Zarnwick Farm", True), ("only the marker, ZARNWICK", True), ("Council tax", False),
+                           ("青石湾 1号", True)):
+            with self.subTest(text):
+                self.assertEqual(isolation.carries(text, self.ev), want)
+                self.assertEqual(isolation.shield(text, self.ev)[1] > 0, want)
+        self.assertFalse(isolation.carries("Zarnwick Farm", {}))
+
+    def test_no_terms_returns_the_text_as_it_was(self):
+        self.assertEqual(isolation.shield("Zarnwick Farm", {}), ("Zarnwick Farm", 0))
+        self.assertEqual(isolation.shield_value({"a": ["Zarnwick"]}, {}), ({"a": ["Zarnwick"]}, 0))
+
+    def test_a_json_value_is_shielded_in_every_string_and_key(self):
+        value = {"path": "Zarnwick Farm/lease.pdf", "Other Project": ["x Zarnwick", 3, None, True],
+                 "nested": {"k": "青石湾"}}
+        got, n = isolation.shield_value(value, self.ev)
+        self.assertEqual(got, {"path": "[withheld name]/lease.pdf", "[withheld name]": ["x [withheld name]", 3, None, True],
+                               "nested": {"k": "[withheld name]"}})
+        self.assertEqual(n, 4)
+        self.assertEqual(value["path"], "Zarnwick Farm/lease.pdf", "the value given is not changed")
+
+    def test_the_digest_is_of_the_sorted_forms_and_never_holds_them(self):
+        a = isolation.shield_digest(self.ev)
+        self.assertRegex(a, r"^[0-9a-f]{64}$")
+        reordered = {k: self.ev[k] for k in reversed(list(self.ev))}
+        self.assertEqual(isolation.shield_digest(reordered), a)
+        self.assertNotEqual(isolation.shield_digest({"Zarnwick Farm": ["Zarnwick Farm"]}), a)
+        self.assertNotEqual(isolation.shield_digest({}), a)
+        for form in ("Zarnwick", "Other Project"):
+            self.assertNotIn(form, a)
+
+    def test_neither_flag_and_both_flags_are_refused_and_no_terms_means_no_evidence(self):
+        ns = lambda **kw: type("A", (), dict({"terms": None, "no_isolation_terms": False}, **kw))  # noqa: E731
+        with self.assertRaisesRegex(common.ToolError, "give --terms .* or --no-isolation-terms$"):
+            isolation.evidence_of(ns())
+        with self.assertRaisesRegex(common.ToolError, "not both"):
+            isolation.evidence_of(ns(terms=self.terms, no_isolation_terms=True))
+        self.assertEqual(isolation.evidence_of(ns(no_isolation_terms=True)), {})
+        self.assertEqual(isolation.evidence_of(ns(terms=self.terms)), self.ev)
+
+
 class ScanTest(Case):
     def test_every_model_facing_file_is_scanned(self):
         d = os.path.join(self.tmp, "prompts")
@@ -443,6 +513,34 @@ class CanaryTest(Case):
         self.assertEqual((res["model"], res["effort"]), ("fake-codex", "low"))
         _code, res, _stdout, _err = self.canary("codex")
         self.assertEqual((res["model"], res["effort"]), ("cli-default", "low"))
+
+    def test_codex_takes_an_effort_and_the_result_records_it(self):
+        self.says("codex", "NAMES: {marker}")
+        code, res, _stdout, err = self.canary("codex", "--model", "fake-codex", "--effort", "high")
+        self.assertEqual(code, 0, err)
+        self.assertEqual((res["model"], res["effort"], res["pass"]), ("fake-codex", "high", True))
+        argv = self.fakes.calls("codex")[0]["argv"]
+        self.assertIn('model_reasoning_effort="high"', argv)
+        self.assertNotIn('model_reasoning_effort="low"', argv)
+
+    def test_agy_refuses_an_effort_because_its_effort_is_in_its_model_id(self):
+        out = os.path.join(self.tmp, "gate", "canary-agy.json")
+        write(out, json.dumps({"engine": "agy", "pass": True, "answered": True, "marker": "Oldmarker"}))
+        code, _stdout, err = self.iso("canary", "--terms", self.terms, "--engine", "agy", "--model", "fake-model-high",
+                                      "--effort", "low", "--out", out)
+        self.assertEqual(code, 2, err)
+        self.assertIn("agy's effort is part of its model id", err)
+        self.assertFalse(os.path.exists(out), "an earlier pass survived")
+        self.assertEqual(self.fakes.calls("agy"), [])
+
+    def test_an_effort_that_is_not_a_word_is_refused_before_a_call(self):
+        for bad in ('low"; x="1', "", "low high", "5"):
+            with self.subTest(bad):
+                code, _stdout, err = self.iso("canary", "--terms", self.terms, "--engine", "codex", "--effort", bad,
+                                              "--out", os.path.join(self.tmp, "gate", "c.json"))
+                self.assertEqual(code, 2, err)
+                self.assertIn("is not a codex reasoning effort", err)
+        self.assertEqual(self.fakes.calls("codex"), [])
 
     def test_a_canary_that_ends_early_leaves_no_earlier_pass_behind(self):
         out = os.path.join(self.tmp, "gate", "canary-agy.json")

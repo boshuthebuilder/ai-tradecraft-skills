@@ -22,7 +22,9 @@ FIXTURE = os.path.join(HERE, "fixture", "Alex Personal")
 EXPECTED_SCHEMA = os.path.join(HERE, "expected", "wiki-schema.json")
 SCHEMA = os.path.join("Alex Personal Wiki", "90 Schema", "90 Schema.md")
 sys.path.insert(0, TOOLS)
+sys.path.insert(0, HERE)
 import common  # noqa: E402
+from shield_flag import with_terms_flag  # noqa: E402
 import settings  # noqa: E402
 
 
@@ -32,7 +34,7 @@ def read(path, mode="r"):
 
 
 def run(tool, *args):
-    r = subprocess.run([sys.executable, os.path.join(TOOLS, tool)] + list(args), capture_output=True, text=True, timeout=TIMEOUT)
+    r = subprocess.run([sys.executable, os.path.join(TOOLS, tool)] + with_terms_flag(tool, args), capture_output=True, text=True, timeout=TIMEOUT)
     return r.returncode, r.stdout, r.stderr
 
 

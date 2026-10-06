@@ -30,7 +30,9 @@ RATIONALE = os.path.join("_Audit", "wiki-rationale.md")
 ACCEPTANCE = os.path.join("_Audit", "wiki-acceptance.json")
 TAX = "20 Finance/Tax.md"
 sys.path.insert(0, TOOLS)
+sys.path.insert(0, HERE)
 import common  # noqa: E402
+from shield_flag import with_terms_flag  # noqa: E402
 import wiki  # noqa: E402
 
 CARDS = {  # path: title and key_facts of a synthetic card; the Tax page cites all three and Budget.numbers
@@ -66,7 +68,7 @@ def write(path, text):
 
 
 def run(tool, *args):
-    r = subprocess.run([sys.executable, os.path.join(TOOLS, tool)] + list(args), capture_output=True, text=True,
+    r = subprocess.run([sys.executable, os.path.join(TOOLS, tool)] + with_terms_flag(tool, args), capture_output=True, text=True,
                        encoding="utf-8", timeout=TIMEOUT)
     return r.returncode, r.stdout, r.stderr
 

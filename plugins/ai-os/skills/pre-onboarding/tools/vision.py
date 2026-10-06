@@ -16,7 +16,15 @@ are out of the share that has to be empty, and the lane's log counts the documen
 settings and the manifest are read again before each batch, so a round that stages or excludes a document while the lane
 runs is seen.
 
-    python3 vision.py --root R --model <vision model id> [--worker 0/2]
+The isolation terms: give `--terms F` or `--no-isolation-terms`, as `cards.py work` does (the same refusal). An image cannot
+be shielded, so a document whose manifest path, or whose extract record's text on any page (`text` or `local_text`),
+carries a term of the list has no image sent: its queued pages are taken off the queue and marked `unread`, the local
+text kept and the reason saying that an isolation term held it, so the lane can still finish and exit. The log counts
+those documents and never names them. The residual: a term that is visible only on a page local OCR could not read
+cannot be found before the image is sent. Nothing here can see it; the owner's alternative is to exclude such a
+document (`exclude` in rulebook.json).
+
+    python3 vision.py --root R --model <vision model id> (--terms F | --no-isolation-terms) [--worker 0/2]
 """
 import collections
 import json
@@ -29,6 +37,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common  # noqa: E402
 import engines  # noqa: E402
+import isolation  # noqa: E402
 
 BATCH = 6
 MAX_TRIES = 3
@@ -45,12 +54,14 @@ with exactly one entry per image, in the order listed. Do not create plans, file
 def main():
     ap = common.base_args("Vision lane for pages local OCR could not read")
     ap.add_argument("--model", required=True, help="agy model id for transcription (effort encoded in the id)")
+    isolation.add_terms_args(ap)
     ap.add_argument("--worker", default="0/1")
     ap.add_argument("--out", help="extract records (default <root>/_Audit/extract)")
     ap.add_argument("--manifest", help="default <root>/_Audit/manifest.json")
     ap.add_argument("--lanes", default="extract_main0,extract_apps0",
                     help="done markers in <work>/state that mean extraction has finished")
     a = ap.parse_args()
+    isolation.require_choice(a)
     root, settings_dir, work = common.resolve(a, extract=a.out)
     rb = common.load_rulebook(root, settings_dir)
     out = os.path.realpath(a.out) if a.out else os.path.join(root, "_Audit", "extract")
@@ -68,7 +79,44 @@ def main():
         with open(p, encoding="utf-8") as f:
             return json.load(f)
 
+    evidence = isolation.evidence_of(a)
+    if not evidence:
+        log("isolation terms: none, by operator decision (--no-isolation-terms)")
     tries = collections.Counter(load_json(tries_p) if os.path.exists(tries_p) else {})
+    termed = set()  # documents held from the model because a term is in their path or text
+
+    def settle(r):
+        """The record's totals and status from its pages, as a finished lane leaves them."""
+        tiers = collections.Counter(p["tier"] for p in r["pages"])
+        r["tiers"] = dict(tiers)
+        r["chars"] = sum(len(p.get("text", "")) for p in r["pages"])
+        if not tiers.get("pending_vision"):
+            r["status"] = "partial" if (tiers.get("unread") or tiers.get("none")) else "ok"
+            r["vision_done_at"] = common.now_local()
+
+    def names_a_term(path, r):
+        texts = [path] + [p.get(k) or "" for p in r["pages"] for k in ("text", "local_text")]
+        return any(isolation.carries(t, evidence) for t in texts)
+
+    def hold(eid):
+        """Take the document's queued pages off the queue, marked unread, its local text kept: no image of it is sent."""
+        r = load(eid)
+        for p in r["pages"]:
+            if p.get("tier") == "pending_vision":
+                p["tier"] = "unread"
+                p["note"] = ("held from the vision model: an isolation term is in the document's path or text, and an "
+                             "image cannot be shielded; local OCR text kept")
+                p.pop("queued", None)
+        settle(r)
+        writer.json(os.path.join(out, eid + ".json"), r)
+        for f in os.listdir(queue):
+            if f.startswith(eid + "_"):
+                try:
+                    os.remove(os.path.join(queue, f))
+                except OSError:
+                    pass
+        termed.add(eid)
+        log("held a document from the vision model: an isolation term is in its path or text")
 
     def extraction_finished():
         return all(os.path.exists(os.path.join(state, n + ".done")) for n in a.lanes.split(","))
@@ -86,10 +134,10 @@ def main():
         os.makedirs(queue, exist_ok=True)
         rb = common.load_rulebook(root, settings_dir)  # read again, with the manifest: an exclusion made while it runs
         common.purge_withheld(root, rb, work, a.manifest, extract_dirs=[out], read_only=a.read_only_root, thorough=False)
-        states = common.manifest_states(root, rb, a.manifest)
+        states, paths = common.manifest_view(root, rb, a.manifest)
         files = sorted(f for f in os.listdir(queue) if re.match(r"[0-9a-f]{64}_\d{5}\.png$", f)
                        and int(f[:8], 16) % wn == wi)
-        ready, recs = [], {}
+        ready, recs, to_hold = [], {}, set()
         for f in files:
             eid = f[:64]
             if states.get(eid, "unknown") != "ok":
@@ -97,9 +145,16 @@ def main():
                 continue
             recs.setdefault(eid, load(eid))
             if recs[eid] and recs[eid].get("status") == "needs_vision":
-                ready.append(f)
+                if evidence and (eid in to_hold or names_a_term(paths[eid], recs[eid])):
+                    to_hold.add(eid)
+                else:
+                    ready.append(f)
             if len(ready) >= BATCH:
                 break
+        if to_hold:
+            for eid in sorted(to_hold):
+                hold(eid)
+            continue
         if not ready:
             if extraction_finished():
                 idle += 1
@@ -159,12 +214,7 @@ def main():
                         p["tier"] = "unread"
                         p["note"] = "vision tier failed %d times; local OCR text kept" % tries[f]
                     p.pop("queued", None)
-            tiers = collections.Counter(p["tier"] for p in r["pages"])
-            r["tiers"] = dict(tiers)
-            r["chars"] = sum(len(p.get("text", "")) for p in r["pages"])
-            if not tiers.get("pending_vision"):
-                r["status"] = "partial" if (tiers.get("unread") or tiers.get("none")) else "ok"
-                r["vision_done_at"] = common.now_local()
+            settle(r)
             writer.json(os.path.join(out, eid + ".json"), r)
             try:
                 os.remove(os.path.join(queue, f))
@@ -175,8 +225,8 @@ def main():
         log("batch %d images %s" % (len(ready), "ok" if got is not None else "FAILED"))
     count = collections.Counter(held_seen.values())
     withheld = collections.Counter(states.values())  # by the manifest: the images of these documents were purged
-    log("finished; held for another project: %d; excluded: %d; not live: %d"
-        % (withheld["migrations"], withheld["excluded"], count["departed"] + count["unknown"]))
+    log("finished; held for another project: %d; excluded: %d; not live: %d; held for an isolation term: %d"
+        % (withheld["migrations"], withheld["excluded"], count["departed"] + count["unknown"], len(termed)))
     with open(os.path.join(state, "vision%d.done" % wi), "w", encoding="utf-8") as f:
         f.write(common.now_local())
     return 0

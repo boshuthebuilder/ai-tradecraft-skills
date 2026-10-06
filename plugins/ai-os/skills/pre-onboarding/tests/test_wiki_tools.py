@@ -47,7 +47,9 @@ STEP_4A = {  # what wiki-onboarding step 4a says a drafting agent returns: where
     "its check result": ("return", "check_result"),
 }
 sys.path.insert(0, TOOLS)
+sys.path.insert(0, HERE)
 import common  # noqa: E402
+from shield_flag import with_terms_flag  # noqa: E402
 import wiki  # noqa: E402
 
 # path: doc_type, party, parties, doc_date, category, language, title, summary, reference numbers, text
@@ -136,6 +138,13 @@ def write(path, text):
 
 
 def run(tool, *args):
+    r = subprocess.run([sys.executable, os.path.join(TOOLS, tool)] + with_terms_flag(tool, args), capture_output=True, text=True,
+                       encoding="utf-8", timeout=TIMEOUT)
+    return r.returncode, r.stdout, r.stderr
+
+
+def run_as_given(tool, *args):
+    """`run` without the isolation flag a test about something else is given: the command line as written."""
     r = subprocess.run([sys.executable, os.path.join(TOOLS, tool)] + list(args), capture_output=True, text=True,
                        encoding="utf-8", timeout=TIMEOUT)
     return r.returncode, r.stdout, r.stderr
@@ -741,6 +750,146 @@ class BriefTest(Copy):
         self.assertFalse(os.path.exists(inside))
 
 
+class ShieldTest(Copy):
+    """`profile`, `bundles`, `brief` and `review-prompts` require a stated choice, and what they write carries no term of
+    the isolation list: every string is shielded first."""
+
+    TERMS = "# fictional terms for the tests\nExample Lettings|Lettings\nExample Evening College\nRobin Trading Ltd\n"
+    WORDS = ("example lettings", "lettings", "example evening college", "robin trading")
+
+    def setUp(self):
+        super().setUp()
+        self.terms = os.path.join(self.tmp, "terms.txt")
+        write(self.terms, self.TERMS)
+
+    def assert_clean(self, text):
+        for word in self.WORDS:
+            self.assertNotIn(word, text.lower())
+
+    def bundle_text(self):
+        return "".join(read(os.path.join(self.bundles_dir(), n)) for n in sorted(os.listdir(self.bundles_dir())))
+
+    def test_every_command_requires_a_stated_choice_and_not_both(self):
+        for cmd, args in (("profile", []), ("bundles", []), ("brief", ["--page", BRIEF_PAGES[0]]),
+                          ("review-prompts", ["--page", BRIEF_PAGES[0], "--author-model", "a", "--reviewer-model", "b"])):
+            for flags, why in (([], "give --terms (the isolation list) or --no-isolation-terms"),
+                               (["--terms", self.terms, "--no-isolation-terms"], "not both")):
+                with self.subTest(cmd=cmd, flags=flags):
+                    code, out, err = run_as_given("wiki.py", cmd, "--root", self.root, "--work", self.work, *args, *flags)
+                    self.assertEqual(code, 2, out + err)
+                    self.assertIn(why, err)
+                    self.assertEqual(out, "")
+                    self.assertFalse(os.path.exists(self.bundles_dir()), "a command that was refused built bundles")
+
+    def test_the_profile_names_no_term_and_counts_what_it_shielded(self):
+        code, out, err = self.wiki("profile", "--terms", self.terms)
+        self.assertEqual(code, 0, err)
+        self.assert_clean(out)
+        self.assertRegex(err, r"shielded \d+ occurrence\(s\) of an isolation term in the profile")
+        self.assertNotIn("Lettings", err)
+        res = json.loads(out)
+        home = {r["folder"]: r for r in res["folders"]}["03 Home"]
+        self.assertIn(["[withheld name]", 3], home["parties"])
+        self.assertEqual(self.ok("profile"), read(os.path.join(GOLDEN, "profile.json")), "nothing shielded: unchanged")
+
+    def test_the_bundles_are_shielded_in_every_field_and_record_the_shield_never_the_terms(self):
+        res = json.loads(self.ok("bundles", "--terms", self.terms, code=1))
+        self.assertEqual(res["routed"], 16)
+        self.assert_clean(self.bundle_text())
+        self.assert_clean(read(os.path.join(self.bundles_dir(), "bundles.json")))
+        rows = [json.loads(x) for x in read(os.path.join(self.bundles_dir(), "bundle_30.jsonl")).splitlines()]
+        lease = next(r for r in rows if r["path"] == "03 Home/Lease renewal.pdf")
+        ids = {e["current_path"]: h for h, e in json.loads(read(MANIFEST))["entries"].items()}
+        self.assertEqual(lease["id"], ids["03 Home/Lease renewal.pdf"][:12], "an identifier is never shielded")
+        self.assertEqual(lease["parties"], ["[withheld name]"])
+        self.assertIn("Landlord: [withheld name]", lease["text"])
+        meta = json.loads(read(os.path.join(self.bundles_dir(), "bundles.json")))
+        ev = wiki.isolation.load_terms(self.terms)
+        self.assertEqual(meta["shield"], {"terms": True, "sha256": wiki.isolation.shield_digest(ev)})
+        self.assertEqual(meta["arguments"], {"--terms": os.path.realpath(self.terms)})
+
+    def test_a_path_in_the_unrouted_list_is_shielded(self):
+        man = json.loads(read(os.path.join(self.root, "_Audit", "manifest.json")))
+        entry = next(e for e in man["entries"].values() if e["current_path"] == "IMG_0001.jpg")
+        entry["current_path"] = "Lettings photos/IMG_0001.jpg"
+        write(os.path.join(self.root, "_Audit", "manifest.json"), json.dumps(man))
+        out = self.ok("bundles", "--terms", self.terms, code=1)
+        self.assertEqual(json.loads(out)["unrouted"], ["[withheld name] photos/IMG_0001.jpg"])
+        self.assert_clean(read(os.path.join(self.bundles_dir(), "bundles.json")))
+
+    def build(self, *flags):
+        return self.ok("bundles", *flags, code=1)
+
+    def test_bundles_built_under_another_shield_are_removed_and_refused_by_every_consumer(self):
+        other = os.path.join(self.tmp, "other-terms.txt")
+        write(other, "Another Name\n")
+        cases = {"none, then terms": (["--no-isolation-terms"], ["--terms", self.terms]),
+                 "terms, then none": (["--terms", self.terms], ["--no-isolation-terms"]),
+                 "terms, then other terms": (["--terms", self.terms], ["--terms", other])}
+        for name, (built, asked) in cases.items():
+            for cmd, args in (("bundles", ["--reuse"]), ("brief", ["--page", BRIEF_PAGES[0]])):
+                with self.subTest(name, cmd=cmd):
+                    shutil.rmtree(self.bundles_dir(), True)
+                    self.build(*built)
+                    code, out, err = self.wiki(cmd, *args, *asked)
+                    self.assertEqual(code, 2, out + err)
+                    self.assertIn("stale bundles", err)
+                    self.assertIn("another isolation shield", err)
+                    self.assertIn("so the bundles were removed", err)
+                    self.assertEqual(sorted(os.listdir(self.bundles_dir())), [], "the bundles were left on disk")
+                    command = shlex.split(err.split("rebuild them: wiki.py bundles ", 1)[1])
+                    self.assertEqual([x for x in command if x in ("--terms", "--no-isolation-terms")], [asked[0]],
+                                     "the rebuild is asked under the caller's shield, never the build's")
+                    if asked[0] == "--terms":
+                        self.assertEqual(command[command.index("--terms") + 1], os.path.realpath(asked[1]))
+
+    def test_the_same_shield_reuses_the_bundles(self):
+        self.build("--terms", self.terms)
+        self.ok("bundles", "--reuse", "--terms", self.terms, code=1)
+        text = self.ok("brief", "--page", BRIEF_PAGES[0], "--terms", self.terms)
+        self.assert_clean(text)
+
+    def test_bundles_made_before_the_shield_was_recorded_are_refused(self):
+        self.build("--no-isolation-terms")
+        meta_path = os.path.join(self.bundles_dir(), "bundles.json")
+        meta = json.loads(read(meta_path))
+        del meta["shield"]
+        write(meta_path, json.dumps(meta))
+        err = self.refused("brief", "--page", BRIEF_PAGES[0])
+        self.assertIn("bundles made before the shield was recorded", err)
+        self.assertEqual(sorted(os.listdir(self.bundles_dir())), [])
+
+    def test_the_brief_is_shielded_and_says_how_much(self):
+        self.build("--terms", self.terms)
+        out = os.path.join(self.tmp, "brief.md")
+        code, text, err = self.wiki("brief", "--page", BRIEF_PAGES[0], "--terms", self.terms, "--out", out)
+        self.assertEqual(code, 0, err)
+        self.assert_clean(text)
+        self.assertEqual(read(out), text, "the file and the printed brief are the same text")
+        self.assertIn("- [withheld name]", text, "the people list names the organisation by its placeholder")
+        self.assertRegex(err, r"shielded \d+ occurrence\(s\) of an isolation term in the brief")
+        self.assertNotIn("Robin", err)
+
+    def test_a_review_prompt_is_shielded_and_keeps_the_pages_real_sha256(self):
+        page = self.page(BRIEF_PAGES[0])
+        sha = common.sha256_file(page)
+        terms = os.path.join(self.tmp, "hex-terms.txt")
+        write(terms, self.TERMS + sha[20:23] + "\n")  # three hex characters of the page's own digest, as a term
+        out = os.path.join(self.tmp, "prompts")
+        code, stdout, err = self.wiki("review-prompts", "--page", BRIEF_PAGES[0], "--author-model", "a",
+                                      "--reviewer-model", "b", "--terms", terms, "--out", out)
+        self.assertEqual(code, 0, stdout + err)
+        files = {n: read(os.path.join(out, "20 Finance", n)) for n in os.listdir(os.path.join(out, "20 Finance"))}
+        self.assertEqual(sorted(files), ["Tax.owner.md", "Tax.professional.md"])
+        for name, text in files.items():
+            with self.subTest(name):
+                self.assertIn(sha, text, "accept compares the page's digest with the page on disk")
+                for word in self.WORDS:
+                    self.assertNotIn(word, text.replace(sha, "").lower())
+        self.assertIn("The employer is [withheld name] since 1 May 2022", files["Tax.owner.md"])
+        self.assertRegex(err, r"shielded \d+ occurrence\(s\) of an isolation term in the review prompts")
+
+
 class MoveTest(Copy):
     MOVES = {"20 Finance/Tax.md": "25 Tax & Duty/Tax & returns.md",
              "30 Home/30 Home.md": "30 Home & Garden/30 Home & Garden.md",
@@ -1255,14 +1404,17 @@ class RebuildTest(Copy):
                  ("--extract", os.path.join(audit, "extract")), ("--text-cap", "500")]
         self.ok("bundles", *[x for kv in given for x in kv], code=1)
         meta = json.loads(read(os.path.join(self.bundles_dir(), "bundles.json")))
-        self.assertEqual(list(meta["arguments"].items()), given)
+        self.assertEqual(list(meta["arguments"].items()), given + [("--no-isolation-terms", "")],
+                         "the shield the bundles were built under is an argument of the build")
         write(given[1][1], read(given[1][1]) + "\n")
         command = "rebuild them: wiki.py bundles " + " ".join(shlex.quote(x) for x in [
-            "--root", self.root, "--out", self.bundles_dir()] + [x for kv in given for x in kv])
+            "--root", self.root, "--out", self.bundles_dir()] + [x for kv in given for x in kv]
+            + ["--no-isolation-terms"])
         for cmd, args in (("bundles", ["--reuse"]), ("brief", ["--page", BRIEF_PAGES[0]])):
             with self.subTest(cmd=cmd):
                 self.assertIn(command, self.refused(cmd, *args))
-        self.assertEqual(json.loads(read(os.path.join(GOLDEN, "bundles", "bundles.json")))["arguments"], {})
+        self.assertEqual(json.loads(read(os.path.join(GOLDEN, "bundles", "bundles.json")))["arguments"],
+                         {"--no-isolation-terms": ""})
 
     def test_reuse_refuses_other_cards_extract_or_text_cap(self):
         """Re-review 6: bundles --reuse compares the caller's --cards, --extract and --text-cap with the build's."""

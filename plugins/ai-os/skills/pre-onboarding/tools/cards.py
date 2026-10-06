@@ -2,7 +2,7 @@
 """One card per live document, written by a model (agy or codex) from the document's whole extracted text.
 
     cards.py build --root R                                    plan batches from finished extract records
-    cards.py work  --root R --engine agy --model M --terms F [--worker 0/3] [--redo ids.txt]
+    cards.py work  --root R --engine agy --model M (--terms F | --no-isolation-terms) [--worker 0/3] [--redo ids.txt]
 
 Batches: small documents share a call (group), long ones get their own (single), and documents over the context
 budget are read section by section into cached notes, then carded from the notes (sections). Instructions come from
@@ -33,10 +33,20 @@ only when it passes three checks, each catching something different:
   chunk is halved at once instead of being retried at the same size.
 
 Otherwise the chunk is retried, then halved, and never applied in part. Every item of a chunk that still fails is
-recorded in <work>/state/card_err_<id>.txt. Before any card of a batch is written, the contamination guard checks
-them all: a term from the operator's isolation list that a card names but its own source text does not carry
-writes <work>/state/ALERT, writes none of them and stops every worker. With --redo, an id counts as redone only once
-its card is written.
+recorded in <work>/state/card_err_<id>.txt. With --redo, an id counts as redone only once its card is written.
+
+The shield: a call never carries a term of the operator's isolation list. Every path and text sent is shielded first
+(`isolation.shield`: each term and marker of the list replaced by `[withheld name]`, whatever its case): the items of a
+group or single call, the section prompt's path and section text, and the opening text and notes of a sectioned
+document. A cached section note is shielded again when it is read, and the notes' cache basis folds in the sha256 of the
+list's forms (`isolation.shield_digest`), so a note cached under an older version of the tool or another terms file is
+never reused. A document that carries a term is still carded, from the text with the term withheld; the card records
+`card_meta.shielded`, a count and never the term, and the log and the worker's closing line count the documents
+shielded. Before any card of a batch is written, the contamination guard checks them all against the shielded text
+actually sent: the model was never shown a term, so none can come from the document, and a card that names any term
+from the list (`isolation.contamination`) writes <work>/state/ALERT, writes none of the batch and stops every worker.
+`card_meta` records the engine (`via`), the model, for codex the effort, and the light model when `--light-model` is
+used, which `readiness.py` reads to require a canary for each (`isolation.py canary`).
 
 A document is carded only when the manifest holds it live (not `departed`) and not withheld: one whose current path is
 under the migrations folder is held for another project, one the rulebook `exclude`s is excluded, a departed one or an id
@@ -162,6 +172,17 @@ class Run:
         self.writer = common.Writer(self.root if getattr(a, "read_only_root", False) else None)
         self.budget = Budget(a)
         self.states, self.paths = common.manifest_view(self.root, self.rb, self.manifest)
+        self.evidence = {}
+        self.shielded = set()
+
+    def shield(self, text):
+        """`text` as a call may carry it: every isolation term replaced (`isolation.shield`)."""
+        return isolation.shield(text, self.evidence)[0]
+
+    def shielded_count(self, eid):
+        """How many times a term of the isolation list stands in the path and the text of document `eid`."""
+        return (isolation.shield(self.paths[eid], self.evidence)[1]
+                + isolation.shield(full_text(self.record(eid)), self.evidence)[1])
 
     def refresh(self):
         """Read the settings and the manifest again and purge again, as the start of the run did: an exclusion or a staging
@@ -189,9 +210,12 @@ class Run:
         return "stale_path" if isinstance(path, str) and common.withheld(self.rb, path) else None
 
     def payload(self, eid, text_override=None):
+        """The item a call carries for document `eid`: its path and text, shielded, never the ones the manifest and the
+        record hold."""
         r = self.record(eid)
-        return {"id": eid, "path": self.paths[eid], "class": r["class"], "page_count": r.get("page_count", 0),
-                "read": read_label(r.get("tiers")), "text": full_text(r) if text_override is None else text_override}
+        return {"id": eid, "path": self.shield(self.paths[eid]), "class": r["class"],
+                "page_count": r.get("page_count", 0), "read": read_label(r.get("tiers")),
+                "text": self.shield(full_text(r) if text_override is None else text_override)}
 
 
 def build(a):
@@ -526,11 +550,13 @@ def sections_text(run, engine_light, eid, log, engine_name):
     size = common.est_tokens if b.section_tokens else len
     limit = b.section_tokens or b.section_chars
     chunks = split_sections(text.split("\n\n[page "), limit, size)
-    # What the notes depend on, besides the section's own text: the budget, the model and effort that wrote them, and
-    # the prompt (the template and the identifier rule). A change to any of them reads the section again.
+    # What the notes depend on, besides the section's own text: the budget, the model and effort that wrote them, the
+    # prompt (the template and the identifier rule) and the shield (the sha256 of the terms' forms). A change to any of
+    # them reads the section again.
     basis = "\n".join(["tokens" if b.section_tokens else "chars", str(limit), getattr(engine_light, "model", None) or
                        "cli-default", str(getattr(engine_light, "effort", None)),
-                       engines.NO_TOOLS + SECTION_PROMPT + identifier_rule(run.rb)])
+                       engines.NO_TOOLS + SECTION_PROMPT + identifier_rule(run.rb),
+                       "shield " + isolation.shield_digest(run.evidence)])
     cache = os.path.join(run.work, "sections")
     os.makedirs(cache, exist_ok=True)
     notes, unread = [], []
@@ -539,13 +565,13 @@ def sections_text(run, engine_light, eid, log, engine_name):
         cp = os.path.join(cache, "%s_%s_%d_%d_%s.txt" % (eid[:16], engine_name, k, len(chunks), digest))
         note = cached_note(cp, k, len(chunks))
         if note is not None:
-            notes.append(note)
+            notes.append(run.shield(note))
             continue
         note, why = read_section(engine_light, run.rb, it["path"], k, len(chunks), c, log)
         if note is None:
             unread.append("section %d of %d: %s" % (k, len(chunks), why))
             continue
-        run.writer.text(cp, "[path] %s\n%s" % (it["path"], note))
+        run.writer.text(cp, "[path] %s\n%s" % (run.paths[eid], note))  # the real path: a purge reads it
         notes.append(note)
     if unread:
         raise SectionsUnread("%d of %d sections not read, so no card is written from the rest (rerun once the cause "
@@ -556,19 +582,24 @@ def sections_text(run, engine_light, eid, log, engine_name):
 
 
 def write_cards(run, cards, batch_name, evidence, meta, log):
-    """Every card is checked before any is written: one alert writes none of them."""
+    """Every card is checked before any is written: one alert writes none of them. A card is checked against its
+    document's text as it was sent, shielded, so any term the card names is an alert."""
     for eid, c in cards.items():
-        src = full_text(run.record(eid))
+        sent = run.shield("%s\n%s" % (run.paths[eid], full_text(run.record(eid))))
         blob = json.dumps(c, ensure_ascii=False)
-        bad = isolation.contamination(blob, src, evidence) if evidence else []
+        bad = isolation.contamination(blob, sent, evidence) if evidence else []
         if bad:
             with open(run.alert, "w", encoding="utf-8") as f:
-                f.write("contamination: card %s names %d isolation term(s) absent from its source\n"
+                f.write("contamination: card %s names %d isolation term(s), which its document was sent without\n"
                         % (eid, len(bad)))
-            log("ALERT: card %s names isolation terms absent from its source" % eid[:12])
+            log("ALERT: card %s names isolation terms, which its document was sent without" % eid[:12])
             raise common.ToolError("contamination alert; no card of this batch written; every worker stops")
     for eid, c in cards.items():
         c["card_meta"] = dict(meta, batch=batch_name, created_at=common.now_local(), path=run.paths[eid])
+        n = run.shielded_count(eid)
+        if n:
+            c["card_meta"]["shielded"] = n
+            run.shielded.add(eid)
         run.writer.json(os.path.join(run.cards, eid + ".json"), c, indent=1)
         stale = os.path.join(run.state, "card_err_%s.txt" % eid)
         if os.path.exists(stale):
@@ -591,11 +622,9 @@ def work(a):
     b = run.budget
     wi, wn = [int(x) for x in a.worker.split("/")]
     log = common.logger(run.work, ("redo%d" if a.redo else "cards%d") % wi)
-    if a.no_isolation_terms:
-        evidence = {}
+    evidence = run.evidence = isolation.evidence_of(a)
+    if not evidence:
         log("isolation terms: none, by operator decision (--no-isolation-terms)")
-    else:
-        evidence = isolation.load_terms(a.terms)
     if a.engine == "codex":
         engine = engines.Codex(a.model, effort=a.effort)
         light = engines.Codex(a.light_model, effort="low") if a.light_model else engine
@@ -604,6 +633,10 @@ def work(a):
         engine = light = engines.Agy(a.model)
         schema = os.path.join(HERE, "schemas", "card.json")
     meta = {"model": a.model or "cli-default", "via": a.engine}
+    if a.engine == "codex":
+        meta["effort"] = a.effort
+        if a.light_model:
+            meta["light_model"] = a.light_model
     instr = instructions(run.rb)
     run.writer.makedirs(run.cards)
     if a.redo:
@@ -680,12 +713,14 @@ def work(a):
                     elif not has(e):
                         resend.append(e)
                 todo = resend
-        log("batch %s mode=%s carded in %.0fs" % (bt["name"], bt["mode"], time.time() - t0))
+        log("batch %s mode=%s carded in %.0fs; shielded so far: %d documents"
+            % (bt["name"], bt["mode"], time.time() - t0, len(run.shielded)))
     with open(os.path.join(run.state, ("redo%d" if a.redo else "cards%d") % wi + ".done"), "w", encoding="utf-8") as f:
         f.write(common.now_local())
     count = collections.Counter(held.values())
-    log("worker finished; held for another project: %d; excluded: %d; not live: %d"
-        % (count["migrations"], count["excluded"], count["departed"] + count["unknown"] + count["stale_path"]))
+    log("worker finished; held for another project: %d; excluded: %d; not live: %d; shielded: %d"
+        % (count["migrations"], count["excluded"], count["departed"] + count["unknown"] + count["stale_path"],
+           len(run.shielded)))
     return 0
 
 
@@ -699,9 +734,7 @@ def main():
     ap.add_argument("--model", help="engine model id (agy: effort encoded in the id)")
     ap.add_argument("--effort", default="medium", help="codex reasoning effort")
     ap.add_argument("--light-model", help="codex model for section notes")
-    ap.add_argument("--terms", help="the operator's isolation terms file")
-    ap.add_argument("--no-isolation-terms", action="store_true",
-                    help="state explicitly that no other project needs isolating (logged)")
+    isolation.add_terms_args(ap)
     ap.add_argument("--worker", default="0/1")
     ap.add_argument("--redo", help="file of ids to re-card even though cards exist")
     ap.add_argument("--small-chars", type=int, help="default 60000; agy 50000")
@@ -724,8 +757,8 @@ def main():
             raise common.ToolError("--%s %d is under the %d floor: a section that small is many calls for nothing, "
                                    "and below a wide character's cost it cannot be split" %
                                    (flag.replace("_", "-"), getattr(a, flag), MIN_SECTION))
-    if a.cmd == "work" and not (a.terms or a.no_isolation_terms):
-        raise common.ToolError("give --terms (the isolation list) or --no-isolation-terms")
+    if a.cmd == "work":
+        isolation.require_choice(a)
     if a.cmd == "work" and a.engine == "agy" and not a.model:
         raise common.ToolError(engines.AGY_MODEL_REQUIRED)
     return build(a) if a.cmd == "build" else work(a)

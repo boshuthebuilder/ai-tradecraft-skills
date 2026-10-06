@@ -784,7 +784,7 @@ def write_prepared(root):
                   "extractor": "fixture", "extracted_at": PREPARED_AT,
                   "pages": [{"n": n, "tier": tier, "text": text} for n, (tier, text) in enumerate(pages, 1)]}
         w(os.path.join(audit, "extract", eid + ".json"), json.dumps(record, ensure_ascii=False))
-        meta = {"model": "fixture", "via": "fixture", "batch": "fixture", "created_at": PREPARED_AT}
+        meta = {"model": "gemini-fake-high", "via": "agy", "batch": "fixture", "created_at": PREPARED_AT}
         w(os.path.join(audit, "cards", eid + ".json"),
           json.dumps(dict({"id": eid}, **fields, card_meta=meta), ensure_ascii=False, indent=1))
     tmp = tempfile.mkdtemp(prefix="fixture_accept_")

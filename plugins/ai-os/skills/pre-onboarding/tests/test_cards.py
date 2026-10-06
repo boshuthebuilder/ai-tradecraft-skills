@@ -1119,7 +1119,8 @@ class FixtureBatchTest(CardsCliCase):
 
 
 class ContaminationTest(CardsCliCase):
-    """A term in a card is an alert only when the card's own source text lacks it; one alert writes no card."""
+    """A term in a card is an alert, whatever the document carries: the call was sent the document with every term
+    withheld, so none can have come from it. One alert writes no card."""
 
     def docs(self, source_first, source_second):
         paths = sorted(["03 Home/Rent.pdf", "03 Home/Council tax.pdf"], key=eid)
@@ -1168,12 +1169,16 @@ class ContaminationTest(CardsCliCase):
         self.assertEqual(code, 0, err)
         self.assertEqual(len(self.fakes.calls("codex")), 1, "a redone id was carded again")
 
-    def test_a_term_its_own_source_carries_is_not_an_alert(self):
-        ids = self.docs("Rent paid to Zarnwick Farm.", "Council tax for Zarnwick, the farm.")
+    def test_a_term_its_own_source_carries_is_still_an_alert_because_the_call_never_carried_it(self):
+        """The excuse is gone: a card naming a term its source also names was written by a model that was not shown
+        the term, so it knew it from elsewhere."""
+        self.docs("Rent paid to Zarnwick Farm.", "Council tax for Zarnwick, the farm.")
         code, _out, err = self.work_run("codex", "--terms", self.terms)
-        self.assertEqual(code, 0, err)
-        self.assertEqual(sorted(self.written()), sorted(ids))
-        self.assertFalse(os.path.exists(os.path.join(self.work, "state", "ALERT")))
+        self.assertEqual(code, 2, err)
+        self.assertIn("contamination", err)
+        self.assertTrue(os.path.exists(os.path.join(self.work, "state", "ALERT")))
+        self.assertEqual(self.written(), {})
+        self.assertNotIn("zarnwick", (err + read(os.path.join(self.work, "state", "ALERT"))).lower())
 
     def test_no_isolation_terms_by_decision(self):
         ids = self.docs("Rent.", "Council tax.")
@@ -1181,6 +1186,161 @@ class ContaminationTest(CardsCliCase):
         self.assertEqual(code, 0, err)
         self.assertEqual(sorted(self.written()), sorted(ids))
         self.assertIn("by operator decision", err)
+
+
+class ShieldTest(CardsCliCase):
+    """No call carries a term of the isolation list: every path and text sent is shielded first."""
+
+    PATH = "03 Home/Zarnwick Farm lease.pdf"
+    TEXT = "Rent paid to Zarnwick Farm, ZARNWICK, and Other Project."
+
+    def prompts(self, engine="codex"):
+        return [c["prompt"] for c in self.fakes.calls(engine)]
+
+    def assert_no_term(self, text):
+        for term in ("zarnwick", "other project"):
+            self.assertNotIn(term, text.lower())
+
+    def test_a_document_that_carries_a_term_is_carded_from_its_text_with_the_term_withheld(self):
+        doc = self.record(self.PATH, [self.TEXT])
+        clean = self.record("03 Home/Council tax.pdf", ["Council tax bill."])
+        code, _out, err = self.cards_py("build")
+        self.assertEqual(code, 0, err)
+        self.fakes.script("codex", default={"kind": "text"})
+        code, _out, err = self.work_run("codex", "--terms", self.terms)
+        self.assertEqual(code, 0, err)
+        prompt, = self.prompts()
+        self.assert_no_term(prompt)
+        items = {it["path"]: it for it in sent_items(prompt)}
+        self.assertEqual(sorted(items), ["03 Home/Council tax.pdf", "03 Home/[withheld name] lease.pdf"])
+        self.assertIn("[page 1]\nRent paid to [withheld name], [withheld name], and [withheld name].",
+                      items["03 Home/[withheld name] lease.pdf"]["text"])
+        got = self.written()
+        self.assertEqual(sorted(got), sorted([doc, clean]))
+        self.assertEqual(got[doc]["card_meta"]["shielded"], 4, "the path's term and the text's three")
+        self.assertNotIn("shielded", got[clean]["card_meta"])
+        self.assertEqual(got[doc]["card_meta"]["path"], self.PATH, "the card names the document by its real path")
+        self.assertNotIn("zarnwick", json.dumps(got[doc]).lower().replace(self.PATH.lower(), ""))
+        self.assertIn("shielded: 1", err)
+        self.assertIn("worker finished; held for another project: 0; excluded: 0; not live: 0; shielded: 1", err)
+        self.assertFalse(os.path.exists(os.path.join(self.work, "state", "ALERT")))
+
+    def test_no_isolation_terms_shields_nothing(self):
+        doc = self.record(self.PATH, [self.TEXT])
+        self.cards_py("build")
+        self.fakes.script("codex", default={"kind": "text"})
+        code, _out, err = self.work_run("codex", "--no-isolation-terms")
+        self.assertEqual(code, 0, err)
+        item, = sent_items(self.prompts()[0])
+        self.assertEqual((item["path"], item["text"]), (self.PATH, "[page 1]\n" + self.TEXT))
+        self.assertNotIn("shielded", self.written()[doc]["card_meta"])
+        self.assertIn("shielded: 0", err)
+
+    def test_both_flags_and_neither_are_refused_before_anything_runs(self):
+        self.record(self.PATH, [self.TEXT])
+        self.cards_py("build")
+        for args in (["--terms", self.terms, "--no-isolation-terms"], []):
+            with self.subTest(args):
+                code, _out, err = self.work_run("codex", *args)
+                self.assertEqual(code, 2, err)
+                self.assertIn("--terms (the isolation list) or --no-isolation-terms", err)
+                self.assertEqual(self.fakes.calls("codex"), [])
+
+    def test_sectioned_documents_are_shielded_in_every_section_the_notes_and_the_opening_text(self):
+        pages = ["Page %d of the reader, held by Zarnwick Farm. " % n + "w" * 3_000 for n in (1, 2, 3)]
+        doc = self.record("04 Study/Zarnwick reader.pdf", pages)
+        budget = ["--small-chars", "500", "--single-max", "1000"]
+        self.cards_py("build", *budget)
+        self.fakes.script("codex", default={"kind": "text"})
+        work = ["--engine", "codex", "--terms", self.terms, "--section-tokens", "1000"] + budget
+        code, _out, err = self.cards_py("work", *work)
+        self.assertEqual(code, 0, err)
+        prompts = self.prompts()
+        self.assertEqual(len(prompts), 4)
+        for p in prompts:
+            self.assert_no_term(p)
+        self.assertIn("Document path: 04 Study/[withheld name] reader.pdf. This is section 1 of 3.", prompts[0])
+        self.assertIn("Page 1 of the reader, held by [withheld name]. ", prompts[0])
+        item, = sent_items(prompts[3])
+        self.assertTrue(item["text"].startswith("SECTION NOTES (the document was read in 3 sections)"))
+        self.assertIn("OPENING TEXT:\n[page 1]\nPage 1 of the reader, held by [withheld name]. ", item["text"])
+        self.assertEqual(self.written()[doc]["card_meta"]["shielded"], 4)
+        cache = os.path.join(self.work, "sections")
+        for name in os.listdir(cache):
+            self.assertEqual(common.note_path(os.path.join(cache, name)), "04 Study/Zarnwick reader.pdf",
+                             "a purge reads the real path from the cache")
+
+    def test_a_cached_note_is_shielded_again_when_it_is_read(self):
+        pages = ["Page %d of the reader. " % n + "w" * 3_000 for n in (1, 2, 3)]
+        doc = self.record("04 Study/Reader.pdf", pages)
+        budget = ["--small-chars", "500", "--single-max", "1000"]
+        self.cards_py("build", *budget)
+        self.fakes.script("codex", default={"kind": "text"})
+        work = ["--engine", "codex", "--terms", self.terms, "--section-tokens", "1000"] + budget
+        self.assertEqual(self.cards_py("work", *work)[0], 0)
+        cache = os.path.join(self.work, "sections")
+        note = os.path.join(cache, sorted(os.listdir(cache))[0])
+        write(note, read(note) + " Seen at Zarnwick Farm.")
+        os.remove(os.path.join(self.cards, doc + ".json"))
+        self.fakes.reset("codex")
+        code, _out, err = self.cards_py("work", *work)
+        self.assertEqual(code, 0, err)
+        prompt, = self.prompts()  # the notes were cached: only the card call is made
+        self.assert_no_term(prompt)
+        self.assertIn("Seen at [withheld name].", prompt)
+
+    def test_notes_cached_under_another_terms_file_are_not_reused(self):
+        pages = ["Page %d of the reader. " % n + "w" * 3_000 for n in (1, 2, 3)]
+        doc = self.record("04 Study/Reader.pdf", pages)
+        budget = ["--small-chars", "500", "--single-max", "1000"]
+        self.cards_py("build", *budget)
+        self.fakes.script("codex", default={"kind": "text"})
+        base = ["--engine", "codex", "--section-tokens", "1000"] + budget
+        self.assertEqual(self.cards_py("work", "--no-isolation-terms", *base)[0], 0)
+        cache = os.path.join(self.work, "sections")
+        self.assertEqual(len(os.listdir(cache)), 3)
+        os.remove(os.path.join(self.cards, doc + ".json"))
+        self.fakes.reset("codex")
+        self.assertEqual(self.cards_py("work", "--terms", self.terms, *base)[0], 0)
+        self.assertEqual(len(self.fakes.calls("codex")), 4, "notes made with no shield were reused under one")
+        self.assertEqual(len(os.listdir(cache)), 6)
+        other = os.path.join(self.tmp, "other-terms.txt")
+        write(other, "Another Name\n")
+        os.remove(os.path.join(self.cards, doc + ".json"))
+        self.fakes.reset("codex")
+        self.assertEqual(self.cards_py("work", "--terms", other, *base)[0], 0)
+        self.assertEqual(len(self.fakes.calls("codex")), 4, "notes made under one terms file were reused under another")
+        os.remove(os.path.join(self.cards, doc + ".json"))
+        self.fakes.reset("codex")
+        self.assertEqual(self.cards_py("work", "--terms", other, *base)[0], 0)
+        self.assertEqual(len(self.fakes.calls("codex")), 1, "the same terms file read the sections again")
+
+    def test_a_card_that_names_the_terms_alerts_whatever_the_document_carries(self):
+        self.record(self.PATH, [self.TEXT])
+        self.cards_py("build")
+        self.fakes.script("codex", default={"kind": "text", "suffix": " Zarnwick Farm."})
+        code, _out, err = self.work_run("codex", "--terms", self.terms)
+        self.assertEqual(code, 2, err)
+        self.assertEqual(self.written(), {})
+        self.assertNotIn("zarnwick", err.lower())
+
+    def test_the_card_records_the_engine_model_effort_and_light_model_a_canary_must_cover(self):
+        doc = self.record("03 Home/Rent.pdf", ["Rent for the flat."])
+        self.cards_py("build")
+        self.fakes.script("codex", default={"kind": "text"})
+        code, _out, err = self.work_run("codex", "--terms", self.terms, "--effort", "high", "--light-model", "light-m")
+        self.assertEqual(code, 0, err)
+        meta = self.written()[doc]["card_meta"]
+        self.assertEqual({k: meta[k] for k in ("via", "model", "effort", "light_model")},
+                         {"via": "codex", "model": "fake-model", "effort": "high", "light_model": "light-m"})
+        os.remove(os.path.join(self.cards, doc + ".json"))
+        self.fakes.script("agy", default={"kind": "text"})
+        code, _out, err = self.work_run("agy", "--terms", self.terms)
+        self.assertEqual(code, 0, err)
+        meta = self.written()[doc]["card_meta"]
+        self.assertEqual((meta["via"], meta["model"]), ("agy", "fake-model"))
+        self.assertNotIn("effort", meta, "agy's effort is part of its model id")
+        self.assertNotIn("light_model", meta)
 
 
 class SectionsTest(CardsCliCase):

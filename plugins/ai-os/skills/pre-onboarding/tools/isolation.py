@@ -6,7 +6,7 @@ line, optionally `Term|marker|marker`, where the markers are shorter forms that,
 text, show the term is genuine content of that document. Lines starting with `#` are comments.
 
     isolation.py scan   --terms F --path <file or dir> [...] [--if-present <file> ...] [--out <result.json>]
-    isolation.py canary --terms F --engine agy|codex [--model M] --out <result.json>
+    isolation.py canary --terms F --engine agy|codex [--model M] [--effort E] --out <result.json>
 
 The scan reads every file named, and every model-facing file (prompts, templates, schemas, code, config such as
 `config.toml` or `jobs.yaml`) under a folder named, following links into folders (skills are often installed as
@@ -38,8 +38,21 @@ message, not in an instruction file. The other two layers cover that: the scan o
 the contamination check on every card. Neither command writes a term out. Each clears its `--out` file first of all,
 before the command line is even parsed, so a run that ends early never leaves an earlier pass behind. The result
 files are the proof the gate ran; a missing or failed result means no real call may start. agy needs --model.
+
+A canary clears one engine at one model and one effort, so a lane runs one per model it uses and writes each to its
+own file: `<work>/state/canary-<engine>-<model>.json` (a codex lane that runs one model at two efforts adds the effort
+to the name). `readiness.py` reads every `canary-*.json` there and, given the terms file, requires a passing one for
+each engine and exact model the cards record. `--effort` is codex's reasoning effort (default `low`); agy has none to
+set, because its effort is part of its model id, so `--effort` with agy is refused. The result records the effort used.
+
+The shield (`shield`, `shield_value`) is what keeps a term out of a call in the first place. Every tool that sends text
+or a path to an engine, or writes it into a file a model will read, replaces each term and marker with `[withheld
+name]` first, by the same case-insensitive substring match `hits` and `masked` use, so the shield and the scan always
+agree. It is one home for the tools that need it (`cards.py`, `vision.py`, `wiki.py`); each requires `--terms` or
+`--no-isolation-terms` (`evidence_of`) and never writes a term anywhere.
 """
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -140,6 +153,81 @@ def hits(text, terms):
     return [t for t in terms if t.lower() in low]
 
 
+SHIELD = "[withheld name]"
+
+
+def forms(evidence):
+    """Every term and marker of the evidence, once each, longest first (equal lengths in alphabetical order, so the order
+    never varies between runs): the order `masked` and `shield` replace in."""
+    return sorted({m for ms in evidence.values() for m in ms}, key=lambda m: (-len(m), m))
+
+
+def carries(text, evidence):
+    """Whether `text` holds a term or a marker of the evidence: whether `shield` would replace anything in it. (`hits`
+    reads the terms alone, which is what a card is an alert for naming; a marker is a form of the term, and a document
+    that carries one is as much a document that carries the term.)"""
+    return bool(hits(text, forms(evidence)))
+
+
+def shield(text, evidence):
+    """(`text` with every term and marker of `evidence` replaced by `SHIELD`, the number replaced). Matching is the
+    case-insensitive substring match `hits` and `masked` use, longest form first, in one pass, so the placeholder is never
+    scanned again and a form is never replaced inside it. Empty evidence (`--no-isolation-terms`) returns the text as it
+    was and 0. A term is never written anywhere. A short term also matches inside longer words, which garbles the word
+    and never leaks the term: prefer full names in the terms file."""
+    fs = forms(evidence)
+    if not fs:
+        return text, 0
+    return re.subn("|".join(re.escape(f) for f in fs), lambda _m: SHIELD, text, flags=re.I)
+
+
+def shield_value(value, evidence):
+    """(`value` with every string in it, and every key of every mapping, shielded as `shield` does, the number replaced).
+    A JSON value: strings, lists, mappings; anything else (numbers, booleans, null) is returned as it is. Two keys that
+    shield alike are one key, the later value kept: the keys a tool shields are paths and names, never an identifier."""
+    n = 0
+
+    def walk(v):
+        nonlocal n
+        if isinstance(v, str):
+            out, k = shield(v, evidence)
+            n += k
+            return out
+        if isinstance(v, (list, tuple)):
+            return [walk(x) for x in v]
+        if isinstance(v, dict):
+            return {walk(k): walk(x) for k, x in v.items()}
+        return v
+    return walk(value), n
+
+
+def shield_digest(evidence):
+    """The sha256 of the evidence's forms, sorted and one to a line, never the forms: what a cached or built artefact
+    records, so that one made under another terms file, or under none, is not taken for one made under this."""
+    return hashlib.sha256("\n".join(sorted({m for ms in evidence.values() for m in ms})).encode("utf-8")).hexdigest()
+
+
+def add_terms_args(parser):
+    parser.add_argument("--terms", help="the operator's isolation terms file")
+    parser.add_argument("--no-isolation-terms", action="store_true",
+                        help="state explicitly that no other project needs isolating (nothing is shielded)")
+
+
+def require_choice(a):
+    """Refuse a command line that gives neither `--terms` nor `--no-isolation-terms`, or both: a run that shields nothing
+    must be the operator's stated decision, never an omission or a contradiction. Checked before anything is read."""
+    if a.terms and a.no_isolation_terms:
+        raise common.ToolError("give --terms (the isolation list) or --no-isolation-terms, not both")
+    if not (a.terms or a.no_isolation_terms):
+        raise common.ToolError("give --terms (the isolation list) or --no-isolation-terms")
+
+
+def evidence_of(a):
+    """{term: [term, marker, ...]} for `--terms`, `{}` for `--no-isolation-terms` (see `require_choice`)."""
+    require_choice(a)
+    return {} if a.no_isolation_terms else load_terms(a.terms)
+
+
 def term_in_source(term, src, evidence):
     for m in evidence.get(term, [term]):
         if re.fullmatch(r"[A-Za-z0-9 .&-]+", m):
@@ -151,14 +239,15 @@ def term_in_source(term, src, evidence):
 
 
 def contamination(card_text, source_text, evidence):
-    """Terms a card names that its own source does not carry: each one is an alert."""
+    """Terms a card names that its own source does not carry: each one is an alert. Given the source as it was sent,
+    shielded (`shield`), in which no term or marker survives, nothing excuses a term, so every term the card names is
+    returned: the model was never shown it."""
     return [t for t in hits(card_text, evidence) if not term_in_source(t, source_text, evidence)]
 
 
 def masked(text, evidence):
     """`text` with every term and marker replaced by `<term>` (longest first, ignoring case)."""
-    forms = sorted({m for ms in evidence.values() for m in ms}, key=len, reverse=True)
-    for m in forms:
+    for m in forms(evidence):
         text = re.sub(re.escape(m), "<term>", text, flags=re.I)
     return text
 
@@ -262,17 +351,19 @@ def scan(a):
     return 0 if res["pass"] else 1
 
 
-CODEX_EFFORT = "low"  # agy has none to set: its effort is part of its model id
+CODEX_EFFORT = "low"  # the codex default; agy has none to set: its effort is part of its model id
+EFFORT = re.compile(r"[a-z]+")  # codex takes its levels as given (low, medium, high, ...): a word, never a TOML escape
 
 
 def canary(a):
     evidence = load_terms(a.terms)
     marker = fresh_marker(evidence)
+    effort = None if a.engine == "agy" else a.effort or CODEX_EFFORT
     d = engines.fresh_dir("canary_")
     res = {"engine": a.engine, "checked_at": common.now_local(), "terms": len(evidence), "marker": marker,
-           "model": a.model or "cli-default", "effort": None if a.engine == "agy" else CODEX_EFFORT}
+           "model": a.model or "cli-default", "effort": effort}
     try:
-        eng = engines.Agy(a.model) if a.engine == "agy" else engines.Codex(a.model, effort=CODEX_EFFORT)
+        eng = engines.Agy(a.model) if a.engine == "agy" else engines.Codex(a.model, effort=effort)
         reply, usage = eng(CANARY.format(marker=marker), d)
         res.update(reply=masked(reply.strip(), evidence)[:2000], usage=usage, hits=len(hits(reply, evidence)),
                    answered=answered(reply, marker))
@@ -319,10 +410,16 @@ def main():
     p.add_argument("--terms", required=True)
     p.add_argument("--engine", choices=["agy", "codex"], required=True)
     p.add_argument("--model")
+    p.add_argument("--effort", help="codex reasoning effort (default %s); agy's is part of its model id" % CODEX_EFFORT)
     p.add_argument("--out", required=True)
     a = ap.parse_args()
     if a.cmd == "canary" and a.engine == "agy" and not a.model:
         raise common.ToolError(engines.AGY_MODEL_REQUIRED)
+    if a.cmd == "canary" and a.effort is not None:
+        if a.engine == "agy":
+            raise common.ToolError("--effort is for codex: agy's effort is part of its model id, so choose it with --model")
+        if not EFFORT.fullmatch(a.effort):
+            raise common.ToolError("--effort %r is not a codex reasoning effort such as low, medium or high" % a.effort)
     return scan(a) if a.cmd == "scan" else canary(a)
 
 
