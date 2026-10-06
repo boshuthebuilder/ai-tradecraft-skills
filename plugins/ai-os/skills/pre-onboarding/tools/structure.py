@@ -28,7 +28,8 @@ is a value, zero included, with a `stands_out` flag where it crosses the thresho
     wide                  at least 15 documents directly in the folder (a `flat_dump` when it has no sub-folder)
     mixed                 at least 5 carded contents directly in it, the commonest category holding at most 0.6 of them
     duplicate_subtree     at least 3 contents, every one of which also lives in one other folder that is not nested
-                          with it (any depth)
+                          with it (any depth), counted where the copied set starts: a folder that only wraps it (no
+                          document of its own, one sub-folder) is not counted again, nor named as the other folder
     generic_names         at least 5 canonical documents below it, at least 0.3 of them named like a scanner or device
                           default (the audit's `generic_name`)
     generic_folder_name   named like New folder, Stuff, Misc, Other or Downloads
@@ -52,8 +53,10 @@ and N at most M), then per assessed folder a heading `### <folder path>` and exa
 it is | tidy inside | restructure>`, `- Evidence: <text>` and `- What the owner would relearn: <text>`; blank lines
 only between the header lines and blocks. `check` reports every problem, exit 1: a line out of place or malformed, a
 heading that is no folder holding live documents, a folder given twice, no block at all, M that is not the live
-document count, N over M, `no re-org` with a block other than `leave as it is` or with N above 0, and `targeted` or
-`full` with every block `leave as it is`. It prints the counts, never a folder of the manifest.
+document count, N over M, `no re-org` with a block other than `leave as it is` or with N above 0, `targeted` or `full`
+with every block `leave as it is`, and N of 0 beside a `targeted` or `full` verdict or a block that is `tidy inside` or
+`restructure`. A heading is compared in Unicode NFC (`common.as_spelled`), so a folder stored decomposed is found by
+its composed name. It prints the counts, never a folder of the manifest.
 """
 import argparse
 import collections
@@ -122,7 +125,8 @@ def load_documents(rb, man, cards_dir):
     """(documents, the cards, what is left out) of the folder. A document is {path, id, current, canonical, generic}:
     its path, its content's id and current path, whether the path is the current one, and whether that name is a device
     default (the audit's `generic_name`, a flag of the current path alone). `cards` is {id: card} for the live contents
-    that have one. What is left out (departed, held for another project, excluded) is counted by kind, never named."""
+    that have one. What is left out (departed, held for another project, excluded) is counted by kind, a path at a time
+    as the documents are (a copy under the migrations folder is one held document), never named."""
     docs = []
     for p, h in sorted(common.live_document_paths(rb, man).items()):
         cur = man[h]["current_path"]
@@ -135,11 +139,14 @@ def load_documents(rb, man, cards_dir):
             cards[h] = card
     left = collections.Counter()
     for e in man.values():
-        if "departed" in e.get("flags", []):
-            left["departed"] += 1
-        elif common.withheld(rb, e["current_path"]):
-            left["held_for_another_project" if common.withheld(rb, e["current_path"]) == "migrations"
-                 else "excluded"] += 1
+        paths = [c["path"] for c in e.get("copies", [])] or [e["current_path"]]
+        for p in paths:
+            if "departed" in e.get("flags", []):
+                left["departed"] += 1
+            else:
+                why = common.withheld(rb, e["current_path"]) or common.withheld(rb, p)
+                if why:
+                    left["held_for_another_project" if why == "migrations" else "excluded"] += 1
     return docs, cards, left
 
 
@@ -165,18 +172,18 @@ def folder_rows(docs, cards):
         if f:
             children[os.path.dirname(f)].append(f)
 
+    wraps = {f for f in folders if f and not direct.get(f) and len(children[f]) == 1}  # a link of a single-child chain
     twin = {}  # folder -> (the share of its contents that also live in its best other folder, that folder)
     for f in sorted(folders):
         ids = ids_of[f]
-        if f and len(ids) >= PARAMS["duplicate_min_contents"]:
-            overlap = collections.Counter(g for i in ids for g in held_by[i] if not nested(f, g))
+        if f and f not in wraps and len(ids) >= PARAMS["duplicate_min_contents"]:
+            overlap = collections.Counter(g for i in ids for g in held_by[i] if g not in wraps and not nested(f, g))
             if overlap:
                 best = min((-n / len(ids), len(ids_of[g]), g) for g, n in overlap.items())
                 twin[f] = (-best[0], best[2])
     chain = {}
     for f in sorted(folders, key=lambda x: -len(x.split("/")) if x else 1):
-        passthrough = f and not direct.get(f) and len(children[f]) == 1
-        chain[f] = 1 + chain[children[f][0]] if passthrough else 0
+        chain[f] = 1 + chain[children[f][0]] if f in wraps else 0
 
     rows = []
     for f in sorted(folders, key=lambda x: x.split("/") if x else []):
@@ -528,7 +535,8 @@ def documents(a):
     shield, root, work, out, rb, man, cards_dir = prepare(a)
     docs, cards, _left = load_documents(rb, man, cards_dir)
     have = {f for d in docs for f in folders_of(d["path"])}
-    wanted = sorted({f[:-1] if f.endswith("/") else f for f in a.folder})
+    index = common.spelling_index(have)
+    wanted = sorted({common.as_spelled(index, f[:-1] if f.endswith("/") else f) for f in a.folder})
     for f in wanted:
         if f not in have:
             raise common.ToolError("--folder %r is not a folder holding live documents" % f)
@@ -573,8 +581,8 @@ def parse_record(text):
 
 
 def check_block(n, heading, body, folders):
-    """(the verdict or None, the problems) of one block: a heading that is a folder holding live documents, and
-    exactly the three labelled lines, the verdict one of `VERDICTS`."""
+    """(the verdict or None, the problems) of one block: a heading that is a folder holding live documents (`heading`
+    already as the manifest spells it), and exactly the three labelled lines, the verdict one of `VERDICTS`."""
     where = "line %d (%s)" % (n, heading)
     problems = []
     if isolation.PLACEHOLDER.search(heading):
@@ -621,7 +629,9 @@ def check_record(text, live_documents, folders):
                 problems.append("line %d: N (%d) is more than M (%s)" % (n, would_move, m.group(2)))
     verdicts, seen = collections.OrderedDict((v, 0) for v in VERDICTS), collections.Counter()
     unreadable = False
+    index = common.spelling_index(folders)
     for n, heading, body in blocks:
+        heading = common.as_spelled(index, heading)     # a name typed composed is the folder stored decomposed
         if seen[heading]:
             problems.append("line %d (%s): the folder is assessed twice" % (n, heading))
         seen[heading] += 1
@@ -638,11 +648,20 @@ def check_record(text, live_documents, folders):
         problems.append("Overall is no re-org, but %d folder(s) are tidy inside or restructure" % changing)
     if overall == "no re-org" and would_move:
         problems.append("Overall is no re-org, but %d documents would move" % would_move)
+    if would_move == 0 and overall in ("targeted", "full"):
+        problems.append("Overall is %s, but no document would move (N is 0): a re-organisation that moves nothing is "
+                        "no re-org" % overall)
+    if would_move == 0 and changing:
+        problems.append("N is 0, but %d folder(s) are tidy inside or restructure (a document that is renamed or sent "
+                        "to another folder counts as moved)" % changing)
     if overall in ("targeted", "full") and blocks and not changing and not unreadable:
         problems.append("Overall is %s, but every folder is leave as it is" % overall)
+    assessed = {common.as_spelled(index, h) for _n, h, _b in blocks}
     return collections.OrderedDict([
         ("overall", overall), ("documents", live_documents), ("would_move", would_move), ("blocks", len(blocks)),
-        ("verdicts", verdicts), ("problems", problems), ("ok", not problems)])
+        ("verdicts", verdicts),
+        ("top_level_folders_without_block", len({f for f in folders if "/" not in f} - assessed)),
+        ("problems", problems), ("ok", not problems)])
 
 
 @wiki.os_errors
@@ -662,8 +681,6 @@ def check(a):
     live = common.live_document_paths(rb, man)
     folders = {f for p in live for f in folders_of(p)}
     res = check_record(text, len(live), folders)
-    res["top_level_folders_without_block"] = len({f for f in folders if "/" not in f} - {
-        h for _n, h, _b in parse_record(text)[1]})
     print(json.dumps(res, ensure_ascii=False, indent=1))
     return 0 if res["ok"] else 1
 

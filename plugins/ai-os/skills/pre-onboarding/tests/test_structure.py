@@ -472,6 +472,120 @@ class WithheldTest(Built):
         self.assertFalse(os.path.exists(out) or os.path.exists(measures))
 
 
+class CountedOnceTest(Built):
+    """What a reviewer ran on the well-kept folder: a chain of folders above a copy, a copy held for another project,
+    a content excluded under two paths, and a folder named in decomposed Unicode."""
+
+    def audit(self, root):
+        proc = subprocess.run([sys.executable, os.path.join(TOOLS, "audit.py"), "--root", root, "--work",
+                               os.path.join(self.tmp, "wa")], capture_output=True, text=True,
+                              env=dict(os.environ, PRE_ONBOARDING_NOW=sf.NOW))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def measure(self, root, *extra):
+        out = os.path.join(self.tmp, "o", "input.md")
+        code, stdout, err = run("measure", "--root", root, "--work", os.path.join(self.tmp, "w"), "--out", out, *extra)
+        self.assertEqual(code, 0, err)
+        return json.loads(stdout), read(out)
+
+    def rulebook(self, root, **kw):
+        write(os.path.join(root, "CLAUDE.md"), "# rulebook\n")
+        write(os.path.join(root, "AGENTS.md"), "# rulebook\n")
+        write(os.path.join(root, ".familyai", "rulebook.json"), json.dumps(
+            dict({"version": 1, "rulebook_sha256": hashlib.sha256(b"# rulebook\n").hexdigest()}, **kw)))
+
+    def test_a_copied_set_is_one_duplicate_however_deep_the_folders_above_it(self):
+        root = self.copy_of("well_kept")
+        deep = os.path.join(root, "Backup", "Docs", "Health", "2022")
+        os.makedirs(deep)
+        for name in os.listdir(os.path.join(root, "Health", "2022")):
+            shutil.copy(os.path.join(root, "Health", "2022", name), deep)
+        self.audit(root)
+        res, text = self.measure(root)
+        sig = res["signals"]["duplicate_subtrees"]
+        self.assertEqual(sig["where"], [
+            {"folder": "Backup/Docs/Health/2022", "also_in": "Health/2022", "contents": 4},
+            {"folder": "Health/2022", "also_in": "Backup/Docs/Health/2022", "contents": 4}],
+            "the copied set is counted where it starts, and each side names the other, never a folder that wraps it")
+        self.assertEqual(sig["count"], 2)
+        self.assertEqual(res["signals"]["single_child_chains"]["where"], ["Backup"], "the chain is still a chain")
+        self.assertIn("`Backup/Docs/Health/2022` (also in `Health/2022`)", text)
+        self.assertNotIn("`Backup` (also in", text)
+
+    def test_a_folder_with_a_document_of_its_own_still_counts_as_a_duplicate_beside_its_child(self):
+        def doc(path, h):
+            return {"path": path, "id": h, "current": path, "canonical": True, "generic": False}
+        # P holds a document and one folder Q; Q's three contents are all in R, and P's four are not
+        docs = [doc("P/own.txt", "o"), doc("P/Q/1.txt", "1"), doc("P/Q/2.txt", "2"), doc("P/Q/3.txt", "3"),
+                doc("R/1.txt", "1"), doc("R/2.txt", "2"), doc("R/3.txt", "3")]
+        rows, _chain = structure.folder_rows(docs, {})
+        got = {r["folder"]: (r["stands_out"], r["duplicate_of"]) for r in rows if r["folder"] in ("P", "P/Q", "R")}
+        self.assertEqual(got, {"P": ([], "R"), "P/Q": (["duplicate_subtree"], "R"), "R": (["duplicate_subtree"], "P/Q")})
+
+    def test_withheld_documents_are_counted_by_path_copies_included(self):
+        root = self.copy_of("well_kept")
+        held = os.path.join(root, "_Migrations", "Other Project", "Money", "Bank")
+        os.makedirs(held)
+        for name in sorted(os.listdir(os.path.join(root, "Money", "Bank")))[:2]:
+            shutil.copy(os.path.join(root, "Money", "Bank", name), held)       # two copies of live documents
+        os.makedirs(os.path.join(root, "Private", "More"))
+        write(os.path.join(root, "Private", "secret a.txt"), "secret only here\n")
+        write(os.path.join(root, "Private", "More", "secret b.txt"), "secret only here\n")  # one content, two paths
+        shutil.copy(os.path.join(root, "Money", "Bank", sorted(os.listdir(os.path.join(root, "Money", "Bank")))[2]),
+                    os.path.join(root, "Private", "kept copy.txt"))              # a copy of a live document, excluded
+        os.remove(os.path.join(root, "Work", "Payslips", "2023", "Payslip 2023-01-31.txt"))
+        shutil.copy(os.path.join(root, "Work", "Payslips", "2023", "Payslip 2023-02-28.txt"),
+                    os.path.join(root, "Work", "Payslips", "2023", "Payslip copy.txt"))
+        self.audit(root)
+        self.rulebook(root, exclude=["Private"])
+        shutil.rmtree(os.path.join(root, "_Audit", "extract"), True)
+        res, text = self.measure(root)
+        s = res["summary"]
+        self.assertEqual((s["held_for_another_project"], s["excluded"], s["departed"]), (2, 3, 1))
+        self.assertIn("held for another project 2, excluded 3, departed 1", text)
+        man = json.loads(read(os.path.join(root, "_Audit", "manifest.json")))["entries"]
+        every = sum(len([c["path"] for c in e.get("copies", [])] or [e["current_path"]]) for e in man.values())
+        self.assertEqual(s["documents"] + s["held_for_another_project"] + s["excluded"] + s["departed"], every,
+                         "every path of the manifest is a document, held, excluded or departed, once")
+        self.assertNotIn("Other Project", text + json.dumps(res))
+        self.assertNotIn("secret", text + json.dumps(res))
+
+    def test_a_folder_named_decomposed_is_the_folder_a_composed_name_names(self):
+        import unicodedata
+        root = self.copy_of("well_kept")
+        decomposed, composed = unicodedata.normalize("NFD", "Kit Caf\u00e9"), "Kit Caf\u00e9"
+        os.rename(os.path.join(root, "Kit"), os.path.join(root, decomposed))
+        if decomposed not in os.listdir(root):
+            self.skipTest("this file system stores a name composed whatever form it is written in")
+        self.audit(root)
+        res, text = self.measure(root)
+        self.assertIn(decomposed + "/School", [r["folder"] for r in res["folders"]])
+        record = os.path.join(self.tmp, "record.md")
+        write(record, "\n".join(["# Structure assessment", "", "Overall: targeted", "Reason: r",
+                                 "Documents that would move: 3 of 53", "", "### %s" % composed,
+                                 "- Verdict: tidy inside", "- Evidence: e", "- What the owner would relearn: w", ""]))
+        code, out, err = run("check", "--root", root, "--work", os.path.join(self.tmp, "w"), "--record", record)
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual((json.loads(out)["blocks"], json.loads(out)["top_level_folders_without_block"]), (1, 5))
+        write(record, read(record).replace("### %s\n" % composed, "### %s\n- Verdict: tidy inside\n- Evidence: e\n- "
+                                           "What the owner would relearn: w\n\n### %s\n" % (composed, decomposed), 1))
+        code, out, err = run("check", "--root", root, "--work", os.path.join(self.tmp, "w"), "--record", record)
+        self.assertEqual(code, 1, out + err)
+        self.assertIn("the folder is assessed twice", json.loads(out)["problems"][0],
+                      "one folder in two forms is one folder, assessed twice")
+        listing = os.path.join(self.tmp, "o", "documents.md")
+        code, out, err = run("documents", "--root", root, "--work", os.path.join(self.tmp, "w"), "--out", listing,
+                             "--folder", composed + "/School")
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("## `%s/School` (4 documents)" % decomposed, read(listing), "the manifest's own spelling")
+        self.assertEqual(common.as_spelled(common.spelling_index([decomposed]), composed), decomposed)
+        self.assertEqual(common.as_spelled(common.spelling_index([composed]), decomposed), composed,
+                         "the other way round: a decomposed name given for a folder stored composed")
+        self.assertEqual(common.as_spelled({}, decomposed), composed, "a name the manifest does not hold comes back NFC")
+        self.assertEqual(common.as_spelled(common.spelling_index([decomposed]), "kit caf\u00e9"), "kit caf\u00e9",
+                         "no case folding: another case is another name")
+
+
 class RefusalTest(Built):
     def args(self, root, **extra):
         out = os.path.join(self.tmp, "o", "input.md")
@@ -721,6 +835,19 @@ class RecordTest(Built):
                          "Overall is no re-org, but 1 folder(s) are tidy inside or restructure")
         self.refused(self.record(overall="no re-org", moves="3 of 78", blocks=blocks),
                      "Overall is no re-org, but 3 documents would move")
+
+    def test_nothing_that_would_move_contradicts_a_verdict_that_moves(self):
+        for verdict in ("restructure", "tidy inside"):
+            found = self.refused(self.record(moves="0 of 78", blocks=[("Money/Misc", verdict, "x", "y")]),
+                                 "N is 0, but 1 folder(s) are tidy inside or restructure (a document that is renamed or "
+                                 "sent to another folder counts as moved)")
+            self.assertTrue(any("Overall is targeted, but no document would move (N is 0)" in p for p in found), found)
+        for overall in ("targeted", "full"):
+            self.refused(self.record(overall=overall, moves="0 of 78", blocks=[("Car", "leave as it is", "x", "none")]),
+                         "Overall is %s, but no document would move (N is 0): a re-organisation that moves nothing is "
+                         "no re-org" % overall)
+        self.assertEqual(self.check(self.record(overall="no re-org", moves="0 of 78",
+                                                blocks=[("Car", "leave as it is", "x", "none")]), code=0)["would_move"], 0)
 
     def test_targeted_or_full_with_nothing_to_do_is_a_contradiction(self):
         blocks = [("Car", "leave as it is", "x", "none")]
