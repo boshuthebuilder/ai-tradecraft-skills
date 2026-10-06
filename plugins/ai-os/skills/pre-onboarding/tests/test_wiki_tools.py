@@ -962,6 +962,56 @@ class ShieldTest(Copy):
         self.assertEqual(wiki.page_sources("See `Papers/`.", man, held, cards, rb, {}, clean)[0],
                          ["- `Papers/`: not a document or folder in the manifest"], "nothing is marked without terms")
 
+    def test_a_short_marker_is_never_read_in_a_card_field_name(self):
+        """A marker such as Nam is in the field name `proposed_name`: only the values of a card are read, so no document is
+        marked shielded merely for having a card."""
+        terms = os.path.join(self.tmp, "short.txt")
+        write(terms, "Quorvane Nam|Nam\n")
+        self.ok("bundles", "--terms", terms, code=1)
+        self.assertEqual({r.get("shielded") for n in ("10", "20", "30", "40") for r in self.bundle_rows(n)}, {None})
+        prompt = self.review_prompt("--terms", terms)
+        self.assertNotIn("do not open; it carries", prompt)
+
+    def add_unread_image(self, path):
+        """A manifest entry for an image over the cap: counted and never read, so no extract record and no card."""
+        mp = os.path.join(self.root, "_Audit", "manifest.json")
+        man = json.loads(read(mp))
+        man["entries"]["e" * 64] = {"id": "e" * 64, "current_path": path, "class": "image", "hashed": False,
+                                    "synthetic_id": True, "size": 60_000_000, "flags": [], "rename_history": []}
+        write(mp, json.dumps(man, ensure_ascii=False, indent=1))
+
+    def test_a_document_the_manifest_records_as_never_read_is_judged_by_its_paths_alone(self):
+        """An image over the cap has no card or extract record by design: it is not shielded unless its path carries a term, and
+        a folder is not marked only for holding one."""
+        terms = os.path.join(self.tmp, "robin.txt")
+        write(terms, "Robin Trading Ltd\n")  # nothing under 03 Home/ carries it
+        page = self.page(BRIEF_PAGES[0])
+        write(page, read(page) + "\nThe photos are in `03 Home/`, and `03 Home/Big scan.jpg` is the largest.\n")
+        before = self.review_prompt("--terms", terms)
+        self.add_unread_image("03 Home/Big scan.jpg")
+        after = self.review_prompt("--terms", terms, "--sample", "6")
+        sources = after.split("## Its sources")[1].split("## Facts to check")[0]
+        folder = next(l for l in sources.splitlines() if l.startswith("- `03 Home/`"))
+        self.assertEqual(folder, "- `03 Home/`: a folder, 4 files directly in it", "one large photo marks no folder")
+        self.assertIn("- `03 Home/Big scan.jpg`: no card", sources, "it is no source a card describes, and none is claimed")
+        self.assertNotIn("03 Home/Big scan.jpg`: do not open", sources)
+        self.assertEqual(
+            next(l for l in before.split("## Its sources")[1].splitlines() if l.startswith("- `03 Home/`")),
+            "- `03 Home/`: a folder, 3 files directly in it")
+        self.build("--terms", terms)
+        text = self.ok("brief", "--page", BRIEF_PAGES[0], "--terms", terms)
+        self.assertIn("- Shielded sources: 2 sources this page cites", text, "the Tax return and the Contract, not the image")
+
+    def test_an_unread_image_whose_path_carries_a_term_is_shielded_and_marks_its_folder(self):
+        terms = os.path.join(self.tmp, "robin.txt")
+        write(terms, "Robin Trading Ltd\n")
+        self.add_unread_image("03 Home/Robin Trading Ltd scan.jpg")
+        page = self.page(BRIEF_PAGES[0])
+        write(page, read(page) + "\nThe photos are in `03 Home/`.\n")
+        sources = self.review_prompt("--terms", terms).split("## Its sources")[1].split("## Facts to check")[0]
+        folder = next(l for l in sources.splitlines() if l.startswith("- `03 Home/`"))
+        self.assertIn("do not open it: 1 document under it carries a name kept from you", folder)
+
     def test_the_brief_says_how_many_of_the_sources_a_page_cites_are_shielded(self):
         self.build("--terms", self.terms)
         text = self.ok("brief", "--page", BRIEF_PAGES[0], "--terms", self.terms)

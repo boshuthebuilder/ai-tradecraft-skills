@@ -386,18 +386,33 @@ class Shielded:
             print("shielded %d occurrence(s) of an isolation term in %s" % (self.count, what), file=sys.stderr)
 
 
+def strings(value):
+    """Every string in a JSON value, mapping keys left out."""
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        return [x for v in value.values() for x in strings(v)]
+    if isinstance(value, (list, tuple)):
+        return [x for v in value for x in strings(v)]
+    return []
+
+
 def shielded_document(h, entry, evidence, cards_dir, extract_dir, card=None, xr=None):
     """Whether document `h`, which the manifest holds as `entry`, is shielded: a subagent must not open it, because its
     file still holds a name the isolation list withholds. It is when its path, any copy's path, its extract text or any
-    field of its card carries a term or marker, or its card records that it was shielded when carded. The one rule
+    value of its card carries a term or marker, or its card records that it was shielded when carded. The one rule
     `bundles`, `brief` and `review-prompts` all use. It fails closed: a card or extract record that is missing or cannot be
-    read counts as shielded, never as clean. Without `evidence` nothing is shielded. `card` and `xr` are the records, when
-    the caller has read them already."""
+    read counts as shielded, never as clean, for a document that should have one. An entry the manifest records as never
+    read (`hashed` false: an image over the cap, counted and not read) has neither by design, and is judged by its paths
+    alone, as `readiness.py` does. Without `evidence` nothing is shielded. `card` and `xr` are the records, when the caller
+    has read them already."""
     if not evidence:
         return False
     names = [entry["current_path"]] + [c["path"] for c in entry.get("copies", []) if isinstance(c, dict)]
     if any(isolation.carries(n, evidence) for n in names):
         return True
+    if entry.get("hashed") is False:
+        return False
     try:
         card = load_card(cards_dir, h) if card is None else card
         if xr is None and os.path.exists(os.path.join(extract_dir, h + ".json")):
@@ -407,8 +422,8 @@ def shielded_document(h, entry, evidence, cards_dir, extract_dir, card=None, xr=
     if card is None or xr is None:
         return True
     meta = card.get("card_meta")
-    fields = json.dumps({k: v for k, v in card.items() if k != "card_meta"}, ensure_ascii=False)
-    return bool(isinstance(meta, dict) and meta.get("shielded")) or isolation.carries(fields, evidence) \
+    values = "\n".join(strings({k: v for k, v in card.items() if k != "card_meta"}))  # the values, never the field names
+    return bool(isinstance(meta, dict) and meta.get("shielded")) or isolation.carries(values, evidence) \
         or isolation.carries(full_text(xr), evidence)
 
 
