@@ -107,7 +107,8 @@ need it — don't impose the archetype where the material doesn't justify it.
   an audit pair and a rulebook but no twins (curated by `folder-curation` on its own) is cold; the scan
   decides whether it is tidy.
 - **Cold and messy.** The scan finds any of: one subject with more than one home, a duplicate tree,
-  strays at the root, AI artefacts beside sources, or a format the system cannot read. Stop, and start
+  strays at the root, AI artefacts beside sources (an owner confirmation record is a source, not one),
+  or a format the system cannot read. Stop, and start
   the folder at **pre-onboarding**, which runs **folder-curation** for the tidy-up and hands the folder
   back prepared. Its hand-off check, not this skill, decides when the folder is ready; onboarding a
   folder that still has two homes for one subject writes that ambiguity into the Schema's routing

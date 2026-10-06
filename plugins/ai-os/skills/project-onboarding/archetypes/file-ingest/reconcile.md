@@ -74,7 +74,8 @@ Reconcile the wiki **to the files**:
    the ingest itself — the job's own name, usually with the run's date (`## <date> ingest`) — **and**
    every fact under it is of a kind one of the page's other sections already tracks. Then move each
    fact into that section (the row into the table, the bullet into the list), correct any earlier
-   derived line it contradicts — never a `provenance: manual` one, which stays as asserted (rule 2) —
+   derived line it contradicts — never a `provenance: manual` one, nor a line an owner confirmation
+   record backs, which stay as asserted (rule 2) —
    merge sections that describe the same thing, and drop the emptied container, every source citation
    and all manual content carried verbatim. Any other heading, dated or not, is the page's own
    structure: leave it. The deployment's write guards apply to a fold like any other edit (a sharp
@@ -84,7 +85,11 @@ Reconcile the wiki **to the files**:
 2. **`provenance: manual` content is owner-asserted and authoritative** — never flag it as
    inconsistent with the files, never delete it, never contradict it. The one permitted change:
    authored notes (ideas, brainstorms) that clearly belong together may be **merged or cross-linked**,
-   preserving their content and their `provenance: manual` marking verbatim.
+   preserving their content and their `provenance: manual` marking verbatim. An **owner confirmation
+   record** in the folder is a source with the same authority. A page fact that disagrees with its
+   record is brought back into line with the record, unless a document contradicts the record: that
+   goes to the owner, both sides stated. Never correct a fact towards a document that does not exist,
+   and never re-raise what a record settles.
 3. **Calendar.** Exactly like the Deadlines roll-up, `Coming Events` is rendered **deterministically by
    the deployment** from the calendar snapshot (a wired capability — see `rollups.coming_events`) —
    **never build, edit, or return it** here, and never flag it as file-inconsistent (a calendar feed is
