@@ -85,9 +85,12 @@ Every page that exists or is planned. Link only to these pages, by relative path
 The bundles in `<tmp>/a/work/bundles` hold one JSON line per document routed to a section: its path, copies, card
 (title, type, parties, date, summary, key facts) and, for an active section, its text. They were checked fresh
 against the current manifest and routing before this brief was made. Open a source file itself only when a bundle
-line names it and is not enough. A path this brief marks withheld, any path under the migrations folder and any path
-the owner excluded is never opened, read or cited: `wiki.py check` refuses a page that cites one. A routing row into
-such a folder is not a source.
+line names it and is not enough. **A bundle line marked `"shielded": true` is a document whose text or path carries a
+name kept from you** (the line shows `[withheld name]` for it): never open its file, whatever the line names. Work from
+the line and its card, and flag in your open questions what they do not give. A page entry that lists "Shielded
+sources" cites some, a folder holding one included: never open those either. A path this brief marks withheld, any
+path under the migrations folder and any path the owner excluded is never opened, read or cited: `wiki.py check`
+refuses a page that cites one. A routing row into such a folder is not a source.
 
 ## The Schema's tables
 
@@ -141,10 +144,11 @@ folders taken out, and do not open the Schema page.
 
 ## What you may read
 
-This brief, the core wiki rule, the bundles above and the source files a bundle line names. To check a dated rule (a
-rate, a threshold, a deadline), which the core wiki rule asks you to do, read the issuing authority's own publication
-and no other site, and flag the rule as unchecked if you cannot. Read nothing else: not the Schema page, the manifest
-or `AUDIT.md`, nothing else under `_Audit/`, and nothing else outside this folder.
+This brief, the core wiki rule, the bundles above and the source files a bundle line names, except one marked
+`"shielded": true`. To check a dated rule (a rate, a threshold, a deadline), which the core wiki rule asks you to do,
+read the issuing authority's own publication and no other site, and flag the rule as unchecked if you cannot. Read
+nothing else: not the Schema page, the manifest or `AUDIT.md`, nothing else under `_Audit/`, and nothing else outside
+this folder.
 
 ## What to do
 

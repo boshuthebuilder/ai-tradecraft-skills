@@ -18,12 +18,14 @@
   "malformed_extracts": 0,
   "bad_category": 0,
   "extract_paths_stale": 0,
-  "contamination": "not verified: no --terms"
+  "contamination": "not verified: no --terms",
+  "cards_shield": "not verified: no --terms",
+  "paths_naming_terms": "not verified: no --terms",
+  "history_paths_naming_terms": "not verified: no --terms"
  },
  "isolation": {
   "canary": {
-   "agy": "not run: no state/canary-agy.json in the work directory (isolation.py canary --out)",
-   "codex": "not run: no state/canary-codex.json in the work directory (isolation.py canary --out)"
+   "agy gemini-fake-high": "not run: no canary result for agy gemini-fake-high among <work>/state/canary-*.json (isolation.py canary --engine agy --model gemini-fake-high --out <work>/state/canary-agy-gemini-fake-high.json)"
   }
  },
  "wiki": {
@@ -179,16 +181,20 @@
    "not verified: no --terms"
   ],
   [
-   "isolation.canary.agy",
-   "not run: no state/canary-agy.json in the work directory (isolation.py canary --out)"
+   "records.cards_shield",
+   "not verified: no --terms"
   ],
   [
-   "isolation.canary.codex",
-   "not run: no state/canary-codex.json in the work directory (isolation.py canary --out)"
+   "records.paths_naming_terms",
+   "not verified: no --terms"
+  ],
+  [
+   "isolation.canary.agy gemini-fake-high",
+   "not run: no canary result for agy gemini-fake-high among <work>/state/canary-*.json (isolation.py canary --engine agy --model gemini-fake-high --out <work>/state/canary-agy-gemini-fake-high.json)"
   ]
  ],
  "summary": {
   "findings": 1,
-  "not_verified": 3
+  "not_verified": 4
  }
 }

@@ -47,7 +47,9 @@ STEP_4A = {  # what wiki-onboarding step 4a says a drafting agent returns: where
     "its check result": ("return", "check_result"),
 }
 sys.path.insert(0, TOOLS)
+sys.path.insert(0, HERE)
 import common  # noqa: E402
+from shield_flag import with_terms_flag  # noqa: E402
 import wiki  # noqa: E402
 
 # path: doc_type, party, parties, doc_date, category, language, title, summary, reference numbers, text
@@ -136,6 +138,13 @@ def write(path, text):
 
 
 def run(tool, *args):
+    r = subprocess.run([sys.executable, os.path.join(TOOLS, tool)] + with_terms_flag(tool, args), capture_output=True, text=True,
+                       encoding="utf-8", timeout=TIMEOUT)
+    return r.returncode, r.stdout, r.stderr
+
+
+def run_as_given(tool, *args):
+    """`run` without the isolation flag a test about something else is given: the command line as written."""
     r = subprocess.run([sys.executable, os.path.join(TOOLS, tool)] + list(args), capture_output=True, text=True,
                        encoding="utf-8", timeout=TIMEOUT)
     return r.returncode, r.stdout, r.stderr
@@ -741,6 +750,366 @@ class BriefTest(Copy):
         self.assertFalse(os.path.exists(inside))
 
 
+class ShieldTest(Copy):
+    """`profile`, `bundles`, `brief` and `review-prompts` require a stated choice, and what they write carries no term of
+    the isolation list: every string is shielded first."""
+
+    TERMS = "# fictional terms for the tests\nExample Lettings|Lettings\nExample Evening College\nRobin Trading Ltd\n"
+    WORDS = ("example lettings", "lettings", "example evening college", "robin trading")
+
+    def setUp(self):
+        super().setUp()
+        self.terms = os.path.join(self.tmp, "terms.txt")
+        write(self.terms, self.TERMS)
+
+    def assert_clean(self, text):
+        for word in self.WORDS:
+            self.assertNotIn(word, text.lower())
+
+    def bundle_text(self):
+        return "".join(read(os.path.join(self.bundles_dir(), n)) for n in sorted(os.listdir(self.bundles_dir())))
+
+    def test_every_command_requires_a_stated_choice_and_not_both(self):
+        for cmd, args in (("profile", []), ("bundles", []), ("brief", ["--page", BRIEF_PAGES[0]]),
+                          ("review-prompts", ["--page", BRIEF_PAGES[0], "--author-model", "a", "--reviewer-model", "b"])):
+            for flags, why in (([], "give --terms (the isolation list) or --no-isolation-terms"),
+                               (["--terms", self.terms, "--no-isolation-terms"], "not both")):
+                with self.subTest(cmd=cmd, flags=flags):
+                    code, out, err = run_as_given("wiki.py", cmd, "--root", self.root, "--work", self.work, *args, *flags)
+                    self.assertEqual(code, 2, out + err)
+                    self.assertIn(why, err)
+                    self.assertEqual(out, "")
+                    self.assertFalse(os.path.exists(self.bundles_dir()), "a command that was refused built bundles")
+
+    def test_the_profile_names_no_term_and_counts_what_it_shielded(self):
+        code, out, err = self.wiki("profile", "--terms", self.terms)
+        self.assertEqual(code, 0, err)
+        self.assert_clean(out)
+        self.assertRegex(err, r"shielded \d+ occurrence\(s\) of an isolation term in the profile")
+        self.assertNotIn("Lettings", err)
+        res = json.loads(out)
+        home = {r["folder"]: r for r in res["folders"]}["03 Home"]
+        self.assertIn(["[withheld name]", 3], home["parties"])
+        self.assertEqual(self.ok("profile"), read(os.path.join(GOLDEN, "profile.json")), "nothing shielded: unchanged")
+
+    def test_the_bundles_are_shielded_in_every_field_and_record_the_shield_never_the_terms(self):
+        res = json.loads(self.ok("bundles", "--terms", self.terms, code=1))
+        self.assertEqual(res["routed"], 16)
+        self.assert_clean(self.bundle_text())
+        self.assert_clean(read(os.path.join(self.bundles_dir(), "bundles.json")))
+        rows = [json.loads(x) for x in read(os.path.join(self.bundles_dir(), "bundle_30.jsonl")).splitlines()]
+        lease = next(r for r in rows if r["path"] == "03 Home/Lease renewal.pdf")
+        ids = {e["current_path"]: h for h, e in json.loads(read(MANIFEST))["entries"].items()}
+        self.assertEqual(lease["id"], ids["03 Home/Lease renewal.pdf"][:12], "an identifier is never shielded")
+        self.assertEqual(lease["parties"], ["[withheld name]"])
+        self.assertIn("Landlord: [withheld name]", lease["text"])
+        meta = json.loads(read(os.path.join(self.bundles_dir(), "bundles.json")))
+        ev = wiki.isolation.load_terms(self.terms)
+        self.assertEqual(meta["shield"], {"terms": True, "sha256": wiki.isolation.shield_digest(ev)})
+        self.assertEqual(meta["arguments"], {"--terms": "<terms file>"}, "the terms file's path is never recorded")
+
+    def bundle_rows(self, number):
+        return [json.loads(x) for x in read(os.path.join(self.bundles_dir(), "bundle_%s.jsonl" % number)).splitlines()]
+
+    def test_a_bundle_line_for_a_document_that_carries_a_term_is_marked_shielded(self):
+        """The line reads `[withheld name]` for the name, but the source file still holds it: a drafter must be told, in
+        the line itself, never to open it."""
+        self.ok("bundles", "--terms", self.terms, code=1)
+        marked = {r["path"]: r.get("shielded") for n in ("10", "20", "30", "40") for r in self.bundle_rows(n)}
+        self.assertTrue(marked["06 Work/Contract.docx"], "its text carries a term")
+        self.assertTrue(marked["03 Home/Lease renewal.pdf"], "its text carries a term")
+        self.assertTrue(marked["03 Home/Lease renewal.pages"], "its card names a term, which the line shielded")
+        self.assertIsNone(marked["01 Identity/Passport scan.pdf"], "a document that carries no term is not marked")
+        self.assertIsNone(marked["02 Finance/Bank statement 2024-03.pdf"])
+        self.ok("bundles", "--no-isolation-terms", code=1)
+        self.assertEqual({r.get("shielded") for n in ("10", "20", "30", "40") for r in self.bundle_rows(n)}, {None},
+                         "nothing is marked when nothing is shielded")
+
+    def test_a_term_across_the_text_cap_is_shielded_before_the_cut(self):
+        """The cut falls inside the name: cut first, the shield no longer finds it and the first part reaches the bundle."""
+        ids = {e["current_path"]: h for h, e in json.loads(read(MANIFEST))["entries"].items()}
+        text = RECORDS["06 Work/Contract.docx"][-1]
+        cap = ("[page 1]\n" + text).index("Trading")
+        self.ok("bundles", "--terms", self.terms, "--text-cap", str(cap), code=1)
+        row = next(r for r in self.bundle_rows("20") if r["path"] == "06 Work/Contract.docx")
+        self.assertEqual(row["id"], ids["06 Work/Contract.docx"][:12])
+        self.assertNotIn("robin", row["text"].lower())
+        self.assertIn("[... text truncated,", row["text"])
+        self.assertTrue(row["shielded"])
+
+    def test_bundles_json_never_records_the_terms_file_path(self):
+        """The path may carry a term (a list kept beside another affair's files), and bundles.json sits where the drafters
+        are sent: it records a fixed placeholder, and the rebuild is asked under the caller's own flag."""
+        elsewhere = os.path.join(self.tmp, "Example Lettings notes", "isolation.txt")
+        write(elsewhere, self.TERMS)
+        self.ok("bundles", "--terms", elsewhere, code=1)
+        raw = read(os.path.join(self.bundles_dir(), "bundles.json"))
+        self.assertNotIn("Example Lettings", raw)
+        self.assertNotIn("isolation.txt", raw)
+        self.assertEqual(json.loads(raw)["arguments"], {"--terms": "<terms file>"})
+        for name in os.listdir(self.bundles_dir()):
+            self.assertNotIn("Example Lettings notes", read(os.path.join(self.bundles_dir(), name)))
+        other = os.path.join(self.tmp, "other-terms.txt")
+        write(other, "Another Name\n")
+        err = self.refused("brief", "--page", BRIEF_PAGES[0], "--terms", other)
+        self.assertIn("--terms %s" % shlex.quote(os.path.realpath(other)), err.split("rebuild them: ")[1])
+
+    def review_prompt(self, *flags, lens="professional"):
+        out = os.path.join(self.tmp, "prompts-%d" % len(flags))
+        code, stdout, err = self.wiki("review-prompts", "--page", BRIEF_PAGES[0], "--author-model", "a",
+                                      "--reviewer-model", "b", "--out", out, *flags)
+        self.assertEqual(code, 0, stdout + err)
+        return read(os.path.join(out, "20 Finance", "Tax.%s.md" % lens))
+
+    DO_NOT_OPEN = "do not open; it carries a name kept from you"
+
+    def test_a_review_prompt_never_directs_a_reviewer_to_a_document_that_carries_a_term(self):
+        """A shielded source still has its name in the file: it is listed as one not to open, none of its facts is sampled,
+        and the templates say never to open it. Which documents those are is the bundles' rule: a document whose card
+        names a term is shielded though its extract text does not, as the Tax return here."""
+        prompt = self.review_prompt("--terms", self.terms)
+        sources = prompt.split("## Its sources")[1].split("## Facts to check")[0]
+        for path in ("06 Work/Contract.docx", "02 Finance/Tax/Tax return 2023.pdf", "06 Work/Essay.docx"):
+            self.assertIn("- `%s`: %s" % (path, self.DO_NOT_OPEN), sources)
+        self.assertIn("- `02 Finance/Tax/Budget.numbers`: Household budget, 2023", sources,
+                      "a source that carries no term is listed as before")
+        facts = prompt.split("## Facts to check")[1].split("## Judge")[0]
+        for path in ("06 Work/Contract.docx", "02 Finance/Tax/Tax return 2023.pdf", "06 Work/Essay.docx"):
+            self.assertNotIn(path, facts, "a fact of a source the reviewer may not open was sampled")
+        self.assertIn("`02 Finance/Tax/Budget.numbers`, date: 2023", facts)
+        flat = " ".join(prompt.split())
+        self.assertIn("never open it", flat)
+        self.assertIn('Open each source above that is not marked "do not open"', flat)
+        owner = self.review_prompt("--terms", self.terms, lens="owner")
+        self.assertIn("Open no source file", owner)
+        plain = self.review_prompt("--no-isolation-terms")
+        self.assertNotIn("do not open; it carries", plain)
+        self.assertIn("`06 Work/Contract.docx`, ", plain.split("## Facts to check")[1], "unshielded, its facts are sampled")
+
+    def test_bundles_and_review_prompts_agree_on_which_documents_are_shielded(self):
+        self.ok("bundles", "--terms", self.terms, code=1)
+        marked = {r["path"] for n in ("10", "20", "30", "40") for r in self.bundle_rows(n) if r.get("shielded")}
+        prompt = self.review_prompt("--terms", self.terms)
+        sources = prompt.split("## Its sources")[1].split("## Facts to check")[0]
+        cited = {l.split("`")[1] for l in sources.splitlines() if l.startswith("- `")}
+        refused = {l.split("`")[1] for l in sources.splitlines() if self.DO_NOT_OPEN in l}
+        self.assertEqual(refused, cited & marked)
+        self.assertTrue(refused)
+
+    def test_a_document_whose_card_or_extract_record_is_missing_or_unreadable_is_never_listed_as_clean(self):
+        """Fail closed: a record that cannot be read cannot show the document carries no term."""
+        ids = {e["current_path"]: h for h, e in json.loads(read(MANIFEST))["entries"].items()}
+        extract = os.path.join(self.root, "_Audit", "extract")
+        cards = os.path.join(self.root, "_Audit", "cards")
+        cases = {"no extract record": lambda h: os.remove(os.path.join(extract, h + ".json")),
+                 "a malformed extract record": lambda h: write(os.path.join(extract, h + ".json"), "["),
+                 "no card": lambda h: os.remove(os.path.join(cards, h + ".json")),
+                 "a malformed card": lambda h: write(os.path.join(cards, h + ".json"), "[]")}
+        for name, damage in cases.items():
+            with self.subTest(name):
+                copy = make_copy(os.path.join(self.tmp, "m%d" % len(name)))
+                work = os.path.join(self.tmp, "m%d" % len(name), "work")
+                target = ids["02 Finance/Tax/Budget.numbers"]  # a document that carries no term
+                damage_root = os.path.join(copy, "_Audit")
+                extract, cards = os.path.join(damage_root, "extract"), os.path.join(damage_root, "cards")
+                damage(target)
+                out = os.path.join(self.tmp, "prompts-m%d" % len(name))
+                code, stdout, err = self.wiki("review-prompts", "--page", BRIEF_PAGES[0], "--author-model", "a",
+                                              "--reviewer-model", "b", "--out", out, "--terms", self.terms,
+                                              root=copy, work=work)
+                self.assertEqual(code, 0, stdout + err)
+                text = read(os.path.join(out, "20 Finance", "Tax.professional.md"))
+                sources = text.split("## Its sources")[1].split("## Facts to check")[0]
+                self.assertIn("- `02 Finance/Tax/Budget.numbers`: %s" % self.DO_NOT_OPEN, sources)
+                self.assertNotIn("Budget.numbers`, date", text)
+
+    def test_a_folder_a_page_cites_is_marked_when_a_shielded_document_is_under_it(self):
+        """A reviewer opening the folder would find the file: it is marked, with how many and never which."""
+        page = self.page(BRIEF_PAGES[0])
+        write(page, read(page) + "\nThe employment papers are in `06 Work/`, the rest in `03 Home/`, `04 Study/` and "
+                                 "`01 Identity/`.\n")
+        prompt = self.review_prompt("--terms", self.terms)
+        sources = prompt.split("## Its sources")[1].split("## Facts to check")[0]
+        line = {l.split("`")[1]: l for l in sources.splitlines() if l.startswith("- `0")}
+        self.assertEqual(line["06 Work/"], "- `06 Work/`: a folder, 2 files directly in it; do not open it: 2 documents "
+                                           "under it carry a name kept from you, so work from the bundle for that folder")
+        self.assertIn("do not open it: 3 documents under it carry", line["03 Home/"])
+        self.assertIn("do not open it: 1 document under it carries", line["04 Study/"],
+                      "a copy of a shielded document counts, whichever folder holds it")
+        self.assertEqual(line["01 Identity/"], "- `01 Identity/`: a folder, 1 file directly in it")
+        plain = self.review_prompt("--no-isolation-terms")
+        self.assertIn("- `06 Work/`: a folder, 2 files directly in it\n", plain)
+
+    def test_a_folder_holding_only_subfolders_is_marked_too(self):
+        """No file directly in the folder, but a shielded document two levels down: the folder is still not to be opened."""
+        man = {"h1": {"current_path": "Papers/Old/Lease.pdf"}, "h2": {"current_path": "Papers/New/Rent.pdf"}}
+        held = {"Papers/Old/Lease.pdf": "h1", "Papers/New/Rent.pdf": "h2"}
+        evidence = {"Zarnwick Farm": ["Zarnwick Farm"]}
+        cards = os.path.join(self.tmp, "cards")
+        extract = os.path.join(self.tmp, "extract")
+        for h, text in (("h1", "Lease of Zarnwick Farm"), ("h2", "Rent for the flat")):
+            write(os.path.join(cards, h + ".json"), json.dumps(
+                {"id": h, "doc_type": "Letter", "party": "Alex", "parties": [], "doc_date": "", "title": "T" + h,
+                 "summary": "S", "key_facts": {"dates": [], "amounts": [], "reference_numbers": []},
+                 "category": "Other", "language": "en", "sensitive": False}))
+            write(os.path.join(extract, h + ".json"), json.dumps({"id": h, "pages": [{"n": 1, "text": text}]}))
+        sources = wiki.SourceShield(man, held, evidence, cards, extract)
+        rb = dict(common.DEFAULTS, wiki_dir="W")
+        lines, facts, _hidden = wiki.page_sources("See `Papers/`.", man, held, cards, rb, {}, sources)
+        self.assertEqual(lines, ["- `Papers/`: a folder, 0 files directly in it; do not open it: 1 document under it "
+                                 "carries a name kept from you, so work from the bundle for that folder"])
+        clean = wiki.SourceShield(man, held, {}, cards, extract)
+        self.assertEqual(wiki.page_sources("See `Papers/`.", man, held, cards, rb, {}, clean)[0],
+                         ["- `Papers/`: not a document or folder in the manifest"], "nothing is marked without terms")
+
+    def test_a_short_marker_is_never_read_in_a_card_field_name(self):
+        """A marker such as Nam is in the field name `proposed_name`: only the values of a card are read, so no document is
+        marked shielded merely for having a card."""
+        terms = os.path.join(self.tmp, "short.txt")
+        write(terms, "Quorvane Nam|Nam\n")
+        self.ok("bundles", "--terms", terms, code=1)
+        self.assertEqual({r.get("shielded") for n in ("10", "20", "30", "40") for r in self.bundle_rows(n)}, {None})
+        prompt = self.review_prompt("--terms", terms)
+        self.assertNotIn("do not open; it carries", prompt)
+
+    def add_unread_image(self, path):
+        """A manifest entry for an image over the cap: counted and never read, so no extract record and no card."""
+        mp = os.path.join(self.root, "_Audit", "manifest.json")
+        man = json.loads(read(mp))
+        man["entries"]["e" * 64] = {"id": "e" * 64, "current_path": path, "class": "image", "hashed": False,
+                                    "synthetic_id": True, "size": 60_000_000, "flags": [], "rename_history": []}
+        write(mp, json.dumps(man, ensure_ascii=False, indent=1))
+
+    def test_a_document_the_manifest_records_as_never_read_is_judged_by_its_paths_alone(self):
+        """An image over the cap has no card or extract record by design: it is not shielded unless its path carries a term, and
+        a folder is not marked only for holding one."""
+        terms = os.path.join(self.tmp, "robin.txt")
+        write(terms, "Robin Trading Ltd\n")  # nothing under 03 Home/ carries it
+        page = self.page(BRIEF_PAGES[0])
+        write(page, read(page) + "\nThe photos are in `03 Home/`, and `03 Home/Big scan.jpg` is the largest.\n")
+        before = self.review_prompt("--terms", terms)
+        self.add_unread_image("03 Home/Big scan.jpg")
+        after = self.review_prompt("--terms", terms, "--sample", "6")
+        sources = after.split("## Its sources")[1].split("## Facts to check")[0]
+        folder = next(l for l in sources.splitlines() if l.startswith("- `03 Home/`"))
+        self.assertEqual(folder, "- `03 Home/`: a folder, 4 files directly in it", "one large photo marks no folder")
+        self.assertIn("- `03 Home/Big scan.jpg`: no card", sources, "it is no source a card describes, and none is claimed")
+        self.assertNotIn("03 Home/Big scan.jpg`: do not open", sources)
+        self.assertEqual(
+            next(l for l in before.split("## Its sources")[1].splitlines() if l.startswith("- `03 Home/`")),
+            "- `03 Home/`: a folder, 3 files directly in it")
+        self.build("--terms", terms)
+        text = self.ok("brief", "--page", BRIEF_PAGES[0], "--terms", terms)
+        self.assertIn("- Shielded sources: 2 sources this page cites", text, "the Tax return and the Contract, not the image")
+
+    def test_an_unread_image_whose_path_carries_a_term_is_shielded_and_marks_its_folder(self):
+        terms = os.path.join(self.tmp, "robin.txt")
+        write(terms, "Robin Trading Ltd\n")
+        self.add_unread_image("03 Home/Robin Trading Ltd scan.jpg")
+        page = self.page(BRIEF_PAGES[0])
+        write(page, read(page) + "\nThe photos are in `03 Home/`.\n")
+        sources = self.review_prompt("--terms", terms).split("## Its sources")[1].split("## Facts to check")[0]
+        folder = next(l for l in sources.splitlines() if l.startswith("- `03 Home/`"))
+        self.assertIn("do not open it: 1 document under it carries a name kept from you", folder)
+
+    def test_the_brief_says_how_many_of_the_sources_a_page_cites_are_shielded(self):
+        self.build("--terms", self.terms)
+        text = self.ok("brief", "--page", BRIEF_PAGES[0], "--terms", self.terms)
+        self.assertIn("- Shielded sources: 3 sources this page cites (a document, or a folder holding one) carry a name "
+                      "kept from you. Never open them: the bundle line for each holds what you may use.", text)
+        self.build("--no-isolation-terms")
+        self.assertNotIn("Shielded sources", self.ok("brief", "--page", BRIEF_PAGES[0], "--no-isolation-terms"))
+
+    def test_the_brief_tells_a_drafter_never_to_open_a_source_a_bundle_line_marks_shielded(self):
+        self.build("--terms", self.terms)
+        text = self.ok("brief", "--page", BRIEF_PAGES[0], "--terms", self.terms)
+        flat = " ".join(text.split())
+        self.assertIn('A bundle line marked `"shielded": true`', flat)
+        self.assertIn("never open its file", flat)
+        self.assertIn('A page entry that lists "Shielded sources"', flat)
+
+    def test_a_path_in_the_unrouted_list_is_shielded(self):
+        man = json.loads(read(os.path.join(self.root, "_Audit", "manifest.json")))
+        entry = next(e for e in man["entries"].values() if e["current_path"] == "IMG_0001.jpg")
+        entry["current_path"] = "Lettings photos/IMG_0001.jpg"
+        write(os.path.join(self.root, "_Audit", "manifest.json"), json.dumps(man))
+        out = self.ok("bundles", "--terms", self.terms, code=1)
+        self.assertEqual(json.loads(out)["unrouted"], ["[withheld name] photos/IMG_0001.jpg"])
+        self.assert_clean(read(os.path.join(self.bundles_dir(), "bundles.json")))
+
+    def build(self, *flags):
+        return self.ok("bundles", *flags, code=1)
+
+    def test_bundles_built_under_another_shield_are_removed_and_refused_by_every_consumer(self):
+        other = os.path.join(self.tmp, "other-terms.txt")
+        write(other, "Another Name\n")
+        cases = {"none, then terms": (["--no-isolation-terms"], ["--terms", self.terms]),
+                 "terms, then none": (["--terms", self.terms], ["--no-isolation-terms"]),
+                 "terms, then other terms": (["--terms", self.terms], ["--terms", other])}
+        for name, (built, asked) in cases.items():
+            for cmd, args in (("bundles", ["--reuse"]), ("brief", ["--page", BRIEF_PAGES[0]])):
+                with self.subTest(name, cmd=cmd):
+                    shutil.rmtree(self.bundles_dir(), True)
+                    self.build(*built)
+                    code, out, err = self.wiki(cmd, *args, *asked)
+                    self.assertEqual(code, 2, out + err)
+                    self.assertIn("stale bundles", err)
+                    self.assertIn("another isolation shield", err)
+                    self.assertIn("so the bundles were removed", err)
+                    self.assertEqual(sorted(os.listdir(self.bundles_dir())), [], "the bundles were left on disk")
+                    command = shlex.split(err.split("rebuild them: wiki.py bundles ", 1)[1])
+                    self.assertEqual([x for x in command if x in ("--terms", "--no-isolation-terms")], [asked[0]],
+                                     "the rebuild is asked under the caller's shield, never the build's")
+                    if asked[0] == "--terms":
+                        self.assertEqual(command[command.index("--terms") + 1], os.path.realpath(asked[1]))
+
+    def test_the_same_shield_reuses_the_bundles(self):
+        self.build("--terms", self.terms)
+        self.ok("bundles", "--reuse", "--terms", self.terms, code=1)
+        text = self.ok("brief", "--page", BRIEF_PAGES[0], "--terms", self.terms)
+        self.assert_clean(text)
+
+    def test_bundles_made_before_the_shield_was_recorded_are_refused(self):
+        self.build("--no-isolation-terms")
+        meta_path = os.path.join(self.bundles_dir(), "bundles.json")
+        meta = json.loads(read(meta_path))
+        del meta["shield"]
+        write(meta_path, json.dumps(meta))
+        err = self.refused("brief", "--page", BRIEF_PAGES[0])
+        self.assertIn("bundles made before the shield was recorded", err)
+        self.assertEqual(sorted(os.listdir(self.bundles_dir())), [])
+
+    def test_the_brief_is_shielded_and_says_how_much(self):
+        self.build("--terms", self.terms)
+        out = os.path.join(self.tmp, "brief.md")
+        code, text, err = self.wiki("brief", "--page", BRIEF_PAGES[0], "--terms", self.terms, "--out", out)
+        self.assertEqual(code, 0, err)
+        self.assert_clean(text)
+        self.assertEqual(read(out), text, "the file and the printed brief are the same text")
+        self.assertIn("- [withheld name]", text, "the people list names the organisation by its placeholder")
+        self.assertRegex(err, r"shielded \d+ occurrence\(s\) of an isolation term in the brief")
+        self.assertNotIn("Robin", err)
+
+    def test_a_review_prompt_is_shielded_and_keeps_the_pages_real_sha256(self):
+        page = self.page(BRIEF_PAGES[0])
+        sha = common.sha256_file(page)
+        terms = os.path.join(self.tmp, "hex-terms.txt")
+        write(terms, self.TERMS + sha[20:23] + "\n")  # three hex characters of the page's own digest, as a term
+        out = os.path.join(self.tmp, "prompts")
+        code, stdout, err = self.wiki("review-prompts", "--page", BRIEF_PAGES[0], "--author-model", "a",
+                                      "--reviewer-model", "b", "--terms", terms, "--out", out)
+        self.assertEqual(code, 0, stdout + err)
+        files = {n: read(os.path.join(out, "20 Finance", n)) for n in os.listdir(os.path.join(out, "20 Finance"))}
+        self.assertEqual(sorted(files), ["Tax.owner.md", "Tax.professional.md"])
+        for name, text in files.items():
+            with self.subTest(name):
+                self.assertIn(sha, text, "accept compares the page's digest with the page on disk")
+                for word in self.WORDS:
+                    self.assertNotIn(word, text.replace(sha, "").lower())
+        self.assertIn("The employer is [withheld name] since 1 May 2022", files["Tax.owner.md"])
+        self.assertRegex(err, r"shielded \d+ occurrence\(s\) of an isolation term in the review prompts")
+
+
 class MoveTest(Copy):
     MOVES = {"20 Finance/Tax.md": "25 Tax & Duty/Tax & returns.md",
              "30 Home/30 Home.md": "30 Home & Garden/30 Home & Garden.md",
@@ -1255,14 +1624,17 @@ class RebuildTest(Copy):
                  ("--extract", os.path.join(audit, "extract")), ("--text-cap", "500")]
         self.ok("bundles", *[x for kv in given for x in kv], code=1)
         meta = json.loads(read(os.path.join(self.bundles_dir(), "bundles.json")))
-        self.assertEqual(list(meta["arguments"].items()), given)
+        self.assertEqual(list(meta["arguments"].items()), given + [("--no-isolation-terms", "")],
+                         "the shield the bundles were built under is an argument of the build")
         write(given[1][1], read(given[1][1]) + "\n")
         command = "rebuild them: wiki.py bundles " + " ".join(shlex.quote(x) for x in [
-            "--root", self.root, "--out", self.bundles_dir()] + [x for kv in given for x in kv])
+            "--root", self.root, "--out", self.bundles_dir()] + [x for kv in given for x in kv]
+            + ["--no-isolation-terms"])
         for cmd, args in (("bundles", ["--reuse"]), ("brief", ["--page", BRIEF_PAGES[0]])):
             with self.subTest(cmd=cmd):
                 self.assertIn(command, self.refused(cmd, *args))
-        self.assertEqual(json.loads(read(os.path.join(GOLDEN, "bundles", "bundles.json")))["arguments"], {})
+        self.assertEqual(json.loads(read(os.path.join(GOLDEN, "bundles", "bundles.json")))["arguments"],
+                         {"--no-isolation-terms": ""})
 
     def test_reuse_refuses_other_cards_extract_or_text_cap(self):
         """Re-review 6: bundles --reuse compares the caller's --cards, --extract and --text-cap with the build's."""

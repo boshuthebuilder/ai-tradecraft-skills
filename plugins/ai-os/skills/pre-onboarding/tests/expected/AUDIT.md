@@ -16,6 +16,7 @@ Generated 2024-06-30T12:00:00Z by `ai-os-pre-onboarding-audit/1` from `manifest.
 | Class `email` | 0 |
 | Class `other` | 0 |
 | Count-only entries (images over 25 MB) | 0 |
+| Excluded from reading (rulebook `exclude`) | 0 |
 | Departed entries | 0 |
 
 ## Top-level folders
@@ -70,6 +71,12 @@ Largest redundant copies (up to 40):
 Files staged under `_Migrations/<Project>/` for another project; they leave this folder once that project takes them.
 
 - Other Project: `_Migrations/Other Project/02 Finance/Old invoice.pdf`
+
+## Not audited (0)
+
+Top-level names the walk skipped, with the items under each. A reserved name is skipped by the audit and by every tool; a leading `_` marks a system folder, which the deployment also never reads. Anything the owner needs prepared does not belong under one.
+
+- none
 
 ## Hidden files, symlinks, cloud placeholders
 

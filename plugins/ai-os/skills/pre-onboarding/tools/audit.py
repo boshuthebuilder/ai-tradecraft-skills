@@ -7,7 +7,21 @@ generic names, unconverted iWork files, hygiene defects, root strays and files s
 merges with the previous manifest so history (first seen, renames, departures) is kept. An item the rulebook's
 `exclude` lists (a path, or under one) is recorded from the folder's listing alone, its path, size, modification time
 and class, and never opened: it has the synthetic id of an item counted and not hashed, so it is no duplicate of any
-other and no later tool reads it.
+other and no later tool reads it. The manifest still names it (its path is the folder's listing), so where the names
+themselves are confidential the owner moves that folder out of the folder before preparation. Excluded items are
+counted apart from count-only images (`summary.json` `excluded`; `count_only` is the images over the cap), and
+`AUDIT.md` lists no excluded item's path in any section (generic names, hygiene, strays, near matches, migrations); its
+top-level table counts them. An entry an earlier audit made for a document whose own current path is now excluded, which
+would keep its name and real content hash, is dropped, not carried as `departed`; the log counts them. A departed entry
+whose own path is not excluded keeps its history, but not a copy's path that now lies under an excluded path.
+
+Nothing at the top is skipped silently: the walk skips the tool's reserved names (`Outbox`, `Wiki`, the rulebook's
+`reserved` names) and any folder with a leading `_` other than the migrations folder, and each that is not the tool's
+own or the deployment's expected machinery (`_Audit`, `.familyai`, the rulebook files, the wiki folder) is recorded with
+its item count: `summary.json` `not_audited`, the `Not audited` section of `AUDIT.md`, and the log. One the owner has
+also excluded is recorded the same way, with a reason that says so, and its items count in `excluded`. Naming such a
+folder in `Not audited` is intended: it is a top-level name, which the top-level table already shows for any folder the
+walk enters, and its items are counted, never listed. A link is counted as one item and never followed.
 
     python3 audit.py --root <folder> [--out <dir>] [--work <dir>] [--settings-dir <dir>] [--read-only-root]
 
@@ -85,6 +99,19 @@ def stat_item(full, pkg):
     return size, mt
 
 
+def top_count(root, name):
+    """The items under the top-level `name`: 1 for a file or a link, else every file below it and every linked folder (a
+    folder that cannot be listed is an error, never a count of what could be)."""
+    full = os.path.join(root, name)
+    if os.path.islink(full) or not os.path.isdir(full):
+        return 1  # a link is one item, never walked: it may lead out of the folder
+
+    def unreadable(error):
+        raise common.ToolError("cannot list %s under the folder (%s)" % (name, error.strerror))
+    return sum(len(fs) + sum(os.path.islink(os.path.join(d, x)) for x in ds)
+               for d, ds, fs in os.walk(full, onerror=unreadable))  # a linked folder is one item, not walked
+
+
 def main():
     ap = common.base_args("Deterministic folder audit")
     ap.add_argument("--out", help="output directory (default <root>/_Audit); the previous manifest is read here")
@@ -112,6 +139,15 @@ def main():
     # ---- walk -------------------------------------------------------------------------
     items = []        # (rel, is_package)
     hidden, links, placeholders, dataless = [], [], [], []
+    skipped = {}      # top-level name -> why the walk skipped it, for the names that are not the deployment's machinery
+    machinery = set(common.RULEBOOK_FILES) | {common.SETTINGS_DIRNAME, "_Audit", rb["wiki_dir"]}
+
+    def skip_top(name):
+        """Whether the walk skips the top-level `name`; one that is not expected machinery is recorded."""
+        why = "reserved" if name in reserved else "system" if name.startswith("_") and name != migr else None
+        if why and name not in machinery:
+            skipped[name] = why
+        return bool(why)
     for dirpath, dirs, files in os.walk(root):
         rd = os.path.relpath(dirpath, root)
         rd = "" if rd == "." else rd
@@ -119,7 +155,7 @@ def main():
         for d in sorted(dirs):
             rel = os.path.join(rd, d) if rd else d
             full = os.path.join(dirpath, d)
-            if not rd and (d in reserved or (d.startswith("_") and d != migr)):
+            if not rd and skip_top(d):
                 continue
             if d.startswith("."):
                 hidden.append(rel)
@@ -136,6 +172,7 @@ def main():
             rel = os.path.join(rd, f) if rd else f
             full = os.path.join(dirpath, f)
             if not rd and f in reserved:
+                skip_top(f)
                 continue
             if f.startswith("."):
                 if f.endswith(".icloud"):
@@ -280,7 +317,8 @@ def main():
 
     # ---- unconverted iWork: normalised-stem match, nearest wins, claimed once ---------
     canon_of = {h: sorted(ps, key=canon_key)[0] for h, ps in groups.items()}
-    exports = [(h, p) for h, p in canon_of.items() if os.path.splitext(p)[1].lower() in EXPORTS]
+    exports = [(h, p) for h, p in canon_of.items() if os.path.splitext(p)[1].lower() in EXPORTS
+               and not common.is_excluded(rb, p)]  # an excluded item names no other item's candidate
     by_stem, by_near = collections.defaultdict(list), collections.defaultdict(list)
     for h, p in exports:
         st = os.path.splitext(os.path.basename(p))[0]
@@ -295,7 +333,7 @@ def main():
         return (len(A) - n) + (len(B) - n)
 
     cand = []
-    iw = [(h, p) for h, p in canon_of.items() if meta[p]["cls"] == "iwork"]
+    iw = [(h, p) for h, p in canon_of.items() if meta[p]["cls"] == "iwork" and not common.is_excluded(rb, p)]
     for h, p in iw:
         st = os.path.splitext(os.path.basename(p))[0]
         seen = set()
@@ -414,10 +452,20 @@ def main():
                 break
         e["flags"] = sorted(set(flags))
         entries[h] = e
-    departed = 0
+    departed, dropped, trimmed = 0, 0, 0
     for h, old in prev.items():
         if h not in entries:
+            if common.is_excluded(rb, old.get("current_path") or ""):
+                dropped += 1  # it kept the file's name and real content hash: the owner has excluded it since
+                continue
             e = dict(old)
+            kept = [c for c in e.get("copies", [])
+                    if not (isinstance(c, dict) and common.is_excluded(rb, c.get("path") or ""))]
+            if len(kept) != len(e.get("copies", [])):  # the history stays; a copy's path under an excluded one does not
+                trimmed += 1
+                e["copies"] = kept
+                if len(kept) < 2:
+                    e.pop("copies")
             if "departed" not in e.get("flags", []):
                 e["flags"] = sorted(set(e.get("flags", []) + ["departed"]))
                 e["departed_at"] = run_at
@@ -434,12 +482,12 @@ def main():
         prev_live = {h: e for h, e in prev.items() if "departed" not in e.get("flags", [])}
         drift = {
             "added": sorted(h for h in entries if h not in prev),
-            "departed": sorted(h for h in prev_live if h not in groups),
+            "departed": sorted(h for h in prev_live if h not in groups and h in entries),
             "moved": sorted(h for h in groups if h in prev_live
                             and prev_live[h].get("current_path") != entries[h]["current_path"]),
             "edited": sorted({meta[p]["id"] for p, h in
                               {e.get("current_path"): h for h, e in prev_live.items()}.items()
-                              if p in meta and meta[p]["id"] != h}),
+                              if p in meta and meta[p]["id"] != h and not common.is_excluded(rb, p)}),
         }
 
     # ---- summary + AUDIT.md -------------------------------------------------------------
@@ -455,16 +503,19 @@ def main():
         d["newest"] = max(d["newest"], m["mtime"])
         d["recent"] += m["mtime"] >= cutoff
     kinds = collections.Counter(k["kind"] for e in live for k in e.get("copies", []))
+    named = [e for e in live if not common.is_excluded(rb, e["current_path"])]  # what a section may list or count by name
     gen_by = collections.Counter((e["current_path"].split("/")[0] if "/" in e["current_path"] else "(root)")
-                                 for e in live if e.get("generic_name"))
+                                 for e in named if e.get("generic_name"))
     unconv = [e for e in live if "unconverted" in e["flags"]]
     conv_ok = [e for e in live if e.get("convert_candidate", {}).get("match") == "stem"]
-    hyg_list = [(p, k) for p, ks in sorted(hyg.items()) for k in sorted(set(ks))]
-    strays = sorted(e["current_path"] for e in live if "root_stray" in e["flags"])
-    migrs = sorted((p.split("/")[1], p) for e in live if "migrating" in e["flags"]
+    hyg_list = [(p, k) for p, ks in sorted(hyg.items()) if not common.is_excluded(rb, p) for k in sorted(set(ks))]
+    strays = sorted(e["current_path"] for e in named if "root_stray" in e["flags"])
+    migrs = sorted((p.split("/")[1], p) for e in named if "migrating" in e["flags"]
                    for p in dict.fromkeys([e["current_path"]] + [k["path"] for k in e.get("copies", [])])
                    if p.startswith(migr + "/") and p.count("/") >= 2)
-    count_only = collections.Counter((e["current_path"].split("/")[0]) for e in live if not e["hashed"])
+    count_only = collections.Counter((e["current_path"].split("/")[0]) for e in named if not e["hashed"])
+    not_audited = {name: top_count(root, name) for name in sorted(skipped)}
+    excluded += sum(n for name, n in not_audited.items() if common.is_excluded(rb, name))  # skipped and excluded both
     cls_count = collections.Counter(e["class"] for e in live)
     redundant_paths = sorted(((e["size"], k["path"], e["id"]) for e in live for k in e.get("copies", [])
                               if k["kind"] == "redundant"), reverse=True)
@@ -473,7 +524,7 @@ def main():
         "generated_at": run_at, "items": len(meta), "unique_contents": len(live),
         "bytes": sum(m["size"] for m in meta.values()),
         "classes": dict(cls_count), "hashed": sum(1 for e in live if e["hashed"]),
-        "count_only": sum(count_only.values()),
+        "count_only": sum(count_only.values()), "excluded": excluded,
         "duplicate_groups": sum(1 for e in live if e.get("copies")), "copy_kinds": dict(kinds),
         "redundant_bytes": sum(s for s, _, _ in redundant_paths),
         "overlaps": overlaps, "generic_names": sum(gen_by.values()), "generic_by_folder": dict(gen_by),
@@ -481,7 +532,7 @@ def main():
         "hygiene": dict(collections.Counter(k for _, k in hyg_list)),
         "root_strays": strays, "migrating": dict(collections.Counter(t for t, _ in migrs)),
         "hidden": len(hidden), "symlinks": len(links), "placeholders": len(placeholders),
-        "not_downloaded": len(dataless),
+        "not_downloaded": len(dataless), "not_audited": not_audited,
         "departed": departed, "drift": {k: len(v) for k, v in drift.items()} if drift else None,
         "top_level": {t: {"files": d["files"], "unique": len(d["unique"]), "bytes": d["bytes"],
                           "newest": common.iso_utc(d["newest"]) if d["newest"] else None,
@@ -514,6 +565,7 @@ def main():
     for c in ("document", "image", "iwork", "archive", "email", "other"):
         w("| Class `%s` | %d |" % (c, cls_count.get(c, 0)))
     w("| Count-only entries (images over %d MB) | %d |" % (int(rb["image_cap_mb"]), summary["count_only"]))
+    w("| Excluded from reading (rulebook `exclude`) | %d |" % excluded)
     w("| Departed entries | %d |" % departed)
     w("")
     w("## Top-level folders")
@@ -587,6 +639,19 @@ def main():
     if not migrs:
         w("- none")
     w("")
+    w("## Not audited (%d)" % len(not_audited))
+    w("")
+    w("Top-level names the walk skipped, with the items under each. A reserved name is skipped by the audit and by every "
+      "tool; a leading `_` marks a system folder, which the deployment also never reads. Anything the owner needs "
+      "prepared does not belong under one.")
+    w("")
+    for name, n in not_audited.items():
+        w("- `%s`: %d item%s; %s%s" % (name, n, "" if n == 1 else "s", "a reserved name" if skipped[name] == "reserved"
+                                       else "a leading `_` marks a system folder",
+                                       ", also excluded by the owner" if common.is_excluded(rb, name) else ""))
+    if not not_audited:
+        w("- none")
+    w("")
     w("## Hidden files, symlinks, cloud placeholders")
     w("")
     w("Hidden %d, symlinks %d, cloud-only placeholders %d, not downloaded %d." % (
@@ -601,6 +666,14 @@ def main():
                                                                                        "moved", "edited")))
     w("")
     writer.text(os.path.join(out, "AUDIT.md"), "\n".join(L))
+    if dropped:
+        log("dropped %d departed entr(ies) under an excluded path: the manifest keeps no real content hash of a file "
+            "the owner excluded" % dropped)
+    if trimmed:
+        log("took a copy under an excluded path out of %d departed entr(ies), which keep their history" % trimmed)
+    for name, n in not_audited.items():
+        log("not audited: %s (%d item(s); %s%s)" % (name, n, skipped[name],
+                                                    "; also excluded" if common.is_excluded(rb, name) else ""))
     log("audit done: %d items, %d entries, %d dup groups, %.0fs" % (len(meta), len(live),
                                                                     summary["duplicate_groups"], time.time() - t0))
 

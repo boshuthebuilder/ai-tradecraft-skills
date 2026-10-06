@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import unicodedata
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -51,6 +52,9 @@ RUNNER = ("import os, runpy, sys, time\n"
           "    engines.Agy.__call__ = stop\n"
           "sys.argv = sys.argv[2:]\n"
           "runpy.run_path(sys.argv[0], run_name='__main__')\n") % (os.path.realpath(TOOLS), os.path.realpath(TOOLS))
+
+
+TERMS = "# terms for the tests (fictional)\nZarnwick Farm|Zarnwick\n"
 
 
 def read(path, mode="r"):
@@ -95,9 +99,9 @@ class VisionTest(unittest.TestCase):
         write(os.path.join(self.root, "_Audit", "manifest.json"),
               json.dumps({"schema": "family-ai-preprocess-manifest/2", "entries": self.entries}))
 
-    def vision(self, stop_with="-", env=None):
+    def vision(self, stop_with="-", env=None, terms=("--no-isolation-terms",)):
         cmd = [sys.executable, "-c", RUNNER, stop_with, VISION, "--root", self.root, "--work", self.work,
-               "--out", self.out, "--model", "vision-model", "--lanes", "extraction"]
+               "--out", self.out, "--model", "vision-model", "--lanes", "extraction"] + list(terms)
         r = subprocess.run(cmd, capture_output=True, text=True, env=dict(self.env, **(env or {})), timeout=120)
         self.assertNotIn("ResourceWarning", r.stderr, "vision.py left a file or process open")
         return r.returncode, r.stdout, r.stderr
@@ -281,6 +285,118 @@ class VisionTest(unittest.TestCase):
                          "the record of a document staged while the lane ran was kept")
         self.assertEqual(os.listdir(self.queue), [], "the staged document's last two images were left in the queue")
         self.assertIn("finished; held for another project: 2; excluded: 0; not live: 0", err)
+
+    def terms(self):
+        path = os.path.join(self.tmp, "terms.txt")
+        write(path, TERMS)
+        return ("--terms", path)
+
+    def doc(self, path, pages=1):
+        """A second document with `pages` queued pages, staged live at `path`; returns its id."""
+        eid = hashlib.sha256(path.encode()).hexdigest()
+        for n in range(1, pages + 1):
+            write(os.path.join(self.queue, "%s_%05d.png" % (eid, n)), b"\x89PNG fake page %d" % n)
+        write(os.path.join(self.out, eid + ".json"), json.dumps({
+            "id": eid, "path": path, "class": "document", "status": "needs_vision", "page_count": pages,
+            "tiers": {"pending_vision": pages},
+            "pages": [{"n": n, "tier": "pending_vision", "text": "local %d" % n, "queued": True}
+                      for n in range(1, pages + 1)]}))
+        self.stage(eid, path)
+        return eid
+
+    def test_the_isolation_choice_is_required_and_cannot_be_both(self):
+        for terms, why in (((), "give --terms (the isolation list) or --no-isolation-terms"),
+                           (self.terms() + ("--no-isolation-terms",), "not both")):
+            with self.subTest(terms):
+                code, _out, err = self.vision(terms=terms)
+                self.assertEqual(code, 2, err)
+                self.assertIn(why, err)
+                self.assertEqual(self.fakes.calls("agy"), [])
+                self.assertEqual(len(os.listdir(self.queue)), 2, "the queue was touched")
+
+    def assert_held_by_a_term(self, err):
+        self.assertEqual(self.fakes.calls("agy"), [], "an image of a document that carries a term was sent")
+        r = self.record()
+        self.assertEqual([(p["tier"], p["text"]) for p in r["pages"]],
+                         [("unread", "local one"), ("unread", "local two"), ("text_layer", "typed page")])
+        self.assertIn("an isolation term is in the document's path or text", r["pages"][0]["note"])
+        self.assertNotIn("queued", r["pages"][0])
+        self.assertEqual((r["status"], r["tiers"]), ("partial", {"unread": 2, "text_layer": 1}))
+        self.assertEqual(os.listdir(self.queue), [], "an image of a held document was left in the queue")
+        self.assertIn("held for an isolation term: 1", err)
+        self.assertNotIn("zarnwick", err.lower(), "the log names no term and no document")
+        self.assertTrue(os.path.exists(os.path.join(self.work, "state", "vision0.done")), "the lane must still end")
+
+    def test_a_document_whose_path_carries_a_term_has_no_image_sent(self):
+        self.stage(self.eid, "01 Identity/Zarnwick Farm scan.pdf")
+        code, _out, err = self.vision(terms=self.terms())
+        self.assertEqual(code, 0, err)
+        self.assert_held_by_a_term(err)
+
+    def test_a_document_whose_text_or_local_text_carries_a_term_has_no_image_sent(self):
+        cases = {"the page's text": {"text": "Lease of ZARNWICK, the farm"},
+                 "a page already read by the model, its local text": {"tier": "vision", "text": "typed",
+                                                                      "local_text": "Zarnwick Farm"}}
+        for name, change in cases.items():
+            with self.subTest(name):
+                self.setUp()
+                rec = self.record()
+                rec["pages"][2].update(change)  # a page after the two queued ones
+                write(os.path.join(self.out, self.eid + ".json"), json.dumps(rec))
+                code, _out, err = self.vision(terms=self.terms())
+                self.assertEqual(code, 0, err)
+                self.assertEqual(self.fakes.calls("agy"), [])
+                self.assertEqual([p["tier"] for p in self.record()["pages"][:2]], ["unread", "unread"])
+                self.assertEqual(os.listdir(self.queue), [])
+                self.assertIn("held for an isolation term: 1", err)
+
+    def test_a_name_wrapped_or_set_with_another_space_in_the_text_holds_the_document(self):
+        """The local text of a scan wraps a name at a line end: it is still the name, and no image of it is sent."""
+        terms = os.path.join(self.tmp, "terms-plain.txt")
+        write(terms, "Zarnwick Farm\n")  # no marker: only the whole name can hold the document
+        for text in ("Lease of Zarnwick\nFarm, signed", "Lease of Zarnwick\u00a0Farm", "Lease of ZARNWICK  \t Farm"):
+            with self.subTest(text):
+                self.setUp()
+                write(terms, "Zarnwick Farm\n")
+                rec = self.record()
+                rec["pages"][2]["text"] = text
+                write(os.path.join(self.out, self.eid + ".json"), json.dumps(rec))
+                code, _out, err = self.vision(terms=("--terms", terms))
+                self.assertEqual(code, 0, err)
+                self.assertEqual(self.fakes.calls("agy"), [], "an image of a document that carries a term was sent")
+                self.assertEqual([p["tier"] for p in self.record()["pages"][:2]], ["unread", "unread"])
+                self.assertIn("held for an isolation term: 1", err)
+
+    def test_a_path_in_another_unicode_form_holds_the_document(self):
+        terms = os.path.join(self.tmp, "terms-nfc.txt")
+        write(terms, "Jos\u00e9 Quorvane\n")
+        self.stage(self.eid, unicodedata.normalize("NFD", "01 Identity/Jos\u00e9 Quorvane scan.pdf"))
+        code, _out, err = self.vision(terms=("--terms", terms))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.fakes.calls("agy"), [])
+        self.assertIn("held for an isolation term: 1", err)
+
+    def test_only_the_document_that_carries_no_term_is_sent(self):
+        """The residual, stated: a document with no term in its path or its local text is sent whole, whatever its
+        pages show."""
+        self.stage(self.eid, "01 Identity/Zarnwick Farm scan.pdf")
+        clean = self.doc("02 Finance/Statement.pdf")
+        code, _out, err = self.vision(terms=self.terms())
+        self.assertEqual(code, 0, err)
+        call, = self.fakes.calls("agy")
+        self.assertEqual(call["cwd_listing"], ["p1.png"])
+        self.assertEqual(json.loads(read(os.path.join(self.out, clean + ".json")))["pages"][0]["tier"], "vision")
+        self.assertEqual([p["tier"] for p in self.record()["pages"][:2]], ["unread", "unread"])
+        self.assertEqual(os.listdir(self.queue), [])
+        self.assertIn("held for an isolation term: 1", err)
+
+    def test_the_same_document_is_sent_when_the_operator_states_there_is_nothing_to_isolate(self):
+        self.stage(self.eid, "01 Identity/Zarnwick Farm scan.pdf")
+        code, _out, err = self.vision()
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(self.fakes.calls("agy")), 1)
+        self.assertEqual([p["tier"] for p in self.record()["pages"]], ["vision", "vision", "text_layer"])
+        self.assertIn("held for an isolation term: 0", err)
 
     def test_a_missing_manifest_stops_the_lane(self):
         os.remove(os.path.join(self.root, "_Audit", "manifest.json"))

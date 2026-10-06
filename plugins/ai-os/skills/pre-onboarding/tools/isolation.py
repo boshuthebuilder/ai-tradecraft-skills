@@ -6,7 +6,7 @@ line, optionally `Term|marker|marker`, where the markers are shorter forms that,
 text, show the term is genuine content of that document. Lines starting with `#` are comments.
 
     isolation.py scan   --terms F --path <file or dir> [...] [--if-present <file> ...] [--out <result.json>]
-    isolation.py canary --terms F --engine agy|codex [--model M] --out <result.json>
+    isolation.py canary --terms F --engine agy|codex [--model M] [--effort E] --out <result.json>
 
 The scan reads every file named, and every model-facing file (prompts, templates, schemas, code, config such as
 `config.toml` or `jobs.yaml`) under a folder named, following links into folders (skills are often installed as
@@ -38,14 +38,34 @@ message, not in an instruction file. The other two layers cover that: the scan o
 the contamination check on every card. Neither command writes a term out. Each clears its `--out` file first of all,
 before the command line is even parsed, so a run that ends early never leaves an earlier pass behind. The result
 files are the proof the gate ran; a missing or failed result means no real call may start. agy needs --model.
+
+A canary clears one engine at one model and one effort, so a lane runs one per model it uses and writes each to its
+own file: `<work>/state/canary-<engine>-<model>.json` (a codex lane that runs one model at two efforts adds the effort
+to the name). `readiness.py` reads every `canary-*.json` there and, given the terms file, requires a passing one for
+each engine and exact model the cards record, and for codex at the exact effort each ran at, the light model's included.
+`--effort` is codex's reasoning effort (default `low`); agy has none to set, because its effort is part of its model id,
+so `--effort` with agy is refused. The result records the effort used, and the sha256 of the terms file's forms it ran
+against (`terms_sha256`, never the forms): `readiness.py` accepts a pass only when that equals the digest of the terms
+file it is given, so a canary run against an older or shorter list clears nothing.
+
+The shield (`shield`, `shield_value`) is what keeps a term out of a call in the first place. Every tool that sends text
+or a path to an engine, or writes it into a file a model will read, replaces each term and marker with `[withheld
+name]` first, by the one matcher (`alternation`) that `hits`, `carries` and `masked` use as well, so the shield and the
+scan always agree: case-insensitive, in Unicode NFC, a space in a term matching any run of whitespace (a line break, a
+no-break space), and not a name split by a hyphen or a zero-width character, which is a settled residual. It is one
+home for the tools that need it (`cards.py`, `vision.py`, `wiki.py`); each requires `--terms` or `--no-isolation-terms`
+(`evidence_of`) and never writes a term anywhere.
 """
 import argparse
+import functools
+import hashlib
 import json
 import os
 import re
 import secrets
 import shutil
 import sys
+import unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common  # noqa: E402
@@ -118,7 +138,9 @@ def answered(reply, marker):
 
 
 def load_terms(path):
-    """{term: [term, marker, ...]} from the operator's terms file. A missing file is an error, not an empty list."""
+    """{term: [term, marker, ...]} from the operator's terms file. A missing file is an error, not an empty list. A term or
+    marker that occurs inside the placeholder `[withheld name]` (a surname such as Held, a marker such as Nam) is accepted:
+    the matcher takes the placeholder out before it looks for any form, so none is ever found in it."""
     if not path or not os.path.exists(path):
         raise common.ToolError("isolation terms file missing: %s" % path)
     out = {}
@@ -135,9 +157,170 @@ def load_terms(path):
     return out
 
 
+SHIELD = "[withheld name]"
+PLACEHOLDER = re.compile(r"\[\s*withheld\s+name\s*\]", re.I)  # the placeholder as a model may write it back
+
+
+def without_placeholder(text):
+    """`text` with every occurrence of the placeholder taken out for a mark that is no letter, ignoring case and the spacing
+    inside the brackets. The matcher does this itself before it looks for any form (`hits`, `carries`), so the placeholder,
+    however a model writes it back, is never read as a term whatever the caller, and no form can be found inside it."""
+    return PLACEHOLDER.sub("\x00", text)
+
+
+def forms(evidence):
+    """Every term and marker of the evidence, once each, longest first (equal lengths in alphabetical order, so the order
+    never varies between runs): the order `shield` and `masked` match in."""
+    return sorted({m for ms in evidence.values() for m in ms}, key=lambda m: (-len(m), m))
+
+
+def normal(text):
+    """`text` in Unicode NFC, the one form every match is made in: a name may be stored decomposed (an older macOS file
+    name) and written composed in the terms file, or the other way about."""
+    return unicodedata.normalize("NFC", text)
+
+
+@functools.lru_cache(maxsize=None)
+def alternation(fs, protect=False):
+    """The one pattern that finds any of the forms `fs` (a tuple, longest first), ignoring case: each form in NFC, each run
+    of whitespace inside it standing for any run of Unicode whitespace in the text (a line break, a no-break space, a
+    narrow no-break space, two spaces), so a name wrapped at the end of a line or set with a no-break space is the name.
+    With `protect`, the placeholder (`PLACEHOLDER`, whatever its case or spacing) comes first, so text already shielded
+    is matched as it stands: the shield is idempotent and `masked` leaves the placeholder alone. `hits` and `carries` take
+    the placeholder out of the text before they search, so no form (a surname such as Held, a marker such as Nam) is ever
+    found inside it.
+
+    This is the one matcher: `hits` (the scan and the contamination check), `carries`, `shield` and `masked` all use it,
+    so they always agree. What it does not match is a settled residual: a name split by a hyphen at the end of a line, or
+    by a zero-width character or a soft hyphen, and a name in another script or spelling."""
+    parts = [r"\s+".join(re.escape(w) for w in normal(f).split()) for f in fs if normal(f).split()]
+    if protect:
+        parts.insert(0, PLACEHOLDER.pattern)
+    return re.compile("|".join(parts), re.I) if parts else None
+
+
 def hits(text, terms):
-    low = text.lower()
-    return [t for t in terms if t.lower() in low]
+    """The `terms` (a list of forms, or an evidence mapping, whose keys are its terms) that `text` carries, by the one
+    matcher (`alternation`)."""
+    body = without_placeholder(normal(text))
+    return [t for t in terms if (rx := alternation((t,))) is not None and rx.search(body)]
+
+
+def strings(value, known=None):
+    """Every string in a JSON value. Mapping keys are left out, unless `known` is given: then every key not in `known` is
+    kept too. `card_text` passes the card schemas' field names, so a short term or marker such as Nam is not found in
+    `proposed_name`, while a term a model writes as a key of its own is still found."""
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        return [x for k, v in value.items()
+                for x in ([k] if known is not None and k not in known else []) + strings(v, known)]
+    if isinstance(value, (list, tuple)):
+        return [x for v in value for x in strings(v, known)]
+    return []
+
+
+def schema_keys(schema):
+    """Every property name a JSON schema defines, at any depth."""
+    if isinstance(schema, dict):
+        return set(schema.get("properties", {})) | {k for v in schema.values() for k in schema_keys(v)}
+    if isinstance(schema, list):
+        return {k for v in schema for k in schema_keys(v)}
+    return set()
+
+
+def _card_keys():
+    keys = {"category_raw", "card_meta"}  # set by the tools, never by the model (card_meta is left out by every caller)
+    for name in ("card.json", "card_codex.json"):
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "schemas", name), encoding="utf-8") as f:
+            keys |= schema_keys(json.load(f))
+    return frozenset(keys)
+
+
+CARD_KEYS = _card_keys()
+
+
+def card_text(card):
+    """The text a card is checked for terms in: its string values and every field name the card schemas do not define,
+    each a separate piece joined by NUL. The matcher reads a space inside a term as any whitespace and never crosses a
+    NUL, so a two-word term is never found across two values (a party and the next one), only within one."""
+    return "\x00".join(strings(card, CARD_KEYS))
+
+
+def carries(text, evidence):
+    """Whether `text` holds a term or a marker of the evidence: whether `shield` would replace anything in it. (`hits`
+    reads the terms alone, which is what a card is an alert for naming; a marker is a form of the term, and a document
+    that carries one is as much a document that carries the term.)"""
+    rx = alternation(tuple(forms(evidence)))
+    return rx is not None and rx.search(without_placeholder(normal(text))) is not None
+
+
+def shield(text, evidence):
+    """(`text` with every term and marker of `evidence` replaced by `SHIELD`, the number replaced). Matching is the one
+    matcher's (`alternation`): case-insensitive, in Unicode NFC, a space in a form standing for any run of whitespace, longest
+    form first, in one pass, so the placeholder is never scanned again and text already shielded is left as it is (the
+    shield is idempotent). A text that held a match is returned in NFC. Empty evidence (`--no-isolation-terms`), or a
+    text with no match, is returned as it was, with 0. A term is never written anywhere. A short term also matches
+    inside longer words, which garbles the word and never leaks the term: prefer full names in the terms file."""
+    rx = alternation(tuple(forms(evidence)), protect=True)
+    if rx is None:
+        return text, 0
+    n = 0
+
+    def replace(m):
+        nonlocal n
+        if not PLACEHOLDER.fullmatch(m.group(0)):
+            n += 1
+        return SHIELD
+    out = rx.sub(replace, normal(text))
+    return (out, n) if n else (text, 0)
+
+
+def shield_value(value, evidence):
+    """(`value` with every string in it, and every key of every mapping, shielded as `shield` does, the number replaced).
+    A JSON value: strings, lists, mappings; anything else (numbers, booleans, null) is returned as it is. Two keys that
+    shield alike are one key, the later value kept: the keys a tool shields are paths and names, never an identifier."""
+    n = 0
+
+    def walk(v):
+        nonlocal n
+        if isinstance(v, str):
+            out, k = shield(v, evidence)
+            n += k
+            return out
+        if isinstance(v, (list, tuple)):
+            return [walk(x) for x in v]
+        if isinstance(v, dict):
+            return {walk(k): walk(x) for k, x in v.items()}
+        return v
+    return walk(value), n
+
+
+def shield_digest(evidence):
+    """The sha256 of the evidence's forms, sorted and one to a line, never the forms: what a cached or built artefact
+    records, so that one made under another terms file, or under none, is not taken for one made under this."""
+    return hashlib.sha256("\n".join(sorted({m for ms in evidence.values() for m in ms})).encode("utf-8")).hexdigest()
+
+
+def add_terms_args(parser):
+    parser.add_argument("--terms", help="the operator's isolation terms file")
+    parser.add_argument("--no-isolation-terms", action="store_true",
+                        help="state explicitly that no other project needs isolating (nothing is shielded)")
+
+
+def require_choice(a):
+    """Refuse a command line that gives neither `--terms` nor `--no-isolation-terms`, or both: a run that shields nothing
+    must be the operator's stated decision, never an omission or a contradiction. Checked before anything is read."""
+    if a.terms and a.no_isolation_terms:
+        raise common.ToolError("give --terms (the isolation list) or --no-isolation-terms, not both")
+    if not (a.terms or a.no_isolation_terms):
+        raise common.ToolError("give --terms (the isolation list) or --no-isolation-terms")
+
+
+def evidence_of(a):
+    """{term: [term, marker, ...]} for `--terms`, `{}` for `--no-isolation-terms` (see `require_choice`)."""
+    require_choice(a)
+    return {} if a.no_isolation_terms else load_terms(a.terms)
 
 
 def term_in_source(term, src, evidence):
@@ -151,16 +334,30 @@ def term_in_source(term, src, evidence):
 
 
 def contamination(card_text, source_text, evidence):
-    """Terms a card names that its own source does not carry: each one is an alert."""
+    """Terms a card names that its own source does not carry: each one is an alert. The card's text is what
+    the module's `card_text` makes of it: its values and any field name the card schemas do not define. Given the source as it was sent,
+    shielded (`shield`), in which no term or marker survives, nothing excuses a term, so every term the card names is
+    returned: the model was never shown it. `hits` takes the placeholder out of the card first, whatever its case or
+    spacing, so a model that writes it back never alerts, even where a term stands inside it (a surname such as Held)."""
     return [t for t in hits(card_text, evidence) if not term_in_source(t, source_text, evidence)]
 
 
 def masked(text, evidence):
-    """`text` with every term and marker replaced by `<term>` (longest first, ignoring case)."""
-    forms = sorted({m for ms in evidence.values() for m in ms}, key=len, reverse=True)
-    for m in forms:
-        text = re.sub(re.escape(m), "<term>", text, flags=re.I)
-    return text
+    """`text` with every term and marker replaced by `<term>`, by the one matcher (`alternation`), the placeholder left as it
+    stands; a text with no match is returned as it was."""
+    rx = alternation(tuple(forms(evidence)), protect=True)
+    if rx is None:
+        return text
+    n = 0
+
+    def replace(m):
+        nonlocal n
+        if PLACEHOLDER.fullmatch(m.group(0)):
+            return m.group(0)
+        n += 1
+        return "<term>"
+    out = rx.sub(replace, normal(text))
+    return out if n else text
 
 
 UNSET_VARIABLE = re.compile(r"\$(\w+|\{[^}]*\})", re.ASCII)  # what `os.path.expandvars` reads as a variable
@@ -262,17 +459,20 @@ def scan(a):
     return 0 if res["pass"] else 1
 
 
-CODEX_EFFORT = "low"  # agy has none to set: its effort is part of its model id
+CODEX_EFFORT = "low"  # the codex default; agy has none to set: its effort is part of its model id
+EFFORT = re.compile(r"[a-z]+")  # codex takes its levels as given (low, medium, high, ...): a word, never a TOML escape
 
 
 def canary(a):
     evidence = load_terms(a.terms)
     marker = fresh_marker(evidence)
+    effort = None if a.engine == "agy" else a.effort or CODEX_EFFORT
     d = engines.fresh_dir("canary_")
-    res = {"engine": a.engine, "checked_at": common.now_local(), "terms": len(evidence), "marker": marker,
-           "model": a.model or "cli-default", "effort": None if a.engine == "agy" else CODEX_EFFORT}
+    res = {"engine": a.engine, "checked_at": common.now_local(), "terms": len(evidence),
+           "terms_sha256": shield_digest(evidence), "marker": marker, "model": a.model or "cli-default",
+           "effort": effort}
     try:
-        eng = engines.Agy(a.model) if a.engine == "agy" else engines.Codex(a.model, effort=CODEX_EFFORT)
+        eng = engines.Agy(a.model) if a.engine == "agy" else engines.Codex(a.model, effort=effort)
         reply, usage = eng(CANARY.format(marker=marker), d)
         res.update(reply=masked(reply.strip(), evidence)[:2000], usage=usage, hits=len(hits(reply, evidence)),
                    answered=answered(reply, marker))
@@ -319,10 +519,16 @@ def main():
     p.add_argument("--terms", required=True)
     p.add_argument("--engine", choices=["agy", "codex"], required=True)
     p.add_argument("--model")
+    p.add_argument("--effort", help="codex reasoning effort (default %s); agy's is part of its model id" % CODEX_EFFORT)
     p.add_argument("--out", required=True)
     a = ap.parse_args()
     if a.cmd == "canary" and a.engine == "agy" and not a.model:
         raise common.ToolError(engines.AGY_MODEL_REQUIRED)
+    if a.cmd == "canary" and a.effort is not None:
+        if a.engine == "agy":
+            raise common.ToolError("--effort is for codex: agy's effort is part of its model id, so choose it with --model")
+        if not EFFORT.fullmatch(a.effort):
+            raise common.ToolError("--effort %r is not a codex reasoning effort such as low, medium or high" % a.effort)
     return scan(a) if a.cmd == "scan" else canary(a)
 
 

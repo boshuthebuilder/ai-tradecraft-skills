@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Wiki tools for proposing, drafting and checking a folder's wiki.
 
-    wiki.py profile --root R [--depth 2] [--out <json>]   per-folder documents, copies, cards by category, date span
+    wiki.py profile --root R T [--depth 2] [--out <json>] per-folder documents, copies, cards by category, date span
                                                            and top parties, for the librarian's structure proposal
-    wiki.py bundles --root R [--out <dir>] [--reuse]      per-section evidence bundles (JSONL) for drafting agents,
+    wiki.py bundles --root R T [--out <dir>] [--reuse]    per-section evidence bundles (JSONL) for drafting agents,
                                                            in <work>/bundles/ by default, never in the folder
-    wiki.py brief   --root R --page P [--page P ...] [--out <md>]
+    wiki.py brief   --root R T --page P [--page P ...] [--out <md>]
                                                            the drafting brief for a set of pages, from
                                                            templates/page-brief.md
     wiki.py check   --root R [--page P ...] [--rationale <md>] [--acceptance <json>] [--out <json>]
@@ -13,8 +13,9 @@
                                                            or a named not-verified state; acceptance reported apart
     wiki.py rationale --root R --returns <dir|json> [--out <md>]
                                                            _Audit/wiki-rationale.md from the drafters' returns
-    wiki.py review-prompts --root R --page P [--page P ...] --author-model A --reviewer-model B [--sample 5]
-                           [--cards <dir>] [--out <dir>]   the owner's and the professional's review prompt per page
+    wiki.py review-prompts --root R T --page P [--page P ...] --author-model A --reviewer-model B [--sample 5]
+                           [--cards <dir>] [--extract <dir>] [--out <dir>]
+                                                           the owner's and the professional's review prompt per page
     wiki.py accept  --root R --reply <json> --author-model A --reviewer-model B [--date D] [--out <json>]
                                                            record one review verdict in _Audit/wiki-acceptance.json
     wiki.py move    --root R --map <json>                  move pages ({"old rel": "new rel"}), rewrite every
@@ -29,6 +30,17 @@
 
 Every subcommand takes --settings-dir, --work, --manifest (default <root>/_Audit/manifest.json) and
 --read-only-root; profile and bundles also take --cards and --extract (default <root>/_Audit/cards, .../extract).
+`T` is `--terms F` (the operator's isolation terms file) or `--no-isolation-terms`, one of which `profile`, `bundles`,
+`brief` and `review-prompts` require (the refusal `cards.py work` makes): they write what a model will read, and every
+string they write (a path, a card field, extract text, a page's text) is shielded first, each term and marker of the
+list replaced by `[withheld name]` (`isolation.shield`; the placeholder stands in a path, so a path that carries a
+term is not one a command can open). They say on stderr how many occurrences were replaced, never which. A short
+term also masks inside longer words, which garbles the word and never leaks the term: prefer full names. The one
+thing left as it was is the sha256 of a page in a review prompt, which `accept` compares with the page on disk. A
+bundle's text is shielded whole and then cut at --text-cap, and a bundle line for a document whose path, copy path, card
+or extract text carries a term has `"shielded": true`: its source file still holds the name, and the brief and the
+review prompts tell a subagent never to open it (`review-prompts` lists it as one not to open and samples none of its
+facts). `bundles.json` records `<terms file>` for `--terms`, never its path.
 Page paths are relative to the wiki folder, source paths to the folder. Bundles, briefs and review prompts are
 working files, never written inside the folder, and so is every report written with --out (profile, check, drift, chart:
 they carry manifest, card or path data, are registered for a later purge, and profile, check and drift also print their
@@ -111,12 +123,14 @@ section's `bundle_<NN>.jsonl`; entries with no route, or routed but with no card
 `uncarded`. A withheld document is in no bundle, list or record (a `copies` list names none of its copies either) and is
 counted in the summary (`held_for_another_project`, `excluded`). `bundles.json` records the manifest's sha256, a digest of
 the routing and section kinds the bundles were built by, `common.withheld_digest` (the exclusions, the migrations folder,
-the documents then withheld and every path, copies included, they hold), and the non-default arguments they were built
-with. Every tool's start purges bundles built under another withheld set; a consumer (`brief`, and `bundles --reuse`) also
-refuses bundles whose recorded digests differ from the current withheld set, checked first (the files are removed), then
-the manifest's and the routing's: bundles go stale after any migration, re-audit, routing change or change to the
-migrations folder or `exclude`, and are rebuilt by the command the refusal names. A rebuild removes bundles.json first,
-so one that fails part way leaves none to trust.
+the documents then withheld and every path, copies included, they hold), the shield they were built under (`shield`:
+whether terms were given and the sha256 of the sorted forms, never the forms) and the non-default arguments they were
+built with. Every tool's start purges bundles built under another withheld set; a consumer (`brief`, and `bundles
+--reuse`) also refuses bundles whose recorded digests differ from the current withheld set, checked first (the files are
+removed), then the shield (the same: bundles built under other terms, or none, may hold a term this run would withhold,
+and an older bundles.json records none), then the manifest's and the routing's: bundles go stale after any migration,
+re-audit, routing change or change to the migrations folder, `exclude` or terms file, and are rebuilt by the command
+the refusal names. A rebuild removes bundles.json first, so one that fails part way leaves none to trust.
 
 Brief: the pages' professionals, deliverables and tones (`common.page_voice`), their sections' contracts, the owner
 context from rulebook.json, the page map, the bundle paths (refused when stale), each page's rationale block to
@@ -177,6 +191,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import cards  # noqa: E402
 import common  # noqa: E402
+import isolation  # noqa: E402
 
 BULK_TYPES = re.compile(r"(?i)reading|course material|lecture|book|textbook|journal|article|paper|photo|slides|"
                         r"presentation|notes|handout|guide|dictionary|homework|coursework|screenshot|casebook|"
@@ -350,6 +365,77 @@ def cards_dirs(a, root):
     return tuple(out)
 
 
+class Shielded:
+    """The shield of one command (`isolation.shield`), counting what it replaces."""
+
+    def __init__(self, evidence):
+        self.evidence, self.count = evidence, 0
+
+    def text(self, value):
+        out, n = isolation.shield(value, self.evidence)
+        self.count += n
+        return out
+
+    def value(self, value):
+        out, n = isolation.shield_value(value, self.evidence)
+        self.count += n
+        return out
+
+    def report(self, what):
+        if self.count:
+            print("shielded %d occurrence(s) of an isolation term in %s" % (self.count, what), file=sys.stderr)
+
+
+def shielded_document(h, entry, evidence, cards_dir, extract_dir, card=None, xr=None):
+    """Whether document `h`, which the manifest holds as `entry`, is shielded: a subagent must not open it, because its
+    file still holds a name the isolation list withholds. It is when its path, any copy's path, its extract text or any
+    value of its card carries a term or marker, or its card records that it was shielded when carded. The one rule
+    `bundles`, `brief` and `review-prompts` all use. It fails closed: a card or extract record that is missing or cannot be
+    read counts as shielded, never as clean, for a document that should have one. An entry the manifest records as never
+    read (`hashed` false: an image over the cap, counted and not read) has neither by design, and is judged by its paths
+    alone, as `readiness.py` does. Without `evidence` nothing is shielded. `card` and `xr` are the records, when the caller
+    has read them already."""
+    if not evidence:
+        return False
+    names = [entry["current_path"]] + [c["path"] for c in entry.get("copies", []) if isinstance(c, dict)]
+    if any(isolation.carries(n, evidence) for n in names):
+        return True
+    if entry.get("hashed") is False:
+        return False
+    try:
+        card = load_card(cards_dir, h) if card is None else card
+        if xr is None and os.path.exists(os.path.join(extract_dir, h + ".json")):
+            xr = load_extract(extract_dir, h, os.path.join(cards_dir, h + ".json"))
+    except (common.ToolError, OSError):
+        return True
+    if card is None or xr is None:
+        return True
+    meta = card.get("card_meta")
+    values = isolation.card_text({k: v for k, v in card.items() if k != "card_meta"})
+    return bool(isinstance(meta, dict) and meta.get("shielded")) or isolation.carries(values, evidence) \
+        or isolation.carries(full_text(xr), evidence)
+
+
+class SourceShield:
+    """`shielded_document` for the documents a page cites, read once each: `document(h)`, and `under(folder)`, how many of
+    the documents under a folder (by the paths the manifest holds, copies included) are shielded."""
+
+    def __init__(self, man, held, evidence, cards_dir, extract_dir):
+        self.man, self.held, self.evidence = man, held, evidence
+        self.cards_dir, self.extract_dir, self.known = cards_dir, extract_dir, {}
+
+    def document(self, h):
+        if h not in self.known:
+            self.known[h] = shielded_document(h, self.man[h], self.evidence, self.cards_dir, self.extract_dir)
+        return self.known[h]
+
+    def under(self, folder):
+        if not self.evidence:
+            return 0
+        prefix = folder.rstrip("/") + "/"
+        return sum(1 for h in {h for p, h in self.held.items() if p.startswith(prefix)} if self.document(h))
+
+
 # ------------------------------------------------------------------------------------ profile
 
 def people_names(rb):
@@ -367,9 +453,11 @@ def profile(a):
     held there of documents whose current path is elsewhere or beside them, and from the documents' cards the
     categories, the doc_date span and the top parties (aliases folded to the rulebook's canonical names; each
     document counts a party once). A document held for another project (`migrating`) or excluded (`excluded`) is
-    counted and never profiled, and no copy of one is named."""
+    counted and never profiled, and no copy of one is named. Every name it writes (a folder, a party, a category) is
+    shielded (`isolation.shield`)."""
     if a.depth < 1 or a.parties < 1:
         raise common.ToolError("--depth and --parties count from 1")
+    shield = Shielded(isolation.evidence_of(a))
     root, settings_dir, work = common.resolve(a)
     if a.out:
         common.working_file(root, a.out, "profile reports")
@@ -399,19 +487,21 @@ def profile(a):
         card = load_card(cards_dir, h)
         total["documents"] += 1
         parties = set()
+        category = shield.text(card.get("category") or "Other") if card else None
         if card:
             total["carded"] += 1
-            categories[card.get("category") or "Other"] += 1
+            categories[category] += 1
             for n in [card.get("party") or ""] + list(card.get("parties") or []):
                 n = n.strip()
                 if n and n.lower() != "unknown":
-                    parties.add(names.get(n.lower(), n))
-        for f in folders(p):
+                    parties.add(shield.text(names.get(n.lower(), n)))
+        shown = shield.text(p)
+        for f in folders(shown):
             r = rows[f]
             r["documents"] += 1
             if card:
                 r["carded"] += 1
-                r["categories"][card.get("category") or "Other"] += 1
+                r["categories"][category] += 1
                 if DOC_DATE.fullmatch(card.get("doc_date") or ""):
                     r["dates"].append(card["doc_date"])
                 r["parties"].update(parties)
@@ -419,14 +509,14 @@ def profile(a):
             if c["path"] == p or common.withheld(rb, c["path"]):
                 continue
             total["copies"] += 1
-            for f in folders(c["path"]):
+            for f in folders(shield.text(c["path"])):
                 rows[f]["copies"] += 1
-                rows[f]["copies_of"][folders(p)[0]] += 1
+                rows[f]["copies_of"][folders(shown)[0]] += 1
 
     def ranked(counter, n=None):
         return [[k, v] for k, v in sorted(counter.items(), key=lambda x: (-x[1], x[0]))][:n]
 
-    out = collections.OrderedDict(folder=os.path.basename(root), depth=a.depth, **total)
+    out = collections.OrderedDict(folder=shield.text(os.path.basename(root)), depth=a.depth, **total)
     out["uncarded"] = total["documents"] - total["carded"]
     out["categories"] = dict(ranked(categories))
     out["folders"] = [collections.OrderedDict(
@@ -439,6 +529,7 @@ def profile(a):
         common.Writer(root if a.read_only_root else None).text(a.out, text)
         common.register_output(root, work, rb, a.out, man)
     sys.stdout.write(text)
+    shield.report("the profile")
     return 0
 
 
@@ -463,9 +554,17 @@ def routing_digest(ws):
 
 BUILD_ARGS = (("settings_dir", "--settings-dir"), ("manifest", "--manifest"), ("cards", "--cards"),
               ("extract", "--extract"))
-BUNDLES_META = {"manifest_sha256": str, "routing_sha256": str, "withheld_sha256": str, "arguments": dict,
+SHIELD_ARGS = ("--terms", "--no-isolation-terms")  # the shield a build was given; a rebuild is asked under the caller's
+TERMS_FILE_PLACEHOLDER = "<terms file>"  # what bundles.json records of --terms: the path may carry a term itself
+BUNDLES_META = {"manifest_sha256": str, "routing_sha256": str, "withheld_sha256": str, "shield": dict, "arguments": dict,
                 "sections": dict, "compact": dict, "files": dict, "unrouted": list, "uncarded": list,
                 "held_for_another_project": int, "excluded": int}
+
+
+def shield_record(evidence):
+    """What bundles.json records of the shield its bundles were built under: whether terms were given, and the sha256
+    of the sorted forms (`isolation.shield_digest`), never the forms."""
+    return {"terms": bool(evidence), "sha256": isolation.shield_digest(evidence)}
 
 
 def build_arguments(a):
@@ -475,22 +574,33 @@ def build_arguments(a):
                                   if getattr(a, key, None))
     if getattr(a, "text_cap", TEXT_CAP) != TEXT_CAP:
         out["--text-cap"] = str(a.text_cap)
+    if getattr(a, "terms", None):
+        out["--terms"] = os.path.realpath(a.terms)
+    elif getattr(a, "no_isolation_terms", False):
+        out["--no-isolation-terms"] = ""
     return out
 
 
+def recorded_arguments(arguments):
+    """`arguments` as bundles.json records them: the terms file's path never, since the path may carry a term itself and
+    the `shield` record holds what matters. A rebuild is asked under the caller's own `--terms`."""
+    return collections.OrderedDict((k, TERMS_FILE_PLACEHOLDER if k == "--terms" else v) for k, v in arguments.items())
+
+
 def bundles_command(verb, root, bdir, arguments):
-    args = ["--root", root, "--out", bdir] + [x for kv in arguments.items() for x in kv]
+    args = ["--root", root, "--out", bdir] + [x for k, v in arguments.items() for x in ([k, v] if v else [k])]
     return "%s them: wiki.py bundles %s" % (verb, " ".join(shlex.quote(x) for x in args))
 
 
 REUSE_ARGS = ("--cards", "--extract", "--text-cap")  # what `bundles --reuse` must have been built with, as asked
 
 
-def fresh_bundles(root, bdir, mpath, ws, arguments, rb, man, reuse=False):
-    """bundles.json in `bdir`, refused unless it is one `bundles` wrote, built from the current manifest, routing and
-    withheld documents, with every section's file there. The rebuild command repeats the arguments the bundles were built with
-    (`arguments`, the caller's, when none are recorded). With `reuse`, the caller's --cards, --extract and
-    --text-cap (defaults included) must be those the bundles were built with."""
+def fresh_bundles(root, bdir, mpath, ws, arguments, rb, man, evidence, reuse=False):
+    """bundles.json in `bdir`, refused unless it is one `bundles` wrote, built from the current manifest, routing, withheld
+    documents and shield (`evidence`, the caller's), with every section's file there. The rebuild command repeats the
+    arguments the bundles were built with (`arguments`, the caller's, when none are recorded), under the caller's shield.
+    With `reuse`, the caller's --cards, --extract and --text-cap (defaults included) must be those the bundles were
+    built with."""
     caller = arguments
     meta_path = os.path.join(bdir, "bundles.json")
     if not os.path.lexists(meta_path):
@@ -499,13 +609,19 @@ def fresh_bundles(root, bdir, mpath, ws, arguments, rb, man, reuse=False):
     recorded = meta.get("arguments")
     texts = isinstance(recorded, dict) and all(isinstance(x, str) for kv in recorded.items() for x in kv)
     if texts:
-        arguments = recorded
+        arguments = collections.OrderedDict([(k, v) for k, v in recorded.items() if k not in SHIELD_ARGS]
+                                            + [(k, v) for k, v in caller.items() if k in SHIELD_ARGS])
     rebuild = bundles_command("rebuild", root, bdir, arguments)
     if meta.get("withheld_sha256") != common.withheld_digest(rb, man):
         remove_bundle_files(bdir)  # first, so stale files are always removed: they hold what must not be in a bundle
         raise common.ToolError("stale bundles: %s was built when other documents were held for another project or "
                                "excluded (the migrations folder or `exclude` in rulebook.json changed, or a re-audit "
                                "moved what is withheld), so the bundles were removed; %s" % (meta_path, rebuild))
+    if meta.get("shield") != shield_record(evidence):
+        remove_bundle_files(bdir)  # as above: built under other terms, or none, they may hold a term this run withholds
+        raise common.ToolError("stale bundles: %s was built under another isolation shield (a different terms file, "
+                               "--terms against --no-isolation-terms, or bundles made before the shield was "
+                               "recorded), so the bundles were removed; %s" % (meta_path, rebuild))
     bad = sorted(k for k, kind in BUNDLES_META.items() if not isinstance(meta.get(k), kind)
                  or (k in ("sections", "compact") and not all(type(v) is int for v in meta[k].values()))
                  or (kind is int and type(meta.get(k)) is not int)
@@ -544,6 +660,7 @@ def bundle_summary(meta):
 
 @os_errors
 def bundles(a):
+    shield = Shielded(isolation.evidence_of(a))
     root, settings_dir, work = common.resolve(a)
     rb = common.load_rulebook(root, settings_dir)
     ws = common.load_wiki_schema(root, settings_dir)
@@ -555,7 +672,7 @@ def bundles(a):
     writer = common.Writer(root)
     arguments = build_arguments(a)
     if a.reuse:
-        meta = fresh_bundles(root, out, mpath, ws, arguments, rb, man, reuse=True)
+        meta = fresh_bundles(root, out, mpath, ws, arguments, rb, man, shield.evidence, reuse=True)
         print(json.dumps(bundle_summary(meta), ensure_ascii=False))
         return 1 if meta["unrouted"] or meta["uncarded"] else 0
     meta_path = os.path.join(out, "bundles.json")
@@ -577,11 +694,11 @@ def bundles(a):
             continue
         sec = route(ws, p)
         if sec is None:
-            unrouted.append(p)
+            unrouted.append(shield.text(p))
             continue
         c = load_card(cards_dir, h)
         if c is None:
-            uncarded.append(p)
+            uncarded.append(shield.text(p))
             continue
         xr = load_extract(extract_dir, h, os.path.join(cards_dir, h + ".json"))
         rec = {"id": h[:12], "path": p, "copies": [x["path"] for x in e.get("copies", [])
@@ -590,6 +707,7 @@ def bundles(a):
         rec.update({k: c.get(k) for k in ("title", "doc_type", "party", "parties", "doc_date", "category",
                                            "language", "sensitive")})
         active = kinds.get(sec) == "active"
+        full = full_text(xr)
         if not active and (c.get("category") in ("Reference & Reading", "Photos")
                            or BULK_TYPES.search(c.get("doc_type") or "")):
             compact[sec] += 1
@@ -597,9 +715,13 @@ def bundles(a):
         else:
             rec.update({"summary": c.get("summary"), "key_facts": c.get("key_facts")})
             if active:
-                t = full_text(xr)
-                rec["text"] = t[:a.text_cap] + ("\n[... text truncated, %d chars total]" % len(t)
-                                                if len(t) > a.text_cap else "")
+                rec["text"] = full
+        marked = shielded_document(h, e, shield.evidence, cards_dir, extract_dir, card=c, xr=xr)
+        rec = {k: v if k == "id" else shield.value(v) for k, v in rec.items()}  # the whole text first: the cut follows
+        if "text" in rec and len(rec["text"]) > a.text_cap:
+            rec["text"] = rec["text"][:a.text_cap] + "\n[... text truncated, %d chars total]" % len(rec["text"])
+        if marked:
+            rec["shielded"] = True  # a drafter must not open the source: its file still holds the name
         bund[sec].append(rec)
         counts[sec] += 1
     writer.makedirs(out)
@@ -611,12 +733,13 @@ def bundles(a):
             os.remove(writer.check(os.path.join(out, name)))
     meta = collections.OrderedDict(
         manifest_sha256=digest, routing_sha256=routing_digest(ws), withheld_sha256=common.withheld_digest(rb, man),
-        arguments=arguments, text_cap=a.text_cap,
+        shield=shield_record(shield.evidence), arguments=recorded_arguments(arguments), text_cap=a.text_cap,
         sections=dict(sorted(counts.items())), compact=dict(sorted(compact.items())), files=files,
         unrouted=unrouted, uncarded=uncarded, held_for_another_project=held["migrations"], excluded=held["excluded"])
     writer.text(meta_path, json.dumps(meta, ensure_ascii=False, indent=1) + "\n")
     common.register_rendered(work, out, meta["withheld_sha256"], "bundles")
     print(json.dumps(bundle_summary(meta), ensure_ascii=False))
+    shield.report("the bundles")
     return 1 if unrouted or uncarded else 0
 
 
@@ -657,10 +780,18 @@ def withheld_note(found):
                        "s" if len(found) == 1 else "", " or ".join(why)))
 
 
-def page_entry(p, state, sec, voice, contract, ws, bundle, rb, found=()):
+def shielded_note(n):
+    """The line a brief gives a page that cites shielded sources: how many, never which."""
+    return ("- Shielded sources: %d source%s this page cites (a document, or a folder holding one) carr%s a name kept from "
+            "you. Never open %s: the bundle line for each holds what you may use." % (
+                n, "" if n == 1 else "s", "ies" if n == 1 else "y", "it" if n == 1 else "them"))
+
+
+def page_entry(p, state, sec, voice, contract, ws, bundle, rb, found=(), shielded=0):
     lines = ["### %s" % p, "",
              "- Status: %s" % ("exists (revise it)" if state == "exists" else "planned (write it)")]
     lines += [withheld_note(found)] if found else []
+    lines += [shielded_note(shielded)] if shielded else []
     lines += [
              "- Section: %s %s, %s%s" % (sec["number"], sec["name"], sec["kind"],
                                          ", derived" if sec["derived"] else ""),
@@ -768,12 +899,13 @@ def remove_bundle_files(bdir):
 
 @os_errors
 def brief(a):
+    shield = Shielded(isolation.evidence_of(a))
     root, settings_dir, work = common.resolve(a)
     rb = common.load_rulebook(root, settings_dir)
     ws = common.load_wiki_schema(root, settings_dir)
     mpath, man = load_manifest(root, a.manifest)
     bdir = os.path.realpath(a.bundles) if a.bundles else os.path.join(work, "bundles")
-    meta = fresh_bundles(root, bdir, mpath, ws, build_arguments(a), rb, man)
+    meta = fresh_bundles(root, bdir, mpath, ws, build_arguments(a), rb, man, shield.evidence)
     wiki = os.path.join(root, rb["wiki_dir"])
     pages = sorted(set(a.page))
     for p in pages:
@@ -784,6 +916,10 @@ def brief(a):
     contracts = {c["number"]: c for c in ws["contracts"]}
     pmap = page_map(ws, wiki, pages)
     entries, skeletons, cites = [], [], withheld_citer(root, rb, man, ws)
+    held, _withheld_at = held_paths(rb, man)
+    built = meta["arguments"]
+    sources = SourceShield(man, held, shield.evidence, built.get("--cards", os.path.join(root, "_Audit", "cards")),
+                           built.get("--extract", os.path.join(root, "_Audit", "extract")))
     for p in pages:
         sec = section_of(ws, p)
         contract = contracts.get(sec["number"])
@@ -795,8 +931,10 @@ def brief(a):
         bundle = ("`%s` (%d document%s%s)" % (os.path.join(bdir, f), n, "" if n == 1 else "s",
                                               ", %d of them compact: listed without summary or text" % k if k else "")
                   if f else "none: no carded document routes to this section")
-        found = cites(p, read_text(os.path.join(wiki, *p.split("/")))) if pmap[p] == "exists" else []
-        entries.append(page_entry(p, pmap[p], sec, voices[p], contract, ws, bundle, rb, found))
+        page_text = read_text(os.path.join(wiki, *p.split("/"))) if pmap[p] == "exists" else None
+        found = cites(p, page_text) if page_text is not None else []
+        entries.append(page_entry(p, pmap[p], sec, voices[p], contract, ws, bundle, rb, found,
+                                  shielded_cited(page_text, held, sources) if page_text is not None else 0))
         skeletons.append(rationale_skeleton(p, pmap[p], voices[p], contract))
     checker = ["python3", os.path.join(HERE, "wiki.py"), "check", "--root", root, "--work", work]
     checker += ["--settings-dir", settings_dir] if a.settings_dir else []
@@ -810,11 +948,13 @@ def brief(a):
         bundles_dir=bdir, wiki_dir=wiki, schema_tables=schema_tables(rb, ws),
         checker=" ".join(shlex.quote(x) for x in checker), return_shape=return_shape(pages),
         rationale="\n\n".join(skeletons))
+    text = shield.text(text)
     if a.out:
         target = working_file(root, a.out, "briefs")
         common.Writer(root).text(target, text)
         common.register_rendered(work, target, common.withheld_digest(rb, man))
     sys.stdout.write(text)
+    shield.report("the brief")
     return 0
 
 
@@ -1522,12 +1662,15 @@ def held_paths(rb, man):
     return held, common.withheld_paths(rb, man)
 
 
-def page_sources(text, man, held, cards_dir, rb, withheld_at):
+def page_sources(text, man, held, cards_dir, rb, withheld_at, sources=None):
     """(the lines listing what the page cites, its facts, how many cited paths are withheld): documents with their
     card's title, folders with the paths held directly in them, anything else holding `/` as not in the manifest;
     facts as in fact_sample, each under its document's current path, so a document cited by two of its paths gives its
     facts once. A cited path that is withheld (`common.path_withheld`) is named as withheld and nothing else: no
-    card, title, fact or canonical path is read, and no folder count includes it."""
+    card, title, fact or canonical path is read, and no folder count includes it. Given a `SourceShield`, a cited
+    document that is shielded (`shielded_document`) is listed as one not to open, read from its bundle line or card alone,
+    and none of its facts is sampled; so is a cited folder with a shielded document under it, with how many, never which."""
+    sources = sources or SourceShield(man, held, {}, None, None)
     by_folder = collections.Counter(p.rsplit("/", 1)[0] for p in held if "/" in p)
     lines, facts, hidden = [], set(), 0
     for path in sorted({span for _l, span in citations(text)}):
@@ -1538,6 +1681,10 @@ def page_sources(text, man, held, cards_dir, rb, withheld_at):
                          % (path, common.WITHHELD_WHY[why]))
         elif path in held:
             h = held[path]
+            if sources.document(h):
+                lines.append("- `%s`: do not open; it carries a name kept from you (the prompt shows `[withheld name]` "
+                             "for it), so judge the page against its card alone" % path)
+                continue
             card = load_card(cards_dir, h)
             current = man[h]["current_path"]
             lines.append("- `%s`: %s%s" % (path, card.get("title") or "untitled card" if card else "no card",
@@ -1546,12 +1693,23 @@ def page_sources(text, man, held, cards_dir, rb, withheld_at):
             for kind in FACT_KINDS:
                 values = kf.get(kind) if isinstance(kf.get(kind), list) else []
                 facts.update((current, kind, v.strip()) for v in values if isinstance(v, str) and v.strip())
-        elif by_folder[path.rstrip("/")]:
-            n = by_folder[path.rstrip("/")]
-            lines.append("- `%s`: a folder, %d file%s directly in it" % (path, n, "" if n == 1 else "s"))
+        elif by_folder[path.rstrip("/")] or sources.under(path):
+            n, m = by_folder[path.rstrip("/")], sources.under(path)
+            lines.append("- `%s`: a folder, %d file%s directly in it%s" % (
+                path, n, "" if n == 1 else "s",
+                "; do not open it: %d document%s under it %s a name kept from you, so work from the bundle for "
+                "that folder" % (m, "" if m == 1 else "s", "carries" if m == 1 else "carry") if m else ""))
         elif "/" in path:
             lines.append("- `%s`: not a document or folder in the manifest" % path)
     return lines, sorted(facts), hidden
+
+
+def shielded_cited(text, held, sources):
+    """How many of the sources a page cites are shielded: documents (`shielded_document`) and folders with one under them."""
+    n = 0
+    for path in {span for _l, span in citations(text)}:
+        n += bool(sources.document(held[path])) if path in held else bool(sources.under(path))
+    return n
 
 
 def section_routes(rb, ws, number):
@@ -1592,6 +1750,7 @@ def contract_lines(voice, contract):
 
 @os_errors
 def review_prompts(a):
+    shield = Shielded(isolation.evidence_of(a))
     root, settings_dir, work = common.resolve(a)
     rb = common.load_rulebook(root, settings_dir)
     ws = common.load_wiki_schema(root, settings_dir)
@@ -1611,11 +1770,10 @@ def review_prompts(a):
         if p not in have:
             raise common.ToolError("--page %r is not a page in %s" % (p, wiki))
     out = working_file(root, a.out, "review prompts") if a.out else os.path.join(work, "reviews")
-    cards_dir = os.path.realpath(a.cards) if a.cards else os.path.join(root, "_Audit", "cards")
-    if os.path.exists(cards_dir) and not os.path.isdir(cards_dir):
-        raise common.ToolError("--cards %s is a file, not a folder of card records" % cards_dir)
+    cards_dir, extract_dir = cards_dirs(a, root)
     contracts = {c["number"]: c for c in ws["contracts"]}
     held, withheld_at = held_paths(rb, man)
+    source_shield = SourceShield(man, held, shield.evidence, cards_dir, extract_dir)
     cites = withheld_citer(root, rb, man, ws)
     writer, written, withheld_cited, refused = common.Writer(root), [], {}, []
     for p in pages:
@@ -1638,7 +1796,7 @@ def review_prompts(a):
         questions = ("\n".join("%d. %s" % (i, q) for i, q in enumerate(contract["questions"], 1)) if contract else
                      "None in the Schema: the section is fixed, so its shape is the method's (`wiki-onboarding` and "
                      "`wiki-maintenance`). Judge whether %s can use the page for what that shape is for." % reader)
-        sources, facts, hidden = page_sources(text, man, held, cards_dir, rb, withheld_at)
+        sources, facts, hidden = page_sources(text, man, held, cards_dir, rb, withheld_at, source_shield)
         if hidden:
             withheld_cited[p] = hidden
         sample = fact_sample(p, facts, a.sample)
@@ -1647,14 +1805,17 @@ def review_prompts(a):
                                                        ", derived" if sec["derived"] else ""),
                            "- Files routed to the section:%s" % ("" if routes or hidden_routes else " none")]
                           + route_lines(routes, hidden_routes))
-        fields = dict(page=p, page_sha256=common.sha256_file(path), author_model=author, reviewer_model=reviewer,
-                      wiki_dir=rb["wiki_dir"], page_text=fenced(text))
-        owner = render_template("review-owner.md", reader=reader, questions=questions, **fields)
+        fields = dict(page=p, author_model=author, reviewer_model=reviewer, wiki_dir=rb["wiki_dir"], page_text=fenced(text))
+        fields = dict({k: shield.text(v) for k, v in fields.items()}, page_sha256=common.sha256_file(path))
+        owner = render_template("review-owner.md", reader=shield.text(reader), questions=shield.text(questions),
+                                **fields)
         prof = render_template(
-            "review-professional.md", professional=voice["professional"], contract=contract_lines(voice, contract),
-            scope=scope, root=root, sources="\n".join(sources) or "- none: the page cites no document or folder",
-            facts="\n".join("%d. `%s`, %s: %s" % (i, f[0], FACT_KINDS[f[1]], f[2]) for i, f in enumerate(sample, 1))
-            or "None: no card of a document the page cites holds a date, amount or reference number.",
+            "review-professional.md", professional=shield.text(voice["professional"]),
+            contract=shield.text(contract_lines(voice, contract)), scope=shield.text(scope), root=shield.text(root),
+            sources=shield.text("\n".join(sources) or "- none: the page cites no document or folder"),
+            facts=shield.text("\n".join("%d. `%s`, %s: %s" % (i, f[0], FACT_KINDS[f[1]], f[2])
+                                        for i, f in enumerate(sample, 1))
+                             or "None: no card of a document the page cites holds a date, amount or reference number."),
             sampled="%d of %d" % (len(sample), len(facts)), **fields)
         base = os.path.join(out, *p[:-3].split("/"))
         for lens, body in (("owner", owner), ("professional", prof)):
@@ -1663,6 +1824,7 @@ def review_prompts(a):
         written.append([p, base + ".owner.md", base + ".professional.md"])
     print(json.dumps({"prompts": written, "withheld_cited": withheld_cited, "refused": refused}, ensure_ascii=False,
                      indent=1))
+    shield.report("the review prompts")
     if refused:
         raise common.ToolError("refused to render %d page(s) that cite a withheld document, no prompt written for "
                                "them: %s; take each citation off the page (`wiki.py check` lists them as "
@@ -2519,15 +2681,18 @@ def main():
         return p
 
     p = card_args(common_args(sub.add_parser("profile")))
+    isolation.add_terms_args(p)
     p.add_argument("--depth", type=int, default=2, help="folder levels profiled (default 2)")
     p.add_argument("--parties", type=int, default=5, help="top parties listed per folder (default 5)")
     p.add_argument("--out")
     p = card_args(common_args(sub.add_parser("bundles")))
+    isolation.add_terms_args(p)
     p.add_argument("--out", help="the bundles directory, the tool's own: a rebuild removes bundles.json and "
                    "bundle_*.jsonl there (default <work>/bundles; never inside the folder)")
     p.add_argument("--text-cap", type=int, default=TEXT_CAP)
     p.add_argument("--reuse", action="store_true", help="use the bundles already built, refused when stale")
     p = common_args(sub.add_parser("brief"))
+    isolation.add_terms_args(p)
     p.add_argument("--page", action="append", required=True, help="a page to brief, relative to the wiki folder")
     p.add_argument("--bundles", help="the bundles directory (default <work>/bundles)")
     p.add_argument("--out", help="also write the brief here (never inside the folder)")
@@ -2541,11 +2706,12 @@ def main():
     p.add_argument("--returns", required=True, help="a drafter's return (.json) or a directory of them")
     p.add_argument("--out", help="the rationale file (default <root>/_Audit/wiki-rationale.md)")
     p = common_args(sub.add_parser("review-prompts"))
+    isolation.add_terms_args(p)
     p.add_argument("--page", action="append", required=True, help="a page to review, relative to the wiki folder")
     p.add_argument("--author-model", required=True, help="the model that wrote the pages")
     p.add_argument("--reviewer-model", required=True, help="the model that reviews them (never the author)")
     p.add_argument("--sample", type=int, default=5, help="facts from the cards to check per page (default 5)")
-    p.add_argument("--cards", help="card records (default <root>/_Audit/cards)")
+    card_args(p)
     p.add_argument("--out", help="the prompts directory (default <work>/reviews; never inside the folder)")
     p = common_args(sub.add_parser("accept"))
     p.add_argument("--reply", required=True, help="the reviewer's JSON reply, a response added to each finding")

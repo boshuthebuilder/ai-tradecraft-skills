@@ -86,6 +86,221 @@ class TermsTest(Case):
         self.assertEqual(isolation.contamination('{"summary": "Council tax."}', "", ev), [])
 
 
+class ShieldTest(Case):
+    """`isolation.shield`: every term and marker replaced, by the match `hits` and `masked` use, and counted."""
+
+    def setUp(self):
+        super().setUp()
+        self.ev = isolation.load_terms(self.terms)
+
+    def test_every_term_and_marker_is_replaced_whatever_its_case_and_counted(self):
+        text = "Rent to Zarnwick Farm; ZARNWICK too, zarnwick farm again, Other Project, and 青石湾 1号."
+        got, n = isolation.shield(text, self.ev)
+        self.assertEqual(got, "Rent to [withheld name]; [withheld name] too, [withheld name] again, [withheld name], "
+                              "and [withheld name] 1号.")
+        self.assertEqual(n, 5)
+        self.assertEqual(isolation.hits(got, self.ev), [], "the scan finds nothing in what the shield made")
+
+    def test_the_longest_form_goes_first_and_a_form_is_never_replaced_inside_the_placeholder(self):
+        ev = {"Zarnwick Farm": ["Zarnwick Farm", "Zarnwick"], "withheld": ["withheld"], "name": ["name"]}
+        got, n = isolation.shield("Zarnwick Farm, Zarnwick and the farm", ev)
+        self.assertEqual((got, n), ("[withheld name], [withheld name] and the farm", 2))
+        self.assertEqual(isolation.shield("[withheld name]", {"x": ["Zarnwick"]}), ("[withheld name]", 0))
+
+    def test_a_short_term_masks_inside_a_longer_word_and_never_leaks(self):
+        got, n = isolation.shield("Zarnwickshire and a Ziggurat", {"Zarn": ["Zarn"]})
+        self.assertEqual((got, n), ("[withheld name]wickshire and a Ziggurat", 1))
+
+    def test_regex_characters_in_a_term_are_literal(self):
+        ev = {"A.B (C)": ["A.B (C)"]}
+        self.assertEqual(isolation.shield("a.b (c) and AXB (C)", ev), ("[withheld name] and AXB (C)", 1))
+
+    WRAPPED = ("Zarnwick\nFarm", "Zarnwick\r\nFarm", "Zarnwick\u00a0Farm", "Zarnwick\u202fFarm", "Zarnwick\u2009Farm",
+               "ZARNWICK  \t Farm", "zarnwick\n    farm", "Zarnwick\u3000Farm")
+
+    def test_a_name_wrapped_at_a_line_end_or_set_with_another_space_is_the_name(self):
+        for form in self.WRAPPED:
+            with self.subTest(form=form):
+                text = "Lease between Alex and %s for the flat." % form
+                got, n = isolation.shield(text, self.ev)
+                self.assertEqual((got, n), ("Lease between Alex and [withheld name] for the flat.", 1))
+                self.assertTrue(isolation.carries(text, self.ev))
+                self.assertEqual(isolation.hits(text, self.ev), ["Zarnwick Farm"], "the scan reads it the same way")
+                self.assertEqual(isolation.masked(text, self.ev), "Lease between Alex and <term> for the flat.")
+
+    def test_a_name_in_either_unicode_form_is_the_name(self):
+        nfd, nfc = "Jose\u0301 Quorvane", "Jos\u00e9 Quorvane"
+        for term, text in ((nfc, "Letter from %s.pdf" % nfd), (nfd, "Letter from %s.pdf" % nfc)):
+            with self.subTest(term=term):
+                ev = {term: [term]}
+                self.assertEqual(isolation.shield(text, ev), ("Letter from [withheld name].pdf", 1))
+                self.assertTrue(isolation.carries(text, ev))
+                self.assertEqual(isolation.hits(text, ev), [term])
+                self.assertEqual(isolation.masked(text, ev), "Letter from <term>.pdf")
+
+    def test_the_matcher_is_one_whatever_asks(self):
+        """The scan, the contamination check and the shield read a text alike: a text the shield leaves is a text the scan
+        finds nothing in."""
+        cases = list(self.WRAPPED) + ["Zarnwick", "Zarnwick-Farm", "Zarnwick Far", "Other\nProject", "青石湾"]
+        for form in cases:
+            with self.subTest(form=form):
+                text = "a %s b" % form
+                shielded, n = isolation.shield(text, self.ev)
+                self.assertEqual(n > 0, isolation.carries(text, self.ev))
+                self.assertEqual(isolation.hits(shielded, isolation.forms(self.ev)), [], shielded)
+
+    def test_what_still_does_not_match_is_the_settled_residual(self):
+        """A name split by a hyphen at a line end, or by a zero-width character or a soft hyphen, is not matched."""
+        for form in ("Zarn-\nwick Farm", "Zarn\u200bwick Farm", "Zarn\u00adwick Farm", "ZarnwickFarm"):
+            with self.subTest(form=form):
+                self.assertEqual(isolation.shield("a %s b" % form, {"Zarnwick Farm": ["Zarnwick Farm"]}),
+                                 ("a %s b" % form, 0))
+
+    def test_the_shield_is_idempotent_and_never_finds_a_term_inside_its_placeholder(self):
+        ev = {"Held": ["Held"], "Zarnwick Farm": ["Zarnwick Farm"]}
+        once = isolation.shield("Held Zarnwick\nFarm and a held letter", ev)
+        self.assertEqual(once, ("[withheld name] [withheld name] and a [withheld name] letter", 3))
+        self.assertEqual(isolation.shield(once[0], ev), (once[0], 0))
+        self.assertEqual(isolation.shield("[withheld name]", ev), ("[withheld name]", 0))
+        self.assertFalse(isolation.carries(once[0].replace("[withheld name]", ""), ev))
+
+    PLACEHOLDERS = ("[withheld name]", "[Withheld Name]", "[WITHHELD NAME]", "[withheld  name]", "[ withheld name ]",
+                    "[withheld\nname]", "[withheld\u00a0name]")
+
+    def test_the_placeholder_is_taken_out_whatever_its_case_or_spacing(self):
+        for form in self.PLACEHOLDERS:
+            with self.subTest(form=form):
+                self.assertEqual(isolation.without_placeholder("a %s b" % form), "a \x00 b")
+        self.assertEqual(isolation.without_placeholder("a [withheld names] b"), "a [withheld names] b")
+
+    def test_a_term_inside_the_placeholder_is_no_contamination_and_one_outside_it_still_is(self):
+        ev = {"Held": ["Held"]}  # as evidence only: `load_terms` refuses a file that holds it
+        for form in self.PLACEHOLDERS:
+            with self.subTest(form=form):
+                self.assertEqual(isolation.contamination('{"summary": "Filed under %s letter.pdf"}' % form, "", ev), [])
+        self.assertEqual(isolation.contamination('{"summary": "[withheld name] and Held."}', "", ev), ["Held"])
+        self.assertEqual(isolation.contamination('{"summary": "Hel[withheld name]d"}', "", ev), [],
+                         "taking the placeholder out never joins what stood round it into a term")
+
+    def test_the_shield_leaves_the_placeholder_as_it_stands_in_any_case(self):
+        ev = {"Quorvane": ["Quorvane"]}
+        self.assertEqual(isolation.shield("a [Withheld  Name] b Quorvane", ev), ("a [withheld name] b [withheld name]", 1))
+
+    def test_carries_is_whether_the_shield_would_replace_anything(self):
+        for text, want in (("Rent to Zarnwick Farm", True), ("only the marker, ZARNWICK", True), ("Council tax", False),
+                           ("青石湾 1号", True)):
+            with self.subTest(text):
+                self.assertEqual(isolation.carries(text, self.ev), want)
+                self.assertEqual(isolation.shield(text, self.ev)[1] > 0, want)
+        self.assertFalse(isolation.carries("Zarnwick Farm", {}))
+
+    def test_no_terms_returns_the_text_as_it_was(self):
+        self.assertEqual(isolation.shield("Zarnwick Farm", {}), ("Zarnwick Farm", 0))
+        self.assertEqual(isolation.shield_value({"a": ["Zarnwick"]}, {}), ({"a": ["Zarnwick"]}, 0))
+
+    def test_a_json_value_is_shielded_in_every_string_and_key(self):
+        value = {"path": "Zarnwick Farm/lease.pdf", "Other Project": ["x Zarnwick", 3, None, True],
+                 "nested": {"k": "青石湾"}}
+        got, n = isolation.shield_value(value, self.ev)
+        self.assertEqual(got, {"path": "[withheld name]/lease.pdf", "[withheld name]": ["x [withheld name]", 3, None, True],
+                               "nested": {"k": "[withheld name]"}})
+        self.assertEqual(n, 4)
+        self.assertEqual(value["path"], "Zarnwick Farm/lease.pdf", "the value given is not changed")
+
+    def test_the_digest_is_of_the_sorted_forms_and_never_holds_them(self):
+        a = isolation.shield_digest(self.ev)
+        self.assertRegex(a, r"^[0-9a-f]{64}$")
+        reordered = {k: self.ev[k] for k in reversed(list(self.ev))}
+        self.assertEqual(isolation.shield_digest(reordered), a)
+        self.assertNotEqual(isolation.shield_digest({"Zarnwick Farm": ["Zarnwick Farm"]}), a)
+        self.assertNotEqual(isolation.shield_digest({}), a)
+        for form in ("Zarnwick", "Other Project"):
+            self.assertNotIn(form, a)
+
+    def test_neither_flag_and_both_flags_are_refused_and_no_terms_means_no_evidence(self):
+        ns = lambda **kw: type("A", (), dict({"terms": None, "no_isolation_terms": False}, **kw))  # noqa: E731
+        with self.assertRaisesRegex(common.ToolError, "give --terms .* or --no-isolation-terms$"):
+            isolation.evidence_of(ns())
+        with self.assertRaisesRegex(common.ToolError, "not both"):
+            isolation.evidence_of(ns(terms=self.terms, no_isolation_terms=True))
+        self.assertEqual(isolation.evidence_of(ns(no_isolation_terms=True)), {})
+        self.assertEqual(isolation.evidence_of(ns(terms=self.terms)), self.ev)
+
+
+class StringsTest(Case):
+    def test_strings_are_the_values_of_a_json_value_never_its_keys(self):
+        card = {"proposed_name": "", "title": "A lease", "key_facts": {"dates": ["2024-01-01"], "amounts": []}, "n": 3,
+                "parties": ["Alex", {"party_name": "Robin"}]}
+        self.assertEqual(sorted(isolation.strings(card)), sorted(["", "A lease", "2024-01-01", "Alex", "Robin"]))
+        self.assertEqual(isolation.strings(None), [])
+
+    def test_a_short_term_is_not_a_contamination_in_a_field_name_only_in_a_value(self):
+        ev = {"Nam": ["Nam"]}
+        card = {"proposed_name": "", "title": "A lease"}
+        self.assertEqual(isolation.contamination("\n".join(isolation.strings(card)), "", ev), [])
+        self.assertEqual(isolation.contamination("\n".join(isolation.strings(dict(card, title="Nam lease"))), "", ev),
+                         ["Nam"])
+
+
+class CardTextTest(Case):
+    """What a card is checked for terms in: its values, and any key its schema does not define, each piece apart."""
+
+    def test_a_key_the_schema_does_not_define_is_read_and_one_it_defines_is_not(self):
+        ev = {"Zarnwick Farm": ["Zarnwick Farm"], "Nam": ["Nam"]}
+        card = {"id": "x", "proposed_name": "", "title": "A lease", "key_facts": {"dates": [], "Zarnwick Farm": "1"}}
+        self.assertEqual(isolation.contamination(isolation.card_text(card), "", ev), ["Zarnwick Farm"])
+        self.assertEqual(isolation.contamination(isolation.card_text(dict(card, **{"Zarnwick Farm": 1})), "", ev),
+                         ["Zarnwick Farm"])
+        del card["key_facts"]["Zarnwick Farm"]
+        self.assertEqual(isolation.contamination(isolation.card_text(card), "", ev), [])
+
+    def test_a_two_word_term_is_never_matched_across_two_values_only_within_one(self):
+        ev = {"Brindle Court": ["Brindle Court"]}
+        card = {"party": "Alex Brindle", "parties": ["Court Services"], "summary": "A letter."}
+        self.assertEqual(isolation.contamination(isolation.card_text(card), "", ev), [])
+        self.assertEqual(isolation.contamination(isolation.card_text(dict(card, summary="At Brindle\nCourt.")), "", ev),
+                         ["Brindle Court"])
+
+
+class PlaceholderMatcherTest(Case):
+    """No form is ever found inside the placeholder, so a short name is never refused and never read in a shielded text."""
+
+    SHORT = ("Nam", "Na", "He", "Held", "Wit", "Hel", "name", "with", "withheld name")
+
+    def test_realistic_short_terms_and_markers_are_accepted(self):
+        path = os.path.join(self.tmp, "t.txt")
+        write(path, "Quorvane Nam|Nam\nQuorvane Na|Na\nQuorvane He|He\nHeld\nWit\nHel\n")
+        ev = isolation.load_terms(path)
+        self.assertEqual(ev["Quorvane Nam"], ["Quorvane Nam", "Nam"])
+        self.assertEqual(len(ev), 6)
+
+    def test_no_form_is_found_inside_the_placeholder_whatever_the_caller_and_its_spelling(self):
+        for form in self.SHORT:
+            ev = {form: [form]}
+            for placeholder in ("[withheld name]", "[Withheld Name]", "[ WITHHELD  name ]", "[withheld\nname]"):
+                with self.subTest(form=form, placeholder=placeholder):
+                    text = "Filed under %s." % placeholder
+                    self.assertEqual(isolation.hits(text, ev), [])
+                    self.assertFalse(isolation.carries(text, ev))
+                    self.assertEqual(isolation.masked(text, ev), text)
+                    self.assertEqual(isolation.shield(text, ev), (text, 0))
+                    self.assertEqual(isolation.contamination('{"summary": "%s"}' % text, "", ev), [])
+
+    def test_a_form_outside_the_placeholder_is_still_found_beside_one(self):
+        ev = {"Held": ["Held", "Nam"]}
+        self.assertEqual(isolation.hits("[withheld name] and held", ev), ["Held"])
+        self.assertTrue(isolation.carries("[withheld name] and a Nam", ev))
+        self.assertEqual(isolation.masked("[withheld name] and Nam", ev), "[withheld name] and <term>")
+        self.assertEqual(isolation.shield("[withheld name] and Nam", ev), ("[withheld name] and [withheld name]", 1))
+
+    def test_the_scan_finds_no_term_in_the_placeholder_a_tool_text_may_quote(self):
+        terms = os.path.join(self.tmp, "terms.txt")
+        write(terms, "Held\n")
+        write(os.path.join(self.tmp, "p", "doc.md"), "A shielded text reads [withheld name] here.")
+        code, out, err = self.iso("scan", "--terms", terms, "--path", os.path.join(self.tmp, "p"))
+        self.assertEqual(code, 0, out + err)
+
+
 class ScanTest(Case):
     def test_every_model_facing_file_is_scanned(self):
         d = os.path.join(self.tmp, "prompts")
@@ -443,6 +658,44 @@ class CanaryTest(Case):
         self.assertEqual((res["model"], res["effort"]), ("fake-codex", "low"))
         _code, res, _stdout, _err = self.canary("codex")
         self.assertEqual((res["model"], res["effort"]), ("cli-default", "low"))
+
+    def test_the_result_records_the_digest_of_the_terms_it_ran_against_never_the_terms(self):
+        self.says("agy", "NAMES: {marker}")
+        code, res, stdout, err = self.canary("agy", "--model", "fake-model")
+        self.assertEqual(code, 0, err)
+        want = isolation.shield_digest(isolation.load_terms(self.terms))
+        self.assertEqual(res["terms_sha256"], want)
+        self.assertIn(want, stdout)
+        for term in ("Zarnwick", "Other Project", "青石湾"):
+            self.assertNotIn(term, json.dumps(res))
+
+    def test_codex_takes_an_effort_and_the_result_records_it(self):
+        self.says("codex", "NAMES: {marker}")
+        code, res, _stdout, err = self.canary("codex", "--model", "fake-codex", "--effort", "high")
+        self.assertEqual(code, 0, err)
+        self.assertEqual((res["model"], res["effort"], res["pass"]), ("fake-codex", "high", True))
+        argv = self.fakes.calls("codex")[0]["argv"]
+        self.assertIn('model_reasoning_effort="high"', argv)
+        self.assertNotIn('model_reasoning_effort="low"', argv)
+
+    def test_agy_refuses_an_effort_because_its_effort_is_in_its_model_id(self):
+        out = os.path.join(self.tmp, "gate", "canary-agy.json")
+        write(out, json.dumps({"engine": "agy", "pass": True, "answered": True, "marker": "Oldmarker"}))
+        code, _stdout, err = self.iso("canary", "--terms", self.terms, "--engine", "agy", "--model", "fake-model-high",
+                                      "--effort", "low", "--out", out)
+        self.assertEqual(code, 2, err)
+        self.assertIn("agy's effort is part of its model id", err)
+        self.assertFalse(os.path.exists(out), "an earlier pass survived")
+        self.assertEqual(self.fakes.calls("agy"), [])
+
+    def test_an_effort_that_is_not_a_word_is_refused_before_a_call(self):
+        for bad in ('low"; x="1', "", "low high", "5"):
+            with self.subTest(bad):
+                code, _stdout, err = self.iso("canary", "--terms", self.terms, "--engine", "codex", "--effort", bad,
+                                              "--out", os.path.join(self.tmp, "gate", "c.json"))
+                self.assertEqual(code, 2, err)
+                self.assertIn("is not a codex reasoning effort", err)
+        self.assertEqual(self.fakes.calls("codex"), [])
 
     def test_a_canary_that_ends_early_leaves_no_earlier_pass_behind(self):
         out = os.path.join(self.tmp, "gate", "canary-agy.json")

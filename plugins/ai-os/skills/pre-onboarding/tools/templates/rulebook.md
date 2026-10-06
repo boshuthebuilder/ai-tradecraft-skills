@@ -12,7 +12,8 @@ How each field is made:
 - `folder_name`: the folder's own name. `folder_description`: the twin's `folder_description`.
 - `users_and_boundaries`: the owner's answers on who uses the folder and what is held apart.
 - `inbox`, `migrations_dir`, `wiki_dir`, `depth`, `identifiers`, `ocr_languages`: the twin's values.
-- `reserved_extra`: one bullet per name in the twin's `reserved`, saying what it holds, or nothing.
+- `reserved_extra`: one bullet per name in the twin's `reserved`, saying what it holds, or nothing. The bullets for
+  `Outbox`, `Wiki` and the leading `_` rule are fixed: keep them.
 - `how_files_arrive`: the owner's answer on how new files reach the folder, in a few words.
 - `packs`, `active`, `finished`, `working_formats`, `exclusions`: one bullet per entry, each path in backticks, or the
   word none.
@@ -42,6 +43,9 @@ These top-level names are the system's, and none is one of the owner's documents
 - `{inbox}`: where incoming material lands. It is read only to file what lands in it.
 - `{migrations_dir}`: described under Migrations, below. It is not read.
 - `{wiki_dir}`: the wiki.
+- `Outbox` and `Wiki`: names the audit never walks, whatever sits under them.
+- Any other top-level folder whose name begins with `_`: a system folder, skipped by the audit and never read by the
+  deployment.
 {reserved_extra}
 
 ## New files
@@ -97,4 +101,5 @@ appears under:
 
 `{wiki_dir}` is this folder's wiki. Its Schema page, `90 Schema/90 Schema.md`, is its constitution: its layout,
 routing, page contracts and page professionals. Follow the Schema, write each page as its one professional, and never
-overwrite a page the owner has edited.
+overwrite a page the owner has edited. A drafting agent is the one exception to opening the Schema page: its brief
+carries the Schema's tables and everything else it needs, and tells it not to open the page.

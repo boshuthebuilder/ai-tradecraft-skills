@@ -345,7 +345,7 @@ class RemovalFailureTest(PurgeCase):
         os.chmod(extract, 0o500)  # records can be read, none removed
         self.addCleanup(os.chmod, extract, 0o700)
         r = subprocess.run([sys.executable, os.path.join(TOOLS, "wiki.py"), "profile", "--root", root, "--work",
-                            os.path.join(tmp, "work")], capture_output=True, text=True, env=env, timeout=TIMEOUT)
+                            os.path.join(tmp, "work"), "--no-isolation-terms"], capture_output=True, text=True, env=env, timeout=TIMEOUT)
         self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
         self.assertEqual(r.stdout, "", "the tool carried on")
         self.assertIn("error: refused: could not remove 2 extract records of withheld documents (Permission denied)",
@@ -484,9 +484,9 @@ class EveryToolTest(unittest.TestCase):
         plans = os.path.join(self.tmp, "plans")
         tools = (("audit.py", lambda r, w: ["--root", r, "--work", w]),
                  ("cards.py", lambda r, w: ["build", "--root", r, "--work", w]),
-                 ("wiki.py", lambda r, w: ["profile", "--root", r, "--work", w]),
+                 ("wiki.py", lambda r, w: ["profile", "--root", r, "--work", w, "--no-isolation-terms"]),
                  ("wiki.py", lambda r, w: ["check", "--root", r, "--work", w]),
-                 ("wiki.py", lambda r, w: ["bundles", "--root", r, "--work", w]),
+                 ("wiki.py", lambda r, w: ["bundles", "--root", r, "--work", w, "--no-isolation-terms"]),
                  ("wiki.py", lambda r, w: ["drift", "--root", r, "--work", w]),
                  ("plan.py", lambda r, w: ["light", "--root", r, "--out", plans]),
                  ("plan.py", lambda r, w: ["check", "--root", r, "--plan", os.path.join(plans, "move-plan.csv")]),
@@ -510,7 +510,7 @@ class EveryToolTest(unittest.TestCase):
         runner = ("import runpy, sys, time\ntime.sleep = lambda s: None\nsys.argv = sys.argv[1:]\n"
                   "runpy.run_path(sys.argv[0], run_name='__main__')")
         r = subprocess.run([sys.executable, "-c", runner, os.path.join(TOOLS, "vision.py"), "--root", root, "--work", work,
-                            "--lanes", "extraction", "--model", "m"], capture_output=True, text=True,
+                            "--lanes", "extraction", "--model", "m", "--no-isolation-terms"], capture_output=True, text=True,
                            env=tool_env(self.tmp, Fakes(self.tmp)), timeout=TIMEOUT)  # the fake agy, never a real one
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assert_purged(root, r.stderr)

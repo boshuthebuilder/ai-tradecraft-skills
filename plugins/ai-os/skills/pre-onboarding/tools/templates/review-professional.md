@@ -22,15 +22,17 @@ page ({author_model} wrote it), reading it as {professional}. You judge the page
 
 ## Its sources
 
-The folder is `{root}`; the page names each source by its folder-relative path:
+The folder is `{root}`; the page names each source by its folder-relative path. **A source marked "do not open" is a
+document, or a folder holding one, that carries a name kept from you: never open it.** Judge the page against its
+card (or, for a folder, the bundle) as the line gives it, and say in a finding what you could not check:
 
 {sources}
 
 ## Facts to check
 
 {sampled} facts from the cards of the documents the page cites, chosen by a fixed rule, so a second review of
-this page checks the same ones. Open each source and confirm the fact there, then check whether the page states it
-as the source does:
+this page checks the same ones (the facts of a source marked "do not open" are left out). Open each source above that is
+not marked "do not open" and confirm the fact there, then check whether the page states it as the source does:
 
 {facts}
 
@@ -45,7 +47,7 @@ In the professional's lens, as the rule's *Acceptance* sets it out:
 
 For a fixed page (the Index, Deadlines, the Schema or the Log) judge it for what it is for, as
 [`wiki-onboarding`, step 6](../../../wiki-onboarding/SKILL.md#6-reader-acceptance-the-owners-lens-and-the-professionals)
-sets out. Open the page and its sources, and nothing else in the folder.
+sets out. Open the page and its sources that are not marked "do not open", and nothing else in the folder.
 
 ## Reply
 

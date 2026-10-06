@@ -10,6 +10,7 @@
  },
  "hashed": 18,
  "count_only": 0,
+ "excluded": 0,
  "duplicate_groups": 6,
  "copy_kinds": {
   "canonical": 6,
@@ -41,6 +42,7 @@
  "symlinks": 0,
  "placeholders": 0,
  "not_downloaded": 0,
+ "not_audited": {},
  "departed": 0,
  "drift": null,
  "top_level": {

@@ -2,7 +2,13 @@
  "manifest_sha256": "6d541039321cc59dbd949478ecca8aef4f2806ef495f08d11f97cca36f22a129",
  "routing_sha256": "2304d9b5b9b8a8e8898c23756a89b22df45cd9fe43a03793e9eeaf5dad6a66d4",
  "withheld_sha256": "1025b1aa60da34b4a351191983c1bca99f1de3e303746fce077fd765d46e6034",
- "arguments": {},
+ "shield": {
+  "terms": false,
+  "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+ },
+ "arguments": {
+  "--no-isolation-terms": ""
+ },
  "text_cap": 12000,
  "sections": {
   "10": 2,

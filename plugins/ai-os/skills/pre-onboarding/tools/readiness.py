@@ -13,13 +13,32 @@ pass either, and the operator reads it.
   is under the migrations folder, or excluded by the rulebook's `exclude`) has an extract record and a card, each card and
   extract record is in its format (one that is not is counted and named, never the end of the run), each card's
   category is one the rulebook allows, every extract record's path agrees with the manifest (else the finding
-  names the repair, `extract.py repath`), and no card names an isolation term its own source lacks (not verified
-  without --terms). A check that needed a record it could not read is not verified for that document. A count
-  above zero is one finding;
-- isolation: per engine, the canary result `isolation.py canary --out` wrote to `<work>/state/canary-<engine>.json`:
-  `passed (model M, effort E)`, naming the model that was cleared, to compare with the model the cards ran on,
-  `failed: ...` (a finding), `not run: ...` (not verified) or `not verified: ...` (a pass recorded without
-  the invented name the canary now plants, so one from an earlier canary, which a refusal could pass: run it again);
+  names the repair, `extract.py repath`), and no card names an isolation term (not verified without --terms): each card
+  is compared with its document's text as the engine was sent it, shielded (`isolation.shield`), in which no term
+  survives, so any term a card names is a finding, and so is one a card made before the shield was kept under the old
+  excuse that its source carried the term. A check that needed a record it could not read is not verified for that
+  document. A count above zero is one finding. `cards_shield` counts the cards whose recorded shield
+  (`card_meta.shield_sha256`) is absent or is not the digest of the terms file given, which were made with no shield, or
+  under another list: not a finding, since the contamination check still reads them, but not verified, and listed in
+  `not_verified`. `paths_naming_terms` counts the manifest's live and withheld entries (not `departed`) whose current
+  path, any copy's path or migration label (`migration_target`, `migration_targets`) carries a term: a finding, its
+  samples masked (`isolation.masked`), since a later run can still send them; not verified without --terms.
+  `history_paths_naming_terms` counts, as information and never a finding, the entries whose `original_name` or
+  `rename_history` paths carry a term, and every departed entry that does: history the manifest keeps and no tool
+  sends, for which the operator has no remedy;
+- isolation: the canary results `isolation.py canary --out` wrote, every `<work>/state/canary-*.json` (the older
+  `canary-<engine>.json` names among them), one entry per result, keyed `"<engine> <model>"` and, for codex, `"<engine>
+  <model> effort <E>"` (two results for one key are told apart by their file name): `passed (model M, effort E)`,
+  `failed: ...` (a finding) or `not verified: ...` (a pass recorded without the invented name the canary now plants, so
+  one from an earlier canary, which a refusal could pass; or, given --terms, one that records no terms digest or
+  another one: run it again). The cards record the engine and model they ran on (`card_meta.via`, `card_meta.model`,
+  and for codex `card_meta.effort`, and the light model with `card_meta.light_model_effort` when `--light-model` is
+  used), and given --terms each (engine, model) pair, for codex each (model, effort) pair, needs a passing canary of
+  that engine and exact model at that exact effort, made against the same terms file: a pair without one is a finding
+  (`finding: ...`), never `not run`. A codex pair whose cards record no effort (made before it was recorded) is `not
+  verified: the cards record no effort`, never a pass. Without --terms a pair with no canary is `not run: ...` (not
+  verified); a card that records no engine and model is not verified. With no card to name a pair, an engine with no
+  canary file is `not run`;
 - wiki: `wiki.py check`, as it reports; its problems are one finding, its not-verified states are listed;
 - wiki_handoff: the rationale file exists (`check` does not count it missing, since drafting agents run `check`
   before it is assembled), and every page is accepted: each page `check` does not report `accepted` is one
@@ -1292,9 +1311,11 @@ def unread(n, paths, why):
     return gap if not n else "%d; %s" % (n, gap)
 
 
-def record_checks(root, rb, live, evidence):
+def record_checks(root, rb, live, evidence, models=None):
     """{check: [what, ...]} for the records, and each check's count or state. A card or extract record that cannot be
-    read is counted with the rest and never the end of the check; a check that needed it says it is not verified."""
+    read is counted with the rest and never the end of the check; a check that needed it says it is not verified. `models`,
+    when given, is filled with what the cards say they ran on: `pairs`, {(engine, model): the efforts recorded}, and
+    `unrecorded`, the number of cards that record no engine and model."""
     audit = os.path.join(root, "_Audit")
     xdir, cdir = os.path.join(audit, "extract"), os.path.join(audit, "cards")
     found = collections.OrderedDict((k, []) for k in ("missing_extracts", "missing_cards", "malformed_cards",
@@ -1338,42 +1359,164 @@ def record_checks(root, rb, live, evidence):
             continue
         if card.get("category") not in rb["card_categories"]:
             found["bad_category"].append("%s: %r" % (path, card.get("category")))
+        if models is not None:
+            card_models(card.get("card_meta"), models, evidence)
         if x is False:
             no_terms.append(path)
         elif evidence and x is not None:
-            blob = json.dumps({k: v for k, v in card.items() if k != "card_meta"}, ensure_ascii=False)
-            if isolation.contamination(blob, C.full_text(x), evidence):
+            blob = isolation.card_text({k: v for k, v in card.items() if k != "card_meta"})
+            sent = isolation.shield(path + "\n" + C.full_text(x), evidence)[0]  # as the engine was sent it
+            if isolation.contamination(blob, sent, evidence):
                 found["contamination"].append(path)  # the terms themselves are never written out
     counts = collections.OrderedDict((k, len(v)) for k, v in found.items())
     counts["extract_paths_stale"] = unread(counts["extract_paths_stale"], no_extract, "extract record is malformed")
     counts["bad_category"] = unread(counts["bad_category"], no_category, "card is malformed")
     if not evidence:
         counts["contamination"] = "not verified: no --terms"
+        counts["cards_shield"] = "not verified: no --terms"
     else:
         counts["contamination"] = unread(counts["contamination"], no_terms, "card or extract record is malformed")
+        other = models["other_shield"] if models is not None else 0
+        counts["cards_shield"] = ("not verified for %d card(s) made with no recorded shield, or under another terms file "
+                                  "(their contamination is still checked)" % other) if other else 0
     return found, counts
 
 
-def canary(work, engine):
-    """passed, failed: ..., not run: ... or not verified: ..., from the result isolation.py canary wrote."""
-    rel = os.path.join("state", "canary-%s.json" % engine)
-    path = os.path.join(work, rel)
-    if not os.path.exists(path):
-        return "not run: no %s in the work directory (isolation.py canary --out)" % rel
-    res = W.read_object(path)
-    if res.get("engine") != engine or not isinstance(res.get("pass"), bool):
-        raise common.ToolError("%s is not a canary result for %s; run isolation.py canary again" % (path, engine))
+def card_models(meta, models, evidence=None):
+    """Add to `models` what a card's `card_meta` says it ran on: the engine and model, and for codex the effort, and the
+    light model with the effort it ran at; a card that records no engine and model is counted in `unrecorded`. Given the
+    isolation `evidence`, a card whose recorded shield (`shield_sha256`) is absent or is not the digest of these terms is
+    counted in `other_shield`."""
+    via, model = (meta.get("via"), meta.get("model")) if isinstance(meta, dict) else (None, None)
+    if evidence and (not isinstance(meta, dict) or meta.get("shield_sha256") != isolation.shield_digest(evidence)):
+        models["other_shield"] += 1
+    if not (isinstance(via, str) and via and isinstance(model, str) and model):
+        models["unrecorded"] += 1
+        return
+
+    def add(engine, name, effort):
+        models["pairs"].add((engine, name, effort if engine == "codex" and isinstance(effort, str) and effort else None))
+    add(via, model, meta.get("effort"))
+    if isinstance(meta.get("light_model"), str) and meta["light_model"]:
+        add(via, meta["light_model"], meta.get("light_model_effort"))
+
+
+def entries_naming_terms(ents, evidence):
+    """({entries a later run can still send, entries whose history holds a term}, each as the entry's current path with
+    every term masked, `isolation.masked`). The first: a live or withheld entry (not `departed`) whose current path, any
+    copy's path or migration label (`migration_target`, `migration_targets`) carries a term or marker, which a tool could
+    still name to a model. The second is history the manifest keeps and no tool sends, so the operator has no remedy for
+    it: an entry's `original_name` and `rename_history` paths, and everything a departed entry holds."""
+    found, history = [], []
+    for e in sorted(ents.values(), key=lambda x: x["current_path"]):
+        departed = "departed" in e.get("flags", [])
+        now = [e["current_path"]] + [c["path"] for c in e.get("copies", [])]
+        now += [e["migration_target"]] if isinstance(e.get("migration_target"), str) else []
+        now += [t for t in e.get("migration_targets", []) if isinstance(t, str)]
+        before = [e["original_name"]] if isinstance(e.get("original_name"), str) else []
+        before += [h["path"] for h in e.get("rename_history", []) if isinstance(h, dict) and isinstance(h.get("path"), str)]
+        if not departed and any(isolation.carries(n, evidence) for n in now):
+            found.append(isolation.masked(e["current_path"], evidence))
+        if any(isolation.carries(n, evidence) for n in before + (now if departed else [])):
+            history.append(isolation.masked(e["current_path"], evidence))
+    return found, history
+
+
+def canary_state(res, rel, digest=None):
+    """passed, failed: ... or not verified: ..., from the result `isolation.py canary` wrote to `rel`. Given the `digest` of
+    the terms file in use, a pass counts only when the result records the same one (`terms_sha256`): a canary made against
+    another list, or before the canary recorded it, is not verified."""
     if res["pass"]:
         if res.get("answered") is not True or not res.get("marker"):
             return ("not verified: %s records a pass without the invented name a canary now plants, so it may be from "
                     "a canary a refusal could pass; run isolation.py canary again" % rel)
-        effort = res.get("effort")  # agy's is in its model id; the cards' model is `card_meta.model`, to compare by eye
+        if digest is not None and not res.get("terms_sha256"):
+            return "not verified: %s was made before the canary recorded its terms digest; run it again" % rel
+        if digest is not None and res["terms_sha256"] != digest:
+            return "not verified: %s ran against another terms file than the one given; run it again" % rel
+        effort = res.get("effort")
         return "passed (model %s%s)" % (res.get("model", "not recorded"), ", effort %s" % effort if effort else "")
     if "reply" in res and res.get("answered") is not False:
         why = "%s isolation term(s) in the engine's reply" % res.get("hits")
     else:  # no reply at all, or one in neither of the canary's forms (a refusal): the reason is the error
         why = "the engine gave no usable answer (%s)" % res.get("error", "no error recorded")
     return "failed: %s, checked %s" % (why, res.get("checked_at"))
+
+
+def canary_results(work, digest=None):
+    """[{name, engine, model, effort, state}] for every `<work>/state/canary-*.json`, in name order. A file that is not a
+    canary result is a tool error: nothing it claims can be trusted."""
+    state = os.path.join(work, "state")
+    names = sorted(n for n in os.listdir(state) if n.startswith("canary-") and n.endswith(".json")
+                   and os.path.isfile(os.path.join(state, n))) if os.path.isdir(state) else []
+    out = []
+    for name in names:
+        rel = os.path.join("state", name)
+        res = W.read_object(os.path.join(work, rel))
+        if res.get("engine") not in CANARY_ENGINES or not isinstance(res.get("pass"), bool):
+            raise common.ToolError("%s is not a canary result%s; run isolation.py canary again"
+                                   % (os.path.join(work, rel), " for %s" % res["engine"]
+                                      if res.get("engine") in CANARY_ENGINES else ""))
+        out.append({"name": name, "engine": res["engine"], "model": res.get("model"), "effort": res.get("effort"),
+                    "state": canary_state(res, rel, digest)})
+    return out
+
+
+def pair_key(engine, model, effort):
+    """The key a canary pair is reported under: `<engine> <model>`, and for codex the effort too, since a pair is a model
+    at one effort."""
+    if engine != "codex":
+        return "%s %s" % (engine, model)
+    return "%s %s %s" % (engine, model, "effort %s" % effort if effort else "(no effort recorded)")
+
+
+def canaries(work, models, verified, digest=None):
+    """{key: state} for the canary results in the work directory and the engines, models and efforts the cards ran on
+    (`models`, as `record_checks` fills it), keyed by `pair_key`. `verified` is whether the terms file was given (`digest`
+    is then its digest): each pair the cards record then needs a passing canary for that engine and exact model, for
+    codex at that exact effort, and a pair without is a `finding: ...`; without the terms file, `not run: ...`. A codex
+    pair whose cards record no effort is `not verified`, never a pass: no canary can be matched to it."""
+    results = canary_results(work, digest if verified else None)
+    report = collections.OrderedDict()
+    keys = [pair_key(r["engine"], r["model"] or "not recorded", r["effort"]) for r in results]
+    for key, r in zip(keys, results):  # two files for one pair are each told apart by their name
+        report[key if keys.count(key) == 1 else "%s (%s)" % (key, r["name"])] = r["state"]
+    for engine, model, effort in sorted(models["pairs"], key=lambda t: (t[0], t[1], t[2] or "")):
+        key = pair_key(engine, model, effort)
+        if engine not in CANARY_ENGINES:
+            report[key] = ("not verified: the cards say they ran on %s, which isolation.py canary cannot check"
+                           % engine)
+            continue
+        if engine == "codex" and effort is None:
+            report[key] = ("not verified: the cards record no effort (card_meta.effort), so the canary they need cannot be "
+                           "named; card them again, or canary every effort they may have run at")
+            continue
+        mine = [r for r in results if r["engine"] == engine and r["model"] == model]
+        same = [r for r in mine if engine != "codex" or r["effort"] == effort]
+        if any(r["state"].startswith("passed") for r in same):
+            continue
+        run = "isolation.py canary --engine %s --model %s%s --out <work>/state/canary-%s-%s.json" % (
+            engine, model, " --effort %s" % effort if engine == "codex" else "", engine,
+            re.sub(r"[^A-Za-z0-9._-]+", "-", model))
+        if not same:
+            seen = ("; found at effort %s" % ", ".join(sorted({r["effort"] or "none recorded" for r in mine}))
+                    if mine else "")
+            report[key] = ("finding: no canary result for %s among <work>/state/canary-*.json, and the cards ran on "
+                           "it%s; run %s" % (key, seen, run) if verified else
+                           "not run: no canary result for %s among <work>/state/canary-*.json (%s)" % (key, run))
+        elif verified and not any(r["state"].startswith("failed") for r in same):  # a failed one stands as it is
+            report[key] = "finding: no passing canary for %s (%s); run %s" % (
+                key, "; ".join(sorted({r["state"] for r in same})), run)
+    if models["unrecorded"]:
+        report["cards with no engine and model recorded"] = (
+            "not verified: %d card(s) record no card_meta.via and card_meta.model, so the canary they need cannot be "
+            "named" % models["unrecorded"])
+    if not models["pairs"]:
+        for engine in CANARY_ENGINES:
+            if not any(r["engine"] == engine for r in results):
+                report[engine] = ("not run: no canary-*.json for %s in <work>/state (isolation.py canary --out)"
+                                  % engine)
+    return report
 
 
 def repath_command(a):
@@ -1424,8 +1567,13 @@ def main():
     out = collections.OrderedDict()
     live, gone, out["manifest"] = manifest_counts(root, W.read_object(mpath), ents,
                                                   os.path.join(os.path.dirname(mpath), "summary.json"))
-    found, out["records"] = record_checks(root, rb, live, evidence)
-    out["isolation"] = {"canary": collections.OrderedDict((e, canary(work, e)) for e in CANARY_ENGINES)}
+    models = {"pairs": set(), "unrecorded": 0, "other_shield": 0}
+    found, out["records"] = record_checks(root, rb, live, evidence, models)
+    found["paths_naming_terms"], history = entries_naming_terms(ents, evidence) if evidence else ([], [])
+    out["records"]["paths_naming_terms"] = len(found["paths_naming_terms"]) if evidence else "not verified: no --terms"
+    out["records"]["history_paths_naming_terms"] = len(history) if evidence else "not verified: no --terms"
+    out["isolation"] = {"canary": canaries(work, models, bool(evidence),
+                                           isolation.shield_digest(evidence) if evidence else None)}
     out["wiki"] = W.check_result(root, rb, ents, settings_dir=settings_dir)
     rows = out["wiki"]["acceptance_pages"]
     cannot_read = set(out["wiki"]["acceptance_not_verified"])  # no readable professional and contract to judge by
@@ -1462,7 +1610,11 @@ def main():
             "malformed_extracts": "extract record(s) not in the extract format; remove each and run extract.py again",
             "bad_category": "card(s) with a category the rulebook does not allow",
             "extract_paths_stale": "extract record(s) whose path the manifest no longer holds",
-            "contamination": "card(s) naming an isolation term their own source lacks"}
+            "contamination": "card(s) naming an isolation term (each was made from its document with every term "
+                             "withheld, so none came from it)",
+            "paths_naming_terms": "live or withheld manifest entr(ies) whose path, a copy's path or migration label "
+                                  "carries an isolation term; rename or move the file or folder, exclude it, or give a "
+                                  "staged document a neutral migration label"}
     for key, hits in found.items():
         if hits:
             fix = ""
@@ -1472,14 +1624,14 @@ def main():
                        "path, so remove or redo any such malformed extract record first, then repath them: %s"
                        ) % repath_command(a)
             findings.append(["records." + key, "%d %s (%s)%s" % (len(hits), what[key], sample(hits), fix)])
-    for key in ("bad_category", "extract_paths_stale", "contamination"):
+    for key in ("bad_category", "extract_paths_stale", "contamination", "cards_shield", "paths_naming_terms"):
         if isinstance(out["records"][key], str):
             unverified.append(["records." + key, out["records"][key]])
-    for engine, state in out["isolation"]["canary"].items():
-        if state.startswith("failed"):
-            findings.append(["isolation.canary." + engine, state])
+    for key, state in out["isolation"]["canary"].items():
+        if state.startswith(("failed", "finding")):
+            findings.append(["isolation.canary." + key, state])
         elif state.startswith(("not run", "not verified")):
-            unverified.append(["isolation.canary." + engine, state])
+            unverified.append(["isolation.canary." + key, state])
     if out["wiki"]["problems"]:
         findings.append(["wiki.problems", "wiki.py check reports %d problem(s); %d backticked path(s) were not checked "
                          "against the folder (a pattern, or outside the live folders)"

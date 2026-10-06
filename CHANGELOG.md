@@ -4,6 +4,101 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v12.2.0 (2026-10-06)
+
+A **MINOR**, from a second cold-reader test of `pre-onboarding`. The isolation terms file kept a term out of a
+card, but a document whose own text or path carried a term was still sent whole to the engine, its images to the
+vision model, and its text and path to the wiki's drafting and reviewing subagents. The tools now shield every call,
+and the prose is completed for the gaps the reader found. Tool command lines are not part of the versioned interface
+([`AGENTS.md`](AGENTS.md)), and nothing a consumer depends on breaks: no skill name, frontmatter, archetype layout or
+prompt placeholder changed.
+
+### Added (MINOR)
+
+- **The shield** (`isolation.shield`, `shield_value`, `shield_digest`, `carries`). Every term and marker of the terms
+  file is replaced by `[withheld name]` in every path and text a tool sends or writes: `cards.py` (items, section
+  prompts, opening text and notes; the notes' cache basis folds in the sha256 of the terms' forms, and a cached note is
+  shielded again when read; a card records `card_meta.shielded`, a count, and `card_meta.shield_sha256`), and `wiki.py`
+  `profile`, `bundles`, `brief` and `review-prompts` (a page's sha256 in a review prompt is left as it was). Text is
+  shielded whole and then cut, never the other way. `bundles.json` records the shield, never the terms (nor the terms
+  file's path), and `brief` and `bundles --reuse` refuse and remove bundles built under another one.
+- **One matcher** (`isolation.alternation`) for the shield, the scan (`hits`), `carries` and `masked`: case-insensitive,
+  in Unicode NFC, with a space in a term matching any run of Unicode whitespace, so a name wrapped at a line end, set
+  with a no-break space or stored decomposed is still the name. A name split by a hyphen at a line end, or by a
+  zero-width character, is not matched: a settled residual. The shield is idempotent. The matcher takes the placeholder
+  out of a text (`isolation.without_placeholder`: case-insensitive, tolerant of the spacing inside the brackets) before
+  `hits` and `carries` look for a form, so no form is ever found inside it, whatever the caller (a card, a section note,
+  the scan), and a surname such as Held, or a marker such as Nam, stays listable.
+- **A subagent is told never to open a shielded source.** One rule (`wiki.shielded_document`) decides it for `bundles`,
+  `brief` and `review-prompts` alike: the document's path, any copy's path, its extract text or any field of its card
+  carries a term, or its card records that it was shielded; a card or extract record that is missing or unreadable counts
+  as shielded (fail closed), except an entry the manifest records as never read (`hashed` false: an image over the cap),
+  which is judged by its paths alone, so such an image, or a folder holding one, is not marked for that. A bundle line for such a document has `"shielded": true`; the page brief and both review
+  templates say never to open such a source; `review-prompts` (which takes `--extract`) lists it as "do not open", and a
+  cited folder with a shielded document under it likewise (how many, never which), and samples none of its facts; `brief`
+  says how many of the sources an existing page cites are shielded. The tools cannot restrict a subagent's file access:
+  the guard is the instruction and the shielded text the bundle already holds.
+- **A section note that names a term is contamination:** it writes the ALERT, stops every worker and is never cached.
+- **A card is read by its values, never the field names its schema defines.** The contamination check (`cards.py`
+  before a batch is written, `readiness.py`) and the shielded-document rule (`wiki.shielded_document`) look for a term
+  through one helper (`isolation.card_text`): every string value, and any field name the card schemas do not define (a
+  model may add a key of its own, and a term written as one is still found), each piece apart, so a two-word term is
+  never matched across two values. A short term or marker such as Nam is therefore not found in `proposed_name` and
+  does not stop every worker over a card that never named it. A value that carries the term is still an alert.
+- **`vision.py` holds back a document that carries a term.** An image cannot be shielded, so a document whose manifest
+  path or extract text (`text` or `local_text`) carries a term has no image sent: its queued pages are marked `unread`,
+  the local text kept, and the log counts such documents. The residual, a term visible only on a page local OCR could
+  not read, is stated.
+- **`readiness.py`: `paths_naming_terms`** finds a live or staged manifest entry whose path, a copy's path or migration
+  label carries a term (a migration label is a folder name under the migrations folder): paths a later run can still
+  send. `history_paths_naming_terms` counts, as information and never a finding, the names the manifest keeps as history
+  (departed entries, `original_name`, `rename_history`). It also requires **a canary for every model the cards ran
+  on**: given `--terms`, each engine and exact model in `card_meta` needs a passing `<work>/state/canary-*.json`, for
+  codex at the exact effort (the light model's `light_model_effort` is now recorded beside `light_model`), made against
+  the same terms file, or it is a finding. Codex cards with no recorded effort read `not verified`, never a pass.
+  `cards_shield` counts, as not verified, the cards made with no recorded shield or under another terms file.
+- **`isolation.py canary --effort`** (codex; agy's effort is in its model id), and the result names the effort used and
+  records the digest of the terms file it ran against (`terms_sha256`), which readiness must find equal.
+- **`audit.py` reports what it skips** (`summary.json` `not_audited`, the `Not audited` section of `AUDIT.md`) and counts
+  excluded items apart from count-only images (`summary.json` `excluded`). A skipped folder the owner also excluded is
+  named, with that reason, and counts as excluded (naming it is intended: it is a top-level name, as the top-level
+  table already shows for any folder the walk enters, and its items are counted, never listed); a link at the top is
+  one item and is never walked.
+- **`settings.py check` reads `ocr_languages`** against the codes `extract.py` reads, from one list in `common.py`.
+
+### Changed
+
+- **`cards.py work`, `vision.py` and `wiki.py` `profile`, `bundles`, `brief` and `review-prompts` need `--terms F` or
+  `--no-isolation-terms`** (and refuse both). A command line that omitted both on `vision.py` or the wiki commands now
+  stops at its start (exit 2) and says what to add.
+- **The contamination check has no excuse.** A card is compared with its document as the engine was sent it, shielded,
+  so a card that names any term is a finding in `cards.py` and in `readiness.py`, including a card made before this
+  release under the old rule that a term its own source carried was not an alert.
+- **`audit.py` drops, rather than carries as `departed`, an entry whose own path the owner has since excluded**, which
+  would have kept the file's name and real content hash for ever. A departed entry whose own path is not excluded keeps
+  its history, with only a copy's path under an excluded folder taken out. An excluded item no longer appears in any
+  path-listing section of `AUDIT.md`, and takes no part in the iWork pairing.
+- **`readiness.py` keys `isolation.canary` by `"<engine> <model>"`** (for codex, `"<engine> <model> effort <E>"`), one
+  entry per result file, instead of one per engine. The fixture's prepared cards now record the engine and model they stand for (`agy`, `gemini-fake-high`).
+- **The prose** closes the gaps the second reader found: the order of exclusions and terms before the first audit; the
+  reserved and skipped names (`Outbox`, `Wiki`, the leading `_`); neutral migration labels; the shield and its
+  residual; one canary per model; who the operator and the owner are; recording each model by its exact id; the session
+  context a file scan cannot see; asking `ocr_languages`; a copy left behind being a live document; when
+  `prove --allow-departed-under` is needed; the hand-made rationale return file; a header-only Page contracts table;
+  one build location for the OCR helper; the empty roll-up banner as the tool renders it; and the drafting agents'
+  exception to opening the Schema page.
+
+### Migrating a deployment
+
+Nothing is required to advance the pin. A deployment that runs the preparation tools should add `--terms` or
+`--no-isolation-terms` to `vision.py` and the four wiki commands, audit once more, rebuild its bundles, and run one
+canary per model its cards ran on (`canary-<engine>-<model>.json`) before `readiness.py --terms`.
+
+### Placeholders
+
+No placeholder was added, removed or made required: each of the eight prompt templates under
+`project-onboarding/archetypes/` uses the same set as at v12.1.0.
+
 ## v12.1.0 (2026-10-06)
 
 A **MINOR**, from a cold-reader test: a fresh agent given only `pre-onboarding` planned the preparation of a
