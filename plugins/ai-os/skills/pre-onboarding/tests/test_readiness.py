@@ -1545,10 +1545,10 @@ class CardsShieldTest(Prepared):
         self.assertEqual(self.readiness(code=0)["records"]["cards_shield"], "not verified: no --terms")
 
     def test_a_card_repeating_the_placeholder_in_any_case_is_no_contamination(self):
-        """A term `name] letter` stands across the placeholder and the word after it: a card that repeats a shielded
-        path, however it writes the placeholder, must not alert on it."""
+        """Held stands inside the placeholder: a card that repeats a shielded path, however it writes the placeholder, must not
+        alert on it."""
         terms = os.path.join(self.tmp, "across.txt")
-        write(terms, "Zarnwick Farm\nname] letter\n")
+        write(terms, "Zarnwick Farm\nHeld\n")
         digest = isolation.shield_digest(isolation.load_terms(terms))
         self.stamp_cards(digest=digest)
         self.canary("agy", terms_sha256=digest, reply="NAMES: Kobelumi", hits=0, usage={}, answered=True,
@@ -1559,11 +1559,6 @@ class CardsShieldTest(Prepared):
             with self.subTest(placeholder):
                 write(p, json.dumps(dict(card, summary=card["summary"] + " Filed as %s letter." % placeholder), indent=1))
                 self.assertEqual(self.readiness("--terms", terms, code=0)["records"]["contamination"], 0)
-
-    def test_a_terms_file_with_a_term_inside_the_placeholder_is_a_tool_error(self):
-        terms = os.path.join(self.tmp, "held.txt")
-        write(terms, "Held\n")
-        self.assertIn("occurs inside the placeholder", self.refused("--terms", terms))
 
 
 class FindingTest(Prepared):

@@ -138,24 +138,19 @@ def answered(reply, marker):
 
 
 def load_terms(path):
-    """{term: [term, marker, ...]} from the operator's terms file. A missing file is an error, not an empty list. So is a
-    term or marker that occurs inside the placeholder `[withheld name]` (ignoring case and the spacing in it): a surname
-    such as Held would be found in every shielded text, so no card or note could be told from one that names it. The
-    error names the line, never the term; give a fuller form."""
+    """{term: [term, marker, ...]} from the operator's terms file. A missing file is an error, not an empty list. A term or
+    marker that occurs inside the placeholder `[withheld name]` (a surname such as Held, a marker such as Nam) is accepted:
+    the matcher takes the placeholder out before it looks for any form, so none is ever found in it."""
     if not path or not os.path.exists(path):
         raise common.ToolError("isolation terms file missing: %s" % path)
     out = {}
     with open(path, encoding="utf-8") as f:
         lines = f.read().splitlines()
-    for number, line in enumerate(lines, 1):
+    for line in lines:
         line = line.strip()
         if not line or line.startswith("#"):
             continue
         parts = [x.strip() for x in line.split("|") if x.strip()]
-        if any(" ".join(normal(x).lower().split()) in SHIELD for x in parts):
-            raise common.ToolError("isolation terms file %s, line %d: a term or marker occurs inside the placeholder "
-                                   "%s that the shield writes, so a shielded text could not be told from one that names "
-                                   "it; give a fuller form" % (path, number, SHIELD))
         out[parts[0]] = parts
     if not out:
         raise common.ToolError("isolation terms file is empty: %s" % path)
@@ -168,8 +163,8 @@ PLACEHOLDER = re.compile(r"\[\s*withheld\s+name\s*\]", re.I)  # the placeholder 
 
 def without_placeholder(text):
     """`text` with every occurrence of the placeholder taken out for a mark that is no letter, ignoring case and the spacing
-    inside the brackets. Taken out before any term is looked for in model output (a card, a section note, a reply), so the
-    placeholder itself, however a model writes it back, is never read as a term."""
+    inside the brackets. The matcher does this itself before it looks for any form (`hits`, `carries`), so the placeholder,
+    however a model writes it back, is never read as a term whatever the caller, and no form can be found inside it."""
     return PLACEHOLDER.sub("\x00", text)
 
 
@@ -191,8 +186,9 @@ def alternation(fs, protect=False):
     of whitespace inside it standing for any run of Unicode whitespace in the text (a line break, a no-break space, a
     narrow no-break space, two spaces), so a name wrapped at the end of a line or set with a no-break space is the name.
     With `protect`, the placeholder (`PLACEHOLDER`, whatever its case or spacing) comes first, so text already shielded
-    is matched as it stands and the shield is idempotent; `load_terms` refuses a form that occurs inside the placeholder,
-    so no form can be found there.
+    is matched as it stands: the shield is idempotent and `masked` leaves the placeholder alone. `hits` and `carries` take
+    the placeholder out of the text before they search, so no form (a surname such as Held, a marker such as Nam) is ever
+    found inside it.
 
     This is the one matcher: `hits` (the scan and the contamination check), `carries`, `shield` and `masked` all use it,
     so they always agree. What it does not match is a settled residual: a name split by a hyphen at the end of a line, or
@@ -206,7 +202,7 @@ def alternation(fs, protect=False):
 def hits(text, terms):
     """The `terms` (a list of forms, or an evidence mapping, whose keys are its terms) that `text` carries, by the one
     matcher (`alternation`)."""
-    body = normal(text)
+    body = without_placeholder(normal(text))
     return [t for t in terms if (rx := alternation((t,))) is not None and rx.search(body)]
 
 
@@ -215,7 +211,7 @@ def carries(text, evidence):
     reads the terms alone, which is what a card is an alert for naming; a marker is a form of the term, and a document
     that carries one is as much a document that carries the term.)"""
     rx = alternation(tuple(forms(evidence)))
-    return rx is not None and rx.search(normal(text)) is not None
+    return rx is not None and rx.search(without_placeholder(normal(text))) is not None
 
 
 def shield(text, evidence):
@@ -299,19 +295,26 @@ def term_in_source(term, src, evidence):
 def contamination(card_text, source_text, evidence):
     """Terms a card names that its own source does not carry: each one is an alert. Given the source as it was sent,
     shielded (`shield`), in which no term or marker survives, nothing excuses a term, so every term the card names is
-    returned: the model was never shown it. Every occurrence of the placeholder is taken out of the card first
-    (`without_placeholder`, whatever its case or spacing), so the placeholder is never read as a term; `load_terms` refuses
-    a term that stands inside it, so none can."""
-    return [t for t in hits(without_placeholder(card_text), evidence) if not term_in_source(t, source_text, evidence)]
+    returned: the model was never shown it. `hits` takes the placeholder out of the card first, whatever its case or
+    spacing, so a model that writes it back never alerts, even where a term stands inside it (a surname such as Held)."""
+    return [t for t in hits(card_text, evidence) if not term_in_source(t, source_text, evidence)]
 
 
 def masked(text, evidence):
-    """`text` with every term and marker replaced by `<term>`, by the one matcher (`alternation`); a text with no match is
-    returned as it was."""
-    rx = alternation(tuple(forms(evidence)))
+    """`text` with every term and marker replaced by `<term>`, by the one matcher (`alternation`), the placeholder left as it
+    stands; a text with no match is returned as it was."""
+    rx = alternation(tuple(forms(evidence)), protect=True)
     if rx is None:
         return text
-    out, n = rx.subn("<term>", normal(text))
+    n = 0
+
+    def replace(m):
+        nonlocal n
+        if PLACEHOLDER.fullmatch(m.group(0)):
+            return m.group(0)
+        n += 1
+        return "<term>"
+    out = rx.sub(replace, normal(text))
     return out if n else text
 
 

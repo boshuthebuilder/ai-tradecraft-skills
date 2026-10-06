@@ -1350,20 +1350,24 @@ class ShieldTest(CardsCliCase):
         self.assertEqual(item["path"], "03 Home/Letter from [withheld name].pdf")
         self.assertEqual(self.written()[doc]["card_meta"]["shielded"], 1)
 
-    def test_a_terms_file_holding_a_term_inside_the_placeholder_is_refused_before_anything_runs(self):
+    def test_a_terms_file_may_hold_a_surname_that_stands_inside_the_placeholder(self):
+        """The matcher takes the placeholder out before it looks for a term, so Held is listable: the shielded path reads
+        `[withheld name] letter.pdf`, and a card that repeats it is no contamination."""
         terms = self.own_terms("Held\n")
-        self.record("03 Home/Held letter.pdf", ["A letter."])
+        doc = self.record("03 Home/Held letter.pdf", ["A letter."])
         self.cards_py("build")
+        self.fakes.script("codex", default={"kind": "text"})
         code, _out, err = self.work_run("codex", "--terms", terms)
-        self.assertEqual(code, 2, err)
-        self.assertIn("occurs inside the placeholder [withheld name]", err)
-        self.assertNotIn("Held", err)
-        self.assertEqual(self.fakes.calls("codex"), [])
+        self.assertEqual(code, 0, err)
+        card = self.written()[doc]
+        self.assertIn("[withheld name] letter.pdf", card["summary"])
+        self.assertEqual(card["card_meta"]["shielded"], 1)
+        self.assertFalse(os.path.exists(os.path.join(self.work, "state", "ALERT")))
 
-    PLACEHOLDER_TERMS = "Quorvane Holdings\nname] letter\n"  # the second stands across the placeholder and what follows it
+    PLACEHOLDER_TERMS = "Quorvane Holdings\nHeld\n"  # Held stands inside the placeholder
 
     def test_a_card_repeating_the_placeholder_in_any_case_is_no_contamination(self):
-        """The shielded path reads `[withheld name] letter.pdf`, and a term `name] letter` is in it: the card repeats it, however
+        """The shielded path reads `[withheld name] letter.pdf`, and Held is inside the placeholder: the card repeats it, however
         its case and spacing, and the placeholder is not read as a term."""
         terms = self.own_terms(self.PLACEHOLDER_TERMS)
         doc = self.record("03 Home/Quorvane Holdings letter.pdf", ["A letter."])

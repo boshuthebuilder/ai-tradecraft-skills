@@ -227,31 +227,43 @@ class ShieldTest(Case):
         self.assertEqual(isolation.evidence_of(ns(terms=self.terms)), self.ev)
 
 
-class PlaceholderTermsTest(Case):
-    """No term or marker may stand inside the placeholder, so none can be read in a shielded text."""
+class PlaceholderMatcherTest(Case):
+    """No form is ever found inside the placeholder, so a short name is never refused and never read in a shielded text."""
 
-    def refused(self, text):
+    SHORT = ("Nam", "Na", "He", "Held", "Wit", "Hel", "name", "with", "withheld name")
+
+    def test_realistic_short_terms_and_markers_are_accepted(self):
         path = os.path.join(self.tmp, "t.txt")
-        write(path, text)
-        with self.assertRaises(common.ToolError) as caught:
-            isolation.load_terms(path)
-        return str(caught.exception)
+        write(path, "Quorvane Nam|Nam\nQuorvane Na|Na\nQuorvane He|He\nHeld\nWit\nHel\n")
+        ev = isolation.load_terms(path)
+        self.assertEqual(ev["Quorvane Nam"], ["Quorvane Nam", "Nam"])
+        self.assertEqual(len(ev), 6)
 
-    def test_a_term_or_marker_inside_the_placeholder_is_refused_naming_the_line_never_the_term(self):
-        for text, line in (("Held\n", 1), ("# a comment\nZarnwick Farm|Zarnwick\nname\n", 3), ("WITHHELD  NAME\n", 1),
-                           ("Quorvane Holdings|held\n", 1), ("name]\n", 1), ("[withheld\n", 1), ("with\n", 1),
-                           ("d na\n", 1)):
-            with self.subTest(text=text):
-                message = self.refused(text)
-                self.assertIn("line %d" % line, message)
-                self.assertIn("give a fuller form", message)
-                for term in ("Held", "WITHHELD", "Quorvane", "Zarnwick"):
-                    self.assertNotIn(term, message)
+    def test_no_form_is_found_inside_the_placeholder_whatever_the_caller_and_its_spelling(self):
+        for form in self.SHORT:
+            ev = {form: [form]}
+            for placeholder in ("[withheld name]", "[Withheld Name]", "[ WITHHELD  name ]", "[withheld\nname]"):
+                with self.subTest(form=form, placeholder=placeholder):
+                    text = "Filed under %s." % placeholder
+                    self.assertEqual(isolation.hits(text, ev), [])
+                    self.assertFalse(isolation.carries(text, ev))
+                    self.assertEqual(isolation.masked(text, ev), text)
+                    self.assertEqual(isolation.shield(text, ev), (text, 0))
+                    self.assertEqual(isolation.contamination('{"summary": "%s"}' % text, "", ev), [])
 
-    def test_a_term_that_only_looks_like_part_of_it_is_accepted(self):
-        path = os.path.join(self.tmp, "t.txt")
-        write(path, "Held Farm\nHolden\nwithheld names\nname] letter\n")
-        self.assertEqual(sorted(isolation.load_terms(path)), ["Held Farm", "Holden", "name] letter", "withheld names"])
+    def test_a_form_outside_the_placeholder_is_still_found_beside_one(self):
+        ev = {"Held": ["Held", "Nam"]}
+        self.assertEqual(isolation.hits("[withheld name] and held", ev), ["Held"])
+        self.assertTrue(isolation.carries("[withheld name] and a Nam", ev))
+        self.assertEqual(isolation.masked("[withheld name] and Nam", ev), "[withheld name] and <term>")
+        self.assertEqual(isolation.shield("[withheld name] and Nam", ev), ("[withheld name] and [withheld name]", 1))
+
+    def test_the_scan_finds_no_term_in_the_placeholder_a_tool_text_may_quote(self):
+        terms = os.path.join(self.tmp, "terms.txt")
+        write(terms, "Held\n")
+        write(os.path.join(self.tmp, "p", "doc.md"), "A shielded text reads [withheld name] here.")
+        code, out, err = self.iso("scan", "--terms", terms, "--path", os.path.join(self.tmp, "p"))
+        self.assertEqual(code, 0, out + err)
 
 
 class ScanTest(Case):
