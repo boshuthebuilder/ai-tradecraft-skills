@@ -1507,33 +1507,50 @@ common.run_main(plan.main)
 class ReorgCase(PlanCase):
     """The fixture copy with a few invented folders of plain files, so that a mapping has something to move: `07 Misc`
     (a, b, dup, and Sub/c), `08 Other` (a, original) and `09 More` (a), all of different bytes but `dup` and `original`,
-    `10 Wrap/Inner/z`, a folder that holds only a folder, and `12 Decks/Slides.key`, an iWork package."""
+    `10 Wrap/Inner/z`, a folder that holds only a folder, `12 Decks/Slides.key`, an iWork package, `13 Loose` (a
+    `Kept set/x` and a `y`), `14 Box` (a `Kept set/k` and `other`), `15 Priv/Private/p`, `16 Src` (`Private/q` and `r`),
+    `17 Left/Twin/t` and `18 Right/Twin/t`, `22 Chain` (`A/x` and `B/b`) and `25 Mirror/Private/p`. The rulebook records
+    depth medium, as an owner open to a re-organisation has it."""
 
     FILES = {"07 Misc/a.txt": "alpha", "07 Misc/b.txt": "bravo", "07 Misc/Sub/c.txt": "charlie",
              "07 Misc/dup.txt": "original", "08 Other/a.txt": "alpha two", "08 Other/original.txt": "original",
-             "09 More/a.txt": "alpha three", "10 Wrap/Inner/z.txt": "zulu", "12 Decks/Slides.key/Index/Doc.iwa": "iwa"}
+             "09 More/a.txt": "alpha three", "10 Wrap/Inner/z.txt": "zulu", "12 Decks/Slides.key/Index/Doc.iwa": "iwa",
+             "13 Loose/Kept set/x.txt": "xray", "13 Loose/y.txt": "yankee", "14 Box/Kept set/k.txt": "kilo",
+             "14 Box/other.txt": "oscar", "15 Priv/Private/p.txt": "papa", "16 Src/Private/q.txt": "quebec",
+             "16 Src/r.txt": "romeo", "17 Left/Twin/t.txt": "tango", "18 Right/Twin/t.txt": "uniform",
+             "22 Chain/A/x.txt": "whiskey", "22 Chain/B/b.txt": "victor", "25 Mirror/Private/p.txt": "papa two"}
 
     def prepare(self):
         for rel, text in self.FILES.items():
             write(self.path(rel), text)
+        self.rulebook(depth="medium")
 
-    def mapping(self, scope, moves, name="mapping.json"):
+    def rulebook(self, **changes):
+        """The settings twin with `changes` (a value of None removes a key); the pin is on CLAUDE.md, so it holds."""
+        p = self.path(".familyai/rulebook.json")
+        data = json.loads(read(p))
+        for k, v in changes.items():
+            data.pop(k, None) if v is None else data.__setitem__(k, v)
+        write(p, json.dumps(data, indent=1))
+
+    def mapping(self, scope, moves, keep=(), name="mapping.json"):
         path = os.path.join(self.tmp, name)
-        write(path, json.dumps({"scope": scope, "moves": [{"from": f, "to": t} for f, t in moves]}))
+        write(path, json.dumps({"scope": scope, "keep": list(keep),
+                                "moves": [{"from": f, "to": t} for f, t in moves]}))
         return path
 
-    def reorg(self, scope, moves, out=None, code=0, extra=(), **kw):
+    def reorg(self, scope, moves, out=None, code=0, extra=(), keep=(), **kw):
         out = out or os.path.dirname(self.plan)
-        got, o, err = self.run_plan("reorg", "--root", self.root, "--mapping", self.mapping(scope, moves), "--out", out,
-                                    *extra, **kw)
+        got, o, err = self.run_plan("reorg", "--root", self.root, "--mapping", self.mapping(scope, moves, keep),
+                                    "--out", out, *extra, **kw)
         self.assertEqual(got, code, o + err)
         self.assertNotIn("Traceback", err)
         return (o, err)
 
-    def refuses(self, scope, moves, *whys, extra=()):
+    def refuses(self, scope, moves, *whys, extra=(), keep=()):
         """The mapping is refused with every one of `whys`, naming each, nothing written and the folder untouched."""
         before = tree_digest(self.root)
-        _o, err = self.reorg(scope, moves, code=2, extra=extra)
+        _o, err = self.reorg(scope, moves, code=2, extra=extra, keep=keep)
         self.assertIn("refused, nothing written", err)
         for why in whys:
             self.assertIn(why, err)
@@ -1541,8 +1558,8 @@ class ReorgCase(PlanCase):
         self.assertEqual(tree_digest(self.root), before)
         return err
 
-    def proposal(self, scope, moves):
-        self.reorg(scope, moves)
+    def proposal(self, scope, moves, keep=()):
+        self.reorg(scope, moves, keep=keep)
         return [(r["action"], r["from"], r["to"]) for r in read_rows(self.plan)]
 
 
@@ -1638,6 +1655,30 @@ class ReorgProposalTest(ReorgCase):
         self.assertNotIn("rmdir", [r["action"] for r in rows], "the folder still holds the excluded file")
         self.assertNotIn("Sub", read(self.plan), "the excluded path is named nowhere in the plan")
 
+    def test_a_folder_a_move_files_into_is_never_proposed_for_removal(self):
+        """The folder the plan empties of its own files and fills with another's would fail its rmdir at execution."""
+        self.assertEqual(self.proposal(["13 Loose", "16 Src"], [("16 Src", "09 More/S"), ("13 Loose/y.txt", "16 Src")]),
+                         [("create", "", "09 More/S/"), ("create", "", "09 More/S/Private/"),
+                          ("move", "13 Loose/y.txt", "16 Src/y.txt"), ("move", "16 Src/Private/q.txt",
+                                                                       "09 More/S/Private/q.txt"),
+                          ("move", "16 Src/r.txt", "09 More/S/r.txt"), ("rmdir", "16 Src/Private/", "")])
+        os.remove(self.plan)
+        # a folder above a destination is no more empty than the destination: B's own file moves down into B/Sub
+        self.assertEqual(self.proposal(["22 Chain"], [("22 Chain/B/b.txt", "22 Chain/B/Sub")]),
+                         [("create", "", "22 Chain/B/Sub/"), ("move", "22 Chain/B/b.txt", "22 Chain/B/Sub/b.txt")])
+        os.remove(self.plan)
+        # a chain: what A sends to B stays in B, and B's own file leaves
+        self.assertEqual(self.proposal(["22 Chain"], [("22 Chain/A/x.txt", "22 Chain/B"), ("22 Chain/B", "23 Done")]),
+                         [("create", "", "23 Done/"), ("move", "22 Chain/A/x.txt", "22 Chain/B/x.txt"),
+                          ("move", "22 Chain/B/b.txt", "23 Done/b.txt"), ("rmdir", "22 Chain/A/", "")])
+
+    def test_each_new_top_level_folder_is_named_in_the_output(self):
+        out, _err = self.reorg(["07 Misc", "09 More"], [("07 Misc/a.txt", "11 Filed/Deep"), ("09 More/a.txt", "24 Bin")])
+        self.assertIn("new top-level folder(s) it would create: 11 Filed; 24 Bin\n", out)
+        os.remove(self.plan)
+        out, _err = self.reorg(["07 Misc"], [("07 Misc/b.txt", "09 More/New")])
+        self.assertNotIn("new top-level", out, "a folder below an existing top-level folder is no new top-level folder")
+
     def test_a_proposal_does_not_replace_a_plan_the_owner_has_begun_to_decide(self):
         self.reorg(["07 Misc"], [("07 Misc/a.txt", "11 Filed")])
         self.run_plan("approve", "--plan", self.plan, "--rows", "1", "--note", "Alex agreed")
@@ -1659,14 +1700,23 @@ class ReorgProposalTest(ReorgCase):
 class ReorgRefusalTest(ReorgCase):
     def test_a_mapping_of_the_wrong_shape_is_refused_by_name(self):
         cases = [("not json", "not valid JSON"), ("[]", "expected a JSON object"),
-                 ('{"scope": ["07 Misc"]}', "the mapping is {\"scope\": [...], \"moves\": [...]}"),
-                 ('{"scope": ["07 Misc"], "moves": [], "note": 1}', "the keys ['moves', 'note', 'scope']"),
-                 ('{"scope": [], "moves": [{"from": "a", "to": "b"}]}', "scope must be a non-empty list of folders"),
-                 ('{"scope": [1], "moves": [{"from": "a", "to": "b"}]}', "scope must be a non-empty list of folders"),
-                 ('{"scope": ["07 Misc"], "moves": []}', "moves must be a non-empty list"),
-                 ('{"scope": ["07 Misc"], "moves": [{"from": "a"}]}', "moves[0] must be"),
-                 ('{"scope": ["07 Misc"], "moves": [{"from": "a", "to": "b", "why": "c"}]}', "moves[0] must be"),
-                 ('{"scope": ["07 Misc"], "moves": [{"from": "a", "to": 1}]}', "moves[0] must be")]
+                 ('{"scope": ["07 Misc"]}', "the mapping is {\"scope\": [...], \"keep\": [...], \"moves\": [...]}"),
+                 ('{"scope": ["07 Misc"], "moves": [{"from": "a", "to": "b"}]}', "it has the keys ['moves', 'scope']"),
+                 ('{"scope": ["07 Misc"], "keep": [], "moves": [], "note": 1}',
+                  "the keys ['keep', 'moves', 'note', 'scope']"),
+                 ('{"scope": [], "keep": [], "moves": [{"from": "a", "to": "b"}]}',
+                  "scope must be a non-empty list of folders"),
+                 ('{"scope": [1], "keep": [], "moves": [{"from": "a", "to": "b"}]}',
+                  "scope must be a non-empty list of folders"),
+                 ('{"scope": ["07 Misc"], "keep": "07 Misc/Sub", "moves": [{"from": "a", "to": "b"}]}',
+                  "keep must be a list of folders"),
+                 ('{"scope": ["07 Misc"], "keep": [1], "moves": [{"from": "a", "to": "b"}]}',
+                  "keep must be a list of folders"),
+                 ('{"scope": ["07 Misc"], "keep": [], "moves": []}', "moves must be a non-empty list"),
+                 ('{"scope": ["07 Misc"], "keep": [], "moves": [{"from": "a"}]}', "moves[0] must be"),
+                 ('{"scope": ["07 Misc"], "keep": [], "moves": [{"from": "a", "to": "b", "why": "c"}]}',
+                  "moves[0] must be"),
+                 ('{"scope": ["07 Misc"], "keep": [], "moves": [{"from": "a", "to": 1}]}', "moves[0] must be")]
         for text, why in cases:
             with self.subTest(text=text):
                 path = os.path.join(self.tmp, "m.json")
@@ -1680,6 +1730,68 @@ class ReorgRefusalTest(ReorgCase):
                                       "--out", os.path.dirname(self.plan))
         self.assertEqual(code, 2, err)
         self.assertIn("cannot read the mapping", err)
+
+    def test_a_light_rulebook_is_not_open_to_a_re_organisation(self):
+        for value in ("light", None):             # recorded as light, or not recorded: the default is light
+            with self.subTest(depth=value):
+                self.rulebook(depth=value)
+                before = tree_digest(self.root)
+                _o, err = self.reorg(["07 Misc"], [("07 Misc/b.txt", "09 More")], code=2)
+                self.assertIn("error: the rulebook records depth light: the owner is not open to a re-organisation, so "
+                              "nothing is proposed. The owner must agree a change first: record depth medium (or "
+                              "full) in CLAUDE.md and .familyai/rulebook.json, re-pin rulebook_sha256, then "
+                              "propose again", err)
+                self.assertNotIn("problem(s)", err, "it is refused before the mapping is read")
+                self.assertFalse(os.path.exists(self.plan))
+                self.assertEqual(tree_digest(self.root), before)
+        for value in ("medium", "full"):
+            self.rulebook(depth=value)
+            self.assertEqual(self.proposal(["07 Misc"], [("07 Misc/b.txt", "09 More")])[0][0], "move")
+            os.remove(self.plan)
+
+    def test_a_folder_the_owner_said_must_stay_is_never_moved_from(self):
+        keep = ["07 Misc/Sub"]
+        err = self.refuses(["07 Misc"], [("07 Misc/Sub/c.txt", "09 More"), ("07 Misc", "11 Filed/Misc"),
+                                         ("07 Misc/Sub", "11 Filed/Sub"), ("07 Misc/a.txt", "11 Filed/Misc")],
+                           "moves[0]: 1 of its documents lie in a folder the owner said must stay where it is "
+                           "(07 Misc/Sub)", "moves[1]: 1 of its documents lie in a folder the owner said must stay",
+                           "moves[2]: 1 of its documents lie in a folder the owner said must stay", keep=keep)
+        self.assertNotIn("moves[3]", err, "a document outside the kept folder moves")
+        self.assertEqual(self.proposal(["07 Misc"], [("07 Misc/a.txt", "11 Filed")], keep=keep)[-1][1], "07 Misc/a.txt")
+        os.remove(self.plan)
+        # a kept folder is no scope, may be given with a slash, and must be a folder with live documents
+        self.refuses(["07 Misc/Sub"], [("07 Misc/Sub/c.txt", "09 More")],
+                     "scope[0]: '07 Misc/Sub' lies inside '07 Misc/Sub', which the owner said must stay where it is",
+                     keep=["07 Misc/Sub/"])
+        self.refuses(["07 Misc"], [("07 Misc/a.txt", "11 Filed")], "keep[0]: 'Nowhere' is not a folder holding live "
+                                                                  "documents", "keep[1]: '07 Misc/a.txt' is not a "
+                                                                  "folder holding live documents",
+                     keep=["Nowhere", "07 Misc/a.txt"])
+
+    def test_a_folder_moved_whole_is_checked_at_every_final_path(self):
+        data = json.loads(read(self.path(".familyai/rulebook.json")))
+        self.rulebook(packs=data["packs"] + ["14 Box/Kept set"], exclude=["15 Priv/Private"])
+        self.audit()
+        err = self.refuses(["13 Loose", "16 Src"], [("13 Loose", "14 Box"), ("16 Src", "15 Priv")],
+                           "moves[0]: 1 of its documents would land inside a pack (14 Box/Kept set/x.txt): copies in a "
+                           "pack are history, and a document is never filed into one",
+                           "moves[1]: 1 of its documents would land in a path that is excluded: no tool opens, hashes "
+                           "or moves into it; the owner decides it by hand")
+        self.assertNotIn("Private", err, "an excluded path is never named")
+        self.assertNotIn("the destination", err, "a withheld file at the destination is not named as one that exists")
+        # a withheld file already at the final path is not named as one that exists
+        err = self.refuses(["25 Mirror"], [("25 Mirror", "15 Priv")],
+                           "moves[0]: 1 of its documents would land in a path that is excluded")
+        self.assertNotIn("destination", err)
+        self.assertNotIn("p.txt", err)
+        # one document of the folder is fine, the pack's is not
+        self.refuses(["13 Loose"], [("13 Loose", "14 Box")], "1 of its documents would land inside a pack")
+
+    def test_two_folders_moved_whole_that_land_on_one_final_path(self):
+        self.refuses(["17 Left", "18 Right"], [("17 Left", "19 Dest"), ("18 Right", "19 Dest")],
+                     "moves[1]: '18 Right/Twin/t.txt' and '17 Left/Twin/t.txt' both move to '19 Dest/Twin/t.txt'")
+        self.assertEqual(len(self.proposal(["17 Left", "18 Right"], [("17 Left", "19 Dest"),
+                                                                    ("18 Right", "20 Dest")])), 8)
 
     def test_a_path_that_is_not_relative_to_the_folder(self):
         for bad in ("", "/07 Misc/a.txt", "07 Misc/../08 Other/a.txt", "07 Misc//a.txt", "./07 Misc/a.txt",
@@ -1863,6 +1975,16 @@ class ReorgRoundTest(ReorgCase):
             os.rename(src, dst)
         self.assertEqual(tree_digest(self.root, skip=("_Audit",)), original)
         self.assertEqual(self.bin_names(), [])
+
+    def test_a_plan_that_files_into_a_folder_it_empties_runs_to_the_end(self):
+        """The case a reviewer ran: a folder moved away whole and moved into at once. Nothing fails, nothing is lost."""
+        self.reorg(["13 Loose", "16 Src"], [("16 Src", "09 More/S"), ("13 Loose/y.txt", "16 Src")])
+        self.run_plan("approve", "--plan", self.plan, "--rows", "all", "--note", "Alex agreed")
+        code, out, err = self.execute()
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual({r["status"] for r in read_rows(self.plan)}, {"done"})
+        self.assertTrue(os.path.isfile(self.path("16 Src/y.txt")))
+        self.assertTrue(os.path.isfile(self.path("09 More/S/r.txt")))
 
     def test_an_rmdir_the_owner_approves_over_a_move_they_decline_fails_loud_and_loses_nothing(self):
         self.reorg(["07 Misc"], [("07 Misc/Sub", "08 Other")])

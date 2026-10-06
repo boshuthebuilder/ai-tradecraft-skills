@@ -2423,8 +2423,13 @@ class ReorgRoundEndToEndTest(Prepared):
         self.assertEqual(got, 0, out + err)
         # the owner approves the folder; the mapping moves one document into a folder that exists
         mapping = os.path.join(self.tmp, "mapping.json")
-        write(mapping, json.dumps({"scope": ["04 Study"], "moves": [{"from": self.MOVED[0], "to": "05 Archive"}]}))
+        write(mapping, json.dumps({"scope": ["04 Study"], "keep": [],
+                                   "moves": [{"from": self.MOVED[0], "to": "05 Archive"}]}))
         plan_folder = self.path("_Audit", "plans", "2026-10-06")
+        self.plan_run("reorg", "--root", self.root, "--work", self.work, "--mapping", mapping, "--out", plan_folder,
+                      code=2)                       # the owner is not open to it: the rulebook records depth light
+        twin = self.path(".familyai", "rulebook.json")
+        write(twin, json.dumps(dict(json.loads(read(twin)), depth="medium"), indent=1))
         self.plan_run("reorg", "--root", self.root, "--work", self.work, "--mapping", mapping, "--out", plan_folder)
         plan_csv = os.path.join(plan_folder, "move-plan.csv")
         self.assertEqual([(r["action"], r["from"], r["to"]) for r in csv_rows(plan_csv)],

@@ -24,9 +24,9 @@ A path the rulebook excludes is proposed nothing, and a row whose `from` or `to`
 `execute` before any hashing: the plan tools never open an excluded file. A `delete` row is refused, before either file
 is hashed, when its copy, the canonical copy it would open to prove the bytes equal, or the document the manifest holds
 the copy of is withheld (excluded, or staged for another project), even in a manifest audited before the exclusion.
-`reorg` turns a mapping the owner approved, `{"scope": [folder, ...], "moves": [{"from": <file or folder>, "to":
-<folder>}, ...]}`, into `create`, per-file `move` and `rmdir` rows (`reorg`, below); the executor, `check` and `prove`
-need nothing new for them.
+`reorg` turns a mapping the owner approved, `{"scope": [folder, ...], "keep": [folder, ...], "moves": [{"from": <file or
+folder>, "to": <folder>}, ...]}`, into `create`, per-file `move` and `rmdir` rows (`reorg`, below); the executor,
+`check` and `prove` need nothing new for them.
 Two-phase undo log: an `intent` line before each change and a `done` line with its reverse after. A failed row stops
 its domain. A `convert` row is the owner's or the deployment's: the executor names it, leaves it pending and goes on.
 """
@@ -37,7 +37,6 @@ import json
 import os
 import sys
 import time
-import unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common  # noqa: E402
@@ -506,32 +505,36 @@ SAMPLE_LIMIT = 3  # paths a refusal names for one mapping row that covers many d
 
 
 def read_mapping(path):
-    """The mapping, `{"scope": [folder, ...], "moves": [{"from": path, "to": folder}, ...]}`: exactly those keys, a
-    non-empty list of folders and a non-empty list of moves, each with exactly a `from` and a `to`, all text. Anything
-    else is refused by name."""
+    """The mapping, `{"scope": [folder, ...], "keep": [folder, ...], "moves": [{"from": path, "to": folder}, ...]}`:
+    exactly those keys; `scope` the folders the owner approved (non-empty), `keep` the folders the owner said must stay
+    where they are (a list, empty when none), and a non-empty list of moves, each with exactly a `from` and a `to`, all
+    text. Anything else is refused by name."""
     try:
         data = common.read_json_object(path)
     except OSError as e:
         raise common.ToolError("cannot read the mapping %s (%s)" % (path, e.strerror or e))
-    if set(data) != {"scope", "moves"}:
-        raise common.ToolError("%s: the mapping is {\"scope\": [...], \"moves\": [...]}; it has the keys %s"
-                               % (path, sorted(data)))
-    scope, moves = data["scope"], data["moves"]
+    if set(data) != {"scope", "keep", "moves"}:
+        raise common.ToolError("%s: the mapping is {\"scope\": [...], \"keep\": [...], \"moves\": [...]}; it has the "
+                               "keys %s" % (path, sorted(data)))
+    scope, keep, moves = data["scope"], data["keep"], data["moves"]
     if not (isinstance(scope, list) and scope and all(isinstance(x, str) for x in scope)):
         raise common.ToolError("%s: scope must be a non-empty list of folders, the ones the owner approved" % path)
+    if not (isinstance(keep, list) and all(isinstance(x, str) for x in keep)):
+        raise common.ToolError("%s: keep must be a list of folders, the ones the owner said must stay where they are "
+                               "(empty when none)" % path)
     if not (isinstance(moves, list) and moves):
         raise common.ToolError("%s: moves must be a non-empty list of {\"from\": ..., \"to\": ...}" % path)
     for i, m in enumerate(moves):
         if not (isinstance(m, dict) and set(m) == {"from", "to"} and all(isinstance(m[k], str) for k in m)):
             raise common.ToolError("%s: moves[%d] must be {\"from\": <file or folder>, \"to\": <folder>}, both text"
                                    % (path, i))
-    return scope, moves
+    return scope, keep, moves
 
 
 def mapping_path(value, where):
     """`value`, a folder-relative path of the mapping, in Unicode NFC with one trailing `/` taken off: refused when it
     is empty or absolute, or has an empty part, a `.` or `..` part or a control character."""
-    p = unicodedata.normalize("NFC", value[:-1] if value.endswith("/") else value)
+    p = common.nfc(value[:-1] if value.endswith("/") else value)
     if not p or p.startswith("/") or any(x in ("", ".", "..") for x in p.split("/")) or any(
             ord(ch) < 0x20 or ord(ch) == 0x7F for ch in p):
         raise ValueError("%s %r is not a path relative to the folder, with no empty, . or .. part" % (where, value))
@@ -561,7 +564,7 @@ def destination(root, to):
     parts, cur = to.split("/"), root
     for i, part in enumerate(parts):
         names = os.listdir(cur) if os.path.isdir(cur) else []
-        same = [n for n in names if unicodedata.normalize("NFC", n) == part]
+        same = [n for n in names if common.nfc(n) == part]
         like = [n for n in names if common.fold(n) == common.fold(part)]
         if not same and like:
             return to, "the folder %r is spelled %r in %r; spell it as the folder is" % (
@@ -587,30 +590,39 @@ def reorg(a):
     stays where it is. `to` is a folder that exists or is created, never the folder's root. Rows run in the existing
     executor, `check` and `prove`.
 
-    It refuses, writing nothing, and names each refusal (a mapping row by its index, `moves[2]`): a mapping that is not
-    the shape above; a `from` that is not a live document or a folder holding one, or lies outside every `scope` folder;
-    a document the owner excluded or staged for another project (named by its row, never its path); anything inside a
-    pack, on either side; a folder that moves whole while the rulebook's `active` or `finished` lists it or the
-    compiled Schema routes it (the message says which file to edit first); a destination that is a name the system
-    reserves, is excluded or staged, is a file, is inside a package or is spelled other than its folder is; a
-    destination file that exists, or two documents to one path; a document whose content already lives in the
-    destination folder once the moves are done (a duplicate: the light round drops it); a document that is not on disk,
-    is cloud-only or no longer hashes to its manifest id. A folder the moves empty gets no `rmdir` row when a pack, the
-    rulebook or the Schema names it or it lies outside every `scope` folder, and the output says so."""
+    It refuses to run when the rulebook records `depth` `light`: the owner is not open to a re-organisation, and must
+    agree a change first. Otherwise it refuses, writing nothing, and names each refusal (a mapping row by its index,
+    `moves[2]`): a mapping that is not the shape above; a `from` that is not a live document or a folder holding one, or
+    lies outside every `scope` folder or inside a `keep` folder (one the owner said must stay where it is); a document
+    the owner excluded or staged for another project (named by its row, never its path); anything inside a pack, on
+    either side; a folder that moves whole while the rulebook's `active` or `finished` lists it or the compiled Schema
+    routes it (the message says which file to edit first); a destination that is a name the system reserves, is
+    excluded or staged, is a file, is inside a package or is spelled other than its folder is; a document whose FINAL
+    path (the destination folder and what lies under it) is inside a pack or under an excluded path or the migrations
+    folder; a destination file that exists, or two documents to one path; a document whose content already
+    lives in the destination folder once the moves are done (a duplicate: the light round drops it); a document that
+    is not on disk, is cloud-only or no longer hashes to its manifest id. A folder the moves empty gets no `rmdir` row
+    when a pack, the rulebook or the Schema names it, it lies outside every `scope` folder, or a move files a document
+    into it or below it, and the output says so. It also names each new top-level folder it would create."""
     refuse_decided(a.out)
     root = os.path.realpath(a.root)
     guard = Guard(root)
     settings_dir = common.settings_dir_for(root, a.settings_dir)
     rb = common.load_rulebook(root, settings_dir)
+    if rb["depth"] == "light":
+        raise common.ToolError("the rulebook records depth light: the owner is not open to a re-organisation, so "
+                               "nothing is proposed. The owner must agree a change first: record depth medium (or "
+                               "full) in CLAUDE.md and .familyai/rulebook.json, re-pin rulebook_sha256, then propose "
+                               "again")
     entries = load_manifest(a.manifest or os.path.join(root, "_Audit", "manifest.json"))
-    scope, moves = read_mapping(a.mapping)
+    scope, keep, moves = read_mapping(a.mapping)
     in_pack = common.pack_matcher(root, rb)
     named = named_folders(root, rb, settings_dir)
     where = live_paths(entries)                                 # every live path, a withheld one too
     live = common.live_document_paths(rb, entries)              # the ones the tools may read
     at = common.withheld_paths(rb, entries)
     folders = {"/".join(p.split("/")[:i]) for p in live for i in range(1, len(p.split("/")))}
-    spelling = {unicodedata.normalize("NFC", p): p for p in list(where) + sorted(folders)}  # the manifest's own
+    spelling = common.spelling_index(list(where) + sorted(folders))        # the manifest's own spelling
     reserved = {common.fold(x) for x in common.reserved_names(rb)} | {"outbox", "wiki"}
     problems = []
 
@@ -628,21 +640,36 @@ def reorg(a):
         except ValueError as ex:
             refuse(label, str(ex))
             return None
-        return spelling.get(norm, norm)
+        return common.as_spelled(spelling, norm)
 
-    scopes = []
-    for i, s in enumerate(scope):
-        label = "scope[%d]" % i
-        s = listed(s, label, "path")
-        if s is None:
-            continue
-        why = common.path_withheld(rb, at, s)
-        if why:
-            refuse(label, "the folder is %s: no tool opens or moves anything in it" % common.WITHHELD_WHY[why])
-        elif s not in folders:
-            refuse(label, "%r is not a folder holding live documents" % s)
-        else:
-            scopes.append(s)
+    def system_name(path):
+        top = common.fold(path.split("/")[0])
+        return top in reserved or top.startswith(("_", "."))
+
+    def folders_listed(names, key):
+        """The folders of `names` (a mapping list called `key`) as the manifest spells them, each refused when it is
+        withheld or holds no live document."""
+        out = []
+        for i, f in enumerate(names):
+            label = "%s[%d]" % (key, i)
+            f = listed(f, label, "path")
+            if f is None:
+                continue
+            why = common.path_withheld(rb, at, f)
+            if why:
+                refuse(label, "the folder is %s: no tool opens or moves anything in it" % common.WITHHELD_WHY[why])
+            elif f not in folders:
+                refuse(label, "%r is not a folder holding live documents" % f)
+            else:
+                out.append((label, f))
+        return out
+
+    scopes, keeps = folders_listed(scope, "scope"), [f for _l, f in folders_listed(keep, "keep")]
+    for label, f in scopes:
+        inside = next((k for k in keeps if under(f, k)), None)
+        if inside:
+            refuse(label, "%r lies inside %r, which the owner said must stay where it is" % (f, inside))
+    scopes = [f for _label, f in scopes]
 
     moved = {}                   # source path -> (destination path, mapping row)
     row_of = {}                  # mapping row -> (from, to, "file" or "folder")
@@ -673,10 +700,14 @@ def reorg(a):
         if not any(under(src, s) for s in scopes):
             refuse(label, "%r is outside the folders the owner approved (scope)" % src)
             continue
-        top = common.fold(to.split("/")[0])
+        kept = [p for p in paths if any(under(p, k) for k in keeps)]
+        if kept:
+            refuse(label, "%d of its documents lie in a folder the owner said must stay where it is (%s)" % (
+                len(kept), next(k for k in keeps if under(kept[0], k))))
+            continue
         why = common.withheld(rb, to)
         to, bad = destination(root, to)
-        if top in reserved or top.startswith(("_", ".")):
+        if system_name(to):
             bad = "%r is a name the system reserves, never a place for the owner's documents" % to
         elif why:
             bad = "its to path is %s: no tool opens, hashes or moves into it; the owner decides it by hand" % (
@@ -708,9 +739,31 @@ def reorg(a):
             else:
                 moved[p] = (dst, i)
 
+    # where each document will be, not only the folder it is sent to: a folder moved whole carries its own sub-folders,
+    # and a pack or an excluded folder can sit below the destination
+    # (a name the system reserves is the destination's first part, and every final path starts with it: refused above)
+    landing = {}
+    for p, (dst, i) in sorted(moved.items()):
+        here = landing.setdefault(i, {"pack": [], "withheld": collections.Counter()})
+        if common.withheld(rb, dst):
+            here["withheld"][common.withheld(rb, dst)] += 1
+        elif in_pack(os.path.dirname(dst)):
+            here["pack"].append(dst)
+    barred = {i for i, h in landing.items() if h["withheld"] or h["pack"]}
+    for i, h in sorted(landing.items()):
+        label = "moves[%d]" % i
+        for why, n in sorted(h["withheld"].items()):
+            refuse(label, "%d of its documents would land in a path that is %s: no tool opens, hashes or moves into "
+                   "it; the owner decides it by hand" % (n, common.WITHHELD_WHY[why]))
+        if h["pack"]:
+            refuse(label, "%d of its documents would land inside a pack (%s): copies in a pack are history, and a "
+                   "document is never filed into one" % (len(h["pack"]), "; ".join(h["pack"][:SAMPLE_LIMIT])))
+
     taken = {common.fold(p) for p in spelling.values()}
     owners = {}
     for p, (dst, i) in sorted(moved.items()):
+        if i in barred:
+            continue                                  # refused above, and its destination is never named
         if dst == p:
             refuse("moves[%d]" % i, "%r is in %r already" % (p, row_of[i][1]))
         elif common.fold(dst) in owners:
@@ -759,7 +812,13 @@ def reorg(a):
         rows.append(new_row(domain=domain_of(p), depth="medium", action="move", **{"from": p}, to=moved[p][0],
                             evidence=live[p], kind=where[p][1],
                             reason=REORG_REASON_FILE % to if kind == "file" else REORG_REASON_FOLDER % (src, to)))
-    emptied = emptied_folders(root, set(moved))
+    receiving = set()                       # a folder a document is moved into, and every folder above it
+    for dst, _i in moved.values():
+        d = os.path.dirname(dst)
+        while d:
+            receiving.add(common.fold(d))
+            d = os.path.dirname(d)
+    emptied = [d for d in emptied_folders(root, set(moved)) if common.fold(d) not in receiving]
     outside = [d for d in top_most(emptied) if not any(under(d, s) for s in scopes)]
     kept = []
     for d in top_most([d for d in emptied if any(under(d, s) for s in scopes)]):
@@ -776,6 +835,9 @@ def reorg(a):
     print("%d rows -> %s" % (len(rows), out))
     print("create %d, move %d (from %d mapping row(s)), rmdir %d" % (counts["create"], counts["move"], len(moves),
                                                                    counts["rmdir"]))
+    new_top = sorted(d for d in made if "/" not in d)
+    if new_top:
+        print("new top-level folder(s) it would create: %s" % "; ".join(new_top))
     if left_in_place:
         print("left where they are: %d path(s) under a folder that moves, which no tool may read" % left_in_place)
     for what, found in (("a pack, the rulebook or the Schema names", kept), ("lie outside the scope", outside)):

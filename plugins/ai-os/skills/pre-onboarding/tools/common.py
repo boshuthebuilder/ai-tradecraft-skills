@@ -457,8 +457,26 @@ def reserved_names(rb):
     return list(dict.fromkeys(names + rb["reserved"]))
 
 
-def _nfc(text):
+def nfc(text):
+    """`text` in Unicode NFC, the one form a name is compared in wherever a person or a model names a folder."""
     return unicodedata.normalize("NFC", text)
+
+
+_nfc = nfc
+
+
+def spelling_index(paths):
+    """{path in NFC: path as spelled} for the paths the manifest holds. A name may be stored decomposed on disk and
+    typed composed by a person or a model; `as_spelled` looks it up here, so that every tool that is given a folder's
+    name takes the manifest's own spelling."""
+    return {nfc(p): p for p in paths}
+
+
+def as_spelled(index, name):
+    """`name` as the manifest spells it, by `spelling_index`; a name it does not hold is returned in NFC (no case
+    folding: a name that differs in case is another name here)."""
+    n = nfc(name)
+    return index.get(n, n)
 
 
 @functools.lru_cache(maxsize=1 << 16)
