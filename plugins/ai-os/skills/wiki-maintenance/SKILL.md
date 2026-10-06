@@ -509,7 +509,7 @@ heading names the ingest itself (the job's own name, usually with the run's date
 under it is of a kind one of the page's other sections already tracks. Any other heading, dated or
 not, is the page's own structure and stays. Fold a container by moving each fact into its topical
 section — the row into the table that tracks it, the bullet into its list — correcting any earlier
-derived line it contradicts (never a `provenance: manual` one: owner assertions keep their precedence,
+derived line it contradicts (never a `provenance: manual` one, nor a line an owner confirmation record backs: owner assertions keep their precedence,
 and the disagreement stays visible), merging sections that describe the same thing, and dropping the
 emptied container. Every citation and all manual content survive verbatim, and the fold is subject to
 the shrink tripwire below like any other edit. A page seen only in part is never rewritten for this,
