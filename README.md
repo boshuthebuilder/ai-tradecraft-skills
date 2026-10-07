@@ -10,8 +10,9 @@ own:
   unattended over a person's real folders, notices what changed, reasons over it, and keeps a
   synthesised layer current without being asked.
 - **`productivity`** — skills for individual AI-assisted work: `ai-writing-audit`, which checks a
-  draft for the signs of AI authorship and rewrites so it reads as human, and
-  `portable-markdown`, for generating .md a person will open in a desktop editor.
+  draft for the signs of AI authorship and rewrites so it reads as human;
+  `portable-markdown`, for generating .md a person will open in a desktop editor; and two for
+  understanding what an agent produced, `controlled-writing` and `bespoke-explainers`.
 
 The conventions live in **one home**, so interactive Claude Code / Cowork sessions and automated
 pipelines share the same logic.
@@ -196,7 +197,7 @@ is first-class; the scheduled pass is the backstop.
 ## The `productivity` direction
 
 Skills for individual AI-assisted knowledge work — the prose and craft an agent produces on your
-behalf, rather than the code or the folder.
+behalf, rather than the code or the folder, and the formats that help you understand what it produced.
 
 - **`ai-writing-audit`** — audit a draft for the signs of AI authorship and rewrite to remove them.
   It judges by clusters and structure, not a single banned word: leaked citation markup and low
@@ -213,6 +214,20 @@ behalf, rather than the code or the folder.
   `<a></a>` shows its own source in Typora), table cells that survive model-written text, and a
   probe template for settling behaviour neither vendor documents. `REFERENCE.md` holds the
   clicked-in-the-application matrix.
+
+- **`controlled-writing`** — explain in a controlled language so a person can read an agent's
+  output fast and check it: one idea per sentence, active voice, one name for each thing. It
+  restates the ASD-STE100 (Simplified Technical English) rule families in its own words, with a
+  setting dial ("80% of the way" is the default), a claims ledger so simpler words never drop a
+  caveat, and the boundary with `ai-writing-audit`, whose rhythm check controlled text fails by
+  design.
+
+- **`bespoke-explainers`** — choose the format that gets a person to understanding fastest (prose,
+  a diagram, an interactive HTML page or a narrated video) and build it as a throwaway artefact
+  for one reader, with its claims checked before anything is rendered. It picks the diagram tool
+  by where the diagram will be seen and how big it is, and carries a video recipe (Manim Community
+  Edition with a free local voice, timed beat by beat) that was rendered end to end and then
+  reproduced by a second agent from the page alone.
 
 ## How updates propagate
 

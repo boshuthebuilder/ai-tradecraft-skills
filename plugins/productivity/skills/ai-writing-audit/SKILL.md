@@ -24,7 +24,8 @@ deterministic (see *Provenance* at the end).
 Apply it whenever you (the assistant) have produced, or are about to produce, prose a real person will read
 as human-written: handover docs, briefs, decision docs, marketing and landing copy, social posts, emails
 sent on someone's behalf, READMEs, developer-facing prose. The user can also invoke it directly ("audit
-this for AI tells", "de-slop this draft").
+this for AI tells", "de-slop this draft"). Text declared as controlled writing (a reading aid in a
+controlled language) is a different genre, and controlled-writing says which of these checks still apply to it.
 
 ## The one principle: judge clusters and structure, not single words
 
