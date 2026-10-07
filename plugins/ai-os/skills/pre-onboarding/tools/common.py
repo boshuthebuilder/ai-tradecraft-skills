@@ -213,6 +213,7 @@ DEFAULTS = {
     "reserved": [],
     "depth": "light",
     "packs": [],
+    "staging": [],                    # dump folders: a copy there never wins canonical, redundant once filed elsewhere
     "working_formats": [],
     "active": [],
     "finished": [],
@@ -232,7 +233,7 @@ DEFAULTS = {
 }
 
 
-NAME_LISTS = ("reserved", "packs", "working_formats", "active", "finished", "card_categories", "exclude",
+NAME_LISTS = ("reserved", "packs", "staging", "working_formats", "active", "finished", "card_categories", "exclude",
               "pack_keywords", "ocr_languages")
 SCHEMA_PAGES = ("90 Schema/90 Schema.md", "09 Schema/09 Schema.md")  # in order of precedence
 SIBLING_COPIES = (".proposed.md", ".superseded.md")  # a deployment's verbatim copy beside a page: never a page itself
@@ -301,10 +302,11 @@ def validate_rulebook(data, path):
     for k in NAME_LISTS:
         if k in data and not (isinstance(data[k], list) and all(is_text(x) for x in data[k])):
             bad(k, "a list of non-empty strings")
-    for p in data.get("packs", []):
-        if p != p.strip() or p.startswith("/") or any(x in ("", ".", "..") for x in p.rstrip("/").split("/")):
-            raise ToolError("%s: packs entry %r must be a folder path relative to the folder, with no leading or "
-                            "trailing space, no leading /, and no empty, . or .. parts" % (path, p))
+    for key in ("packs", "staging"):
+        for p in data.get(key, []):
+            if p != p.strip() or p.startswith("/") or any(x in ("", ".", "..") for x in p.rstrip("/").split("/")):
+                raise ToolError("%s: %s entry %r must be a folder path relative to the folder, with no leading or "
+                                "trailing space, no leading /, and no empty, . or .. parts" % (path, key, p))
     for p in data.get("exclude", []):
         if p != p.strip() or p.startswith("/") or any(x in ("", ".", "..") for x in p.rstrip("/").split("/")):
             raise ToolError("%s: exclude entry %r must be a path relative to the folder, with no leading or trailing "
@@ -377,6 +379,7 @@ def load_rulebook(root, settings_dir, required=False, verify=True):
     merged.update(data)
     merged["wiki_dir"] = (merged.get("wiki_dir") or os.path.basename(root) + " Wiki").rstrip("/")
     merged["packs"] = [p.rstrip("/") for p in merged["packs"]]
+    merged["staging"] = [p.rstrip("/") for p in merged["staging"]]
     merged["exclude"] = [p.rstrip("/") for p in merged["exclude"]]
     merged["_source"] = path if data else None
     check_excluded(root, merged)
@@ -1012,6 +1015,27 @@ def pack_matcher(root, rb):
             found = found or m is not None
         return found
     return is_pack
+
+
+def staging_matcher(root, rb):
+    """A test of whether a folder (relative to the root) lies in a staging folder: under one the rulebook lists in
+    `staging` (a downloads dump, a scanner drop, a "not processed" pile). A copy there never wins canonical over a
+    copy outside staging, and is `redundant` whenever the same content exists outside staging, whatever the two
+    folders share, so the light round can propose its deletion once the owner has filed the document. Each entry
+    must be an existing folder under `root`, named exactly, as for `packs`; otherwise it fails loud."""
+    nfc = _nfc
+    for p in rb["staging"]:
+        cur = named_exactly(root, p)
+        if cur is not None and os.path.isdir(cur):
+            continue
+        raise ToolError("%s: staging entry %r is not an existing folder under %s (names compared exactly); update "
+                        "rulebook.json staging (and name it in the rulebook, which `settings.py check` verifies)"
+                        % (rb.get("_source") or "rulebook.json", p, root))
+    listed = [nfc(p) + "/" for p in rb["staging"]]
+
+    def is_staging(folder):
+        return any((nfc(folder) + "/").startswith(sp) for sp in listed)
+    return is_staging
 
 
 def page_voice(ws, page):

@@ -449,6 +449,40 @@ class HygieneTest(AuditCase):
         self.assertEqual(self.summary(root)["hygiene"], {"component_over_255_bytes": 1})
 
 
+class StagingTest(AuditCase):
+    def test_a_staged_copy_never_wins_and_is_redundant_once_filed(self):
+        """A copy in a listed staging folder loses canonical to a deeper, longer copy outside it, and is redundant
+        whatever the folders share, so the light plan proposes deleting it; a document only in staging stays."""
+        files = self.pinned(staging=["Downloads"])
+        files.update({
+            "Downloads/Scans/2022-05-01 letter.pdf": "filed",
+            "02 Legal/Trademark/Research/IPO - Guidance Note 2022-05-01.pdf": "filed",
+            "Downloads/Scans/2022-06-01 only here.pdf": "unfiled",
+            "Downloads/Scans/2022-07-01 twice.pdf": "staged twice", "Downloads/Other/2022-07-01 twice.pdf": "staged twice",
+        })
+        root = self.folder(files, parent="st")
+        k = kinds(self.audit(root))
+        self.assertEqual(k["02 Legal/Trademark/Research/IPO - Guidance Note 2022-05-01.pdf"], "canonical")
+        self.assertEqual(k["Downloads/Scans/2022-05-01 letter.pdf"], "redundant")
+        self.assertNotIn("Downloads/Scans/2022-06-01 only here.pdf", k)
+        self.assertEqual({k["Downloads/Scans/2022-07-01 twice.pdf"], k["Downloads/Other/2022-07-01 twice.pdf"]},
+                         {"canonical", "working_copy"})           # both staged: the ordinary rules apply
+        plan_dir = os.path.join(self.tmp, "st", "plan")
+        code, _o, err = run("plan.py", "light", "--root", root, "--manifest",
+                            os.path.join(self.out(root), "manifest.json"), "--out", plan_dir)
+        self.assertEqual(code, 0, err)
+        with open(os.path.join(plan_dir, "move-plan.csv"), encoding="utf-8", newline="") as f:
+            deletes = sorted(r["from"] for r in csv.DictReader(f) if r["action"] == "delete")
+        self.assertEqual(deletes, ["Downloads/Scans/2022-05-01 letter.pdf"])
+
+    def test_a_staging_entry_must_exist(self):
+        root = self.folder(self.pinned(staging=["Nowhere"]), parent="st2")
+        code, _o, err = run("audit.py", "--root", root, "--work", os.path.join(self.tmp, "st2", "work"),
+                            "--out", self.out(root), "--read-only-root")
+        self.assertEqual(code, 2)
+        self.assertIn("staging entry 'Nowhere'", err)
+
+
 class PackSettingsTest(AuditCase):
     """A `packs` entry the audit could never match fails loud when the rulebook is read."""
 

@@ -129,6 +129,7 @@ def main():
     reserved = BASE_RESERVED | set(rb["reserved"]) | {rb["wiki_dir"]}
     img_cap = int(rb["image_cap_mb"]) * 1024 * 1024
     in_pack = common.pack_matcher(root, rb)
+    in_staging = common.staging_matcher(root, rb)
     log = common.logger(work, "audit")
     folder = os.path.basename(root)
 
@@ -271,11 +272,12 @@ def main():
         groups[m["id"]].append(rel)
 
     def canon_key(p):
-        # A name marked as a copy loses first, then a generic name (a bare number, a scanner timestamp, IMG_), so a
-        # raw scan in a dump folder never outranks the named copy filed from it; then the shallower path, then the
-        # shorter, then the first by name.
+        # A copy in a staging folder loses first, then a name marked as a copy, then a generic name (a bare number,
+        # a scanner timestamp, IMG_), so a raw scan in a dump never outranks the named copy filed from it; then the
+        # shallower path, then the shorter, then the first by name.
         stem = os.path.splitext(os.path.basename(p))[0]
-        return (1 if COPY_RX.search(stem) else 0, 1 if is_generic(stem) else 0, p.count("/"), len(p), p)
+        return (1 if in_staging(os.path.dirname(p)) else 0, 1 if COPY_RX.search(stem) else 0,
+                1 if is_generic(stem) else 0, p.count("/"), len(p), p)
 
     dir_ids = collections.defaultdict(set)
     for rel, m in meta.items():
@@ -296,6 +298,8 @@ def main():
                 k = "pack"
             elif pdir == cdir:
                 k = "redundant"
+            elif in_staging(pdir) and not in_staging(cdir):
+                k = "redundant"  # filed outside staging already; the staged copy is what the owner left behind
             else:
                 sx, sc = dir_ids[pdir], dir_ids[cdir]
                 k = "redundant" if len(sx) >= 3 and len(sx & sc) / len(sx) >= 0.8 else "working_copy"
