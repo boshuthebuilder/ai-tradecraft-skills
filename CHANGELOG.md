@@ -4,6 +4,71 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v13.1.0 (2026-10-07)
+
+A **MINOR**: two new `productivity` skills for understanding what an agent produced (#142, #143, #144). Nothing
+was renamed, removed or changed in meaning. Under the single-version-stream rule, all three manifests bump to
+13.1.0.
+
+Both skills are distilled from [Andrej Karpathy's October 2026 post](https://x.com/karpathy/status/2105819303471976479)
+on spending more time understanding the output of language models, and rehomed in this repo's method. The post's
+ladder of formats (controlled-language prose, diagrams, web pages, explainer videos, each "even better" than the
+last) becomes a choice made by what the reader must see. Its closing point, that cheap code makes large, custom,
+discardable artefacts worth asking for, becomes the skill's stance on artefacts.
+
+### Added (MINOR)
+
+- **`controlled-writing`**: explain in a controlled language so a person can read an agent's output fast and check
+  it.
+  - It restates the ASD-STE100 (Simplified Technical English) rule families in its own words: one name per thing,
+    short noun groups, active voice, one idea per sentence, conditions first, warnings first.
+  - Two registers: procedures, with a 20-word sentence ceiling, and descriptions, with 25.
+  - A dial: 100%, **80% (the default)** and 50%.
+  - The **claims ledger**: simpler words never drop a caveat, a condition or a number. Added definitions are
+    listed separately and checked.
+  - It owns the boundary with `ai-writing-audit`. That skill's rhythm check flags controlled text by design, so
+    the declared purpose decides which skill applies. Its provenance signs always apply.
+  - Measured on a 222-word incident note rewritten by a cold agent from the pages alone: no sentence over its
+    ceiling, every claim kept, and the scanner flagged only the rhythm (SD 4.1–4.7).
+  - ASD-STE100 is ASD's copyright and free on request. The skill reproduces neither the specification's text nor
+    its dictionary.
+- **`bespoke-explainers`**: choose the format that gets a person to understanding fastest, and build it as a
+  throwaway artefact for one reader.
+  - **The ladder**: prose, diagram, HTML page, video. Climb only as far as the understanding needs.
+  - **Check the content before the render**: write the claims first, draw real structure from the real source,
+    label the artefact as generated.
+  - **The diagram tool is chosen by where the diagram is seen and how big it is**:
+    - Mermaid in markdown;
+    - Mermaid pre-rendered to SVG for pages;
+    - hand-written SVG for small diagrams, always rendered and looked at;
+    - a computed layout for large graphs;
+    - a script that reads the source for real structure.
+  - **A self-contained HTML page** that loads nothing from the network.
+  - **A verified video recipe** in REFERENCE, built on [Manim Community Edition](https://www.manim.community/),
+    the community-maintained fork of 3Blue1Brown's library:
+    - The audio is the clock. Each beat ends at an absolute time, so frame rounding cannot drift.
+    - A free local voice (Kokoro via `kokoro-onnx`) by default, with Piper and the macOS voice as alternatives.
+    - A check script that fails on missing audio, a mistimed beat or a stale manifest.
+    - A pitfall table found by running it. Kokoro's and Piper's bundled espeak-ng cannot use a data path over 158
+      characters, and on failure it names a path on the package's build machine. `manim-voiceover` prompts for a
+      paid voice's key and writes it to `.env`.
+  - **The voice policy**: a paid voice is used only when named, and its key is read from the environment and
+    never asked for in chat. If the key is unset, the run stops, with no silent fallback.
+
+### Changed
+
+- **`ai-writing-audit`**: "When to use" gains one sentence pointing declared controlled text to
+  `controlled-writing`. No band, pattern, threshold or scanner changed.
+- The `productivity` plugin and marketplace descriptions and the README name the two new skills.
+
+### Verified
+
+- The video recipe was rendered end to end on an Apple-silicon Mac (macOS 27.0.1, Python 3.12.13, Manim CE 0.21.0).
+  Every beat started within 0.10 s of plan with each voice, and a second agent reproduced it from REFERENCE alone.
+- The HTML path was checked in a browser: one self-contained page holding a hand-written SVG, a Mermaid diagram
+  rendered by `mmdc` 12.0.0 and three controls. It made zero network requests and logged no console errors.
+- **Not run:** the paid voice's call, Graphviz/ELK, and platforms other than macOS. Each is labelled so in the skill.
+
 ## v13.0.0 (2026-10-06)
 
 A **MAJOR**: a documented rule gains an exception (#140). An owner often settles something by saying so,

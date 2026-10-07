@@ -4,7 +4,7 @@
     "name": "Boshu Zhang"
   },
   "metadata": {
-    "description": "A method library of Agent Skills for AI-agent-driven work, organised by direction: coding (development-process discipline for coding agents — plan, build, gate), ai-os (the headless AI assisting system — job archetypes, wiki onboarding and maintenance), and productivity (individual AI-assisted work — starting with an AI-writing audit). Shared by interactive Claude Code / Cowork sessions and automated pipelines."
+    "description": "A method library of Agent Skills for AI-agent-driven work, organised by direction: coding (development-process discipline for coding agents — plan, build, gate), ai-os (the headless AI assisting system — job archetypes, wiki onboarding and maintenance), and productivity (individual AI-assisted work — writing, markdown and explainers a person can understand). Shared by interactive Claude Code / Cowork sessions and automated pipelines."
   },
   "plugins": [
     {
@@ -23,7 +23,7 @@
       "name": "productivity",
       "displayName": "AI Productivity",
       "source": "./plugins/productivity",
-      "description": "Skills for individual AI-assisted knowledge work: ai-writing-audit (check a draft for the signs of AI authorship and rewrite so it reads as human) and portable-markdown (write .md a person will open in Typora or Obsidian, so the links land and no raw markup shows)."
+      "description": "Skills for individual AI-assisted knowledge work: ai-writing-audit (check a draft for the signs of AI authorship and rewrite so it reads as human), portable-markdown (write .md a person will open in Typora or Obsidian, so the links land and no raw markup shows), controlled-writing (explain in ASD-STE100-style controlled language so output is fast to read and check) and bespoke-explainers (choose and build a diagram, interactive page or narrated video explainer)."
     }
   ],
   "renames": {
