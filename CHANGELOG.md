@@ -29,7 +29,7 @@ discardable artefacts worth asking for, becomes the skill's stance on artefacts.
   - It owns the boundary with `ai-writing-audit`. That skill's rhythm check flags controlled text by design, so
     the declared purpose decides which skill applies. Its provenance signs always apply.
   - Measured on a 222-word incident note rewritten by a cold agent from the pages alone: no sentence over its
-    ceiling, every claim kept, and the scanner flagged only the rhythm (SD 4.1–4.7).
+    ceiling, every claim kept, and the scanner flagged only the rhythm (SD 4.1–4.8).
   - ASD-STE100 is ASD's copyright and free on request. The skill reproduces neither the specification's text nor
     its dictionary.
 - **`bespoke-explainers`**: choose the format that gets a person to understanding fastest, and build it as a
@@ -48,10 +48,12 @@ discardable artefacts worth asking for, becomes the skill's stance on artefacts.
     the community-maintained fork of 3Blue1Brown's library:
     - The audio is the clock. Each beat ends at an absolute time, so frame rounding cannot drift.
     - A free local voice (Kokoro via `kokoro-onnx`) by default, with Piper and the macOS voice as alternatives.
-    - A check script that fails on missing audio, a mistimed beat or a stale manifest.
+    - A check script that fails on stale audio (the manifest no longer matches the script), a beat whose speech
+      does not start on time, or a silent or missing track.
     - A pitfall table found by running it. Kokoro's and Piper's bundled espeak-ng cannot use a data path over 158
       characters, and on failure it names a path on the package's build machine. `manim-voiceover` prompts for a
-      paid voice's key and writes it to `.env`.
+      paid voice's key and writes it to `.env`. Manim's render cache silently drops narration on a re-render (after
+      a cached animation, `add_sound` is ignored), so the scene turns the cache off.
   - **The voice policy**: a paid voice is used only when named, and its key is read from the environment and
     never asked for in chat. If the key is unset, the run stops, with no silent fallback.
 
@@ -64,7 +66,7 @@ discardable artefacts worth asking for, becomes the skill's stance on artefacts.
 ### Verified
 
 - The video recipe was rendered end to end on an Apple-silicon Mac (macOS 27.0.1, Python 3.12.13, Manim CE 0.21.0).
-  Every beat started within 0.10 s of plan with each voice, and a second agent reproduced it from REFERENCE alone.
+  Every beat started within 0.11 s of plan with each voice, and a second agent reproduced it from REFERENCE alone.
 - The HTML path was checked in a browser: one self-contained page holding a hand-written SVG, a Mermaid diagram
   rendered by `mmdc` 12.0.0 and three controls. It made zero network requests and logged no console errors.
 - **Not run:** the paid voice's call, Graphviz/ELK, and platforms other than macOS. Each is labelled so in the skill.

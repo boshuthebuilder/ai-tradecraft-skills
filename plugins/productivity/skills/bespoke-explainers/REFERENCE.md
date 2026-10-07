@@ -167,7 +167,7 @@ def piper(text, out):
     import piper as piper_pkg
     check_espeak_path(Path(piper_pkg.__file__).parent / "espeak-ng-data")
     subprocess.run([sys.executable, "-m", "piper", "-m", os.environ["PIPER_MODEL"], "-f", str(out)],
-                   input=text.encode(), check=True, capture_output=True)
+                   input=text.encode(), check=True)  # piper's own errors go to stderr, where you can read them
 
 
 def elevenlabs(text, out):
@@ -196,6 +196,8 @@ def main(voice, beats_file, out_dir):
 
 
 if __name__ == "__main__":
+    if len(sys.argv) != 4 or sys.argv[1] not in VOICES:
+        sys.exit(f"usage: python voice.py <{'|'.join(VOICES)}> beats.json audio/")
     main(*sys.argv[1:4])
 ```
 
@@ -207,7 +209,11 @@ import json
 from pathlib import Path
 
 from manim import (BLUE, DOWN, GREEN, LEFT, RIGHT, UP, YELLOW, FadeIn, Scene, Square, Text,
-                   VGroup, Write)
+                   VGroup, Write, config)
+
+# Manim's render cache drops narration: after an animation is served from the cache, add_sound is
+# ignored until the next play(), so a second render of an unchanged scene loses beats silently.
+config.disable_caching = True
 
 AUDIO = Path(__file__).parent / "audio"
 PAD = 0.4   # silence after each beat; check.py assumes the same
@@ -247,7 +253,7 @@ class Explainer(Scene):
 ### `check.py`: check the render, not just the exit code
 
 ```python
-"""Check a render: python check.py <video.mp4> audio/manifest.json
+"""Check a render: python check.py <video.mp4> audio/manifest.json beats.json
 Uses PyAV, which Manim installs, so no ffmpeg binary is needed. Exits 1 if the video fails a check."""
 import json
 import sys
@@ -257,7 +263,12 @@ import av
 import numpy as np
 
 PAD, TAIL = 0.4, 0.5  # must match scene.py
-video, manifest = sys.argv[1], json.loads(Path(sys.argv[2]).read_text())
+QUIET = 0.25          # silence that must come before a beat for its start to count
+if len(sys.argv) != 4:
+    sys.exit("usage: python check.py <video.mp4> <audio/manifest.json> <beats.json>")
+video, manifest, beats = sys.argv[1], json.loads(Path(sys.argv[2]).read_text()), json.loads(Path(sys.argv[3]).read_text())
+if [b["text"] for b in manifest] != beats:
+    sys.exit("FAIL: the manifest does not match beats.json, so the audio is stale. Run voice.py again, then render.")
 starts, t = [], 0.0
 for b in manifest:
     starts.append(t)
@@ -283,21 +294,27 @@ rate = frames[0].sample_rate
 samples = np.concatenate([f.to_ndarray().mean(axis=0) for f in frames])
 step = int(rate * 0.02)
 rms = np.sqrt(np.convolve(samples ** 2, np.ones(step) / step, mode="same"))[::step]
+if rms.max() == 0:
+    sys.exit("FAIL: the audio track is silent")
 loud = rms > rms.max() * 0.05
-onsets = [i * 0.02 for i in range(len(loud)) if loud[i] and (i < 13 or not loud[i - 13:i].any())]
+gap = int(QUIET / 0.02)
+onsets = [i * 0.02 for i in range(len(loud)) if loud[i] and not loud[max(0, i - gap):i].any()]
 tolerance = 1 / fps + 0.1
-for i, want in enumerate(starts):  # a pause inside a beat is an onset too, so take the nearest
-    got = min(onsets, key=lambda o: abs(o - want))
-    flag = "" if abs(got - want) <= tolerance else "  <-- late or early"
-    print(f"beat {i}: planned {want:6.2f} s, heard {got:6.2f} s ({got - want:+.2f}){flag}")
-    if flag:
-        failures.append(f"beat {i} starts {got - want:+.2f} s from plan")
+last = -1.0
+for i, want in enumerate(starts):  # each beat takes the first unused onset near its planned start
+    near = [o for o in onsets if o > last and abs(o - want) <= tolerance]
+    if near:
+        last = near[0]
+        print(f"beat {i}: planned {want:6.2f} s, heard {last:6.2f} s ({last - want:+.2f})")
+    else:
+        print(f"beat {i}: planned {want:6.2f} s, no speech starts within {tolerance:.2f} s  <-- missing or mistimed")
+        failures.append(f"beat {i} does not start at {want:.2f} s")
 
 stem = Path(video).with_suffix("")
 with av.open(video) as c:
     for i, s in enumerate(starts):
         target = s + min(1.5, manifest[i]["seconds"])
-        c.seek(int(target / av.time_base))  # lands on the keyframe before the target, so decode forward
+        c.seek(int(target * av.time_base))  # lands on the keyframe before the target, so decode forward
         frame = next(f for f in c.decode(video=0) if f.time >= target)
         frame.to_image().save(f"{stem}-beat{i}.png")
 print(f"frames: {stem}-beat0.png ... look at each one")
@@ -313,7 +330,7 @@ cd <the folder holding the four files>
 export KOKORO_MODEL=~/.cache/kokoro/kokoro-v1.0.int8.onnx KOKORO_VOICES=~/.cache/kokoro/voices-v1.0.bin
 ~/.venvs/explainers/bin/python voice.py kokoro beats.json audio
 ~/.venvs/explainers/bin/manim -qm scene.py Explainer          # -ql while iterating; -qh for the final
-~/.venvs/explainers/bin/python check.py media/videos/scene/720p30/Explainer.mp4 audio/manifest.json
+~/.venvs/explainers/bin/python check.py media/videos/scene/720p30/Explainer.mp4 audio/manifest.json beats.json
 ```
 
 Then open every `Explainer-beatN.png` that `check.py` wrote, and watch the video once with sound.
@@ -324,7 +341,7 @@ Then open every `Explainer-beatN.png` that `check.py` wrote, and watch the video
 |---|---|
 | `Error processing file '/Users/runner/work/.../espeak-ng-data/phontab'` and the process exits | Kokoro's and Piper's bundled espeak-ng cannot use a data path longer than 158 characters. It falls back to the path on the machine that built the package. Put the environment at a short path. Or link the bundled `espeak-ng-data` folder itself (not its parent) to a short path and point the variable at the link: `ln -s <path>/espeak-ng-data ~/.espeak-ng-data` and `export ESPEAK_DATA_PATH=~/.espeak-ng-data`. `voice.py` checks this first and prints the exact command. |
 | `pip install manim` fails at "Dependency lookup for cairo" | pycairo is building from source, and pkg-config is missing: `brew install cairo pkgconf` |
-| the video has no sound, or sound only in parts | rendering with `-s` or with animations skipped: `add_sound` does nothing for skipped sections |
+| a second render of an unchanged scene loses some or all of its narration, with no error | Manim's render cache: after an animation is served from the cache, `add_sound` is ignored until the next `play()`. `scene.py` turns the cache off (`config.disable_caching = True`), and `check.py` fails on a beat whose speech does not start. The same happens to any section rendered with `-s` or skipped |
 | narration drifts later and later | each beat was timed relative to the last instead of to an absolute end time, so frame rounding accumulates |
 | the old narration plays after an edit | the voice step failed and the scene read the previous manifest; `voice.py` deletes the manifest before it starts so this cannot happen silently |
 | `ShowCreation`, `TexMobject` or `from manimlib import *` errors | ManimGL names in a Manim CE scene: use `Create`, `MathTex`/`Text` and `from manim import ...` |
@@ -341,9 +358,10 @@ Then open every `Explainer-beatN.png` that `check.py` wrote, and watch the video
 | install | `pkgconf` was the one missing system package; pycairo 1.29.2 built from source in 5 s once it was present |
 | Manim environment | 259 MB (Manim CE 0.21.0, pycairo 1.29.2, ManimPango 0.7.0, PyAV 19.0.1, numpy 2.5.3) |
 | sample | 4 beats, about 18.5 s at 1280×720, 30 fps, H.264 with AAC; render took about 6 s |
-| timing | every beat started within 0.07 s of plan (Kokoro), 0.10 s (Piper) and 0.05 s (`say`); duration within 0.03 s |
+| timing | every beat started within 0.07 s of plan (Kokoro), 0.11 s (Piper, whose files open with about 0.1 s of silence) and 0.04 s (`say`); duration within 0.03 s |
 | re-flow | lengthening line 2 by 1.7 s moved every later beat by the same amount, still within 0.04 s |
-| fail-loud | a stale manifest, a long espeak path and an unset paid-voice key each stopped the run with a message naming the cause |
+| fail-loud | stale audio (the manifest no longer matches `beats.json`), a beat whose speech does not start on time, a silent track, a long espeak path and an unset paid-voice key each stop the run with a message naming the cause |
+| found in review | the first `check.py` matched each beat to the nearest sound anywhere, so a missing beat could pass, and its frame grabs never actually seeked. Fixing it exposed the cache pitfall above: a cached re-render had silently dropped two beats. Every timing in this table comes from a first render, checked again with the corrected script |
 | HTML | one page with a hand-written SVG, a Mermaid sequence diagram from `mmdc` 12.0.0 and three controls: zero network requests, no console errors, every control behaved as described |
 | reproduction | a second agent, given only this page, rebuilt the sample in a new folder: `check.py` passed, every beat within 0.07 s, all four frames matched their lines. Its one guess (how to shorten the espeak path) is now spelt out in `voice.py`'s message and the pitfalls table |
 | not run | the paid voice's call; Graphviz and ELK; Linux and Windows |

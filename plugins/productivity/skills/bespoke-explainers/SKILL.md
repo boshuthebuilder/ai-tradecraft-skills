@@ -141,8 +141,9 @@ The pipeline: **script → beats → voice → scene → 20-second sample → fu
 ## Where the pieces live
 
 - Writing the prose rung, and every narration script: **controlled-writing**.
-- Which Mermaid kinds and callout types render in Typora and Obsidian, and how a markdown page should link
-  to an `.html` or `.mp4` explainer beside it: **portable-markdown**.
+- Which Mermaid kinds and callout types render in Typora and Obsidian, and the link rules for a markdown
+  page that points at a file beside it, such as an `.html` or `.mp4` explainer (destination encoding, the
+  vault boundary): **portable-markdown**.
 - Whether prose reads as a person wrote it: **ai-writing-audit**. It does not apply to narration written as
   controlled text.
 
@@ -154,7 +155,7 @@ post](https://x.com/karpathy/status/2105819303471976479) on understanding the ou
 video recipe was proven end to end on 2026-10-07, on an Apple-silicon Mac with macOS 27.0.1 and Python 3.12.13:
 Manim Community Edition 0.21.0 (pycairo 1.29.2, ManimPango 0.7.0, PyAV 19.0.1), with narration by Kokoro through
 `kokoro-onnx` 0.6.1 (int8 model, v1.0 voices), and by Piper (`piper-tts` 1.8.0) and the macOS `say` voice as
-alternatives. Every beat started within 0.10 s of plan. A second agent reproduced it from REFERENCE alone. The
+alternatives. Every beat started within 0.11 s of plan. A second agent reproduced it from REFERENCE alone. The
 diagram rows were checked with the Mermaid CLI 12.0.0 (Mermaid 12.1.0) and a hand-written SVG, rendered in
 one self-contained page with zero network requests. **Documented, not run:** the paid voice's own call, the
 computed-layout row (Graphviz and ELK), and any platform other than macOS. Re-verify after a major version of

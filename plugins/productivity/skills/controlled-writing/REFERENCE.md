@@ -128,14 +128,15 @@ unreliable, so count them with code or by hand.
 
 Measured 2026-10 on an invented 222-word incident note, four sentences long (the longest 74 words). A fresh
 agent rewrote it from these two pages alone, as a description, at each setting. Sentence lengths were counted
-by script. The rhythm figure is `ai-writing-audit`'s `tools/audit.py`.
+by script. The SD and the verdict are `ai-writing-audit`'s `tools/audit.py`, which splits sentences slightly
+differently, so its sentence count can differ by one.
 
 | text | words | sentences | longest | over the ceiling | sentence-length SD | scanner verdict |
 |---|---|---|---|---|---|---|
 | source | 222 | 4 | 74 | 4 | 10.7 | (not run) |
 | 100% | 429 | 38 | 19 | 0 | 4.1 | "monotone rhythm, an AI tell" |
 | 80% | 343 | 31 | 19 | 0 | 4.3 | "monotone rhythm, an AI tell" |
-| 50% | 253 | 19 | 21 | 0 | 4.7 | not run |
+| 50% | 253 | 19 | 21 | 0 | 4.8 | "monotone rhythm, an AI tell" |
 
 Every claim in the ledger survived at every setting. The scanner flagged only the rhythm, and nothing else
 in any band. That is the expected result, and the reason for the boundary in SKILL.md: the flag is correct
