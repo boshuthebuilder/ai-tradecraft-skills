@@ -436,10 +436,15 @@ This is the spine. For **each** item in the inbox / drop folder:
    duplicate and route it to deletion/review. Only different content behind the same natural name earns
    the non-colliding rename.
    **When the destination folder seems missing**, check its siblings for the folder the local convention
-   actually predicts (country vs city names, year prefixes) before raising anything — the right folder
-   usually exists under a different convention than the source suggests. If a folder genuinely must be
-   created, escalate *with the proposed path* as a one-click decision for the owner, never a bare report
-   of absence.
+   actually predicts (country vs city names, year prefixes) before deciding it is missing — the right
+   folder usually exists under a different convention than the source suggests. If a folder genuinely
+   must be created below an existing top-level folder, the deployment's write contract decides who
+   creates it ([the three layers](../../ARCHITECTURE.md#the-three-layers-of-a-job)). Where the deployment
+   creates folders itself under its own deterministic guards (a bounded depth, every new name checked, a
+   half-built path undone), name the full destination and file into it: the deployment creates the
+   folder, and asking the owner to make one the system can make is a chore with no reason. Where it has
+   no such guard, escalate *with the proposed path* as a one-click decision for the owner, never a bare
+   report of absence. Either way, never a new top-level folder.
 3. **Update the pages the source touches — by integrating, never accreting.** Use the Schema's trigger
    table to pick the page(s), then the section on each page the fact belongs to, and put it where the
    page already tracks it: the row in the table that holds its kind, the list it extends, the field or

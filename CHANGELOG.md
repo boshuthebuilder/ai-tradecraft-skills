@@ -4,6 +4,38 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v14.0.0 (2026-10-07)
+
+A **MAJOR**: a documented rule changes for one class of deployment (#145). `wiki-maintenance`'s core loop told an
+agent that found a destination folder genuinely missing to escalate it to the owner "with the proposed path". A
+deployment that creates folders itself, under deterministic guards, still pasted that sentence into its ingest
+prompts. Its own prompt then had to say it overrides the skill, or the model asked the owner to make a folder the
+system would have made: the chore the deployment's guard exists to remove. No skill name, archetype layout or prompt
+placeholder changed.
+
+### Breaking (MAJOR)
+
+- **Who creates a missing folder follows the deployment's write contract**
+  ([`wiki-maintenance`](plugins/ai-os/skills/wiki-maintenance/SKILL.md#processing-an-incoming-item--the-core-loop),
+  core loop step 2).
+  - Where the deployment creates folders under its own guards (a bounded depth, every new name checked, a
+    half-built path undone), the agent names the full destination and files into it.
+  - Where it has no such guard, it escalates with the proposed path, as before.
+  - Never a new top-level folder, either way.
+- **The file-ingest archetype follows** (`archetypes/file-ingest/ingest.md`, step 2): file only under an existing
+  top-level folder, and a missing folder below it goes the way the core loop says.
+
+### Migrating a deployment
+
+- **A deployment with no folder-creation guard:** nothing changes; the escalation reads as before.
+- **A deployment with one:** state the guard in its write contract. It may drop any prompt text that overrode the
+  old sentence.
+- **Both:** re-reconcile the twins of `file-ingest/ingest.md`. No placeholder or output shape changed.
+
+### Placeholders
+
+No placeholder was added, removed or made required.
+
 ## v13.1.0 (2026-10-07)
 
 A **MINOR**: two new `productivity` skills for understanding what an agent produced (#142, #143, #144). Nothing
