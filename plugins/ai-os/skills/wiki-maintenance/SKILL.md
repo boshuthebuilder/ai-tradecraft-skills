@@ -424,8 +424,8 @@ This is the spine. For **each** item in the inbox / drop folder:
    identify them from that, or open the image directly if you can. If you genuinely cannot read it (no
    text, or the file is blocked/unavailable), it has **no content**: flag it **for review** with the
    real reason — never invent a cause, never guess its contents, never file it blind.
-2. **File it** into the owner's **existing** folders by confident match, with a **descriptive, renamed
-   filename** (rename a meaningless `Scanned Document.pdf` to something like
+2. **File it** into the owner's folders by confident match, under an **existing** top-level folder and
+   into a folder that already exists wherever one fits, with a **descriptive, renamed filename** (rename a meaningless `Scanned Document.pdf` to something like
    `Finance/Bills/<provider> Statement 2026-05-27.pdf`), keeping the extension. **Never create a new
    top-level folder.** Anything you can't place confidently stays put and is flagged for review.
    An item that seems to belong to another project is still filed or flagged here (see *Rules that
@@ -439,12 +439,13 @@ This is the spine. For **each** item in the inbox / drop folder:
    actually predicts (country vs city names, year prefixes) before deciding it is missing — the right
    folder usually exists under a different convention than the source suggests. If a folder genuinely
    must be created below an existing top-level folder, the deployment's write contract decides who
-   creates it ([the three layers](../../ARCHITECTURE.md#the-three-layers-of-a-job)). Where the deployment
-   creates folders itself under its own deterministic guards (a bounded depth, every new name checked, a
-   half-built path undone), name the full destination and file into it: the deployment creates the
-   folder, and asking the owner to make one the system can make is a chore with no reason. Where it has
-   no such guard, escalate *with the proposed path* as a one-click decision for the owner, never a bare
-   report of absence. Either way, never a new top-level folder.
+   creates it ([the three layers](../../ARCHITECTURE.md#the-three-layers-of-a-job)), and the deployment
+   says which in the instructions it gives the agent. Where they say it creates folders itself under its
+   own deterministic guards (a bounded depth, every new name checked, a half-built path undone), name the
+   full destination and file into it: the deployment creates the folder, and asking the owner to make one
+   the system can make is a chore with no reason. Where they say nothing, assume no such guard: escalate
+   *with the proposed path* as a one-click decision for the owner, never a bare report of absence. Either
+   way, never a new top-level folder.
 3. **Update the pages the source touches — by integrating, never accreting.** Use the Schema's trigger
    table to pick the page(s), then the section on each page the fact belongs to, and put it where the
    page already tracks it: the row in the table that holds its kind, the list it extends, the field or

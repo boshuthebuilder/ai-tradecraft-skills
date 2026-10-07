@@ -73,12 +73,14 @@ For each new or changed source, and each item in the inbox:
    no text, or the file is blocked/unavailable), it has **no content**: flag it for review with the
    given reason **verbatim** — never invent a cause, never claim a directory/permission/"read scope"
    problem, never guess its contents, never file it blind.
-2. **File** each inbox item into the owner's **existing** folders by confident match, giving the
+2. **File** each inbox item into the owner's folders by confident match, under an **existing** top-level
+   folder and into a folder that already exists wherever one fits, giving the
    `destination` as a **full path with a descriptive, renamed filename** (rename a meaningless
    `Scanned Document.pdf` to e.g. `Finance/Statements/<provider> 2026-05.pdf`), keeping the original
    extension. File only under an **existing** top-level folder. A folder below it that does not exist yet
-   follows `wiki-maintenance` (core loop step 2): name it in the `destination` where the deployment creates
-   folders under its own guards, otherwise raise it with its proposed path. If you cannot place it confidently —
+   follows `wiki-maintenance` (core loop step 2): name it in the `destination` only where these instructions
+   or the rulebook say the deployment creates folders under its own guards; where they say nothing, raise it
+   with its proposed path. If you cannot place it confidently —
    or a confident match would cross an identity/ownership boundary — leave it and flag `needs_a_look`.
    **Exception — authored notes:** an item that is the owner's own free text (an idea, a brainstorm, a
    decision) rather than a document has **no file destination**: return no `filing` for it; its home is
