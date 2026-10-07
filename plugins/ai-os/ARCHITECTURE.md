@@ -27,7 +27,7 @@ improve the wiki's own Schema. Each such family is its own **archetype** with it
 contract, flowing through the same three layers and the same gate described below.
 
 What a job family may *touch* is part of its archetype's contract. File-ingest reads the owner's
-files in place and writes only the wiki (plus filing inbox items into existing folders); a
+files in place and writes only the wiki (plus filing inbox items under existing top-level folders); a
 folder-hygiene archetype would *propose* moves and deletions for the owner to approve, not execute
 them. Whatever the family: every write goes through the deployment's deterministic guards, and
 anything that touches the owner's own material defaults to propose-only.
@@ -88,8 +88,9 @@ A job is **not** a monolith. It is three layers, each with a single home, compos
    is kept: the page model, provenance, the never-overwrite-a-human-edit rule, surfacing. One home,
    reused by every job and every interactive session.
 3. **The deterministic guards** — the *enforcement*, in the deployment's code, not the prompt. The
-   inbox path, the "file only into an existing folder" rule, the `.proposed.md` write-guard, the
-   in-root path check: these are enforced deterministically so the model **cannot** violate them even
+   inbox path, the "file only under an existing top-level folder" rule (and, where the deployment creates
+   folders below one, the bounds it creates them within), the `.proposed.md` write-guard, the in-root path
+   check: these are enforced deterministically so the model **cannot** violate them even
    if it tries. The prompt *describes* the intent; the code *guarantees* it.
 
 The split matters: guidance the model reads (layers 1–2) is prose it can be persuaded against;

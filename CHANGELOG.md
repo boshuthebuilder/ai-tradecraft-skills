@@ -4,6 +4,44 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v14.0.0 (2026-10-07)
+
+A **MAJOR**: a documented rule changes for one class of deployment (#145). `wiki-maintenance`'s core loop told an
+agent that found a destination folder genuinely missing to escalate it to the owner "with the proposed path". A
+deployment that creates folders itself, under deterministic guards, still pasted that sentence into its ingest
+prompts. Its own prompt then had to say it overrides the skill, or the model asked the owner to make a folder the
+system would have made: the chore the deployment's guard exists to remove. No skill name, archetype layout or prompt
+placeholder changed.
+
+### Breaking (MAJOR)
+
+- **Who creates a missing folder follows the deployment's write contract**
+  ([`wiki-maintenance`](plugins/ai-os/skills/wiki-maintenance/SKILL.md#processing-an-incoming-item--the-core-loop),
+  core loop step 2).
+  - The deployment says in the instructions it gives the agent whether it creates folders under its own guards
+    (a bounded depth, every new name checked, a half-built path undone). Where it says so, the agent names the full
+    destination and files into it.
+  - Where it says nothing, the agent assumes no guard and escalates with the proposed path, as before.
+  - Never a new top-level folder, either way.
+- **Everything that stated the old rule follows:**
+  - the file-ingest archetype's step 2 (`archetypes/file-ingest/ingest.md`): file only under an existing top-level
+    folder, and a missing folder below it goes the way the core loop says;
+  - `ARCHITECTURE.md`'s write contract and three layers: the guard is "file only under an existing top-level
+    folder", plus any bounds the deployment creates folders within;
+  - the pre-onboarding rulebook template, which now files "under an existing top-level folder".
+  - Step 2's opening, in both the skill and the archetype, no longer says "existing folders" outright.
+
+### Migrating a deployment
+
+- **A deployment with no folder-creation guard:** nothing changes; the escalation reads as before.
+- **A deployment with one:** state the guard in its write contract and say so in the instructions its ingest
+  prompt gives the agent. It may drop any prompt text that overrode the old sentence.
+- **Both:** re-reconcile the twins of `file-ingest/ingest.md`. No placeholder or output shape changed.
+
+### Placeholders
+
+No placeholder was added, removed or made required.
+
 ## v13.1.0 (2026-10-07)
 
 A **MINOR**: two new `productivity` skills for understanding what an agent produced (#142, #143, #144). Nothing

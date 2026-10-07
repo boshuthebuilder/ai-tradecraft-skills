@@ -51,8 +51,8 @@ These top-level names are the system's, and none is one of the owner's documents
 
 ## New files
 
-- New files arrive in `{inbox}` {how_files_arrive}. The wiki's routing files each one within this folder, into an
-  existing folder, and never creates a new top-level one.
+- New files arrive in `{inbox}` {how_files_arrive}. The wiki's routing files each one within this folder, under an
+  existing top-level folder, and never creates a new top-level one.
 - A file that seems to belong to another project is filed here like any other. The owner's own synthesis may suggest
   a move, and the owner makes it by hand.
 
