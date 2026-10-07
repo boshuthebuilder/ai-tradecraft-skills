@@ -271,8 +271,11 @@ def main():
         groups[m["id"]].append(rel)
 
     def canon_key(p):
+        # A name marked as a copy loses first, then a generic name (a bare number, a scanner timestamp, IMG_), so a
+        # raw scan in a dump folder never outranks the named copy filed from it; then the shallower path, then the
+        # shorter, then the first by name.
         stem = os.path.splitext(os.path.basename(p))[0]
-        return (1 if COPY_RX.search(stem) else 0, p.count("/"), len(p), p)
+        return (1 if COPY_RX.search(stem) else 0, 1 if is_generic(stem) else 0, p.count("/"), len(p), p)
 
     dir_ids = collections.defaultdict(set)
     for rel, m in meta.items():
