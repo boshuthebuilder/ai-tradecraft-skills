@@ -4,17 +4,20 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
-## v14.1.0 (2026-10-08)
+## v15.0.0 (2026-10-08)
 
-A **MINOR**, in two parts (#148, #149). The user vault (the second brain) was the one wiki outside
+A **MAJOR**, in two parts (#148, #149): a documented rule gains an exception, and the synthesis templates
+require more of the gather. The user vault (the second brain) was the one wiki outside
 `wiki-maintenance`'s core wiki rule: its `09 Schema` held stability rules only, `synthesise.md` named no
 professional, contract, rationale block or acceptance, and `reconcile` could not count what was missing. It
 was also the one job family that never saw an owner confirmation record: v13.0.0 pinned every record into
 every project ingest and reconcile, but the synthesis gather was wikis only, so a record reached it as a
 `derived` line it could not tell from a document's. No skill name, archetype layout or prompt placeholder
-changed.
+changed, but a deployment that advances its pin without the migration below has a synthesis that proposes
+every Knowledge page and writes none, because no kind has a row; that, and the exception to the core wiki
+rule, is why this is a MAJOR rather than the MINOR first planned.
 
-### Added (MINOR)
+### Breaking (MAJOR)
 
 - **The rule in a user vault**
   ([`wiki-maintenance`](plugins/ai-os/skills/wiki-maintenance/SKILL.md#the-rule-in-a-user-vault)): a type-1 user
