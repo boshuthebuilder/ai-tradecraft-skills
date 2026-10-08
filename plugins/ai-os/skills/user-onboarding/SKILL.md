@@ -178,8 +178,9 @@ counts it with the pages that have no rationale block, where the deployment's sw
 acceptance state in its findings (the archetype's `scheduler.md`); the review runs again on any page
 found without a verdict, and a refused page is corrected by the next reconcile from the review's
 findings and reviewed again. A page is accepted again when its kind,
-contract, professional or anatomy changes, and the deployment keys each verdict to those four, as the
-page's rationale block records them, never to the page's body
+contract, professional or anatomy changes, and the deployment keys each verdict to those four,
+recording with it a fingerprint of the kind's whole row (professional, reader, questions, fields) and
+the page's anatomy as its rationale block records it, never the page's body
 ([the rule in a user vault](../wiki-maintenance/SKILL.md#the-rule-in-a-user-vault)): a routine
 synthesis that only integrates a fact keeps the verdict. `wiki-onboarding`'s order rule, under which
 any later edit voids a verdict, governs the interactive session that builds a project wiki before its

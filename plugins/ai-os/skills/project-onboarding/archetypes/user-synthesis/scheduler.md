@@ -39,12 +39,15 @@ file-ingest `reconcile`:
   reckons the whole vault against all accessible sources.
 - **Deterministic sweeps first.** Before the model call, run the mechanical health sweeps (orphan pages,
   staleness, pages with no `kind:`, no block in `_Audit/wiki-rationale.md` or no accepted verdict in
-  `_Audit/wiki-acceptance.json`, pages whose rationale block no longer matches their kind's row in
-  `09 Schema`, log digest) and pass their findings into the prompt as a worklist — the model judges,
-  the sweeps locate. The marker for a changed kind row is the page's rationale block (its
-  professional-lens line against the row's fixed professional and contract questions), never the
+  `_Audit/wiki-acceptance.json`, pages whose verdict was recorded under an older version of their
+  kind's row in `09 Schema`, log digest) and pass their findings into the prompt as a worklist — the
+  model judges, the sweeps locate. The marker for a changed kind row is a **fingerprint of the whole
+  row**, the fixed professional and every contract column (reader, questions, fields), which the
+  deployment records with each verdict in `_Audit/wiki-acceptance.json` and compares with the row as
+  it stands; a page is out of step when they differ, or when it has no verdict at all. Never the
   page's write time, which a reactive `synthesise` can advance with a fact-only update after the row
-  changed. The acceptance state reaches the model only this way: neither prompt input shows the
+  changed, and never the rationale block alone, whose professional-lens line records the professional
+  and the questions but not the reader or the fields. The acceptance state reaches the model only this way: neither prompt input shows the
   acceptance record itself. A page found with no verdict is handed to the acceptance review directly,
   which runs on any page without a verdict, not only after a write; a page found refused carries the
   review's findings in the worklist, so the reconcile can return it corrected and the review runs

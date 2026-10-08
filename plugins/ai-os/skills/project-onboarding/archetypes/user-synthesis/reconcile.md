@@ -79,9 +79,9 @@ Reckon the whole vault and correct drift, making the **minimal stable changes** 
    professional, or, where the kind delegates, the one the page names in `professional:`, which you
    keep rather than re-choose. A page with no kind, a delegated page with no professional, one that
    has slid into generic prose, or one the findings name as out of step with its kind's row (its
-   rationale's professional lens no longer matches the row's fixed professional or contract
-   questions), is rewritten in its voice and to its contract with a `rationale` whose `changed` line
-   says so; a page that fits no kind is proposed in `needs_a_look`, not re-kinded, and counted. Where the
+   verdict was recorded under an older version of the row: a different fixed professional, reader,
+   questions or fields), is rewritten in its voice and to the row as it stands with a `rationale`
+   whose `changed` line says so; a page that fits no kind is proposed in `needs_a_look`, not re-kinded, and counted. Where the
    findings name the pages with no rationale block, or the structure shows the headings of
    `_Audit/wiki-rationale.md`, count them, and **restore each missing block**: return the page as an
    `update` with its `rationale` filled (`changed`: "rationale block restored"), its body unchanged

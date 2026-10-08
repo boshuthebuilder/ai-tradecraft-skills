@@ -62,13 +62,15 @@ the write; a page with no verdict reads as not recorded, never as accepted. The 
 page the sweep finds without a verdict, so a lost or never-run review is retried without a write; a
 refused verdict's findings go into `{reconcile_findings}`, the reconcile returns the page corrected,
 and the step reviews it again. The deployment keys a verdict to the page's kind, contract,
-professional and anatomy, as its rationale block records them, never to the body, so an update that
-only integrates a fact keeps it. A change to a kind's row, its contract or its fixed professional, is
+professional and anatomy (a fingerprint of the kind's whole row, and the anatomy as the rationale
+block records it), never to the body, so an update that only integrates a fact keeps it. A change to a kind's row, its contract or its fixed professional, is
 a Schema change the owner agrees, and the deployment's sweep then names in `{reconcile_findings}` the
-pages whose rationale block no longer matches the row (its professional-lens line against the row's
-professional and questions; the marker is that line, never the page's write time, which a reactive
-`synthesise` can advance with a fact-only update), so the next pass rewrites them to the row with a
-fresh rationale and the acceptance step reviews them. A page the findings name with no block comes back from the reconcile
+pages whose verdict was recorded under an older version of the row (the deployment keeps a
+fingerprint of the whole row, professional, reader, questions and fields, with each verdict, and
+compares it with the row as it stands; the marker is that fingerprint, never the page's write time,
+which a reactive `synthesise` can advance with a fact-only update, and never the rationale block
+alone, which records the professional and questions only), so the next pass rewrites them to the row
+with a fresh rationale and the acceptance step reviews them. A page the findings name with no block comes back from the reconcile
 as an update carrying its `rationale`, so the deployment writes the block and the finding closes. For
 the reconcile's counts, the deployment shows the
 headings of `_Audit/wiki-rationale.md` with the structure, or names the pages with no block in
