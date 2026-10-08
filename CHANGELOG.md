@@ -27,7 +27,8 @@ skill name, archetype layout or prompt placeholder changed.
   synthesis later creates, reshapes or rewrites to a changed contract is accepted the same way as a deployment
   step after the write, a page
   with no verdict reads as not recorded, and a page is accepted again when its kind, contract, professional or
-  anatomy changes. `_Audit/` joins the skeleton.
+  anatomy changes, to which the verdict is keyed (never to the body, so a routine update keeps it). `_Audit/`
+  joins the skeleton.
 - **The `user-synthesis` archetype** writes every page as its professional, to its kind's contract: the Index
   as the chief of staff's briefing note; a matter or theme page's professional chosen from the catalogue at
   run time, named in `professional:` and its rationale block, and kept on later updates. `wiki_pages[]` gains

@@ -168,7 +168,12 @@ step after the write, through a model other than the one that wrote the page, an
 A page with no verdict is reported as **not recorded**, never as accepted, and the periodic reconcile
 counts it with the pages that have no rationale block, where the deployment's sweep puts the
 acceptance state in its findings (the archetype's `scheduler.md`). A page is accepted again when its kind,
-contract, professional or anatomy changes. Then hand off: the vault
+contract, professional or anatomy changes, and the deployment keys each verdict to those four, as the
+page's rationale block records them, never to the page's body
+([the rule in a user vault](../wiki-maintenance/SKILL.md#the-rule-in-a-user-vault)): a routine
+synthesis that only integrates a fact keeps the verdict. `wiki-onboarding`'s order rule, under which
+any later edit voids a verdict, governs the interactive session that builds a project wiki before its
+hand-off, not a vault maintained by jobs. Then hand off: the vault
 now maintains itself — a project wiki the identity can access changes, the next synthesis tick evolves
 the Knowledge slice it touched; the weekly reconcile reckons the whole vault for drift. Authored ideas
 land in `02 Ideas/` through the interactive capture surfaces, never by hand in the vault.

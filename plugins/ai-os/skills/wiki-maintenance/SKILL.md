@@ -275,7 +275,10 @@ vault's areas are fixed, and its Knowledge tree emerges by theme and entity from
 reads. The rationale file and the acceptance record live in `_Audit/` at the vault root, written by the
 deployment: the rationale file from what the synthesis returns, the acceptance record from the
 verdicts of the independent review, a model that did not write the page, never from the synthesis
-itself. Which kinds there are, who proposes them and when a page is
+itself. A verdict is keyed to what [acceptance](#acceptance) re-opens, the page's kind, contract,
+professional and anatomy, as its rationale block records them, never to the page's body: an update
+that only integrates a fact keeps the verdict, and a page is accepted again when one of those four
+changes. Which kinds there are, who proposes them and when a page is
 accepted are [`user-onboarding`'s](../user-onboarding/SKILL.md#3-scaffold-the-type-1-skeleton).
 
 ## Page anatomy and evidence
