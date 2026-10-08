@@ -37,8 +37,10 @@ file-ingest `reconcile`:
 - **No reactive gate.** It does not consult the `synthesise` seen-hash; it simply runs on its clock and
   reckons the whole vault against all accessible sources.
 - **Deterministic sweeps first.** Before the model call, run the mechanical health sweeps (orphan pages,
-  staleness, pages with no `kind:` or no block in `_Audit/wiki-rationale.md`, log digest) and pass
-  their findings into the prompt as a worklist — the model judges, the sweeps locate.
+  staleness, pages with no `kind:`, no block in `_Audit/wiki-rationale.md` or no accepted verdict in
+  `_Audit/wiki-acceptance.json`, log digest) and pass their findings into the prompt as a worklist —
+  the model judges, the sweeps locate. The acceptance state reaches the model only this way: neither
+  prompt input shows the acceptance record itself.
 - **Same write context + consume-on-success** as `synthesise`.
 
 One periodic timer **per identity**, alongside its reactive `synthesise` timer.
