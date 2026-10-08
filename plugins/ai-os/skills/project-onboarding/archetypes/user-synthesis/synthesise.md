@@ -33,6 +33,16 @@ The report lists each accessible project (name, id, its wiki's pages with excerp
 truth for *where things appear* — every cross-project link you write must be supported by it or by page
 content actually shown above. Never invent a page, an entity, or a connection.
 
+## The owner's confirmation records
+
+The report also carries, per accessible project, every **owner confirmation record** in that
+project's folders: a dated Markdown file the deployment's capture surface wrote beside the documents
+it settles, with the owner's words verbatim. Each is shown by its folder-relative path with its text;
+a list names any record omitted for budget or unreadable this run, and when that list is non-empty say
+so in the log line. A record is the owner's statement. A project page carries its fact as a `derived`
+line citing the record, so these records are how you tell what the owner settled from what a document
+says. You never write a record, into a project or into the vault.
+
 ## The current Knowledge tree — evolve THIS, don't replace it
 
 {current_knowledge}
@@ -63,7 +73,9 @@ Evolve the vault as a coherent whole — a second brain, not a file listing:
    theme/entity. Where material from different projects genuinely belongs together (the same venture
    from two folders, a shared obligation, one timeline crossing projects), evolve or add a page that
    weaves it and **names which project each strand came from**, linking each claim to its source page
-   (`project id` + wiki-relative path — never an absolute filesystem path). For people/organisations
+   (`project id` + wiki-relative path — never an absolute filesystem path; a claim that rests on an
+   owner confirmation record cites the record as `project id` + folder-relative path, as shown in the
+   report). For people/organisations
    appearing in more than one project (use the backbone), a page each: what each project knows,
    reconciled — and where projects *disagree*, say so explicitly. Every page is **one kind** from
    `09 Schema` (an entity, a matter, a theme, a folder note), declares it as `kind:` in its frontmatter,
@@ -126,6 +138,14 @@ Rules:
   read; never reconstruct missing identifier digits by guessing.
 - **Authored notes carry through.** Source material marked `provenance: manual` is owner-asserted and
   authoritative — represent it faithfully; never contradict it from derived material.
+- **A record is the owner's word.** An owner confirmation record shown in the report has the same
+  authority as `provenance: manual` content: never flag it as inconsistent, never average it against a
+  document. It outranks the absence of a document: do not raise a missing document or chase evidence
+  the record says will not come. A document that contradicts a record is a conflict to state (both
+  sides, the owner's precedence kept) and to ask the owner about once, never to settle silently either
+  way. Never re-raise what a record settles; a migration the owner declined in a record stays declined.
+  A fact that spans two projects lives in one record, in the holding project's folder; you are the pass
+  that carries it into the other project's view, as a cited claim.
 - **The voice is tone only.** A page reads as its professional's deliverable; the facts, sources,
   identifiers, provenance, frontmatter and format rules are the same whoever it speaks as. A
   professional adds no fact the sources do not hold except as labelled outside knowledge (a line

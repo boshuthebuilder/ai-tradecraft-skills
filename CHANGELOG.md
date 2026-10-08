@@ -4,12 +4,15 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
-## Unreleased
+## v14.1.0 (2026-10-08)
 
-A **MINOR**: the second brain keeps the core wiki rule (#148). The user vault was the one wiki outside
+A **MINOR**, in two parts (#148, #149). The user vault (the second brain) was the one wiki outside
 `wiki-maintenance`'s core wiki rule: its `09 Schema` held stability rules only, `synthesise.md` named no
-professional, contract, rationale block or acceptance, and `reconcile` could not count what was missing. No
-skill name, archetype layout or prompt placeholder changed.
+professional, contract, rationale block or acceptance, and `reconcile` could not count what was missing. It
+was also the one job family that never saw an owner confirmation record: v13.0.0 pinned every record into
+every project ingest and reconcile, but the synthesis gather was wikis only, so a record reached it as a
+`derived` line it could not tell from a document's. No skill name, archetype layout or prompt placeholder
+changed.
 
 ### Added (MINOR)
 
@@ -30,6 +33,21 @@ skill name, archetype layout or prompt placeholder changed.
   `_Audit/wiki-rationale.md` from it. `reconcile` keeps every page in its kind's voice and counts the pages
   with no kind or no block.
 - **`ARCHITECTURE.md`**'s type-1 skeleton gains `_Audit/` and points at the kinds.
+- **The testimony pin covers the synthesis** (#149;
+  [`ARCHITECTURE.md`](plugins/ai-os/ARCHITECTURE.md#surfacing-the-raised-item-lifecycle)): every
+  `synthesise` and `reconcile` of a user vault receives the text of every owner confirmation record in every
+  project its identity may access, under the same access rule and the testimony budget, with anything omitted
+  or unreadable named. No new placeholder: the records ride in `{gather_report}`, as for `file-ingest`.
+- **The `user-synthesis` archetype carries the record rules**
+  ([`README.md`](plugins/ai-os/skills/project-onboarding/archetypes/user-synthesis/README.md#owner-confirmation-records),
+  both templates): a record has the authority of `provenance: manual` content; it outranks the absence of a
+  document; a document that contradicts one is a conflict to state and to ask the owner about once; never
+  re-raise what a record settles, and a migration the owner declined in a record stays declined; a claim that
+  rests on a record cites it as `<project id>: <folder-relative path>`; the synthesis never writes a record. A
+  fact that spans two projects has one home, the holding project's folder, and the synthesis is the pass that
+  carries it into the other project's view. `scheduler.md`'s gate hashes the records too.
+- **`user-onboarding`**: the access scope governs the records (step 2), and step 5 checks it; `wiki-maintenance`'s
+  owner-record paragraph says a fact settled in a project folder also settles it in the second brain.
 
 ### Migrating a deployment
 
@@ -39,6 +57,9 @@ skill name, archetype layout or prompt placeholder changed.
   synthesis with the vault's structure.
 - Allow `rationale` and `kind:` in strict validation. The first run after the pin advance may rewrite pages
   into their kind's voice; the gate treats it as an ordinary change.
+- The synthesis gather reads record-named files from each accessible project's folders, under the testimony
+  budget, and the gate includes them in its hash. No output field changes for #149, so strict validation needs
+  nothing further.
 - Re-reconcile the twins of `user-synthesis/synthesise.md` and `reconcile.md`.
 
 ## v14.0.0 (2026-10-07)

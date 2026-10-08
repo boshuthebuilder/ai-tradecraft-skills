@@ -20,9 +20,10 @@ file-ingest. Two jobs, named for what they do (a job's `id` equals its `mode`):
 - **Deterministic (the deployment's code):** the **gate** — hash the accessible wikis' content plus
   the accessible-project set; reach the model only when that hash moved, and record the hash as seen
   only **after a successful write** (a failed run re-detects). And the **access-scoping** — gather
-  feeds the model *only* wikis this identity may access, so a cross-tier leak is impossible by
-  construction, plus a mechanical link backbone (entity → project-page occurrences) so every link the
-  synthesis makes is real and portable.
+  feeds the model *only* the wikis this identity may access, and the owner confirmation records in
+  those projects' folders (below), so a cross-tier leak is impossible by construction, plus a
+  mechanical link backbone (entity → project-page occurrences) so every link the synthesis makes is
+  real and portable.
 - **Reasoning (the model):** the synthesis itself — weaving the scoped sources into a coherent whole:
   themes, cross-project connections, a navigable index, every claim traceable to a source page.
   It also suggests cross-project migrations for the owner to make by hand (below).
@@ -56,6 +57,39 @@ Because Knowledge is incremental, the artefact can drift — hence the **`reconc
 whole-vault pass under the **same** write contract (still incremental, still fenced to the derived
 areas), differing only in **breadth** (the whole vault against all sources, not the changed slice) and
 **cadence** (a clock, not the reactive gate). See the twin rule in `ARCHITECTURE.md`.
+
+## Owner confirmation records
+
+An [owner confirmation record](../../../wiki-maintenance/SKILL.md#the-shape-of-a-folder) is a fact the
+owner settled by saying so, written by the deployment's capture surface into the folder of the matter
+it concerns. A project's wiki carries the fact as a `derived` line citing the record, so from the wiki
+alone the synthesis cannot tell what the owner settled from what a document says. The gather therefore
+shows the synthesis the records themselves: every record in every accessible project's folders, under
+the same access rule as the wikis (a record of a project outside scope is never shown), each run,
+within the testimony budget, with anything omitted or unreadable named
+([`ARCHITECTURE.md`](../../../../ARCHITECTURE.md#surfacing-the-raised-item-lifecycle)). No
+placeholder is added: the records ride inside `{gather_report}`, as they do for `file-ingest`. Both
+templates carry the rules:
+
+- a record has, for the synthesis, the authority of `provenance: manual` content: it is the owner's
+  statement; never flag it as inconsistent, never average it against a document;
+- a record outranks the absence of a document: do not raise a missing document or chase evidence the
+  record says will not come;
+- a document that contradicts a record follows *Sources that disagree stay visible*
+  (`wiki-maintenance`): state both, keep the owner's precedence, ask the owner once;
+- never re-raise what a record settles, and a migration the owner declined in a record stays declined
+  (the ledger holds the dismissal; the record is the durable copy);
+- a Knowledge page that relies on a record cites it as `<project id>: <folder-relative path>`, the form
+  the `migration` field already uses for folder paths; the synthesis never writes a record, into a
+  project or into the vault.
+
+**Homing a cross-project fact.** A fact that spans two projects ("the two J. Smiths are one person",
+"the car is the company's, not the household's") has one home: the **holding project's folder**, the
+project whose documents the fact concerns, or, where both hold documents, the folder the owner names
+when stating it. The synthesis is the one pass that reads both projects, so it is what carries the
+fact into the other project's cross-project view, as a cited claim. The other project's wiki never
+learns it except through the owner: that is the existing rule (a project files within itself),
+restated, not changed.
 
 ## Proposed migrations
 

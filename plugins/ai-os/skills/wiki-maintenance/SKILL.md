@@ -58,7 +58,10 @@ stray. Only the capture surface writes them, on the owner's explicit statement. 
 holds those rules ([the three layers](../../ARCHITECTURE.md#the-three-layers-of-a-job)). This is what
 keeps the folder the golden source when the owner settles something by saying it: a fact kept only in
 the wiki is a fact the folder does not know, so the next job that reads the folder asks again. When no
-folder fits the statement, it stays a wiki-only `manual` note (see *Provenance always*).
+folder fits the statement, it stays a wiki-only `manual` note (see *Provenance always*). A user vault's
+synthesis reads the records of every project its identity may access
+([`user-synthesis`](../project-onboarding/archetypes/user-synthesis/README.md#owner-confirmation-records)),
+so a fact settled in a project folder also settles it in the second brain.
 
 ## The recommended layout (an example — the Schema is the law)
 

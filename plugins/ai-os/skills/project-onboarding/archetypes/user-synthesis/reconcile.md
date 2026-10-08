@@ -22,6 +22,11 @@ regenerate**. The difference is breadth: you are examining the whole vault for d
 
 {gather_report}
 
+The report also carries, per accessible project, every **owner confirmation record** in its folders,
+by folder-relative path with its text, and names any omitted or unreadable this run (say so in the log
+line). A record is the owner's statement, with the authority of `provenance: manual` content; a
+project page carries its fact as a `derived` line citing it. You never write a record anywhere.
+
 ## The whole current Knowledge tree — reckon ALL of it
 
 {current_knowledge}
@@ -79,7 +84,11 @@ traceable to a source, **figures copied character-for-character from the source*
 isn't shown this run), reconcile-don't-average, full source-supported identifiers by default, `provenance: derived` +
 `last-updated: {date}` + `status:` + `kind:` on every page you write, the voice tone only (the facts,
 sources and format rules the same whoever the page speaks as; no page blends two voices), a `rationale`
-on every page you create or reshape, Knowledge ⊥ Ideas. The reconcile may write
+on every page you create or reshape, Knowledge ⊥ Ideas. **A record is the owner's word**: a Knowledge
+page that disagrees with an owner confirmation record is brought back into line with the record,
+never towards a document that does not exist, unless a document contradicts the record, which is a
+conflict to state and to ask the owner about once; never re-raise what a record settles, and a
+migration the owner declined in a record stays declined. The reconcile may write
 more broadly than a reactive synthesise, but it is still an **edit** of the existing tree, never a
 wholesale rebuild. **An observation is a wiki write, not an alert** — a `needs_a_look` carries an `owner_action` only when there is a physical act the owner must perform that this system cannot (the exact file or place, in one sentence); otherwise `owner_action` is null and the item is recorded, not queued, because the page you just wrote is where it will be read. **If you cite an open item, supersede it or say why both stand.** Both rules are stated in full in the archetype's other template. **Do not re-raise a `previously_raised` open or dismissed item** — reference it;
 reopen a recently-resolved one only on changed evidence. **A no-change run is silent** — if nothing

@@ -11,7 +11,9 @@ reactive `ingest`, but the gate watches different inputs:
 
 - **What the gate hashes:** the content of every project wiki this identity may access, plus the
   accessible-project set itself (a project becoming visible or invisible to the identity is a
-  change), plus anything else that feeds the synthesis (e.g. each wiki's declared entity domains).
+  change), plus the owner confirmation records in those projects' folders (small files; a record the
+  project's ingest has not yet folded in still reaches the vault on the next tick), plus anything else
+  that feeds the synthesis (e.g. each wiki's declared entity domains).
 - **When the change is consumed:** record the hash as seen only **after the vault write succeeds**.
   A failed, skipped or rate-limited run leaves the change pending, so the next tick re-detects it —
   the same consume-on-success rule the file-ingest gate follows.

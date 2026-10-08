@@ -85,7 +85,11 @@ quota). A deployment that *creates* the folder on the worker has inverted the mo
 
 Decide which projects this identity may access — the synthesis will read **only** those wikis. This is
 the same access rule the deployment enforces everywhere (do the requester's tags intersect the
-target's?). Record the scope in the deployment's config; never widen it implicitly. An identity needs
+target's?). Record the scope in the deployment's config; never widen it implicitly. The scope governs
+the owner confirmation records too: the synthesis sees the records of in-scope projects and no others
+(the archetype's
+[owner confirmation records](../project-onboarding/archetypes/user-synthesis/README.md#owner-confirmation-records)).
+An identity needs
 no model login of its own: each engine is logged in once per machine, and what isolates one
 identity's synthesis from another's is the scoped gather and each call's own context
 ([one login per machine](../../ARCHITECTURE.md#execution-context-constraints-why-the-indirection-exists)).
@@ -149,7 +153,9 @@ page, from the projects.
 - The vault **resolves and is present** (materialised), not evicted or missing — a synthesis must never
   run against a half-synced folder.
 - The **access scope** is correct: the synthesis sees exactly the intended projects' wikis and no
-  others (check a project *outside* scope is absent from the gather view).
+  others (check a project *outside* scope is absent from the gather view), and the same for the owner
+  confirmation records: one in an in-scope project appears in the gather view, one in an out-of-scope
+  project does not.
 - The **reactive gate** fires on a source-wiki change and no-ops otherwise; the **periodic** reconcile
   is on its clock.
 
