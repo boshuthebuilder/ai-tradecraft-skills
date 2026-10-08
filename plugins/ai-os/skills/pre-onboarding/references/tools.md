@@ -1457,6 +1457,41 @@ rendered with `--kind pie --title "Planned monthly spending (GBP)"`:
     | Utilities | 150 | `02 Finance/Budget.xlsx` |
     | Savings | 400 | `02 Finance/Budget.xlsx` |
 
+## `obsidian.py`
+
+    obsidian.py write --root <wiki folder or vault> [--manifest <file>] [--cache <dir>] [--upgrade] [--json]
+    obsidian.py check --root <wiki folder or vault> [--manifest <file>] [--json]
+
+[The editor setup](../../wiki-maintenance/SKILL.md#the-editor-setup), built and checked. `--root` is the folder the
+owner opens as the vault: a project's wiki folder, or a user vault's root. Both commands read the **manifest**,
+[`obsidian-profile.json`](../tools/obsidian-profile.json) beside the tool unless `--manifest` names another: the
+required plugins, each with its id, GitHub repo, pinned version, the sha256 of its three release assets and its
+`data.json`; the core-plugin list; the `app.json` keys; and the device-state names the tool never touches.
+
+`write` builds `.obsidian/` in the root. For each plugin it takes the three assets from the cache
+(`<cache>/<id>/<version>/`), or downloads them from `https://github.com/<repo>/releases/download/<version>/<asset>`
+with the standard library and the certifi fallback `sync_check.py` uses, verifies each against the manifest's
+hash before it is written or cached, and writes `plugins/<id>/` with the plugin's `data.json`; then
+`community-plugins.json` (the ids, in manifest order), `core-plugins.json`, `app.json` and `appearance.json`. It
+merges rather than clobbers: a key the manifest does not name is kept, a plugin already present at another version
+is reported and left unless `--upgrade` is given, and a name in the manifest's `never` list (`workspace.json` and
+the other device state) is neither written nor removed. A second run on a complete profile writes nothing and says
+so. The cache defaults to `~/Library/Caches/ai-os/obsidian` on macOS and `$XDG_CACHE_HOME/ai-os/obsidian` elsewhere;
+`--cache` overrides it, and the rulebook twin's `obsidian_cache` does when `--root` is inside a prepared folder.
+The tool never writes Obsidian's own vault registry: the owner opens the folder as a vault once, and answers the
+first-open question, which no file in the vault can answer for them.
+
+`check` reports, per the manifest: `present` (the folder exists); each plugin `complete` (three assets hashing to
+the manifest, a trailing `/* nosourcemap */` line on `main.js` allowed, since Obsidian's own installer appends it,
+and a `data.json`) and `enabled` (listed in `community-plugins.json`); `core` (the list matches, compared as
+parsed JSON, since Obsidian rewrites these files with its own formatting on every open); and `device_state` (any
+`never` file present, noted and not a finding). The enable state Obsidian keeps for the vault is not read.
+
+Exit codes follow `wiki.py`'s: 0 when complete or nothing to do, 1 on findings (`check`), 2 for a root that is not a
+directory or holds no wiki skeleton, 3 when an asset could not be fetched or failed its hash (`write` names the
+plugin, the asset and the reason, and writes nothing for that plugin). `readiness.py` runs `check` and reports its
+result as the hand-off contract's *editor setup* item.
+
 ## `readiness.py`
 
     readiness.py --root <folder> [--terms <file>] [--manifest <file>] [--out <file.json>]

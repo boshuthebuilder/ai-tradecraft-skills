@@ -164,7 +164,10 @@ stays an optional profile, and do not impose case-specific fields.
 
 ### 4. Write the skeleton
 
-Create the meta pages and the agreed section pages:
+Create the meta pages and the agreed section pages, and with them the editor setup
+([`wiki-maintenance`](../wiki-maintenance/SKILL.md#the-editor-setup)): `.obsidian/` in the wiki folder, built from
+the method's manifest, in a prepared folder by `obsidian.py write` and elsewhere by the deployment from the same
+manifest, never by the owner by hand. The pages:
 
 - **Schema**: the constitution. For each section: its **purpose**, its **contract** and the **source
   documents that trigger an update**; for each page, its **professional**. The layout, routing,

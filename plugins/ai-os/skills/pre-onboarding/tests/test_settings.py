@@ -691,6 +691,8 @@ class RulebookValidationTest(FixtureCopy):
             "packs as text": ({"packs": "01 Identity"}, "packs must be a list"),
             "keep_empty_folders as text": ({"keep_empty_folders": "yes"}, "true or false"),
             "a short sha": ({"rulebook_sha256": "abc"}, "sha256 hex digest"),
+            "obsidian_cache relative": ({"obsidian_cache": "cache/obsidian"}, "obsidian_cache must be an absolute path"),
+            "obsidian_cache empty": ({"obsidian_cache": ""}, "obsidian_cache must be an absolute path"),
         }
         for name, (changes, pattern) in cases.items():
             with self.subTest(name):
@@ -698,6 +700,14 @@ class RulebookValidationTest(FixtureCopy):
                 self.rulebook_json(root, **changes)
                 with self.assertRaisesRegex(common.ToolError, pattern):
                     common.load_rulebook(root, os.path.join(root, ".familyai"))
+
+    def test_obsidian_cache_is_optional_and_takes_an_absolute_or_home_path(self):
+        """`obsidian.py` keeps fetched plugin assets where the twin says, or in the platform cache when it says nothing."""
+        settings_dir = os.path.join(self.root, ".familyai")
+        self.assertIsNone(common.load_rulebook(self.root, settings_dir)["obsidian_cache"])
+        for value in ("~/Library/Caches/ai-os/obsidian", "/var/cache/ai-os/obsidian"):
+            self.rulebook_json(self.root, obsidian_cache=value)
+            self.assertEqual(common.load_rulebook(self.root, settings_dir)["obsidian_cache"], value)
 
     def test_absent_twin(self):
         os.remove(os.path.join(self.root, ".familyai", "rulebook.json"))

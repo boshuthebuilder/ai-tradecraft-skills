@@ -228,6 +228,7 @@ DEFAULTS = {
     "image_cap_mb": 25,
     "pack_keywords": ["application", "passport", "renew", "visa", "submission", "evidence"],
     "ocr_languages": ["en-GB"],       # BCP 47 codes local OCR reads in, most likely first
+    "obsidian_cache": None,           # where obsidian.py keeps fetched plugin assets; None is the platform cache dir
 }
 
 
@@ -339,6 +340,9 @@ def validate_rulebook(data, path):
         bad("identifiers", "one of %s" % ", ".join(IDENTIFIER_POLICIES))
     if "keep_empty_folders" in data and not isinstance(data["keep_empty_folders"], bool):
         bad("keep_empty_folders", "true or false")
+    cache = data.get("obsidian_cache")
+    if cache is not None and not (is_text(cache) and cache == cache.strip() and cache[0] in "/~"):
+        bad("obsidian_cache", "an absolute path, or one under the owner's home with a leading ~")
     cap = data.get("image_cap_mb", 1)
     if isinstance(cap, bool) or not isinstance(cap, (int, float)) or cap <= 0:
         bad("image_cap_mb", "a positive number")
