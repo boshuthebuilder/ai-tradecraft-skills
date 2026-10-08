@@ -160,8 +160,9 @@ page, from the projects.
   others (check a project *outside* scope is absent from the gather view), and the same for the owner
   confirmation records: one in an in-scope project appears in the gather view, one in an out-of-scope
   project does not.
-- The **reactive gate** fires on a source-wiki change and no-ops otherwise; the **periodic** reconcile
-  is on its clock.
+- The **reactive gate** fires on a source-wiki change, and on an owner confirmation record added or
+  changed in an in-scope project while its wiki is unchanged, and no-ops otherwise; the **periodic**
+  reconcile is on its clock.
 
 ### 6. First synthesis + hand off
 
@@ -180,8 +181,9 @@ page's rationale block records them, never to the page's body
 synthesis that only integrates a fact keeps the verdict. `wiki-onboarding`'s order rule, under which
 any later edit voids a verdict, governs the interactive session that builds a project wiki before its
 hand-off, not a vault maintained by jobs. Then hand off: the vault
-now maintains itself — a project wiki the identity can access changes, the next synthesis tick evolves
-the Knowledge slice it touched; the weekly reconcile reckons the whole vault for drift. Authored ideas
+now maintains itself — a project wiki the identity can access changes, or an owner confirmation
+record lands in one of its folders, and the next synthesis tick evolves the Knowledge slice it
+touched; the weekly reconcile reckons the whole vault for drift. Authored ideas
 land in `02 Ideas/` through the interactive capture surfaces, never by hand in the vault.
 
 ## Principles

@@ -4,7 +4,7 @@ How a deployment wires the two jobs — a reactive `synthesise` and a periodic `
 Platform-agnostic — the concrete timer is yours (a launch agent, a cron entry, a systemd timer, a
 person running a command). The shared design is in [`ARCHITECTURE.md`](../../../../ARCHITECTURE.md).
 
-## `synthesise` — reactive, gated on the *source wikis*
+## `synthesise` — reactive, gated on the *source wikis and records*
 
 Run the **deterministic gate often** and let it no-op when nothing changed — the same pattern as a
 reactive `ingest`, but the gate watches different inputs:

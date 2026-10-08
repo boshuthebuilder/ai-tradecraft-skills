@@ -13,7 +13,8 @@ jobs:
   - id: synthesise
     mode: synthesise
     prompt: synthesise.md        # incremental: evolve the Knowledge slice a changed source touches
-    schedule: reactive           # run the deterministic gate often; no-op when no accessible wiki changed
+    schedule: reactive           # run the deterministic gate often; no-op when no accessible wiki or
+                                 # owner confirmation record changed
     execution_mode: single_shot  # one access-scoped gather → one model call → deterministic apply
     # max_budget_usd: 1.50       # a cross-project synthesis is the costliest prompt in the system —
     #                            # measure with dry-runs and budget a clear margin above observed spend.
