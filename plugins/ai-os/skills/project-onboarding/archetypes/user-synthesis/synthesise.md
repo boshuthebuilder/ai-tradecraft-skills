@@ -139,14 +139,13 @@ Rules:
   read; never reconstruct missing identifier digits by guessing.
 - **Authored notes carry through.** Source material marked `provenance: manual` is owner-asserted and
   authoritative — represent it faithfully; never contradict it from derived material.
-- **A record is the owner's word.** An owner confirmation record shown in the report has the same
-  authority as `provenance: manual` content: never flag it as inconsistent, never average it against a
-  document. It outranks the absence of a document: do not raise a missing document or chase evidence
-  the record says will not come. A document that contradicts a record is a conflict to state (both
-  sides, the owner's precedence kept) and to ask the owner about once, never to settle silently either
-  way. Never re-raise what a record settles; a migration the owner declined in a record stays declined.
-  A fact that spans two projects lives in one record, in the holding project's folder; you are the pass
-  that carries it into the other project's view, as a cited claim.
+- **A record is the owner's word.** An owner confirmation record shown in the report has the authority
+  `wiki-maintenance`'s *Provenance always* gives it, the same here as for a project's jobs: that of
+  `provenance: manual` content, outranking the absence of a document, and a document that contradicts
+  it is a conflict to state with the owner's precedence kept and to ask the owner about once. What is
+  yours: never re-raise what a record settles; a migration the owner declined in a record stays
+  declined; a fact that spans two projects lives in one record, in the holding project's folder, and
+  you are the pass that carries it into the other project's view, as a cited claim.
 - **The voice is tone only.** A page reads as its professional's deliverable; the facts, sources,
   identifiers, provenance, frontmatter and format rules are the same whoever it speaks as. A
   professional adds no fact the sources do not hold except as labelled outside knowledge (a line

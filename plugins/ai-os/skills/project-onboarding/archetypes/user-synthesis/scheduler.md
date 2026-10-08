@@ -16,7 +16,10 @@ reactive `ingest`, but the gate watches different inputs:
   that feeds the synthesis (e.g. each wiki's declared entity domains).
 - **When the change is consumed:** record the hash as seen only **after the vault write succeeds**.
   A failed, skipped or rate-limited run leaves the change pending, so the next tick re-detects it —
-  the same consume-on-success rule the file-ingest gate follows.
+  the same consume-on-success rule the file-ingest gate follows. A record the run **omitted** for
+  budget is not consumed either: its hash stays pending, and the gather shows pending records before
+  the rest, so a budget that is always exceeded drains in order rather than marking unread records
+  seen.
 - **Why a frequent tick is safe:** the gate is a cheap hash walk with no model call; the synthesis
   itself is expensive (a strong model over many wikis), which is exactly why the gate exists. A burst
   of project-wiki updates between two ticks coalesces into one synthesis.

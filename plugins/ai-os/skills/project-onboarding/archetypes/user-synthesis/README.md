@@ -75,20 +75,19 @@ shows the synthesis the records themselves: every record in every accessible pro
 the same access rule as the wikis (a record of a project outside scope is never shown), each run,
 within the testimony budget, with anything omitted or unreadable named
 ([`ARCHITECTURE.md`](../../../../ARCHITECTURE.md#surfacing-the-raised-item-lifecycle)). No
-placeholder is added: the records ride inside `{gather_report}`, as they do for `file-ingest`. Both
-templates carry the rules:
+placeholder is added: the records ride inside `{gather_report}`, as they do for `file-ingest`. What a
+record outranks, and how a document that contradicts one is handled, is `wiki-maintenance`'s rule
+([*Provenance always*](../../../wiki-maintenance/SKILL.md#rules-that-keep-it-safe)), the same for the
+synthesis as for a project's jobs; `synthesise.md` restates it in one bullet with that pointer,
+`reconcile.md` defers to `synthesise.md`, and the archetype adds only what is the synthesis's own:
 
-- a record has, for the synthesis, the authority of `provenance: manual` content: it is the owner's
-  statement; never flag it as inconsistent, never average it against a document;
-- a record outranks the absence of a document: do not raise a missing document or chase evidence the
-  record says will not come;
-- a document that contradicts a record follows *Sources that disagree stay visible*
-  (`wiki-maintenance`): state both, keep the owner's precedence, ask the owner once;
-- never re-raise what a record settles, and a migration the owner declined in a record stays declined
-  (the ledger holds the dismissal; the record is the durable copy);
-- a Knowledge page that relies on a record cites it as `<project id>: <folder-relative path>`, the form
-  the `migration` field already uses for folder paths; the synthesis never writes a record, into a
-  project or into the vault.
+- a claim that rests on a record cites it as `<project id>: <folder-relative path>`, the form the
+  `migration` field already uses for folder paths;
+- a migration the owner declined in a record stays declined (the ledger holds the dismissal; the
+  record is the durable copy);
+- the synthesis never writes a record, into a project or into the vault;
+- the gate hashes the records, and consumes one only when the run showed its text
+  ([`scheduler.md`](scheduler.md)).
 
 **Homing a cross-project fact.** A fact that spans two projects ("the two J. Smiths are one person",
 "the car is the company's, not the household's") has one home: the **holding project's folder**, the
