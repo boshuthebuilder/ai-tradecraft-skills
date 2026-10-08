@@ -35,7 +35,8 @@ skill name, archetype layout or prompt placeholder changed.
   run time, named in `professional:` and its rationale block, and kept on later updates. `wiki_pages[]` gains
   an optional **`rationale`** field (the five lines, as five fields), required on a create, on a change of
   kind, professional or shape, on a rewrite to the kind's changed contract or fixed professional (the
-  deployment's sweep names the pages whose rationale no longer matches the row, never by write time), and on
+  deployment's sweep names the pages whose verdict was recorded under an older version of the whole row,
+  professional, reader, questions and fields, never by write time), and on
   the correction of a refused page from the review's findings (the deployment's sweep names the pages
   last written before it); the deployment renders `_Audit/wiki-rationale.md` from it. `reconcile` keeps
   every page in its voice, restores a missing block by returning the page with its rationale, and counts the
