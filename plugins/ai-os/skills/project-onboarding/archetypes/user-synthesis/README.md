@@ -62,7 +62,9 @@ verdict to the page's kind, contract, professional and anatomy, as its rationale
 never to the body, so an update that only integrates a fact keeps it. A contract change is a
 Schema change the owner agrees, and the deployment's sweep then names the pages last written before
 it in `{reconcile_findings}`, so the next pass rewrites them to the contract with a fresh rationale and
-the acceptance step reviews them. For the reconcile's counts, the deployment shows the
+the acceptance step reviews them. A page the findings name with no block comes back from the reconcile
+as an update carrying its `rationale`, so the deployment writes the block and the finding closes. For
+the reconcile's counts, the deployment shows the
 headings of `_Audit/wiki-rationale.md` with the structure, or names the pages with no block in
 `{reconcile_findings}`, and names there the pages whose acceptance is not recorded or refused, which
 reach the model no other way; a coverage shown neither way, the reconcile reports as not shown rather

@@ -41,8 +41,9 @@ rule, is why this is a MAJOR rather than the MINOR first planned.
   an optional **`rationale`** field (the five lines, as five fields), required on a create, on a change of
   kind, professional or shape, and on a rewrite to a changed contract (the deployment's sweep names the pages
   last written before it); the deployment renders `_Audit/wiki-rationale.md` from it. `reconcile` keeps
-  every page in its voice and counts the pages with no kind, no block or no accepted verdict where the
-  deployment's findings show the coverage, saying so where they do not.
+  every page in its voice, restores a missing block by returning the page with its rationale, and counts the
+  pages with no kind, no block or no accepted verdict where the deployment's findings show the coverage, saying
+  so where they do not.
 - **`ARCHITECTURE.md`**'s type-1 skeleton gains `_Audit/` and points at the kinds.
 - **The testimony pin covers the synthesis** (#149;
   [`ARCHITECTURE.md`](plugins/ai-os/ARCHITECTURE.md#surfacing-the-raised-item-lifecycle)): every

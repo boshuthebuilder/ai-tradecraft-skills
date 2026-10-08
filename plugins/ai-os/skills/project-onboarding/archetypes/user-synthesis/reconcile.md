@@ -73,10 +73,13 @@ Reckon the whole vault and correct drift, making the **minimal stable changes** 
    keep rather than re-choose. A page with no kind, a delegated page with no professional, one that
    has slid into generic prose, or one the findings name as last written before its kind's contract
    changed, is rewritten in its voice and to its contract with a `rationale` whose `changed` line says
-   so; a page that fits no kind is proposed in `needs_a_look`, not re-kinded. Where the findings name
-   the pages with no rationale block, or the structure shows the headings of
-   `_Audit/wiki-rationale.md`, count them; where the findings name the pages whose acceptance is not
-   recorded or refused, count those too; give each count in the log line, and for a coverage shown
+   so; a page that fits no kind is proposed in `needs_a_look`, not re-kinded, and counted. Where the
+   findings name the pages with no rationale block, or the structure shows the headings of
+   `_Audit/wiki-rationale.md`, count them, and **restore each missing block**: return the page as an
+   `update` with its `rationale` filled (`changed`: "rationale block restored"), its body unchanged
+   where nothing else needs changing, so the deployment can write the block and the finding does not
+   recur; where the findings name the pages whose acceptance is not recorded or refused, count those
+   too. Give each count in the log line (no kind, no block, not accepted), and for a coverage shown
    neither way say so. Never invent a count. An unaccepted page is not yours to accept: name it, and
    leave the verdict to the review the deployment runs.
 6. **Re-derive the Index** so it reflects the reconciled tree, as the chief of staff's briefing note.
@@ -109,12 +112,13 @@ Return JSON only (every `wiki_pages[].path` under `00 Index/` or `01 Knowledge/`
   "verdict": "apply | skip",
   "wiki_pages": [{"path": "01 Knowledge/...", "action": "create | update", "body": "...", "rationale": {"reader_and_use": "...", "professional_lens": "<professional>; questions answered in order: 1. ... 2. ...", "shape": "...", "changed": "what this version changed", "left_out": "nothing, OR what and why"}}],
   "needs_a_look": [{"item": "...", "reason": "...", "owner_action": "null, OR one sentence naming the physical act only the owner can perform: name the exact file or place", "what_would_resolve": "one sentence: the single decision or action that closes this", "proposed_action": "optional: what you would do on a yes", "migration": {"from_project": "<project id>", "to_project": "<project id>", "paths": ["<folder-relative path the from_project's page cites>"], "pages": ["<project id>: <wiki-relative page path>"]}}],
-  "log_entry": "## [{date}] reconcile | <projects read> | <what drifted, what was fixed; pages with no rationale block: N; not accepted: N; or: coverage not shown>",
+  "log_entry": "## [{date}] reconcile | <projects read> | <what drifted, what was fixed; pages with no kind: N; no rationale block: N; not accepted: N; or: coverage not shown>",
   "notify": {"kind": "info | action", "priority": "low", "body": "..."}
 }
 ```
 
 `migration` is optional: include it only on an item that proposes a migration (task 7), and leave it
 out of every other item. `rationale` is required on a `create`, on an `update` that changes the
-page's kind, professional or shape, and on an `update` that rewrites the page to a changed contract
-(task 5), and omitted on an update that only integrates a fact.
+page's kind, professional or shape, on an `update` that rewrites the page to a changed contract, and
+on the `update` that restores a block the findings name as missing (task 5), and omitted on an update
+that only integrates a fact.
