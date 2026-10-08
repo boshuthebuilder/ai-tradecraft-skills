@@ -44,7 +44,8 @@ This `{reconcile_findings}` placeholder is **optional** — a deployment that co
 an empty block, and you simply have no pre-computed worklist. **When present**, the deployment has
 already run mechanical health sweeps over the vault — orphan pages (a Knowledge page citing a source page
 that no longer exists), staleness, pages with no `kind:` or no rationale block, pages whose acceptance
-is not recorded or refused, and a log digest. Use these as a worklist: they tell you *where* to look;
+is not recorded or refused, pages last written before their kind's row in `09 Schema` changed, and a
+log digest. Use these as a worklist: they tell you *where* to look;
 your job is the judgement of *what* to do.
 
 ## Your task
@@ -66,9 +67,9 @@ Reckon the whole vault and correct drift, making the **minimal stable changes** 
    kinds table names, and reads as its professional, to its kind's contract: the kind's fixed
    professional, or, where the kind delegates, the one the page names in `professional:`, which you
    keep rather than re-choose. A page with no kind, a delegated page with no professional, one that
-   has slid into generic prose, or one the findings name as last written before its kind's contract
-   changed, is rewritten in its voice and to its contract with a `rationale` whose `changed` line says
-   so; a page that fits no kind is proposed in `needs_a_look`, not re-kinded, and counted. Where the
+   has slid into generic prose, or one the findings name as last written before its kind's row
+   changed (its contract, or its fixed professional), is rewritten in its voice and to its contract
+   with a `rationale` whose `changed` line says so; a page that fits no kind is proposed in `needs_a_look`, not re-kinded, and counted. Where the
    findings name the pages with no rationale block, or the structure shows the headings of
    `_Audit/wiki-rationale.md`, count them, and **restore each missing block**: return the page as an
    `update` with its `rationale` filled (`changed`: "rationale block restored"), its body unchanged
@@ -111,6 +112,7 @@ Return JSON only (every `wiki_pages[].path` under `00 Index/` or `01 Knowledge/`
 
 `migration` is optional: include it only on an item that proposes a migration (task 7), and leave it
 out of every other item. `rationale` is required on a `create`, on an `update` that changes the
-page's kind, professional or shape, on an `update` that rewrites the page to a changed contract, and
+page's kind, professional or shape, on an `update` that rewrites the page to its kind's changed
+contract or fixed professional, and
 on the `update` that restores a block the findings name as missing (task 5), and omitted on an update
 that only integrates a fact.

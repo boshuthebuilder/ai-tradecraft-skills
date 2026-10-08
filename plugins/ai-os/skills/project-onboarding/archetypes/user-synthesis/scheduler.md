@@ -33,7 +33,8 @@ file-ingest `reconcile`:
   reckons the whole vault against all accessible sources.
 - **Deterministic sweeps first.** Before the model call, run the mechanical health sweeps (orphan pages,
   staleness, pages with no `kind:`, no block in `_Audit/wiki-rationale.md` or no accepted verdict in
-  `_Audit/wiki-acceptance.json`, pages last written before their kind's contract changed, log digest)
+  `_Audit/wiki-acceptance.json`, pages last written before their kind's row in `09 Schema` changed,
+  its contract or its fixed professional, log digest)
   and pass their findings into the prompt as a worklist —
   the model judges, the sweeps locate. The acceptance state reaches the model only this way: neither
   prompt input shows the acceptance record itself.

@@ -163,7 +163,8 @@ Run one `synthesise` so `00 Index/`+`01 Knowledge/` hold a real starting view. T
 it wrote, in the owner's lens and each page's professional's, through a model that did not write them,
 as [`wiki-onboarding`'s reader acceptance step](../wiki-onboarding/SKILL.md#6-reader-acceptance-the-owners-lens-and-the-professionals)
 runs it; record each verdict in `_Audit/wiki-acceptance.json`. A page the synthesis later creates,
-reshapes or rewrites to a changed contract is accepted the same way before the owner is told of it: the deployment runs that review as a
+reshapes or rewrites to its kind's changed contract or fixed professional is accepted the same way
+before the owner is told of it: the deployment runs that review as a
 step after the write, through a model other than the one that wrote the page, and records the verdict.
 A page with no verdict is reported as **not recorded**, never as accepted, and the periodic reconcile
 counts it with the pages that have no rationale block, where the deployment's sweep puts the
