@@ -1,0 +1,7 @@
+{
+  "id": "external-file-embed-and-link",
+  "name": "External File Embed and Link",
+  "version": "1.5.9",
+  "minAppVersion": "1.4.10",
+  "isDesktopOnly": true
+}

@@ -1,0 +1,69 @@
+{
+  "profile_version": 1,
+  "about": "The fixture's manifest: the same plugins as tools/obsidian-profile.json, pinned to the stand-in assets under the fixture wiki's .obsidian/, which are a few lines each, never the plugins' own code. tests/test_readiness.py and regen_expected.py point readiness.py at it.",
+  "core_plugins": [
+    "file-explorer",
+    "global-search",
+    "switcher",
+    "graph",
+    "backlink",
+    "canvas",
+    "outgoing-link",
+    "tag-pane",
+    "properties",
+    "page-preview",
+    "daily-notes",
+    "templates",
+    "note-composer",
+    "command-palette",
+    "editor-status",
+    "bookmarks",
+    "outline",
+    "word-count",
+    "file-recovery",
+    "sync",
+    "bases"
+  ],
+  "app": {
+    "alwaysUpdateLinks": true
+  },
+  "appearance": {},
+  "never": [
+    "workspace.json",
+    "workspaces.json",
+    "graph.json",
+    "page-preview.json"
+  ],
+  "plugins": [
+    {
+      "id": "folder-notes",
+      "name": "Folder notes",
+      "repo": "lostpaul/obsidian-folder-notes",
+      "version": "1.8.26",
+      "why": "a folder opens its same-name note, the convention every skeleton follows",
+      "desktop_only": false,
+      "assets": {
+        "main.js": "5b37ddffb324fc005f88330d4f30465f0834a61b2e1ed1b9324364497438debb",
+        "manifest.json": "2852a1b55e9fbfe8302f864e319497249963753a226778e4b49a6be0d7380176",
+        "styles.css": "fa0215efef24f7b1882447e6feccfda82a940fd8d1b7b665f6f6a8a2e64c4ed2"
+      },
+      "data": {
+        "hideFolderNote": true
+      }
+    },
+    {
+      "id": "external-file-embed-and-link",
+      "name": "External File Embed and Link",
+      "repo": "oylbin/obsidian-external-file-embed-and-link",
+      "version": "1.5.9",
+      "why": "a page's relative link to a document outside the wiki folder opens it; desktop only",
+      "desktop_only": true,
+      "assets": {
+        "main.js": "1b1ca8721e016360b3aeac641c6f526fd618b449bcd6b6cf132be91095e0a05b",
+        "manifest.json": "51cdffa71471c18d745ee5caa3b693b88317fd984ada2a1ee817678ea6e8f3cd",
+        "styles.css": "7e739ff33137dd6742eb663172650cd6f04e4429290b06dc69467a7fdd6d72e1"
+      },
+      "data": {}
+    }
+  ]
+}

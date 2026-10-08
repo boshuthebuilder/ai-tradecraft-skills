@@ -80,11 +80,28 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cards as C  # noqa: E402
 import common  # noqa: E402
 import isolation  # noqa: E402
+import obsidian  # noqa: E402
 import wiki as W  # noqa: E402
 
 FIXED = ("00 Index/00 Index.md", "01 Deadlines/01 Deadlines.md", "90 Schema/90 Schema.md", "91 Log/91 Log.md")
 DEADLINES = FIXED[1]
 AUDIT_DIRS = ("plans", "extract", "cards")  # the folders a prepared folder's _Audit/ holds; any other is scratch
+
+
+def editor_setup(wiki, manifest_path):
+    """The hand-off contract's editor-setup item: `obsidian.py check` on the wiki folder, against the manifest. The
+    report keeps the per-plugin states and the findings; Obsidian's own enable state is not read (it is not in the
+    vault). A wiki folder that is missing is one finding, so the item never crashes on an unbuilt wiki."""
+    m = obsidian.load_manifest(manifest_path)
+    if not os.path.isdir(wiki):
+        return collections.OrderedDict([("present", False), ("complete", False), ("plugins", {}),
+                                        ("findings", ["the wiki folder is missing, so there is no .obsidian/"])])
+    r = obsidian.check_report(wiki, m)
+    return collections.OrderedDict([
+        ("present", r["present"]), ("complete", r["complete"]),
+        ("plugins", collections.OrderedDict((pid, "complete" if st["complete"] else "incomplete")
+                                            for pid, st in r["plugins"].items())),
+        ("core", r.get("core")), ("device_state", r["device_state"]), ("findings", r["findings"])])
 CANARY_ENGINES = ("agy", "codex")  # isolation.py canary --engine
 FRONTMATTER = re.compile(r"---\n(.*?)\n---\n", re.S)  # as wiki.py check reads it
 DAY = re.compile(r"(?<![0-9])[0-9]{4}-[0-9]{2}-[0-9]{2}(?![0-9])")  # a dated deadline, as the roll-up writes it
@@ -1535,6 +1552,10 @@ def main():
     ap.add_argument("--terms", help="the operator's isolation terms file (contamination is not verified without it)")
     ap.add_argument("--out")
     ap.add_argument("--manifest", help="default <root>/_Audit/manifest.json")
+    ap.add_argument("--obsidian-manifest", default=os.environ.get("PRE_ONBOARDING_OBSIDIAN_MANIFEST")
+                    or obsidian.DEFAULT_MANIFEST,
+                    help="the editor-setup manifest the wiki is checked against (default: the tool's "
+                         "obsidian-profile.json; the tests point it at the fixture's)")
     a = ap.parse_args()
     # A diagnosis, not a gate: a stale or unpinned twin is a hand-off finding below, so the settings are read here
     # without trusting them (as settings.py check does). A malformed rulebook.json still fails loud.
@@ -1596,6 +1617,7 @@ def main():
     out["scratch"] = {"left_in_audit": sorted(d for d in os.listdir(audit) if d not in AUDIT_DIRS
                                               and os.path.isdir(os.path.join(audit, d)))
                       if os.path.isdir(audit) else []}
+    out["editor_setup"] = editor_setup(wiki, a.obsidian_manifest)
     out["handoff_contract"], outside = contract(root, rb, settings_dir, ws, pages, rulebook_text)
 
     findings, unverified = [], []
@@ -1658,6 +1680,8 @@ def main():
     if out["scratch"]["left_in_audit"]:
         findings.append(["scratch.left_in_audit", "folders left in _Audit/: %s" % sample(
             out["scratch"]["left_in_audit"])])
+    for line in out["editor_setup"]["findings"]:
+        findings.append(["editor_setup", line])
     for key, value in out["handoff_contract"].items():
         if value.startswith("finding"):
             findings.append(["handoff_contract." + key, value])

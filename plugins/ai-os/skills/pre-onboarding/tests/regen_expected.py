@@ -68,7 +68,9 @@ def extract_view(extract_dir):
 def produce(tmp, with_extract):
     root = os.path.join(tmp, "Alex Personal")
     copy_fixture(root)
-    env = dict(os.environ, PRE_ONBOARDING_NOW=NOW)
+    env = dict(os.environ, PRE_ONBOARDING_NOW=NOW,
+               PRE_ONBOARDING_OBSIDIAN_MANIFEST=os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures",
+                                                             "obsidian-profile.json"))
     work, out = os.path.join(tmp, "work"), os.path.join(tmp, "out")
     common = ["--root", root, "--work", work]
     run("audit.py", *common, "--out", os.path.join(out, "_Audit"), "--read-only-root", env=env, ok=(0,))

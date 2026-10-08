@@ -1,0 +1,164 @@
+{
+  "profile_version": 1,
+  "about": "The editor setup the method ships (wiki-maintenance, The editor setup). obsidian.py builds .obsidian/ from it: each plugin's three release assets are fetched from GitHub at the pinned version and verified against these hashes; its data is written as data.json. Upgrading a plugin is a change here and a MINOR release.",
+  "core_plugins": [
+    "file-explorer",
+    "global-search",
+    "switcher",
+    "graph",
+    "backlink",
+    "canvas",
+    "outgoing-link",
+    "tag-pane",
+    "properties",
+    "page-preview",
+    "daily-notes",
+    "templates",
+    "note-composer",
+    "command-palette",
+    "editor-status",
+    "bookmarks",
+    "outline",
+    "word-count",
+    "file-recovery",
+    "sync",
+    "bases"
+  ],
+  "app": {
+    "alwaysUpdateLinks": true
+  },
+  "appearance": {},
+  "never": [
+    "workspace.json",
+    "workspaces.json",
+    "graph.json",
+    "page-preview.json"
+  ],
+  "plugins": [
+    {
+      "id": "folder-notes",
+      "name": "Folder notes",
+      "repo": "lostpaul/obsidian-folder-notes",
+      "version": "1.8.26",
+      "why": "a folder opens its same-name note, the convention every skeleton follows",
+      "desktop_only": false,
+      "assets": {
+        "main.js": "83d7b91819abac39626349c1b20aef2503a7cb4339334d52115650aec011a216",
+        "manifest.json": "d68704cb787fb687a3d6261a77e93d39c9409ef1dab4e37bfc67a6f96b493536",
+        "styles.css": "c736732880c7737a30f713d5496f36612a4f64cce96bab0315397ce14b975f6b"
+      },
+      "data": {
+        "syncFolderName": true,
+        "ctrlKey": true,
+        "altKey": false,
+        "hideFolderNote": true,
+        "templatePath": "",
+        "autoCreate": false,
+        "autoCreateFocusFiles": true,
+        "autoCreateForAttachmentFolder": false,
+        "autoCreateForFiles": false,
+        "enableCollapsing": false,
+        "excludeFolders": [],
+        "whitelistFolders": [],
+        "showDeleteConfirmation": true,
+        "underlineFolder": true,
+        "stopWhitespaceCollapsing": true,
+        "underlineFolderInPath": true,
+        "openFolderNoteOnClickInPath": true,
+        "openInNewTab": false,
+        "focusExistingTab": false,
+        "oldFolderNoteName": "{{folder_name}}",
+        "folderNoteName": "{{folder_name}}",
+        "folderNoteType": ".md",
+        "disableFolderHighlighting": false,
+        "newFolderNoteName": "{{folder_name}}",
+        "storageLocation": "insideFolder",
+        "syncDelete": false,
+        "showRenameConfirmation": true,
+        "defaultOverview": {
+          "id": "",
+          "folderPath": "",
+          "title": "{{folderName}} overview",
+          "showTitle": false,
+          "depth": 3,
+          "includeTypes": [
+            "folder",
+            "markdown"
+          ],
+          "style": "list",
+          "disableFileTag": false,
+          "sortBy": "name",
+          "sortByAsc": true,
+          "showEmptyFolders": false,
+          "onlyIncludeSubfolders": false,
+          "storeFolderCondition": true,
+          "showFolderNotes": false,
+          "disableCollapseIcon": true,
+          "alwaysCollapse": false,
+          "autoSync": true,
+          "allowDragAndDrop": true,
+          "hideLinkList": true,
+          "hideFolderOverview": false,
+          "useActualLinks": false,
+          "fmtpIntegration": false,
+          "titleSize": 1,
+          "isInCallout": false,
+          "useWikilinks": true
+        },
+        "useSubmenus": true,
+        "syncMove": true,
+        "frontMatterTitle": {
+          "enabled": false,
+          "explorer": true,
+          "path": true
+        },
+        "supportedFileTypes": [
+          "md",
+          "canvas",
+          "base"
+        ],
+        "boldName": false,
+        "boldNameInPath": false,
+        "cursiveName": false,
+        "cursiveNameInPath": false,
+        "disableOpenFolderNoteOnClick": false,
+        "openByClick": true,
+        "openWithCtrl": false,
+        "openWithAlt": false,
+        "hideCollapsingIcon": false,
+        "hideCollapsingIconForEmptyFolders": false,
+        "tabManagerEnabled": true,
+        "ignoreAttachmentFolder": true,
+        "deleteFilesAction": "trash",
+        "openSidebar": {
+          "mobile": false,
+          "desktop": true
+        },
+        "highlightFolder": true,
+        "persistentSettingsTab": {
+          "afterRestart": true,
+          "afterChangingTab": true
+        },
+        "firstTimeInsertOverview": true,
+        "fvGlobalSettings": {
+          "autoUpdateLinks": false
+        },
+        "hideFolderNoteNameInPath": false
+      }
+    },
+    {
+      "id": "external-file-embed-and-link",
+      "name": "External File Embed and Link",
+      "repo": "oylbin/obsidian-external-file-embed-and-link",
+      "version": "1.5.9",
+      "why": "a page's relative link to a document outside the wiki folder opens it; desktop only",
+      "desktop_only": true,
+      "assets": {
+        "main.js": "05b4880a286688a3543270f0e7a69aadb39332da94c9b600023491e3af389d40",
+        "manifest.json": "0aa9c84e3db896eb5d675c2adeb977995b20e4eba26f0b793e548b67df1d7a5c",
+        "styles.css": "baacc4a0d66a6cd91383bccedcc1eb80fd72c28d7b1f87d0c33ab594cfda4c08"
+      },
+      "data": {}
+    }
+  ]
+}
