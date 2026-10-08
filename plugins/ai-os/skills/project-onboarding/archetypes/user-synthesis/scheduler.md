@@ -11,7 +11,9 @@ reactive `ingest`, but the gate watches different inputs:
 
 - **What the gate hashes:** the content of every project wiki this identity may access, plus the
   accessible-project set itself (a project becoming visible or invisible to the identity is a
-  change), plus anything else that feeds the synthesis (e.g. each wiki's declared entity domains).
+  change), plus the vault's own `09 Schema` kind tables (an owner adding the row a proposed page
+  waited for is a change), plus anything else that feeds the synthesis (e.g. each wiki's declared
+  entity domains).
 - **When the change is consumed:** record the hash as seen only **after the vault write succeeds**.
   A failed, skipped or rate-limited run leaves the change pending, so the next tick re-detects it —
   the same consume-on-success rule the file-ingest gate follows.
@@ -32,20 +34,19 @@ file-ingest `reconcile`:
 - **No reactive gate.** It does not consult the `synthesise` seen-hash; it simply runs on its clock and
   reckons the whole vault against all accessible sources.
 - **Deterministic sweeps first.** Before the model call, run the mechanical health sweeps (orphan pages,
-  staleness, pages with no `kind:`, no block in `_Audit/wiki-rationale.md` or no accepted verdict in
-  `_Audit/wiki-acceptance.json`, pages whose verdict was recorded under an older version of their
-  kind's row in `09 Schema`, log digest) and pass their findings into the prompt as a worklist — the
-  model judges, the sweeps locate. The marker for a changed kind row is a **fingerprint of the whole
-  row**, the fixed professional and every contract column (reader, questions, fields), which the
-  deployment records with each verdict in `_Audit/wiki-acceptance.json` and compares with the row as
-  it stands; a page is out of step when they differ, or when it has no verdict at all. Never the
-  page's write time, which a reactive `synthesise` can advance with a fact-only update after the row
-  changed, and never the rationale block alone, whose professional-lens line records the professional
-  and the questions but not the reader or the fields. The acceptance state reaches the model only this way: neither prompt input shows the
-  acceptance record itself. A page found with no verdict is handed to the acceptance review directly,
-  which runs on any page without a verdict, not only after a write; a page found refused carries the
-  review's findings in the worklist, so the reconcile can return it corrected and the review runs
-  again.
+  staleness, pages with no `kind:`, pages with no block in `_Audit/wiki-rationale.md`, pages whose
+  verdict in `_Audit/vault-acceptance.json` is missing or `changes` (the findings of a `changes`
+  verdict travel with the page), pages whose verdict's **kind fingerprint** is older than the kind's
+  rows as they stand, log digest) and pass their findings into the prompt as a worklist — the model
+  judges, the sweeps locate. The fingerprint, the record and the states are defined once, in
+  `wiki-maintenance`'s *The rule in a user vault*; the sweep compares the fingerprint recorded with
+  the verdict against the kind's rows now, never the page's write time (which a reactive `synthesise`
+  advances with a fact-only update) and never the rationale block alone (which records the reader,
+  the professional and the questions, not the fields or the tone). A page with no verdict is in the
+  no-verdict list only, never in the out-of-step list. The acceptance state reaches the model only
+  this way: neither prompt input shows the record itself. The review itself is the deployment's step,
+  run after a write and on any page found without a verdict; a `refused` verdict (the reviewer was
+  the author) is the deployment's to report to its operator, and goes to no worklist.
 - **Same write context + consume-on-success** as `synthesise`.
 
 One periodic timer **per identity**, alongside its reactive `synthesise` timer.
