@@ -671,7 +671,11 @@ In order:
                    "rationale": "### 90 Schema/90 Schema.md\n- Reader and use: ...\n- Professional lens: ...\n- Shape: ...\n- Changed from the previous page: first version\n- Left out or flagged: nothing"}]}
 
    so that `wiki.py rationale --root "<folder>" --returns <work>/returns` writes `_Audit/wiki-rationale.md` with a block
-   for every page. Then run `wiki.py check --root "<folder>"` over the whole wiki until it reports zero problems, and scan
+   for every page. Write the editor setup with the skeleton,
+   `obsidian.py write --root "<folder>/<folder name> Wiki"`
+   ([the editor setup](../wiki-maintenance/SKILL.md#the-editor-setup)): it builds `.obsidian/` from the method's
+   manifest and the plugins' releases, is idempotent, and names any plugin it could not fetch. Then run
+   `wiki.py check --root "<folder>"` over the whole wiki until it reports zero problems, and scan
    the pages themselves for the terms, since `readiness.py` checks the cards and not the pages:
    `isolation.py scan --terms <terms file> --path "<folder>/<folder name> Wiki" --path "<folder>/_Audit/wiki-rationale.md"
    --out <work>/state/scan-pages.json`. A term in a page stops acceptance until the page is rewritten.
@@ -827,6 +831,11 @@ What a deployment relies on when it onboards a prepared folder, and what `readin
   listed and no file is opened; `.DS_Store` and empty folders do not count, an evicted iCloud placeholder does, and
   the finding names the count per first-level subfolder. The owner clears it by hand before hand-off.
 - **The settings twins** present and fresh.
+- **The editor setup** is present and complete in the wiki folder, as `obsidian.py check` reports: each required
+  plugin's three assets at the manifest's hashes with its `data.json`, every one listed in
+  `community-plugins.json`, the core set as the manifest says; device state present is noted, not a finding
+  ([the editor setup](../wiki-maintenance/SKILL.md#the-editor-setup)). Whether the owner has answered Obsidian's
+  first-open question is not checked: that answer is Obsidian's and not in the vault.
 - **No scratch**: `_Audit/` holds no folder but `plans`, `extract` and `cards`.
 
 How `readiness.py` reports each is in [the tool reference](references/tools.md#readinesspy).
@@ -845,6 +854,7 @@ How `readiness.py` reports each is in [the tool reference](references/tools.md#r
 | [`refs.py`](references/tools.md#refspy) | 6 | restores truncated reference numbers from each card's own source |
 | [`structure.py`](references/tools.md#structurepy) | 7 | the structure measures, the documents of the approved scope, the assessment record's check |
 | [`wiki.py`](references/tools.md#wikipy) | 8 | `profile`, `bundles`, `brief`, `chart`, `check`, `rationale`, `deadlines`, `review-prompts`, `accept`, `move`, `drift` |
+| [`obsidian.py`](references/tools.md#obsidianpy) | 8, 9 | the editor setup: `write` builds `.obsidian/` from the manifest, `check` reports it |
 | [`readiness.py`](references/tools.md#readinesspy) | 9 | the hand-off contract |
 | [`engines.py`](references/tools.md#enginespy) | 5, 6 | the engine adapters every model call goes through |
 

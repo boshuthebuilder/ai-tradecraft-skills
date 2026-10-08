@@ -4,6 +4,35 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## Unreleased
+
+A **MINOR**: the editor setup travels with the wiki (#153; the tool is #154, the user vault and the release #155).
+Two wiki conventions need Obsidian plugins the method never set up, a folder opening its same-name note and a page's
+relative link reaching a document outside the wiki folder, so every wiki left the owner to install them by hand.
+No skill name, archetype layout or prompt placeholder changes.
+
+### Added (MINOR)
+
+- **The editor setup** ([`wiki-maintenance`](plugins/ai-os/skills/wiki-maintenance/SKILL.md#the-editor-setup)): a
+  convention with one home. `.obsidian/` sits in a project's wiki folder (the folder the owner opens as the vault)
+  and at a user vault's root; the profile is the settings files and `plugins/<id>/` for each required plugin,
+  never device state; the required plugins are `folder-notes` and `external-file-embed-and-link`, by id, their
+  versions, hashes and settings pinned in the manifest the method ships, `obsidian-profile.json`; the profile is
+  built from the manifest and the plugins' releases with a per-machine cache, never from a template vault; a
+  plugin that cannot be fetched is a finding. Obsidian's first-open question is Obsidian's own, kept outside the
+  vault, so the check reports *installed* and the owner answers it once per machine.
+- **`pre-onboarding`**: step 8 writes the setup with the skeleton (`obsidian.py write`); the hand-off contract gains
+  the *editor setup* item; the tool reference documents `obsidian.py` (`write`, `check`, exit codes, the cache,
+  the `nosourcemap` allowance); the rulebook twin gains an optional `obsidian_cache`.
+- **`wiki-onboarding`** step 4: the editor setup is written with the skeleton.
+
+### Migrating a deployment
+
+- Run `obsidian.py write` once on each existing wiki and vault to bring it to the profile; it adds what is
+  missing, keeps settings the manifest does not name, and leaves device state alone. A vault whose plugin is at
+  another version is reported, not overwritten, until `--upgrade` is given.
+- A user vault's scaffold writes the same profile from the manifest (#155).
+
 ## v15.0.0 (2026-10-08)
 
 A **MAJOR**, in two parts (#148, #149): a documented rule gains an exception, and the synthesis templates
