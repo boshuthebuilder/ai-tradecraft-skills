@@ -12,14 +12,16 @@ file-ingest. Two jobs, named for what they do (a job's `id` equals its `mode`):
 
 | job | mode | scheduling | scope |
 |---|---|---|---|
-| `synthesise` | `synthesise` | **reactive** — runs the deterministic gate often; no-ops when no accessible wiki changed | incremental: evolve the Knowledge slice the changed source wikis touch |
+| `synthesise` | `synthesise` | **reactive** — runs the deterministic gate often; no-ops when no accessible wiki or owner confirmation record changed | incremental: evolve the Knowledge slice the changed sources touch |
 | `reconcile` | `reconcile` | **periodic** — a clock (e.g. weekly), not the reactive gate | full: reckon the *whole* vault against *all* accessible wikis — prune cruft, repair cross-refs, confirm the Schema holds |
 
 ## The split that makes it safe and cheap
 
-- **Deterministic (the deployment's code):** the **gate** — hash the accessible wikis' content plus
-  the accessible-project set; reach the model only when that hash moved, and record the hash as seen
-  only **after a successful write** (a failed run re-detects). And the **access-scoping** — gather
+- **Deterministic (the deployment's code):** the **gate** — hash the accessible wikis' content, the
+  owner confirmation records in those projects' folders, and the accessible-project set
+  ([`ARCHITECTURE.md`](../../../../ARCHITECTURE.md#the-gate-before-the-model)); reach the model only
+  when that hash moved, and record the hash as seen only **after a successful write** (a failed run
+  re-detects; an omitted record stays pending). And the **access-scoping** — gather
   feeds the model *only* the wikis this identity may access, and the owner confirmation records in
   those projects' folders (below), so a cross-tier leak is impossible by construction, plus a
   mechanical link backbone (entity → project-page occurrences) so every link the synthesis makes is

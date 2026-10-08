@@ -55,8 +55,9 @@ rule, is why this is a MAJOR rather than the MINOR first planned.
   and `reconcile.md` defers to; the archetype adds only its own mechanics: a claim that rests on a record cites
   it as `<project id>: <folder-relative path>`; a migration the owner declined in a record stays declined; the
   synthesis never writes a record; a fact that spans two projects has one home, the holding project's folder,
-  and the synthesis is the pass that carries it into the other project's view. `scheduler.md`'s gate hashes the
-  records and consumes one only when the run showed its text, so an omitted record stays pending.
+  and the synthesis is the pass that carries it into the other project's view. The gate hashes the records,
+  in `ARCHITECTURE.md`'s gate section and `scheduler.md` alike, and consumes one only when the run showed its
+  text, so an omitted record stays pending; a claim may rest on a shown record as on a page.
 - **`user-onboarding`**: the access scope governs the records (step 2), and step 5 checks it; `wiki-maintenance`'s
   owner-record paragraph says a fact settled in a project folder also settles it in the second brain.
 

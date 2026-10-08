@@ -195,7 +195,9 @@ What the gate counts as "something changed", for the file-ingest archetype:
   (hash the events, ignoring churn like a regenerated-at timestamp).
 
 For the user-synthesis archetype, the same rule over different inputs: the content of every wiki the
-identity may access, plus the accessible-project set itself. The more expensive the reasoning step,
+identity may access, the owner confirmation records in those projects' folders (so a record reaches the
+vault on the next tick, before the project's own ingest has folded it in), plus the accessible-project
+set itself. The more expensive the reasoning step,
 the more the gate matters — a full cross-project synthesis is the costliest pass in the system, and
 the gate is what makes running its check every few minutes free.
 

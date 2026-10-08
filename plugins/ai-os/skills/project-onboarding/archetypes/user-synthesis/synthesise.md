@@ -101,8 +101,9 @@ Rules:
   they are (the deployment does not delete them) — so silence preserves, it does not prune.
 - **Knowledge ⊥ Ideas.** Knowledge never links or references `02 Ideas/` — it stitches *consolidated*
   cross-project understanding, not un-incubated ideas. (Ideas may link into Knowledge; not the reverse.)
-- **Traceable, always.** Every claim links to a source page shown in the report. If you cannot point to
-  a source, leave the claim out.
+- **Traceable, always.** Every claim links to a source shown in the report: a project's wiki page, or
+  an owner confirmation record (a record reaches you before the project's ingest has folded it into a
+  page, and is a source in its own right). If you cannot point to one, leave the claim out.
 - **Copy quoted figures character-for-character.** When you state a value from a source — a balance, an
   account/policy number, a date — re-find it on the source page shown in the report and copy it exactly;
   never transcribe such a figure from memory, and if it isn't shown this run, name the page it lives on
