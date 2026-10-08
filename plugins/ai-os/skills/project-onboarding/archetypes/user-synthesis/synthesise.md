@@ -151,9 +151,10 @@ Rules:
   professional adds no fact the sources do not hold except as labelled outside knowledge (a line
   opening *General rule, not from the projects' pages:*), and no page blends two voices.
 - **A rationale block for every page you create or reshape.** Return `rationale` on a `wiki_pages[]`
-  entry when you create the page, or change its kind, professional or shape: the five lines of
-  `wiki-maintenance`'s rationale block, as five fields. An update that only integrates a fact into the
-  page's existing structure omits it.
+  entry when you create the page, change its kind, professional or shape, or rewrite it to its kind's
+  contract because the report names it as last written before that contract changed: the five lines
+  of `wiki-maintenance`'s rationale block, as five fields. An update that only integrates a fact into
+  the page's existing structure omits it.
 - Give every page you write frontmatter: `provenance: derived`, `last-updated: {date}`,
   `status: current`, `kind: <kind>`, and `professional: <professional>` where the kind delegates it.
 - Keep the vault navigable: a reader should reach anything in two hops from the Index.
@@ -172,8 +173,9 @@ Return JSON only, matching this shape (every `wiki_pages[].path` must sit under 
 ```
 
 `migration` is optional: include it only on an item that proposes a migration (task 3), and leave it
-out of every other item. `rationale` is required on a `create` and on an `update` that changes the
-page's kind, professional or shape, and omitted on an update that only integrates a fact.
+out of every other item. `rationale` is required on a `create`, on an `update` that changes the
+page's kind, professional or shape, and on an `update` that rewrites the page to a changed contract,
+and omitted on an update that only integrates a fact.
 
 Every `needs_a_look` item must be **decidable in one step** — its `what_would_resolve` names the single
 decision or action that closes it. **A no-change run is silent: when you wrote no page *and* raised no

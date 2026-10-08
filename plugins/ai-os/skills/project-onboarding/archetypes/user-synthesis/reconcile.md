@@ -70,8 +70,9 @@ Reckon the whole vault and correct drift, making the **minimal stable changes** 
 5. **Keep every page in its voice.** Every Knowledge page carries a `kind:` that `09 Schema`'s Page
    kinds table names, and reads as its professional, to its kind's contract: the kind's fixed
    professional, or, where the kind delegates, the one the page names in `professional:`, which you
-   keep rather than re-choose. A page with no kind, a delegated page with no professional, or one that
-   has slid into generic prose, is rewritten in its voice with a `rationale` whose `changed` line says
+   keep rather than re-choose. A page with no kind, a delegated page with no professional, one that
+   has slid into generic prose, or one the findings name as last written before its kind's contract
+   changed, is rewritten in its voice and to its contract with a `rationale` whose `changed` line says
    so; a page that fits no kind is proposed in `needs_a_look`, not re-kinded. Where the findings name
    the pages with no rationale block, or the structure shows the headings of
    `_Audit/wiki-rationale.md`, count them; where the findings name the pages whose acceptance is not
@@ -114,5 +115,6 @@ Return JSON only (every `wiki_pages[].path` under `00 Index/` or `01 Knowledge/`
 ```
 
 `migration` is optional: include it only on an item that proposes a migration (task 7), and leave it
-out of every other item. `rationale` is required on a `create` and on an `update` that changes the
-page's kind, professional or shape (task 5), and omitted on an update that only integrates a fact.
+out of every other item. `rationale` is required on a `create`, on an `update` that changes the
+page's kind, professional or shape, and on an `update` that rewrites the page to a changed contract
+(task 5), and omitted on an update that only integrates a fact.
