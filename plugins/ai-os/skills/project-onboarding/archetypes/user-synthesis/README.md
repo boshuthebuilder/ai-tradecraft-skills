@@ -55,14 +55,15 @@ omits it. The deployment's write stage renders `_Audit/wiki-rationale.md` from t
 deployment owns the audit tier as it does in a project, and the write-fence stays as it is: the
 synthesis never writes `_Audit/`. The field is additive and optional: a deployment that validates the
 reply strictly allows it before advancing its pin. The audit tier is also where acceptance is recorded:
-a page the synthesis creates, reshapes or rewrites to a changed contract is reviewed, in the owner's
+a page the synthesis creates, reshapes or rewrites to its kind's changed contract or fixed
+professional is reviewed, in the owner's
 lens and its professional's, by a model other than the one that wrote it, as a deployment step after
 the write; a page with no verdict reads as not recorded, never as accepted. The deployment keys a
 verdict to the page's kind, contract, professional and anatomy, as its rationale block records them,
-never to the body, so an update that only integrates a fact keeps it. A contract change is a
-Schema change the owner agrees, and the deployment's sweep then names the pages last written before
-it in `{reconcile_findings}`, so the next pass rewrites them to the contract with a fresh rationale and
-the acceptance step reviews them. A page the findings name with no block comes back from the reconcile
+never to the body, so an update that only integrates a fact keeps it. A change to a kind's row, its
+contract or its fixed professional, is a Schema change the owner agrees, and the deployment's sweep
+then names the pages last written before it in `{reconcile_findings}`, so the next pass rewrites them
+to the row with a fresh rationale and the acceptance step reviews them. A page the findings name with no block comes back from the reconcile
 as an update carrying its `rationale`, so the deployment writes the block and the finding closes. For
 the reconcile's counts, the deployment shows the
 headings of `_Audit/wiki-rationale.md` with the structure, or names the pages with no block in
