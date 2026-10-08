@@ -40,8 +40,9 @@ rule, is why this is a MAJOR rather than the MINOR first planned.
   as the chief of staff's briefing note; a matter or theme page's professional chosen from the catalogue at
   run time, named in `professional:` and its rationale block, and kept on later updates. `wiki_pages[]` gains
   an optional **`rationale`** field (the five lines, as five fields), required on a create, on a change of
-  kind, professional or shape, and on a rewrite to the kind's changed contract or fixed professional (the
-  deployment's sweep names the pages
+  kind, professional or shape, on a rewrite to the kind's changed contract or fixed professional (the
+  deployment's sweep names the pages whose rationale no longer matches the row, never by write time), and on
+  the correction of a refused page from the review's findings (the deployment's sweep names the pages
   last written before it); the deployment renders `_Audit/wiki-rationale.md` from it. `reconcile` keeps
   every page in its voice, restores a missing block by returning the page with its rationale, and counts the
   pages with no kind, no block or no accepted verdict where the deployment's findings show the coverage, saying

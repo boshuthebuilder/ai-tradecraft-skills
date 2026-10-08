@@ -158,8 +158,8 @@ Rules:
   opening *General rule, not from the projects' pages:*), and no page blends two voices.
 - **A rationale block for every page you create or reshape.** Return `rationale` on a `wiki_pages[]`
   entry when you create the page, change its kind, professional or shape, or rewrite it to its kind's
-  row because the report names it as last written before that row changed (its contract, or its
-  fixed professional): the five lines
+  row because the report names it as out of step with that row (its rationale's professional lens no
+  longer matches the row's fixed professional or contract questions): the five lines
   of `wiki-maintenance`'s rationale block, as five fields. An update that only integrates a fact into
   the page's existing structure omits it.
 - Give every page you write frontmatter: `provenance: derived`, `last-updated: {date}`,
