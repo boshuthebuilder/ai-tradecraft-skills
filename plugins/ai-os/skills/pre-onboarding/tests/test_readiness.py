@@ -34,6 +34,9 @@ import extract  # noqa: E402
 import isolation  # noqa: E402
 import readiness  # noqa: E402
 FIXTURE = os.path.join(HERE, "fixture", "Alex Personal")
+# The fixture wiki's .obsidian/ holds stand-in plugin assets, pinned by the fixture's own manifest, which readiness.py
+# reads in place of the method's (tests/fixtures/obsidian-profile.json; the real plugins' code is never in the repo).
+os.environ.setdefault("PRE_ONBOARDING_OBSIDIAN_MANIFEST", os.path.join(HERE, "fixtures", "obsidian-profile.json"))
 WIKI = "Alex Personal Wiki"
 DEADLINES = "01 Deadlines/01 Deadlines.md"
 GAP_CARD = "1; not verified for 3 document(s) whose card is malformed"

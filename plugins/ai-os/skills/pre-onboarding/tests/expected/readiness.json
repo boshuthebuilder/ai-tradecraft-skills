@@ -157,6 +157,17 @@
  "scratch": {
   "left_in_audit": []
  },
+ "editor_setup": {
+  "present": true,
+  "complete": true,
+  "plugins": {
+   "folder-notes": "complete",
+   "external-file-embed-and-link": "complete"
+  },
+  "core": "ok",
+  "device_state": [],
+  "findings": []
+ },
  "handoff_contract": {
   "wiki_folder_named_after_folder": "ok",
   "fixed_pages": "ok",

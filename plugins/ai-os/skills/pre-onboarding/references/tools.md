@@ -1490,7 +1490,10 @@ parsed JSON, since Obsidian rewrites these files with its own formatting on ever
 Exit codes follow `wiki.py`'s: 0 when complete or nothing to do, 1 on findings (`check`), 2 for a root that is not a
 directory or holds no wiki skeleton, 3 when an asset could not be fetched or failed its hash (`write` names the
 plugin, the asset and the reason, and writes nothing for that plugin). `readiness.py` runs `check` and reports its
-result as the hand-off contract's *editor setup* item.
+result as the hand-off contract's *editor setup* item (`editor_setup` in its report, each finding as
+`editor_setup`); `--obsidian-manifest`, or the environment's `PRE_ONBOARDING_OBSIDIAN_MANIFEST`, names another
+manifest, which is how the tests point it at the fixture's (`tests/fixtures/obsidian-profile.json`, pinned to the
+stand-in assets under the fixture wiki's `.obsidian/`; the plugins' own code is never in the repository).
 
 ## `readiness.py`
 
