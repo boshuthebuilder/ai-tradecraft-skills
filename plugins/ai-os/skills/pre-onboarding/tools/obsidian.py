@@ -21,6 +21,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import ssl
 import sys
 import urllib.error
@@ -38,6 +39,8 @@ RELEASE_URL = "https://github.com/%s/releases/download/%s/%s"
 USER_AGENT = "ai-os-obsidian/1"
 SETTINGS_FILES = ("app.json", "appearance.json", "core-plugins.json", "community-plugins.json")
 EXIT_FETCH = 3
+NAME = re.compile(r"(?!\.+$)[A-Za-z0-9._-]+")  # a plugin id or version: one path part, never . or ..
+REPO = re.compile(r"(?!\.+/)[A-Za-z0-9._-]+/(?!\.+$)[A-Za-z0-9._-]+")  # owner/name, each one such part
 
 
 class FetchError(common.ToolError):
@@ -77,9 +80,10 @@ def load_manifest(path):
               and isinstance(p.get("desktop_only", False), bool))
         if not ok:
             bad("plugins[%d] must have id, repo, version, assets {%s: sha256} and data {}" % (i, ", ".join(ASSETS)))
-        if "/" in p["id"] or p["id"] in (".", "..") or "/" not in p["repo"] or "/" in p["version"]:
-            bad("plugins[%d]: id %r, repo %r and version %r must be plain names" % (i, p["id"], p["repo"],
-                                                                                     p["version"]))
+        if not (NAME.fullmatch(p["id"]) and NAME.fullmatch(p["version"]) and REPO.fullmatch(p["repo"])):
+            bad("plugins[%d]: id %r and version %r must be plain names (letters, digits, . _ -) and repo %r "
+                "an owner/name pair of the same, so the release URL stays on github.com under that repo"
+                % (i, p["id"], p["version"], p["repo"]))
         if p["id"] in seen:
             bad("plugins[%d]: id %r appears twice" % (i, p["id"]))
         seen.add(p["id"])
@@ -157,6 +161,10 @@ def vault_root(given):
     root = os.path.realpath(given)
     if not os.path.isdir(root):
         raise common.ToolError("root missing or not a folder: %s" % root)
+    ob = os.path.join(root, ".obsidian")
+    if os.path.lexists(ob) and not os.path.isdir(ob):
+        raise common.ToolError("%s exists but is not a folder; move it aside before the editor setup is written or "
+                               "checked" % ob)
     has_pages = any(n.lower().endswith(".md") for n in os.listdir(root)) or os.path.isdir(os.path.join(root,
                                                                                                         "00 Index"))
     if not has_pages:
@@ -283,6 +291,11 @@ def write_profile(root, m, cache, upgrade=False, fetch_fn=fetch, release_url=REL
     ob = os.path.join(root, ".obsidian")
     w = common.Writer()
     actions, failures = [], []
+    have = read_json_file(os.path.join(ob, "community-plugins.json"))  # read first: a file the tool cannot read
+    if have is not None and not (isinstance(have, list) and all(isinstance(x, str) for x in have)):  # stops it
+        raise common.ToolError("%s is not a list of plugin ids as Obsidian writes it; fix it by hand before the "
+                               "editor setup is written, since the tool never replaces what it cannot read"
+                               % os.path.join(ob, "community-plugins.json"))
     for plugin in m["plugins"]:
         pid, folder = plugin["id"], os.path.join(ob, "plugins", plugin["id"])
         st = plugin_state(root, plugin)
@@ -315,9 +328,8 @@ def write_profile(root, m, cache, upgrade=False, fetch_fn=fetch, release_url=REL
             w.json(os.path.join(folder, "data.json"), plugin["data"], indent=2)
             actions.append("plugin %s: wrote data.json" % pid)
     # the settings files: merge, keep what the manifest does not name, never clobber a key that is present
-    have = read_json_file(os.path.join(ob, "community-plugins.json"))
     ids = [p["id"] for p in m["plugins"] if p["id"] not in [f[0] for f in failures]]
-    listed = [x for x in have if isinstance(x, str)] if isinstance(have, list) else []
+    listed = list(have) if have else []
     merged = ids + [x for x in listed if x not in ids] if any(i not in listed for i in ids) else listed
     if merged != listed or have is None:
         w.json(os.path.join(ob, "community-plugins.json"), merged)

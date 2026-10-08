@@ -281,6 +281,48 @@ class ObsidianTest(unittest.TestCase):
         self.assertEqual(obsidian.cache_dir(self.vault, os.path.join(self.tmp, "..", "elsewhere-%d" % os.getpid())),
                          os.path.realpath(os.path.join(self.tmp, "..", "elsewhere-%d" % os.getpid())))
 
+    def test_a_repo_id_or_version_that_is_not_a_plain_name_is_refused(self):
+        """The release URL is built from them under github.com, so each is one path part: no `..`, no `/` beyond
+        the one between owner and name, no `?` or `#`."""
+        for key, value in (("repo", "evil.example/.."), ("repo", "owner/../name"), ("repo", "owner"),
+                           ("repo", "owner/name/extra"), ("repo", "owner/name?x=1"), ("id", ".."), ("id", "a/b"),
+                           ("version", "../1.0.0"), ("version", "1.0.0#frag")):
+            with self.subTest(key=key, value=value):
+                m = json.loads(json.dumps(self.manifest))
+                m["plugins"][0][key] = value
+                bad = os.path.join(self.tmp, "bad.json")
+                with open(bad, "w", encoding="utf-8") as f:
+                    json.dump(m, f)
+                with self.assertRaisesRegex(common.ToolError, "plain names"):
+                    obsidian.load_manifest(bad)
+        for key, value in (("repo", "Some-Owner_1/obsidian.plugin-2"), ("version", "2.0.0-beta.1")):
+            m = json.loads(json.dumps(self.manifest))
+            m["plugins"][0][key] = value
+            good = os.path.join(self.tmp, "good.json")
+            with open(good, "w", encoding="utf-8") as f:
+                json.dump(m, f)
+            obsidian.load_manifest(good)
+
+    def test_a_community_plugins_file_the_tool_cannot_read_is_refused_not_replaced(self):
+        os.makedirs(self.ob())
+        with open(self.ob("community-plugins.json"), "w", encoding="utf-8") as f:
+            json.dump({"folder-notes": True}, f)
+        with self.assertRaisesRegex(common.ToolError, "not a list of plugin ids"):
+            self.write()
+        self.assertEqual(json.loads(read(self.ob("community-plugins.json"))), {"folder-notes": True},
+                         "the file the owner wrote is untouched")
+        self.assertFalse(os.path.exists(self.ob("plugins", "two")), "nothing else was written either")
+
+    def test_a_dot_obsidian_that_is_a_file_is_refused_by_both_commands(self):
+        with open(self.ob(), "w", encoding="utf-8") as f:
+            f.write("not a folder\n")
+        for cmd, extra in (("write", ("--cache", self.cache)), ("check", ())):
+            with self.subTest(cmd=cmd):
+                code, out, err = run(cmd, "--root", self.vault, "--manifest", self.manifest_path, *extra)
+                self.assertEqual(code, 2, err)
+                self.assertIn("exists but is not a folder", err)
+        self.assertEqual(read(self.ob()), "not a folder\n")
+
     # ---- the shipped manifest and the fixture ----
 
     def test_the_shipped_manifest_is_valid_and_names_no_one(self):
