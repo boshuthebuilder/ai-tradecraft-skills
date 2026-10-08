@@ -24,14 +24,16 @@ skill name, archetype layout or prompt placeholder changed.
   a chief of staff proposes them (index, entity, matter, theme, folder note; a deployment may add one), the
   owner agrees, and `09 Schema` records them in two fixed-header tables, **Page kinds** and **Page contracts**.
   The first synthesis's pages are accepted in both lenses through a model that did not write them; a page the
-  synthesis later creates or reshapes is accepted the same way as a deployment step after the write, a page
+  synthesis later creates, reshapes or rewrites to a changed contract is accepted the same way as a deployment
+  step after the write, a page
   with no verdict reads as not recorded, and a page is accepted again when its kind, contract, professional or
   anatomy changes. `_Audit/` joins the skeleton.
 - **The `user-synthesis` archetype** writes every page as its professional, to its kind's contract: the Index
   as the chief of staff's briefing note; a matter or theme page's professional chosen from the catalogue at
   run time, named in `professional:` and its rationale block, and kept on later updates. `wiki_pages[]` gains
-  an optional **`rationale`** field (the five lines, as five fields), required on a create and on a change of
-  kind, professional or shape; the deployment renders `_Audit/wiki-rationale.md` from it. `reconcile` keeps
+  an optional **`rationale`** field (the five lines, as five fields), required on a create, on a change of
+  kind, professional or shape, and on a rewrite to a changed contract (the deployment's sweep names the pages
+  last written before it); the deployment renders `_Audit/wiki-rationale.md` from it. `reconcile` keeps
   every page in its voice and counts the pages with no kind, no block or no accepted verdict where the
   deployment's findings show the coverage, saying so where they do not.
 - **`ARCHITECTURE.md`**'s type-1 skeleton gains `_Audit/` and points at the kinds.
