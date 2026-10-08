@@ -168,7 +168,9 @@ before the owner is told of it: the deployment runs that review as a
 step after the write, through a model other than the one that wrote the page, and records the verdict.
 A page with no verdict is reported as **not recorded**, never as accepted, and the periodic reconcile
 counts it with the pages that have no rationale block, where the deployment's sweep puts the
-acceptance state in its findings (the archetype's `scheduler.md`). A page is accepted again when its kind,
+acceptance state in its findings (the archetype's `scheduler.md`); the review runs again on any page
+found without a verdict, and a refused page is corrected by the next reconcile from the review's
+findings and reviewed again. A page is accepted again when its kind,
 contract, professional or anatomy changes, and the deployment keys each verdict to those four, as the
 page's rationale block records them, never to the page's body
 ([the rule in a user vault](../wiki-maintenance/SKILL.md#the-rule-in-a-user-vault)): a routine

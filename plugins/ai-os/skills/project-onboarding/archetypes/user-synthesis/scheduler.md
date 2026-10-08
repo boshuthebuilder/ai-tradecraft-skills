@@ -33,11 +33,16 @@ file-ingest `reconcile`:
   reckons the whole vault against all accessible sources.
 - **Deterministic sweeps first.** Before the model call, run the mechanical health sweeps (orphan pages,
   staleness, pages with no `kind:`, no block in `_Audit/wiki-rationale.md` or no accepted verdict in
-  `_Audit/wiki-acceptance.json`, pages last written before their kind's row in `09 Schema` changed,
-  its contract or its fixed professional, log digest)
-  and pass their findings into the prompt as a worklist —
-  the model judges, the sweeps locate. The acceptance state reaches the model only this way: neither
-  prompt input shows the acceptance record itself.
+  `_Audit/wiki-acceptance.json`, pages whose rationale block no longer matches their kind's row in
+  `09 Schema`, log digest) and pass their findings into the prompt as a worklist — the model judges,
+  the sweeps locate. The marker for a changed kind row is the page's rationale block (its
+  professional-lens line against the row's fixed professional and contract questions), never the
+  page's write time, which a reactive `synthesise` can advance with a fact-only update after the row
+  changed. The acceptance state reaches the model only this way: neither prompt input shows the
+  acceptance record itself. A page found with no verdict is handed to the acceptance review directly,
+  which runs on any page without a verdict, not only after a write; a page found refused carries the
+  review's findings in the worklist, so the reconcile can return it corrected and the review runs
+  again.
 - **Same write context + consume-on-success** as `synthesise`.
 
 One periodic timer **per identity**, alongside its reactive `synthesise` timer.
