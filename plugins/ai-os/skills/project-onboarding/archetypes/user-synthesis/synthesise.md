@@ -30,8 +30,10 @@ breaks links.
 
 The report lists each accessible project (name, id, its wiki's pages with excerpts) and a mechanical
 **link backbone**: for each entity/concept, the project pages it appears in. The backbone is ground
-truth for *where things appear* — every cross-project link you write must be supported by it or by page
-content actually shown above. Never invent a page, an entity, or a connection.
+truth for *where things appear* — every cross-project link you write must be supported by it, by page
+content actually shown above, or by the text of an owner confirmation record shown below (the owner
+saying that two occurrences are one person is support in its own right, before any project's ingest
+has folded it in). Never invent a page, an entity, or a connection.
 
 ## The owner's confirmation records
 
