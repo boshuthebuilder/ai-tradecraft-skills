@@ -45,7 +45,13 @@ contract and either fixes the page's professional or delegates the choice to the
 the Schema's **Page kinds** and **Kind contracts** tables, and the professional catalogue, to the
 model with the vault's structure. The page declares `kind:` in its frontmatter, and `professional:`
 where its kind delegates, and is written as that professional's deliverable, to its kind's contract.
-A page whose kind has no row is proposed in `needs_a_look`, never written. For every page it creates,
+A page whose kind has no row is proposed in `needs_a_look`, never written; the proposal rides the
+raised-item ledger like any item, raised once and not again while it is open or dismissed, and the
+gate re-runs the synthesis when the owner adds the row, because it hashes the kind tables, so a
+missing row cannot livelock the vault. The deployment's write guards hold the keys as they hold the
+write-fence: a `kind:` that names no row in `09 Schema`, or a `professional:` that is neither a
+catalogue row nor named for the matter in the rationale block, is refused at the write and reported,
+never written and later counted. For every page it creates,
 and every page whose kind, professional or shape it changes, the synthesis returns a **`rationale`**
 block on the `wiki_pages[]` entry (the five lines of `wiki-maintenance`'s rationale block, as five
 fields); an update that only integrates a fact omits it; the Index, which both passes re-derive each

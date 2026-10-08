@@ -74,7 +74,8 @@ Evolve the vault as a coherent whole — a second brain, not a file listing:
    choice in the page's `professional:` frontmatter and its rationale block, and on an update keep the
    professional the page already names; the kind's contract questions govern the page, the
    professional supplies the tone. A page that fits no kind, or whose professional you cannot choose
-   from the catalogue shown, is proposed in `needs_a_look`, not written.
+   from the catalogue shown, is proposed in `needs_a_look`, not written; the proposal rides the
+   `previously_raised` ledger, so you do not raise it again while it is open or dismissed.
 3. **Proposed migrations, when the sources show one** (optional; most runs propose none). A project
    files within itself (`wiki-maintenance`'s rule), so you are the one pass that sees both sides. When
    the pages shown make it plain that files one project in this report holds belong to another
