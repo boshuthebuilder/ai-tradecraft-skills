@@ -80,9 +80,10 @@ Evolve the vault as a coherent whole — a second brain, not a file listing:
    reconciled — and where projects *disagree*, say so explicitly. Every page is **one kind** from
    `09 Schema` (an entity, a matter, a theme, a folder note), declares it as `kind:` in its frontmatter,
    and is written as that kind's professional's deliverable, answering its contract's questions in that
-   order, the first in its opening lines. A matter page's professional you choose from the catalogue
-   as the matter needs, and name in its rationale block. A page that fits no kind is proposed in
-   `needs_a_look`, not written.
+   order, the first in its opening lines. Where the kind delegates the professional to the page (a
+   matter, a theme), choose from the catalogue as the matter needs, name the choice in the page's
+   `professional:` frontmatter and its rationale block, and on an update keep the professional the
+   page already names. A page that fits no kind is proposed in `needs_a_look`, not written.
 3. **Proposed migrations, when the sources show one** (optional; most runs propose none). A project
    files within itself (`wiki-maintenance`'s rule), so you are the one pass that sees both sides. When
    the pages shown make it plain that files one project in this report holds belong to another
@@ -155,7 +156,7 @@ Rules:
   `wiki-maintenance`'s rationale block, as five fields. An update that only integrates a fact into the
   page's existing structure omits it.
 - Give every page you write frontmatter: `provenance: derived`, `last-updated: {date}`,
-  `status: current`, `kind: <kind>`.
+  `status: current`, `kind: <kind>`, and `professional: <professional>` where the kind delegates it.
 - Keep the vault navigable: a reader should reach anything in two hops from the Index.
 
 Return JSON only, matching this shape (every `wiki_pages[].path` must sit under `00 Index/` or

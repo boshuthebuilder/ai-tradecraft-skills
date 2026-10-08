@@ -18,20 +18,25 @@ changed.
 
 - **The rule in a user vault**
   ([`wiki-maintenance`](plugins/ai-os/skills/wiki-maintenance/SKILL.md#the-rule-in-a-user-vault)): a type-1 user
-  vault keeps the rule **per page kind**, because its pages are born in unattended runs. Sections by
+  vault keeps the rule **per page kind**, because its pages are born in unattended runs: a kind has one
+  contract and either fixes the page's professional or delegates the choice to the page. Sections by
   responsibility does not apply there. The rationale file and the acceptance record live in `_Audit/` at the
-  vault root, deployment-written. The canonical frontmatter gains `kind:`, in a user vault.
+  vault root, deployment-written. The canonical frontmatter gains `kind:` on every page the synthesis writes
+  and `professional:` on a page whose kind delegates; the owner-authored Ideas and the Reports carry neither.
 - **`user-onboarding` holds the kinds** ([step 3](plugins/ai-os/skills/user-onboarding/SKILL.md#3-scaffold-the-type-1-skeleton)):
   a chief of staff proposes them (index, entity, matter, theme, folder note; a deployment may add one), the
   owner agrees, and `09 Schema` records them in two fixed-header tables, **Page kinds** and **Page contracts**.
-  The first synthesis's pages are accepted in both lenses through a model that did not write them; later, a
-  page is accepted again when its kind, contract or professional changes. `_Audit/` joins the skeleton.
-- **The `user-synthesis` archetype** writes every page as its kind's professional, to its contract: the Index
-  as the chief of staff's briefing note; a matter page's professional chosen from the catalogue at run time
-  and named in its rationale block. `wiki_pages[]` gains an optional **`rationale`** field (the five lines, as
-  five fields), required on a create and on a change of kind, professional or shape; the deployment renders
-  `_Audit/wiki-rationale.md` from it. `reconcile` keeps every page in its kind's voice and counts the pages
-  with no kind or no block.
+  The first synthesis's pages are accepted in both lenses through a model that did not write them; a page the
+  synthesis later creates or reshapes is accepted the same way as a deployment step after the write, a page
+  with no verdict reads as not recorded, and a page is accepted again when its kind, contract, professional or
+  anatomy changes. `_Audit/` joins the skeleton.
+- **The `user-synthesis` archetype** writes every page as its professional, to its kind's contract: the Index
+  as the chief of staff's briefing note; a matter or theme page's professional chosen from the catalogue at
+  run time, named in `professional:` and its rationale block, and kept on later updates. `wiki_pages[]` gains
+  an optional **`rationale`** field (the five lines, as five fields), required on a create and on a change of
+  kind, professional or shape; the deployment renders `_Audit/wiki-rationale.md` from it. `reconcile` keeps
+  every page in its voice and counts the pages with no kind or no block where the deployment shows the
+  coverage, saying so where it does not.
 - **`ARCHITECTURE.md`**'s type-1 skeleton gains `_Audit/` and points at the kinds.
 - **The testimony pin covers the synthesis** (#149;
   [`ARCHITECTURE.md`](plugins/ai-os/ARCHITECTURE.md#surfacing-the-raised-item-lifecycle)): every
@@ -52,7 +57,10 @@ changed.
 ### Migrating a deployment
 
 - Scaffold `_Audit/` in each vault; render `wiki-rationale.md` from the `rationale` field and record acceptance
-  in `wiki-acceptance.json`. The synthesis write-fence does not change.
+  in `wiki-acceptance.json`, running the acceptance review of a created or reshaped page as a step after the
+  write, through a model other than the one that wrote it. Show the rationale file's headings with the
+  structure, or name the pages with no block in the reconcile findings. The synthesis write-fence does not
+  change.
 - Agree the page kinds with each identity's owner and write the two tables into `09 Schema`; show them to the
   synthesis with the vault's structure.
 - Allow `rationale` and `kind:` in strict validation. The first run after the pin advance may rewrite pages

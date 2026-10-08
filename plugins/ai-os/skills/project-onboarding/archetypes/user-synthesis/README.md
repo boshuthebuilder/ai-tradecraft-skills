@@ -40,18 +40,25 @@ Index/`/`01 Knowledge/`), the same `.proposed.md` human-edit guard used everywhe
 containment. The synthesis never writes back into a project wiki.
 
 Every page the synthesis writes has a **kind** from the vault's `09 Schema`, and each kind has one
-professional and one contract (`user-onboarding`, *The page kinds*, under
+contract and either fixes the page's professional or delegates the choice to the page
+(`user-onboarding`, *The page kinds*, under
 [the core wiki rule](../../../wiki-maintenance/SKILL.md#the-rule-in-a-user-vault)); the deployment shows
 the Schema's **Page kinds** and **Page contracts** tables to the model with the vault's structure. The
-page declares `kind:` in its frontmatter and is written as that kind's professional's deliverable, to
-its contract. A page whose kind has no row is proposed in `needs_a_look`, never written. For every page
-it creates, and every page whose kind, professional or shape it changes, the synthesis returns a
-**`rationale`** block on the `wiki_pages[]` entry (the five lines of `wiki-maintenance`'s rationale
-block, as five fields); an update that only integrates a fact omits it. The deployment's write stage
-renders `_Audit/wiki-rationale.md` from the field, since the deployment owns the audit tier as it does
-in a project, and the write-fence stays as it is: the synthesis never writes `_Audit/`. The field is
-additive and optional: a deployment that validates the reply strictly allows it before advancing its
-pin.
+page declares `kind:` in its frontmatter, and `professional:` where its kind delegates, and is written
+as that professional's deliverable, to its kind's contract. A page whose kind has no row is proposed in
+`needs_a_look`, never written. For every page it creates, and every page whose kind, professional or
+shape it changes, the synthesis returns a **`rationale`** block on the `wiki_pages[]` entry (the five
+lines of `wiki-maintenance`'s rationale block, as five fields); an update that only integrates a fact
+omits it. The deployment's write stage renders `_Audit/wiki-rationale.md` from the field, since the
+deployment owns the audit tier as it does in a project, and the write-fence stays as it is: the
+synthesis never writes `_Audit/`. The field is additive and optional: a deployment that validates the
+reply strictly allows it before advancing its pin. The audit tier is also where acceptance is recorded:
+a page the synthesis creates or reshapes is reviewed, in the owner's lens and its professional's, by a
+model other than the one that wrote it, as a deployment step after the write; a page with no verdict
+reads as not recorded, never as accepted. For the reconcile's count of pages with no block, the
+deployment shows the headings of `_Audit/wiki-rationale.md` with the structure, or names the pages
+with no block in `{reconcile_findings}`; shown neither, the reconcile says the coverage was not shown
+rather than counting.
 
 Because Knowledge is incremental, the artefact can drift — hence the **`reconcile` twin**: a periodic
 whole-vault pass under the **same** write contract (still incremental, still fenced to the derived

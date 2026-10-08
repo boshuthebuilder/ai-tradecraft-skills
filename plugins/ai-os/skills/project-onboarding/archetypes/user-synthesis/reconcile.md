@@ -66,12 +66,15 @@ Reckon the whole vault and correct drift, making the **minimal stable changes** 
    sake.
 4. **Confirm the Schema still holds.** If the organising principles in `09 Schema/` no longer match how
    the vault has actually grown, propose the minimal Schema update (and say why in `needs_a_look`).
-5. **Keep every page in its kind's voice.** Every Knowledge page carries a `kind:` that `09 Schema`'s
-   Page kinds table names, and reads as that kind's professional, to its contract. A page with no kind,
-   or one that has slid into generic prose, is rewritten in its kind's voice with a `rationale` whose
-   `changed` line says so; a page that fits no kind is proposed in `needs_a_look`, not re-kinded. Count
-   the pages with no rationale block (the findings name them, or the headings of
-   `_Audit/wiki-rationale.md` shown with the structure) and give the count in the log line.
+5. **Keep every page in its voice.** Every Knowledge page carries a `kind:` that `09 Schema`'s Page
+   kinds table names, and reads as its professional, to its kind's contract: the kind's fixed
+   professional, or, where the kind delegates, the one the page names in `professional:`, which you
+   keep rather than re-choose. A page with no kind, a delegated page with no professional, or one that
+   has slid into generic prose, is rewritten in its voice with a `rationale` whose `changed` line says
+   so; a page that fits no kind is proposed in `needs_a_look`, not re-kinded. Where the findings name
+   the pages with no rationale block, or the structure shows the headings of
+   `_Audit/wiki-rationale.md`, count them and give the count in the log line; shown neither, say the
+   coverage was not shown. Never invent the count.
 6. **Re-derive the Index** so it reflects the reconciled tree, as the chief of staff's briefing note.
 7. **Proposed migrations, when the sources show one** (optional), exactly as `synthesise` sets out:
    one `needs_a_look` item per matter with its `migration` filled, for the owner to make by hand or decline.
@@ -82,7 +85,8 @@ Reckon the whole vault and correct drift, making the **minimal stable changes** 
 Rules: identical to `synthesise` — incremental (return only changed pages; un-returned pages are kept),
 traceable to a source, **figures copied character-for-character from the source** (name the page if it
 isn't shown this run), reconcile-don't-average, full source-supported identifiers by default, `provenance: derived` +
-`last-updated: {date}` + `status:` + `kind:` on every page you write, the voice tone only (the facts,
+`last-updated: {date}` + `status:` + `kind:` on every page you write, and `professional:` where the
+kind delegates it, the voice tone only (the facts,
 sources and format rules the same whoever the page speaks as; no page blends two voices), a `rationale`
 on every page you create or reshape, Knowledge ⊥ Ideas. **A record is the owner's word**: a Knowledge
 page that disagrees with an owner confirmation record is brought back into line with the record,
@@ -102,7 +106,7 @@ Return JSON only (every `wiki_pages[].path` under `00 Index/` or `01 Knowledge/`
   "verdict": "apply | skip",
   "wiki_pages": [{"path": "01 Knowledge/...", "action": "create | update", "body": "...", "rationale": {"reader_and_use": "...", "professional_lens": "<professional>; questions answered in order: 1. ... 2. ...", "shape": "...", "changed": "what this version changed", "left_out": "nothing, OR what and why"}}],
   "needs_a_look": [{"item": "...", "reason": "...", "owner_action": "null, OR one sentence naming the physical act only the owner can perform: name the exact file or place", "what_would_resolve": "one sentence: the single decision or action that closes this", "proposed_action": "optional: what you would do on a yes", "migration": {"from_project": "<project id>", "to_project": "<project id>", "paths": ["<folder-relative path the from_project's page cites>"], "pages": ["<project id>: <wiki-relative page path>"]}}],
-  "log_entry": "## [{date}] reconcile | <projects read> | <what drifted, what was fixed; pages with no rationale block: N>",
+  "log_entry": "## [{date}] reconcile | <projects read> | <what drifted, what was fixed; pages with no rationale block: N, or: coverage not shown>",
   "notify": {"kind": "info | action", "priority": "low", "body": "..."}
 }
 ```
