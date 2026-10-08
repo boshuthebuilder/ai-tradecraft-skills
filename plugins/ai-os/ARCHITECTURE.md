@@ -463,8 +463,10 @@ The user-synthesis archetype writes into a **single self-contained vault** — t
 ├── 09 Schema/                   the vault's constitution: organising principles + stability rules,
 │                                and the page kinds (one professional and one contract each)
 ├── 10 Log/                      append-only run history
-└── _Audit/                      the audit tier, deployment-written and never hand-edited: the
-                                 rationale file and the acceptance record (the synthesis never writes it)
+├── _Audit/                      the audit tier, deployment-written and never hand-edited: the
+│                                rationale file and the acceptance record (the synthesis never writes it)
+└── .obsidian/                   the editor setup, built from the method's manifest at onboarding
+                                 (wiki-maintenance, The editor setup); device state excluded
 ```
 
 Every page the synthesis writes is one **page kind** under the core wiki rule: one professional and one

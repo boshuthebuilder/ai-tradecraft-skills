@@ -4,9 +4,9 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
-## Unreleased
+## v15.1.0 (2026-10-08)
 
-A **MINOR**: the editor setup travels with the wiki (#153; the tool is #154, the user vault and the release #155).
+A **MINOR**: the editor setup travels with the wiki (#153 the convention, #154 the tool, #155 the user vault).
 Two wiki conventions need Obsidian plugins the method never set up, a folder opening its same-name note and a page's
 relative link reaching a document outside the wiki folder, so every wiki left the owner to install them by hand.
 No skill name, archetype layout or prompt placeholder changes.
@@ -25,13 +25,29 @@ No skill name, archetype layout or prompt placeholder changes.
   the *editor setup* item; the tool reference documents `obsidian.py` (`write`, `check`, exit codes, the cache,
   the `nosourcemap` allowance); the rulebook twin gains an optional `obsidian_cache`.
 - **`wiki-onboarding`** step 4: the editor setup is written with the skeleton.
+- **`obsidian.py` and `obsidian-profile.json`** (#154), in `pre-onboarding/tools/`: the manifest pins the two
+  plugins by repo, version and the sha256 of their three release assets, and carries the method's default
+  `data.json` for each; `write` fetches with the standard library, verifies every hash before writing or caching,
+  keeps a per-machine cache, merges without clobbering a present key, leaves a plugin at another version unless
+  `--upgrade`, and never touches device state; `check` reports the setup, allowing the `/* nosourcemap */` line
+  Obsidian's own installer appends and comparing the settings files as JSON. `readiness.py` reports the
+  `editor_setup` item. The fixture wiki carries stand-in assets under its own manifest; the plugins' code is never in
+  the repository.
+- **`user-onboarding`** (#155): the type-1 skeleton gains `.obsidian/` at the vault root, written by the deployment's
+  scaffold from the same manifest (by running `obsidian.py write` from the pinned checkout, or by building the same
+  files in its own code); step 5 checks it and names the one click Obsidian asks for. `ARCHITECTURE.md`'s skeleton
+  follows.
 
 ### Migrating a deployment
 
 - Run `obsidian.py write` once on each existing wiki and vault to bring it to the profile; it adds what is
   missing, keeps settings the manifest does not name, and leaves device state alone. A vault whose plugin is at
-  another version is reported, not overwritten, until `--upgrade` is given.
-- A user vault's scaffold writes the same profile from the manifest (#155).
+  another version is reported, not overwritten, until `--upgrade` is given. A machine's first run fetches the six
+  assets from GitHub (about 5 MB); later vaults on that machine use the cache.
+- A user vault's scaffold writes the same profile from the manifest, as an onboarding act; a deployment that builds
+  the files itself reads the manifest from the pinned checkout rather than copying its values.
+- Open each vault in Obsidian once after the profile is written and answer *Trust author and enable plugins*; the
+  plugins run after the reload that follows.
 
 ## v15.0.0 (2026-10-08)
 
