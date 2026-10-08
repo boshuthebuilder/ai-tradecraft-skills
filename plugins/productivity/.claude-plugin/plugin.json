@@ -2,7 +2,7 @@
   "name": "productivity",
   "displayName": "AI Productivity",
   "description": "Skills for individual AI-assisted knowledge work. ai-writing-audit: check a draft for the signs of AI authorship and rewrite so it reads as a person wrote it. portable-markdown: write markdown a person will open in a desktop editor \u2014 Typora, Obsidian, a plain viewer \u2014 so the links land on the right thing and no raw markup shows. controlled-writing: explain in a controlled language (ASD-STE100 style) so a person can read and check an agent's output fast. bespoke-explainers: choose and build the diagram, interactive page or narrated video that gets a person to understanding, with a verified video recipe. Works in any Claude Code or Cowork session, and can be consumed by an automated pipeline from the same source.",
-  "version": "14.0.0",
+  "version": "15.0.0",
   "author": {
     "name": "Boshu Zhang"
   }

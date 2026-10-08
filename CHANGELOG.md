@@ -4,14 +4,18 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
-## Unreleased
+## v15.0.0 (2026-10-08)
 
-A **MAJOR**: the second brain keeps the core wiki rule (#148; the release is closed as v15.0.0 by #149). The
-user vault was the one wiki outside `wiki-maintenance`'s core wiki rule: its `09 Schema` held stability rules
-only, `synthesise.md` named no professional, contract, rationale block or acceptance, and `reconcile` could
-not count what was missing. No skill name, archetype layout or prompt placeholder changed, but the core wiki
-rule gains an exception, and a deployment that advances its pin without the migration below has a synthesis
-that proposes every Knowledge page and writes none, because no kind has a row.
+A **MAJOR**, in two parts (#148, #149): a documented rule gains an exception, and the synthesis templates
+require more of the gather. The user vault (the second brain) was the one wiki outside
+`wiki-maintenance`'s core wiki rule: its `09 Schema` held stability rules only, `synthesise.md` named no
+professional, contract, rationale block or acceptance, and `reconcile` could not count what was missing. It
+was also the one job family that never saw an owner confirmation record: v13.0.0 pinned every record into
+every project ingest and reconcile, but the synthesis gather was wikis only, so a record reached it as a
+`derived` line it could not tell from a document's. No skill name, archetype layout or prompt placeholder
+changed, but a deployment that advances its pin without the migration below has a synthesis that proposes
+every Knowledge page and writes none, because no kind has a row; that, and the exception to the core wiki
+rule, is why this is a MAJOR rather than the MINOR first planned.
 
 ### Breaking (MAJOR)
 
@@ -48,6 +52,25 @@ that proposes every Knowledge page and writes none, because no kind has a row.
   any `changes` findings, out-of-step fingerprint), and that a page with no verdict is never in the
   out-of-step list.
 - **`ARCHITECTURE.md`**'s type-1 skeleton gains `_Audit/` and points at the kinds.
+- **The testimony pin covers the synthesis** (#149;
+  [`ARCHITECTURE.md`](plugins/ai-os/ARCHITECTURE.md#surfacing-the-raised-item-lifecycle)): every
+  `synthesise` and `reconcile` of a user vault receives the text of every owner confirmation record in every
+  project its identity may access, under the same access rule and the testimony budget, with anything omitted
+  or unreadable named. No new placeholder: the records ride in `{gather_report}`, as for `file-ingest`.
+- **The `user-synthesis` archetype reads the records**
+  ([`README.md`](plugins/ai-os/skills/project-onboarding/archetypes/user-synthesis/README.md#owner-confirmation-records),
+  both templates). What a record outranks and how a contradicting document is handled stays
+  `wiki-maintenance`'s rule (*Provenance always*), which `synthesise.md` restates in one bullet with the pointer
+  and `reconcile.md` defers to; the archetype adds only its own mechanics: a claim that rests on a record cites
+  it as `<project id>: <folder-relative path>`; a migration the owner declined in a record stays declined; the
+  synthesis never writes a record; a fact that spans two projects has one home, the holding project's folder,
+  and the synthesis is the pass that carries it into the other project's view. The gate hashes the records,
+  in `ARCHITECTURE.md`'s gate section and `scheduler.md` alike, and consumes one only when the run showed its
+  text, so an omitted or unreadable record stays pending, and one larger than the budget on its own is marked
+  blocked and raised once rather than holding the queue; a claim may rest on a shown record as on a page, and a claim that
+  may rest on a record omitted or unreadable this run is left as it is, by both passes, until a run shows it.
+- **`user-onboarding`**: the access scope governs the records (step 2), and step 5 checks it; `wiki-maintenance`'s
+  owner-record paragraph says a fact settled in a project folder also settles it in the second brain.
 
 ### Migrating a deployment
 
@@ -64,6 +87,13 @@ that proposes every Knowledge page and writes none, because no kind has a row.
 - Allow `rationale`, `kind:` and `professional:` in strict validation. The first run after the pin advance may
   rewrite pages into their kind's voice, and every page starts with no verdict; the gate treats the rewrite as
   an ordinary change.
+- The synthesis gather reads record-named files from each accessible project's folders, under the testimony
+  budget, pending records first, and names the records omitted or unreadable this run. The gate hashes them and
+  consumes a record only when the run showed its full text; a failing read does not open the gate; a record is
+  marked blocked after repeated failed reads, or at once when it exceeds the budget on its own, raised once and
+  keyed to its hash; the orphan sweep resolves a cited record against the project's folder. On the first run
+  after the pin advance every existing record is pending: seed the seen-state from a run that shows them, or
+  expect the drain. No output field changes for #149, so strict validation needs nothing further.
 - Re-reconcile the twins of `user-synthesis/synthesise.md` and `reconcile.md`.
 
 ## v14.0.0 (2026-10-07)

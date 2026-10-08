@@ -3,7 +3,8 @@
 The reasoning-stage template for the `synthesise` job. Filled with the access-scoped gather report and
 the **current Knowledge tree**, it returns structured JSON a deterministic write stage applies to the
 identity's user vault. Generic starting template — `{…}` are filled by the deployment. The deployment
-guarantees the report contains **only** wikis this identity may access; the template's job is coherence
+guarantees the report contains **only** the wikis, and the owner confirmation records, of projects this
+identity may access; the template's job is coherence
 and faithful evolution, not access control. The optional `migration` field on a `needs_a_look` item
 carries a proposed cross-project migration, and the optional `rationale` field on a `wiki_pages[]`
 entry carries the page's rationale block (see the archetype's README).
@@ -24,14 +25,30 @@ links survive. Reorganise the structure only on strong signal (the `09 Schema` s
 this). Do **not** rebuild the vault wholesale — a from-scratch rewrite destroys curated structure and
 breaks links.
 
-## The sources — the project wikis this person may access
+## The sources — the project wikis this person may access, and those projects' records
 
 {gather_report}
 
 The report lists each accessible project (name, id, its wiki's pages with excerpts) and a mechanical
 **link backbone**: for each entity/concept, the project pages it appears in. The backbone is ground
-truth for *where things appear* — every cross-project link you write must be supported by it or by page
-content actually shown above. Never invent a page, an entity, or a connection.
+truth for *where things appear* — every cross-project link you write must be supported by it, by page
+content actually shown above, or by the text of an owner confirmation record shown below (the owner
+saying that two occurrences are one person is support in its own right, before any project's ingest
+has folded it in). Never invent a page, an entity, or a connection.
+
+## The owner's confirmation records
+
+The report also carries, per accessible project, every **owner confirmation record** in that
+project's folders: a dated Markdown file the deployment's capture surface wrote beside the documents
+it settles, with the owner's words verbatim. Each is shown by its folder-relative path with its text;
+a list names any record omitted for budget or unreadable this run, and when that list is non-empty say
+so in the log line. A record is the owner's statement. A project page carries its fact as a `derived`
+line citing the record, so these records are how you tell what the owner settled from what a document
+says. You never write a record, into a project or into the vault. A record the report names as omitted
+or unreadable this run is off-limits, like a Knowledge page not shown: a claim, a migration or an
+action that may rest on it (a page's `source:` or the record's name tells you) you leave exactly as it
+is, and you propose nothing new for the matter the record's name gives, until a run shows the record;
+name it in the log line.
 
 ## The current Knowledge tree — evolve THIS, don't replace it
 
@@ -64,7 +81,9 @@ Evolve the vault as a coherent whole — a second brain, not a file listing:
    theme/entity. Where material from different projects genuinely belongs together (the same venture
    from two folders, a shared obligation, one timeline crossing projects), evolve or add a page that
    weaves it and **names which project each strand came from**, linking each claim to its source page
-   (`project id` + wiki-relative path — never an absolute filesystem path). For people/organisations
+   (`project id` + wiki-relative path — never an absolute filesystem path; a claim that rests on an
+   owner confirmation record cites the record as `project id` + folder-relative path, as shown in the
+   report). For people/organisations
    appearing in more than one project (use the backbone), a page each: what each project knows,
    reconciled — and where projects *disagree*, say so explicitly. Every page is **one kind** from
    `09 Schema` (an entity, a matter, a theme, a folder note), declares it as `kind:` in its frontmatter,
@@ -93,8 +112,9 @@ Rules:
   they are (the deployment does not delete them) — so silence preserves, it does not prune.
 - **Knowledge ⊥ Ideas.** Knowledge never links or references `02 Ideas/` — it stitches *consolidated*
   cross-project understanding, not un-incubated ideas. (Ideas may link into Knowledge; not the reverse.)
-- **Traceable, always.** Every claim links to a source page shown in the report. If you cannot point to
-  a source, leave the claim out.
+- **Traceable, always.** Every claim links to a source shown in the report: a project's wiki page, or
+  an owner confirmation record (a record reaches you before the project's ingest has folded it into a
+  page, and is a source in its own right). If you cannot point to one, leave the claim out.
 - **Copy quoted figures character-for-character.** When you state a value from a source — a balance, an
   account/policy number, a date — re-find it on the source page shown in the report and copy it exactly;
   never transcribe such a figure from memory, and if it isn't shown this run, name the page it lives on
@@ -131,6 +151,13 @@ Rules:
   read; never reconstruct missing identifier digits by guessing.
 - **Authored notes carry through.** Source material marked `provenance: manual` is owner-asserted and
   authoritative — represent it faithfully; never contradict it from derived material.
+- **A record is the owner's word.** An owner confirmation record shown in the report has the authority
+  `wiki-maintenance`'s *Provenance always* gives it, the same here as for a project's jobs: that of
+  `provenance: manual` content, outranking the absence of a document, and a document that contradicts
+  it is a conflict to state with the owner's precedence kept and to ask the owner about once. What is
+  yours: never re-raise what a record settles; a migration the owner declined in a record stays
+  declined; a fact that spans two projects lives in one record, in the holding project's folder, and
+  you are the pass that carries it into the other project's view, as a cited claim.
 - **The voice is tone only.** A page reads as its professional's deliverable; the facts, sources,
   identifiers, provenance, frontmatter and format rules are the same whoever it speaks as. A
   professional adds no fact the sources do not hold except as labelled outside knowledge (a line

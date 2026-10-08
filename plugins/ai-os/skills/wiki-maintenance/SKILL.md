@@ -50,15 +50,21 @@ that finds one files it into the wiki and logs the move.
 exist only because the owner said so: "the deposit came back in cash; no letter is coming". When the
 owner states such a fact about a matter whose documents sit in the folder, the deployment's capture
 surface writes it **into that matter's folder**, beside the documents it settles. It is a dated,
-attributed Markdown file that carries the owner's words verbatim and is named so the deployment can
-recognise it by its name alone (for example `2026-03-14 Owner confirmation - Deposit returned.md`).
+attributed Markdown file that carries the owner's words verbatim, is short (a record is a stated fact,
+not a document; the bound on its size is a guard the deployment's capture surface holds in code, under
+[the three layers](../../ARCHITECTURE.md#the-three-layers-of-a-job), as is the blocked state the
+user-synthesis gate gives a record that exceeds its budget), and is named so the deployment
+can recognise it by its name alone (for example `2026-03-14 Owner confirmation - Deposit returned.md`).
 The words are the owner's, so the record is a **source**: read and cited like any document in the
 folder. No job writes, edits, renames, moves, files or sweeps one, and an ingest never treats one as a
 stray. Only the capture surface writes them, on the owner's explicit statement. The deployment's code
 holds those rules ([the three layers](../../ARCHITECTURE.md#the-three-layers-of-a-job)). This is what
 keeps the folder the golden source when the owner settles something by saying it: a fact kept only in
 the wiki is a fact the folder does not know, so the next job that reads the folder asks again. When no
-folder fits the statement, it stays a wiki-only `manual` note (see *Provenance always*).
+folder fits the statement, it stays a wiki-only `manual` note (see *Provenance always*). A user vault's
+synthesis reads the records of every project its identity may access
+([`user-synthesis`](../project-onboarding/archetypes/user-synthesis/README.md#owner-confirmation-records)),
+so a fact settled in a project folder also settles it in the second brain.
 
 ## The recommended layout (an example — the Schema is the law)
 

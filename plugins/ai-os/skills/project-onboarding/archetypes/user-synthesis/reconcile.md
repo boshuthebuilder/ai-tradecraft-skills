@@ -22,6 +22,17 @@ regenerate**. The difference is breadth: you are examining the whole vault for d
 
 {gather_report}
 
+The report also carries, per accessible project, every **owner confirmation record** in its folders,
+by folder-relative path with its text, and names any omitted or unreadable this run (say so in the log
+line). A record is the owner's statement, with the authority of `provenance: manual` content; a
+project page carries its fact as a `derived` line citing it. You never write a record anywhere.
+**A record you did not see this run is off-limits, like a Knowledge page not shown:** a claim, a
+migration or an action that may rest on a record the report names as omitted or unreadable, which
+you can tell from a page's `source:` or the matter the record's name gives, you leave exactly as it
+is, you propose nothing new for that matter, and you never correct it towards a document, because you
+do not have the words the precedence rule needs. Name it in the log line; it waits for a run that
+shows the record.
+
 ## The whole current Knowledge tree — reckon ALL of it
 
 {current_knowledge}
@@ -52,7 +63,9 @@ these as a worklist: they tell you *where* to look; your job is the judgement of
 
 Reckon the whole vault and correct drift, making the **minimal stable changes** that restore coherence:
 
-1. **Repair broken cross-refs.** A Knowledge page whose source page has vanished or moved: re-anchor it
+1. **Repair broken cross-refs.** A Knowledge page whose source page, or cited record, has vanished or
+   moved (a record is resolved against its project's folder; one the report names as omitted or
+   unreadable is not shown, not vanished, and stays off-limits): re-anchor it
    to a current source, or — if the underlying fact is genuinely gone — retire the claim (mark the page
    `status: superseded`; do not silently delete content the owner may still want).
 2. **Prune cruft.** Merge pages that have converged on the same theme; fold thin stubs into their
@@ -99,7 +112,11 @@ isn't shown this run), reconcile-don't-average, full source-supported identifier
 `last-updated: {date}` + `status:` + `kind:` on every page you write, and `professional:` where the
 kind delegates it, the voice tone only (the facts,
 sources and format rules the same whoever the page speaks as; no page blends two voices), a `rationale`
-on every page you create or reshape, Knowledge ⊥ Ideas. The reconcile may write
+on every page you create or reshape, Knowledge ⊥ Ideas, and **a record is the owner's word** exactly
+as `synthesise` sets out from `wiki-maintenance`'s rule, with one thing that is this pass's own: a
+Knowledge page that disagrees with an owner confirmation record is brought back into line with the
+record, never towards a document that does not exist, unless a document contradicts the record, which
+goes to the owner with both sides stated. The reconcile may write
 more broadly than a reactive synthesise, but it is still an **edit** of the existing tree, never a
 wholesale rebuild. **An observation is a wiki write, not an alert** — a `needs_a_look` carries an `owner_action` only when there is a physical act the owner must perform that this system cannot (the exact file or place, in one sentence); otherwise `owner_action` is null and the item is recorded, not queued, because the page you just wrote is where it will be read. **If you cite an open item, supersede it or say why both stand.** Both rules are stated in full in the archetype's other template. **Do not re-raise a `previously_raised` open or dismissed item** — reference it;
 reopen a recently-resolved one only on changed evidence. **A no-change run is silent** — if nothing

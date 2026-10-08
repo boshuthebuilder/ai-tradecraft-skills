@@ -51,7 +51,8 @@ The first archetype this repo ships is **file-ingest** (see
 
 The second is **user-synthesis** (`plugins/ai-os/skills/project-onboarding/archetypes/user-synthesis/`): a gated
 synthesis of a per-person, cross-project view (see *Tiers and identities*, below). It also shows that
-an archetype's *source* need not be the owner's files at all — its sources are other wikis. Whatever
+an archetype's *source* need not be the owner's files at all — its sources are other wikis, and the
+owner confirmation records in those wikis' project folders. Whatever
 the source, the same shape holds: gather presents the model a deterministic, access-scoped view of
 it, and only the reasoning step is a model call. Its user-tier vault is **incrementally evolved**, not
 regenerated, so — like file-ingest — it is a **pair**: an incremental, reactive `synthesise` and a
@@ -195,13 +196,21 @@ What the gate counts as "something changed", for the file-ingest archetype:
   (hash the events, ignoring churn like a regenerated-at timestamp).
 
 For the user-synthesis archetype, the same rule over different inputs: the content of every wiki the
-identity may access, plus the accessible-project set itself. The more expensive the reasoning step,
+identity may access, the owner confirmation records in those projects' folders (so a record reaches the
+vault once a run shows it, before the project's own ingest has folded it in), plus the accessible-project
+set itself. The more expensive the reasoning step,
 the more the gate matters — a full cross-project synthesis is the costliest pass in the system, and
 the gate is what makes running its check every few minutes free.
 
 A change is only **consumed** (recorded as seen) once the run has actually absorbed it — i.e. on a
 successful write, not merely on observing it. A failed or skipped run leaves the change pending, so
-the next gate re-detects it. This is the fail-loud rule applied to the gate itself.
+the next gate re-detects it. This is the fail-loud rule applied to the gate itself. For a user vault
+the owner confirmation records are consumed **per record**, each only when the run showed its full
+text: a record omitted for budget, truncated, unreadable or blocked stays pending, or blocked, and
+never counts as absorbed, however the run's other inputs fared; one aggregate hash over every input
+would mark an unshown record seen. The mechanics, the retry of a failing read without opening the
+gate and the blocked state, are the archetype's
+[`scheduler.md`](skills/project-onboarding/archetypes/user-synthesis/scheduler.md).
 
 ## Fail loud, never silent
 
@@ -359,12 +368,16 @@ detail — any AI-OS deployment reproduces the defect unless the spec requires t
   underlying facts have changed (then say what changed). Dismissed means the human judged it a non-issue;
   it stays suppressed like an open one.
 - **Owner testimony is injected into every gather context as well.** Every ingest and every reconcile
-  receives the text of every owner confirmation record in the project's folders (and any testimony page
-  the deployment keeps), within the testimony's own bounded budget. Anything that does not fit, or cannot
-  be read, is named. This has to happen on every run because a source reaches the model only once: after
-  its first run it is unchanged, ingest never sees page bodies, and reconcile sees an index of sources,
-  not their text. Without the pin, the next job on the same topic has forgotten what the owner settled
-  and raises it again.
+  of a project receives the text of every owner confirmation record in the project's folders (and any
+  testimony page the deployment keeps), and every `synthesise` and `reconcile` of a user vault receives
+  the records of **every project its identity may access**, under the same access rule; each within the
+  testimony's own bounded budget. Anything that does not fit, or cannot be read, is named. This has to
+  happen on every run because a source reaches the model only once: after its first run it is
+  unchanged, ingest never sees page bodies, and reconcile sees an index of sources, not their text.
+  Without the pin, the next job on the same topic has forgotten what the owner settled and raises it
+  again. A user vault's synthesis has a second reason: a project page carries a record's fact as
+  `derived`, so without the records the synthesis cannot tell what the owner settled from what a
+  document says.
 - **Escalations are decidable in one step.** Each carries a `what_would_resolve` — one sentence naming
   the single decision or action that closes it — and, where the job can name it, an optional
   `proposed_action`. A bare "please check this" is not an escalation; it is noise.
@@ -402,8 +415,8 @@ Two concepts the archetypes above rest on:
   A **user-tier** wiki, one per identity, is the only place cross-project links live: it is
   *synthesised over* the project wikis that identity
   may access, reads them, and never writes back into them. Isolation is by construction: the
-  synthesis job's gather only ever presents the wikis the access rule allows, so a cross-tier leak
-  cannot happen downstream of it.
+  synthesis job's gather only ever presents the wikis, and the owner confirmation records, of the
+  projects the access rule allows, so a cross-tier leak cannot happen downstream of it.
 - **A cross-project migration is suggested, never made by a job.** While a folder is being prepared,
   a curation round may stage one in the migrations folder through plan rows the owner approves
   ([`folder-curation`'s staging rule](skills/folder-curation/SKILL.md#3-propose-the-only-model-step)),
@@ -458,6 +471,9 @@ Every page the synthesis writes is one **page kind** under the core wiki rule: o
 contract per kind, named in `09 Schema` and agreed at onboarding (`user-onboarding`, *The page kinds*).
 How the rule bends for a vault, per kind rather than per page and with no sections by responsibility,
 is [`wiki-maintenance`'s *The rule in a user vault*](skills/wiki-maintenance/SKILL.md#the-rule-in-a-user-vault).
+The synthesis reads the accessible projects' owner confirmation records as well as their wikis, and
+never writes one anywhere
+([`user-synthesis`, *Owner confirmation records*](skills/project-onboarding/archetypes/user-synthesis/README.md#owner-confirmation-records)).
 
 Three areas, three determinism stories: **Knowledge** is model-derived but **incrementally evolved**
 (the synthesis reads the current tree and makes minimal stable changes, preserving page paths so links

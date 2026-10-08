@@ -12,17 +12,20 @@ file-ingest. Two jobs, named for what they do (a job's `id` equals its `mode`):
 
 | job | mode | scheduling | scope |
 |---|---|---|---|
-| `synthesise` | `synthesise` | **reactive** — runs the deterministic gate often; no-ops when no accessible wiki changed | incremental: evolve the Knowledge slice the changed source wikis touch |
+| `synthesise` | `synthesise` | **reactive** — runs the deterministic gate often; no-ops when no accessible wiki or owner confirmation record changed | incremental: evolve the Knowledge slice the changed sources touch |
 | `reconcile` | `reconcile` | **periodic** — a clock (e.g. weekly), not the reactive gate | full: reckon the *whole* vault against *all* accessible wikis — prune cruft, repair cross-refs, confirm the Schema holds |
 
 ## The split that makes it safe and cheap
 
-- **Deterministic (the deployment's code):** the **gate** — hash the accessible wikis' content plus
-  the accessible-project set; reach the model only when that hash moved, and record the hash as seen
-  only **after a successful write** (a failed run re-detects). And the **access-scoping** — gather
-  feeds the model *only* wikis this identity may access, so a cross-tier leak is impossible by
-  construction, plus a mechanical link backbone (entity → project-page occurrences) so every link the
-  synthesis makes is real and portable.
+- **Deterministic (the deployment's code):** the **gate** — hash the accessible wikis' content, the
+  owner confirmation records in those projects' folders, and the accessible-project set
+  ([`ARCHITECTURE.md`](../../../../ARCHITECTURE.md#the-gate-before-the-model)); reach the model only
+  when that hash moved, and record the hash as seen only **after a successful write** (a failed run
+  re-detects; an omitted record stays pending). And the **access-scoping** — gather
+  feeds the model *only* the wikis this identity may access, and the owner confirmation records in
+  those projects' folders (below), so a cross-tier leak is impossible by construction, plus a
+  mechanical link backbone (entity → project-page occurrences) so every link the synthesis makes is
+  real and portable.
 - **Reasoning (the model):** the synthesis itself — weaving the scoped sources into a coherent whole:
   themes, cross-project connections, a navigable index, every claim traceable to a source page.
   It also suggests cross-project migrations for the owner to make by hand (below).
@@ -77,6 +80,50 @@ Because Knowledge is incremental, the artefact can drift — hence the **`reconc
 whole-vault pass under the **same** write contract (still incremental, still fenced to the derived
 areas), differing only in **breadth** (the whole vault against all sources, not the changed slice) and
 **cadence** (a clock, not the reactive gate). See the twin rule in `ARCHITECTURE.md`.
+
+## Owner confirmation records
+
+An [owner confirmation record](../../../wiki-maintenance/SKILL.md#the-shape-of-a-folder) is a fact the
+owner settled by saying so, written by the deployment's capture surface into the folder of the matter
+it concerns. A project's wiki carries the fact as a `derived` line citing the record, so from the wiki
+alone the synthesis cannot tell what the owner settled from what a document says. The gather therefore
+shows the synthesis the records themselves: every record in every accessible project's folders, under
+the same access rule as the wikis (a record of a project outside scope is never shown), each run,
+within the testimony budget, with anything omitted or unreadable named
+([`ARCHITECTURE.md`](../../../../ARCHITECTURE.md#surfacing-the-raised-item-lifecycle)). No
+placeholder is added: the records ride inside `{gather_report}`, as they do for `file-ingest`. What a
+record outranks, and how a document that contradicts one is handled, is `wiki-maintenance`'s rule
+([*Provenance always*](../../../wiki-maintenance/SKILL.md#rules-that-keep-it-safe)), the same for the
+synthesis as for a project's jobs; `synthesise.md` restates it in one bullet with that pointer,
+`reconcile.md` defers to `synthesise.md`, and the archetype adds only what is the synthesis's own:
+
+- a claim that rests on a record cites it as `<project id>: <folder-relative path>`, so a reader and
+  the orphan sweep know to resolve it against that project's folder, not its wiki; a migration that
+  rests on a record names the record in the item's text, since `migration.pages` is wiki-relative;
+- a migration the owner declined in a record stays declined (the ledger holds the dismissal; where
+  the owner declined by stating it to the capture surface, the record is the durable copy; a
+  dismissal made on a dashboard writes no record);
+- the synthesis never writes a record, into a project or into the vault;
+- a record omitted or unreadable this run is off-limits, as a Knowledge page not shown is: a claim, a
+  migration or an action that may rest on it is left exactly as it is, in `synthesise` and in the
+  periodic `reconcile` alike, until a run shows the record;
+- the gate hashes the records, and consumes one only when the run showed its text; a record larger
+  than the budget on its own is marked blocked, raised once to the owner, and taken out of the pending
+  set so later records drain
+  ([`scheduler.md`](scheduler.md)).
+
+**Homing a cross-project fact.** A fact that spans two projects ("the two J. Smiths are one person",
+"the car is the company's, not the household's") has one home: the **holding project's folder**, the
+project whose documents the fact concerns, or, where both hold documents, the folder the owner names
+when stating it. The synthesis is the one pass that reads both projects, so it is what carries the
+fact into the other project's cross-project view, as a cited claim. The other project's wiki never
+learns it except through the owner: that is the existing rule (a project files within itself),
+restated, not changed. Three consequences the holding project carries: its own ingest and reconcile,
+which see the record too, fold only their own project's side of it and name nothing about the other
+project, since a project wiki never names another; where both projects hold documents and the owner
+names no folder, the capture surface asks before writing, because a vault has no `manual` note to
+fall back on; and anyone who may read the holding folder reads the record, so the owner words a
+cross-project statement with that in mind.
 
 ## Proposed migrations
 
