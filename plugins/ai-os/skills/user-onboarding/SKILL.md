@@ -7,7 +7,7 @@ description: >-
   project-onboarding, which onboards a folder of documents. Covers the storage-ownership handshake
   (the user owns the folder and shares it into the worker), the type-1 vault skeleton it scaffolds,
   the page kinds its `09 Schema` names (one professional and one contract each, under the core wiki
-  rule), and stamping the user-synthesis archetype (an incremental `synthesise` plus its periodic
+  rule), the editor setup written from the method's manifest, and stamping the user-synthesis archetype (an incremental `synthesise` plus its periodic
   `reconcile` twin), which also suggests cross-project migrations for the owner to make by hand. For a document
   folder use project-onboarding (after pre-onboarding for a lived-in one); for the synthesis archetype
   details see project-onboarding/archetypes/user-synthesis.
@@ -54,6 +54,9 @@ When onboarding is done:
   [the core wiki rule](../wiki-maintenance/SKILL.md#the-rule-in-a-user-vault);
 - `_Audit/` holds the rationale file and the acceptance record, written by the deployment, never by
   the synthesis;
+- `.obsidian/` at the root holds the **editor setup**, built from the method's manifest, so the
+  folder-note and external-link plugins the vault's conventions need are installed before the owner
+  first opens it ([the editor setup](../wiki-maintenance/SKILL.md#the-editor-setup));
 - the deployment's path config maps the identity's vault to its shared-in location, and the vault reads
   as **present** (materialised), not evicted/missing;
 - the identity is registered with an **access scope** — the set of projects whose wikis its synthesis
@@ -113,6 +116,14 @@ roles (see *The type-1 user vault* in `ARCHITECTURE.md`):
   `vault-acceptance.json` (the vault's own acceptance record, in the shape
   [the rule in a user vault](../wiki-maintenance/SKILL.md#the-rule-in-a-user-vault) defines). The
   synthesis never writes here.
+- `.obsidian/` — the **editor setup**, at the root because the vault is folder-is-vault: the profile
+  [`wiki-maintenance`](../wiki-maintenance/SKILL.md#the-editor-setup) defines, built from the method's
+  manifest (`pre-onboarding/tools/obsidian-profile.json`) and the plugins' releases, with the
+  per-machine cache. The deployment's scaffold writes it as an onboarding act, not a job: by running
+  `obsidian.py write --root <vault>` from the pinned skills checkout, or by building the same files from
+  the same manifest in its own code; either way the manifest is the one source, no template vault is
+  read, and device state is never written. Obsidian's first-open question is the owner's to answer once
+  per machine. The synthesis never writes here.
 
 Every structural folder gets a **same-name folder-note** with a high-level summary + how-to-read (the
 Obsidian Folder Notes convention). There is **no inbox** — a user vault takes no file drops.
@@ -169,6 +180,10 @@ page, from the projects.
 - The **reactive gate** fires on a source-wiki change, and on an owner confirmation record added or
   changed in an in-scope project while its wiki is unchanged, and no-ops otherwise; the **periodic**
   reconcile is on its clock.
+- The **editor setup** is complete: `obsidian.py check --root <vault>` reports every required plugin
+  present at the manifest's hashes with its `data.json`, enabled, and the core set as the manifest says.
+  Then open the vault in Obsidian once, answer *Trust author and enable plugins*, reload, and click
+  `00 Index`: its note opens, since the folder-note plugin is running with the method's settings.
 
 ### 6. First synthesis + hand off
 
