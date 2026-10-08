@@ -273,18 +273,43 @@ each page's professional before it is written. The vault's `09 Schema` names its
 one contract, and for each kind either fixes the professional or delegates the choice to the page; a
 page the synthesis writes declares its kind in frontmatter (`kind:`), and a page of a delegating kind
 its professional too (`professional:`), and is written as that professional, to its kind's contract.
-The rule, its keys and its counts are over the pages the synthesis writes (`00 Index/`, `01
-Knowledge/`); the owner-authored Ideas and the Reports carry no kind. Sections by responsibility does not apply: the
-vault's areas are fixed, and its Knowledge tree emerges by theme and entity from the project wikis it
-reads. The rationale file and the acceptance record live in `_Audit/` at the vault root, written by the
-deployment: the rationale file from what the synthesis returns, the acceptance record from the
-verdicts of the independent review, a model that did not write the page, never from the synthesis
-itself. A verdict is keyed to what [acceptance](#acceptance) re-opens, the page's kind, contract,
-professional and anatomy (the deployment records with it a fingerprint of the kind's whole row in
-`09 Schema` and the anatomy its rationale block records), never to the page's body: an update that
-only integrates a fact keeps the verdict, and a page is accepted again when one of those four
-changes. Which kinds there are, who proposes them and when a page is
-accepted are [`user-onboarding`'s](../user-onboarding/SKILL.md#3-scaffold-the-type-1-skeleton).
+For a delegating kind this replaces two sentences of the rule above: the synthesis chooses the page's
+professional from the catalogue the deployment shows it, and a later pass keeps that choice, where a
+project wiki's pass would propose the page rather than invent one; and the kind's contract questions
+govern the page, the professional supplying the tone, their catalogue questions following the
+contract's where they fit. The rule, its keys and its counts are over the pages the synthesis writes
+(`00 Index/`, `01 Knowledge/`); the owner-authored Ideas and the Reports carry no kind. Sections by
+responsibility does not apply: the vault's areas are fixed, and its Knowledge tree emerges by theme
+and entity from the project wikis it reads.
+
+**The vault's audit tier.** The rationale file is `_Audit/wiki-rationale.md`, in the shape above,
+rendered by the deployment from what the synthesis returns. The acceptance record is
+**`_Audit/vault-acceptance.json`**, the vault's own, written by the deployment from the verdicts of
+the independent review (a model that did not write the page), never from the synthesis. It is not the
+record `pre-onboarding`'s `wiki.py` keeps for a project wiki, which is keyed to the page's text hash;
+that tool's `accept` and `check` are never run on a vault, and `settings.py compile` never reads a
+vault's Schema. One entry per page and lens: the page path, the lens, the verdict in the vocabulary of
+[acceptance](#acceptance) (`accepted`; `changes`, with the findings and the responses to them;
+`refused`, when the reviewer was the author, with the reason), the models that wrote and reviewed the
+page, the date, and the **kind fingerprint** the verdict was given under: a hash of the kind's rows in
+both of the Schema's kind tables, every column, together with the page's anatomy as line 3 of its
+rationale block records it. A verdict is keyed to that fingerprint and anatomy, never to the page's
+body: an update that only integrates a fact keeps it, and a page is accepted again when its kind, its
+kind's rows or its anatomy change.
+
+**How the states move.** *Accepted* stays until the fingerprint or the anatomy changes. *Not
+recorded* (no verdict, or `changes`) is the review's to clear, not the synthesis's: the deployment
+runs the review on any page without a verdict, without a write, and the findings of a `changes`
+verdict reach the next periodic reconcile, which returns the page corrected for the review to run
+again. A page that fails that correction a bounded number of times in a row is raised once to the
+owner as a `needs_a_look` item whose `what_would_resolve` is to accept the page as it is, have it
+rewritten, or drop it, and is not corrected again until the owner acts. `refused` is a guard failure,
+the reviewer was the author: it is reported to the deployment's operator, never corrected by a
+rewrite. A page the review cannot reach, not shown for budget or held by the human-edit guard as
+`.proposed`, is counted, named and left as it is. The periodic reconcile counts the pages with no
+kind, no block and no accepted verdict where the deployment's findings show them, and says so where
+they do not. Which kinds there are, who proposes them and how the first synthesis is accepted are
+[`user-onboarding`'s](../user-onboarding/SKILL.md#3-scaffold-the-type-1-skeleton).
 
 ## Page anatomy and evidence
 
@@ -568,7 +593,8 @@ must never look alike:
 - **Every page carries the core rule.** Count the sections with no page contract (`fixed` sections
   aside), the pages with no single professional, and the pages with no block in
   `_Audit/wiki-rationale.md`; report acceptance as its own state. A missing contract or professional
-  is the owner's to agree, never invented by a pass to make the count zero.
+  is the owner's to agree, never invented by a pass to make the count zero (a delegating kind in a
+  user vault excepted: [the rule in a user vault](#the-rule-in-a-user-vault)).
 
 Reconcile **never flags or rewrites
 `provenance: manual` content** — that is owner-asserted and authoritative. Authored notes (ideas,

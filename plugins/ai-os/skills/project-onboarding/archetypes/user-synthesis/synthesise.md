@@ -66,8 +66,9 @@ is**; never recreate or overwrite it from scratch. When either list is non-empty
 {wiki_structure}
 
 The structure carries `09 Schema`'s two tables, **Page kinds** (kind, professional, deliverable and
-tone) and **Page contracts** (kind, reader, questions in order, fields). Every page you write is one
-kind, written as that kind's professional, to that kind's contract.
+tone) and **Kind contracts** (kind, reader, questions in order, fields), and the professional
+catalogue a delegated choice is made from. Every page you write is one kind, written as that kind's
+professional, to that kind's contract.
 
 ## Your task
 
@@ -88,9 +89,11 @@ Evolve the vault as a coherent whole — a second brain, not a file listing:
    `09 Schema` (an entity, a matter, a theme, a folder note), declares it as `kind:` in its frontmatter,
    and is written as that kind's professional's deliverable, answering its contract's questions in that
    order, the first in its opening lines. Where the kind delegates the professional to the page (a
-   matter, a theme), choose from the catalogue as the matter needs, name the choice in the page's
-   `professional:` frontmatter and its rationale block, and on an update keep the professional the
-   page already names. A page that fits no kind is proposed in `needs_a_look`, not written.
+   matter, a theme), choose from the catalogue shown with the structure as the matter needs, name the
+   choice in the page's `professional:` frontmatter and its rationale block, and on an update keep the
+   professional the page already names; the kind's contract questions govern the page, the
+   professional supplies the tone. A page that fits no kind, or whose professional you cannot choose
+   from the catalogue shown, is proposed in `needs_a_look`, not written.
 3. **Proposed migrations, when the sources show one** (optional; most runs propose none). A project
    files within itself (`wiki-maintenance`'s rule), so you are the one pass that sees both sides. When
    the pages shown make it plain that files one project in this report holds belong to another
@@ -159,11 +162,12 @@ Rules:
   professional adds no fact the sources do not hold except as labelled outside knowledge (a line
   opening *General rule, not from the projects' pages:*), and no page blends two voices.
 - **A rationale block for every page you create or reshape.** Return `rationale` on a `wiki_pages[]`
-  entry when you create the page, change its kind, professional or shape, or rewrite it to its kind's
-  row because the report names it as out of step with that row (its verdict was recorded under an
-  older version of the row's professional, reader, questions or fields): the five lines
-  of `wiki-maintenance`'s rationale block, as five fields. An update that only integrates a fact into
-  the page's existing structure omits it.
+  entry when you create the page or change its kind, professional or shape: the five lines of
+  `wiki-maintenance`'s rationale block, as five fields. An update that only integrates a fact into
+  the page's existing structure omits it. The Index you re-derive every run from a tree that does not
+  show it, so it carries a block on its first write only; the periodic reconcile refreshes it when
+  its findings name it. A page out of step with a changed kind row is the reconcile's to rewrite, not
+  yours: nothing in this report tells you a row changed.
 - Give every page you write frontmatter: `provenance: derived`, `last-updated: {date}`,
   `status: current`, `kind: <kind>`, and `professional: <professional>` where the kind delegates it.
 - Keep the vault navigable: a reader should reach anything in two hops from the Index.
@@ -182,10 +186,9 @@ Return JSON only, matching this shape (every `wiki_pages[].path` must sit under 
 ```
 
 `migration` is optional: include it only on an item that proposes a migration (task 3), and leave it
-out of every other item. `rationale` is required on a `create`, on an `update` that changes the
-page's kind, professional or shape, and on an `update` that rewrites the page to its kind's changed
-contract or fixed professional,
-and omitted on an update that only integrates a fact.
+out of every other item. `rationale` is required on a `create` and on an `update` that changes the
+page's kind, professional or shape, and omitted on an update that only integrates a fact; for the
+Index, required on its first write only.
 
 Every `needs_a_look` item must be **decidable in one step** — its `what_would_resolve` names the single
 decision or action that closes it. **A no-change run is silent: when you wrote no page *and* raised no

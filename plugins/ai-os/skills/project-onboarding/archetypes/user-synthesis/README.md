@@ -45,38 +45,30 @@ Every page the synthesis writes has a **kind** from the vault's `09 Schema`, and
 contract and either fixes the page's professional or delegates the choice to the page
 (`user-onboarding`, *The page kinds*, under
 [the core wiki rule](../../../wiki-maintenance/SKILL.md#the-rule-in-a-user-vault)); the deployment shows
-the Schema's **Page kinds** and **Page contracts** tables to the model with the vault's structure. The
-page declares `kind:` in its frontmatter, and `professional:` where its kind delegates, and is written
-as that professional's deliverable, to its kind's contract. A page whose kind has no row is proposed in
-`needs_a_look`, never written. For every page it creates, and every page whose kind, professional or
-shape it changes, the synthesis returns a **`rationale`** block on the `wiki_pages[]` entry (the five
-lines of `wiki-maintenance`'s rationale block, as five fields); an update that only integrates a fact
-omits it. The deployment's write stage renders `_Audit/wiki-rationale.md` from the field, since the
-deployment owns the audit tier as it does in a project, and the write-fence stays as it is: the
-synthesis never writes `_Audit/`. The field is additive and optional: a deployment that validates the
-reply strictly allows it before advancing its pin. The audit tier is also where acceptance is recorded:
-a page the synthesis creates, reshapes or rewrites to its kind's changed contract or fixed
-professional is reviewed, in the owner's
-lens and its professional's, by a model other than the one that wrote it, as a deployment step after
-the write; a page with no verdict reads as not recorded, never as accepted. The step also runs on any
-page the sweep finds without a verdict, so a lost or never-run review is retried without a write; a
-refused verdict's findings go into `{reconcile_findings}`, the reconcile returns the page corrected,
-and the step reviews it again. The deployment keys a verdict to the page's kind, contract,
-professional and anatomy (a fingerprint of the kind's whole row, and the anatomy as the rationale
-block records it), never to the body, so an update that only integrates a fact keeps it. A change to a kind's row, its contract or its fixed professional, is
-a Schema change the owner agrees, and the deployment's sweep then names in `{reconcile_findings}` the
-pages whose verdict was recorded under an older version of the row (the deployment keeps a
-fingerprint of the whole row, professional, reader, questions and fields, with each verdict, and
-compares it with the row as it stands; the marker is that fingerprint, never the page's write time,
-which a reactive `synthesise` can advance with a fact-only update, and never the rationale block
-alone, which records the professional and questions only), so the next pass rewrites them to the row
-with a fresh rationale and the acceptance step reviews them. A page the findings name with no block comes back from the reconcile
-as an update carrying its `rationale`, so the deployment writes the block and the finding closes. For
-the reconcile's counts, the deployment shows the
-headings of `_Audit/wiki-rationale.md` with the structure, or names the pages with no block in
-`{reconcile_findings}`, and names there the pages whose acceptance is not recorded or refused, which
-reach the model no other way; a coverage shown neither way, the reconcile reports as not shown rather
-than counting.
+the Schema's **Page kinds** and **Kind contracts** tables, and the professional catalogue, to the
+model with the vault's structure. The page declares `kind:` in its frontmatter, and `professional:`
+where its kind delegates, and is written as that professional's deliverable, to its kind's contract.
+A page whose kind has no row is proposed in `needs_a_look`, never written. For every page it creates,
+and every page whose kind, professional or shape it changes, the synthesis returns a **`rationale`**
+block on the `wiki_pages[]` entry (the five lines of `wiki-maintenance`'s rationale block, as five
+fields); an update that only integrates a fact omits it; the Index, which both passes re-derive each
+run from a tree that does not show it, carries a block on its first write and whenever the reconcile's
+findings name it. The deployment's write stage renders `_Audit/wiki-rationale.md` from the field,
+since the deployment owns the audit tier as it does in a project, and the write-fence stays as it is:
+the synthesis never writes `_Audit/`. The field is additive and optional: a deployment that validates
+the reply strictly allows it before advancing its pin.
+
+Acceptance in a vault is the deployment's, and its one home is
+[*The rule in a user vault*](../../../wiki-maintenance/SKILL.md#the-rule-in-a-user-vault): the
+record (`_Audit/vault-acceptance.json`, the vault's own), the verdict vocabulary, what a verdict is
+keyed to (the kind fingerprint and the anatomy, never the body) and how the states move. What the
+archetype adds is the wiring: the review runs as a deployment step after a write and on any page
+found without a verdict; the periodic sweep hands the reconcile, through `{reconcile_findings}`, the
+pages with no kind, no block (or the rationale file's headings with the structure), no accepted
+verdict, the findings of a `changes` verdict, and the pages whose verdict's kind fingerprint is older
+than the kind's rows; the reconcile corrects or restores those it can and counts the rest
+([`scheduler.md`](scheduler.md)). Nothing reaches the reactive `synthesise` this way: it has no
+findings input, so a stale-row page waits for the reconcile.
 
 Because Knowledge is incremental, the artefact can drift — hence the **`reconcile` twin**: a periodic
 whole-vault pass under the **same** write contract (still incremental, still fenced to the derived

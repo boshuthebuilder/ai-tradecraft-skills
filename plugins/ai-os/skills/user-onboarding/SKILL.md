@@ -110,7 +110,9 @@ roles (see *The type-1 user vault* in `ARCHITECTURE.md`):
   Knowledge structure emerges from the projects.
 - `10 Log/` — append-only run history.
 - `_Audit/` — the audit tier, deployment-written: `wiki-rationale.md` (a rationale block per page) and
-  `wiki-acceptance.json` (the acceptance record). The synthesis never writes here.
+  `vault-acceptance.json` (the vault's own acceptance record, in the shape
+  [the rule in a user vault](../wiki-maintenance/SKILL.md#the-rule-in-a-user-vault) defines). The
+  synthesis never writes here.
 
 Every structural folder gets a **same-name folder-note** with a high-level summary + how-to-read (the
 Obsidian Folder Notes convention). There is **no inbox** — a user vault takes no file drops.
@@ -127,7 +129,7 @@ owner agrees them before the first synthesis. The method's default kinds:
 | entity | a person or organisation known to more than one project | personal assistant | contact sheet and follow-up list; warm, efficient: what each project knows, reconciled, and where they disagree |
 | matter | one venture, obligation or timeline that spans projects | delegated to the page: the professional of the matter, chosen from [the catalogue](../wiki-maintenance/references/professionals.md) by the synthesis as it writes the page and named in the page's `professional:` frontmatter and its rationale block | that professional's deliverable |
 | theme | how several matters fit together: the overall money picture, the year's dates across projects | delegated to the page: the professional whose deliverable is that view (money: the financial planner; dates: the chief of staff), named in `professional:` | that professional's deliverable |
-| folder note | each area's and sub-tree's same-name note | librarian | catalogue; orderly, neutral, complete |
+| folder note | the same-name note of `01 Knowledge/` and of each sub-tree under it (the `00 Index/` note is the index's; the other areas' notes are not the synthesis's to write) | librarian | catalogue; orderly, neutral, complete |
 
 Every page has exactly one professional, as the core rule says. A kind either **fixes** it (index, entity,
 folder note) or **delegates** the choice to the page (matter, theme): a page of a delegating kind carries
@@ -138,8 +140,12 @@ the questions in order, the fields every page of the kind carries. The Index's i
 three questions, what needs the owner's decision now, what falls due next and what is waiting on
 someone else, then the map into Knowledge. Record both in `09 Schema` as two tables with fixed headers
 beside the stability rules: **Page kinds** (kind | professional | deliverable and tone) and
-**Page contracts** (kind | reader | questions in order | fields); the deployment shows both tables to
-the synthesis with the vault's structure. The voice is tone only: facts, sources, provenance,
+**Kind contracts** (kind | reader | questions in order | fields), named so that neither is mistaken
+for a project Schema's tables, which `pre-onboarding`'s `settings.py compile` reads and a vault never
+feeds it. The deployment shows both tables, and
+[the professional catalogue](../wiki-maintenance/references/professionals.md), to the synthesis with
+the vault's structure, so a delegated choice has a vocabulary. The kind's contract questions govern a
+page; the professional supplies the tone, and the voice is tone only: facts, sources, provenance,
 frontmatter and the format rules are the same whoever the page speaks as. The librarian keeps
 `09 Schema` and `10 Log`, as in a project wiki; the tree under `01 Knowledge/` still emerges, page by
 page, from the projects.
@@ -168,21 +174,16 @@ page, from the projects.
 
 Run one `synthesise` so `00 Index/`+`01 Knowledge/` hold a real starting view. Then **accept** the pages
 it wrote, in the owner's lens and each page's professional's, through a model that did not write them,
-as [`wiki-onboarding`'s reader acceptance step](../wiki-onboarding/SKILL.md#6-reader-acceptance-the-owners-lens-and-the-professionals)
-runs it; record each verdict in `_Audit/wiki-acceptance.json`. A page the synthesis later creates,
-reshapes or rewrites to its kind's changed contract or fixed professional is accepted the same way
-before the owner is told of it: the deployment runs that review as a
-step after the write, through a model other than the one that wrote the page, and records the verdict.
-A page with no verdict is reported as **not recorded**, never as accepted, and the periodic reconcile
-counts it with the pages that have no rationale block, where the deployment's sweep puts the
-acceptance state in its findings (the archetype's `scheduler.md`); the review runs again on any page
-found without a verdict, and a refused page is corrected by the next reconcile from the review's
-findings and reviewed again. A page is accepted again when its kind,
-contract, professional or anatomy changes, and the deployment keys each verdict to those four,
-recording with it a fingerprint of the kind's whole row (professional, reader, questions, fields) and
-the page's anatomy as its rationale block records it, never the page's body
-([the rule in a user vault](../wiki-maintenance/SKILL.md#the-rule-in-a-user-vault)): a routine
-synthesis that only integrates a fact keeps the verdict. `wiki-onboarding`'s order rule, under which
+in the two lenses and with the briefing
+[`wiki-onboarding`'s reader acceptance step](../wiki-onboarding/SKILL.md#6-reader-acceptance-the-owners-lens-and-the-professionals)
+gives the reviewer, but recorded in the vault's own record, `_Audit/vault-acceptance.json`, by the
+deployment, not by `pre-onboarding`'s `wiki.py accept`, which cannot run on a vault. What the record
+holds, what a verdict is keyed to (the kind fingerprint and the anatomy, never the body, so a routine
+synthesis that only integrates a fact keeps it), and how a page later created, reshaped or found out
+of step is reviewed, corrected or raised, is
+[the rule in a user vault](../wiki-maintenance/SKILL.md#the-rule-in-a-user-vault): the deployment
+runs that review as a step after a write and on any page found without a verdict, and the archetype's
+`scheduler.md` says what its sweep hands the reconcile. `wiki-onboarding`'s order rule, under which
 any later edit voids a verdict, governs the interactive session that builds a project wiki before its
 hand-off, not a vault maintained by jobs. Then hand off: the vault
 now maintains itself — a project wiki the identity can access changes, or an owner confirmation

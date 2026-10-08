@@ -20,34 +20,37 @@ rule, is why this is a MAJOR rather than the MINOR first planned.
 ### Breaking (MAJOR)
 
 - **The rule in a user vault**
-  ([`wiki-maintenance`](plugins/ai-os/skills/wiki-maintenance/SKILL.md#the-rule-in-a-user-vault)): a type-1 user
-  vault keeps the rule **per page kind**, because its pages are born in unattended runs: a kind has one
-  contract and either fixes the page's professional or delegates the choice to the page. Sections by
-  responsibility does not apply there. The rationale file and the acceptance record live in `_Audit/` at the
-  vault root, deployment-written. The canonical frontmatter gains `kind:` on every page the synthesis writes
-  and `professional:` on a page whose kind delegates; the owner-authored Ideas and the Reports carry neither.
+  ([`wiki-maintenance`](plugins/ai-os/skills/wiki-maintenance/SKILL.md#the-rule-in-a-user-vault)), the one
+  home for how the rule bends in a type-1 user vault: **per page kind**, because its pages are born in
+  unattended runs. A kind has one contract and either fixes the page's professional or delegates the choice to
+  the page, which the synthesis makes from the catalogue shown to it (the one place a pass chooses a
+  professional rather than proposing the page); the kind's contract questions govern and the professional
+  supplies the tone. Sections by responsibility does not apply. The canonical frontmatter gains `kind:` on
+  every page the synthesis writes and `professional:` on a page whose kind delegates; Ideas and Reports carry
+  neither. The vault's audit tier: `_Audit/wiki-rationale.md`, rendered from what the synthesis returns, and
+  **`_Audit/vault-acceptance.json`**, the vault's own record, written from the independent review's verdicts
+  in the core vocabulary (`accepted`; `changes` with findings; `refused` when the reviewer was the author),
+  each keyed to a **kind fingerprint** (the kind's rows in both Schema tables, every column) and the page's
+  anatomy, never the body. `pre-onboarding`'s `wiki.py accept`/`check` and `settings.py compile` are never run
+  on a vault. How the states move: a page with no verdict or `changes` is the review's to clear; `changes`
+  findings reach the reconcile, which corrects the page; after a bounded number of failed corrections the page
+  is raised once to the owner; `refused` is reported to the operator; a page not shown or held as `.proposed`
+  is counted and left.
 - **`user-onboarding` holds the kinds** ([step 3](plugins/ai-os/skills/user-onboarding/SKILL.md#3-scaffold-the-type-1-skeleton)):
-  a chief of staff proposes them (index, entity, matter, theme, folder note; a deployment may add one), the
-  owner agrees, and `09 Schema` records them in two fixed-header tables, **Page kinds** and **Page contracts**.
-  The first synthesis's pages are accepted in both lenses through a model that did not write them; a page the
-  synthesis later creates, reshapes or rewrites to its kind's changed contract or fixed professional is accepted
-  the same way as a deployment
-  step after the write, a page
-  with no verdict reads as not recorded, and a page is accepted again when its kind, contract, professional or
-  anatomy changes, to which the verdict is keyed (never to the body, so a routine update keeps it). `_Audit/`
-  joins the skeleton.
+  a chief of staff proposes them (index, entity, matter, theme, folder note scoped to `01 Knowledge/`; a
+  deployment may add one), the owner agrees, and `09 Schema` records them in two fixed-header tables, **Page
+  kinds** and **Kind contracts**, shown to the synthesis with the vault's structure and the professional
+  catalogue. Step 6: the first synthesis's pages are accepted in both lenses through a model that did not
+  write them, into the vault's own record. `_Audit/` joins the skeleton.
 - **The `user-synthesis` archetype** writes every page as its professional, to its kind's contract: the Index
-  as the chief of staff's briefing note; a matter or theme page's professional chosen from the catalogue at
-  run time, named in `professional:` and its rationale block, and kept on later updates. `wiki_pages[]` gains
-  an optional **`rationale`** field (the five lines, as five fields), required on a create, on a change of
-  kind, professional or shape, on a rewrite to the kind's changed contract or fixed professional (the
-  deployment's sweep names the pages whose verdict was recorded under an older version of the whole row,
-  professional, reader, questions and fields, never by write time), and on
-  the correction of a refused page from the review's findings (the deployment's sweep names the pages
-  last written before it); the deployment renders `_Audit/wiki-rationale.md` from it. `reconcile` keeps
-  every page in its voice, restores a missing block by returning the page with its rationale, and counts the
-  pages with no kind, no block or no accepted verdict where the deployment's findings show the coverage, saying
-  so where they do not.
+  as the chief of staff's briefing note. `wiki_pages[]` gains an optional **`rationale`** field (the five
+  lines, as five fields), required on a create and on a change of kind, professional or shape, on the Index's
+  first write, and in `reconcile` on the rewrite of a page out of step with its kind's rows, the restoration of
+  a missing block and the correction of a page with a `changes` verdict; the reactive `synthesise` has no
+  findings input, so a stale-row page is the reconcile's. The gate hashes the `09 Schema` kind tables too.
+  `scheduler.md` says what the periodic sweep hands the reconcile (no kind, no block, no accepted verdict with
+  any `changes` findings, out-of-step fingerprint), and that a page with no verdict is never in the
+  out-of-step list.
 - **`ARCHITECTURE.md`**'s type-1 skeleton gains `_Audit/` and points at the kinds.
 - **The testimony pin covers the synthesis** (#149;
   [`ARCHITECTURE.md`](plugins/ai-os/ARCHITECTURE.md#surfacing-the-raised-item-lifecycle)): every
@@ -71,15 +74,19 @@ rule, is why this is a MAJOR rather than the MINOR first planned.
 
 ### Migrating a deployment
 
-- Scaffold `_Audit/` in each vault; render `wiki-rationale.md` from the `rationale` field and record acceptance
-  in `wiki-acceptance.json`, running the acceptance review of a created or reshaped page as a step after the
-  write, through a model other than the one that wrote it. Show the rationale file's headings with the
-  structure, or name the pages with no block in the reconcile findings, and name there the pages with no
-  accepted verdict. The synthesis write-fence does not change.
-- Agree the page kinds with each identity's owner and write the two tables into `09 Schema`; show them to the
-  synthesis with the vault's structure.
-- Allow `rationale` and `kind:` in strict validation. The first run after the pin advance may rewrite pages
-  into their kind's voice; the gate treats it as an ordinary change.
+- Agree the page kinds with each identity's owner; write **Page kinds** and **Kind contracts** into `09 Schema`;
+  show both tables and the professional catalogue to the synthesis with the vault's structure; hash the tables in
+  the gate.
+- Scaffold `_Audit/`; render `wiki-rationale.md` from the `rationale` field, including the restore case where the
+  body is unchanged; keep `vault-acceptance.json` in the shape the rule defines, recording the kind fingerprint
+  and anatomy with each verdict and comparing the fingerprint with the live rows; run the independent review as
+  a step after a write and on any page without a verdict; feed `changes` findings, the no-kind, no-block,
+  no-verdict and out-of-step pages into `{reconcile_findings}` (or show the rationale file's headings with the
+  structure); cap consecutive failed corrections and raise the page once; report `refused` to the operator.
+  The synthesis write-fence does not change.
+- Allow `rationale`, `kind:` and `professional:` in strict validation. The first run after the pin advance may
+  rewrite pages into their kind's voice, and every page starts with no verdict; the gate treats the rewrite as
+  an ordinary change.
 - The synthesis gather reads record-named files from each accessible project's folders, under the testimony
   budget, pending records first, and names the records omitted or unreadable this run. The gate hashes them and
   consumes a record only when the run showed its full text; a failing read does not open the gate; a record is
