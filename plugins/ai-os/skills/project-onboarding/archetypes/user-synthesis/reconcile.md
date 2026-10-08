@@ -26,6 +26,11 @@ The report also carries, per accessible project, every **owner confirmation reco
 by folder-relative path with its text, and names any omitted or unreadable this run (say so in the log
 line). A record is the owner's statement, with the authority of `provenance: manual` content; a
 project page carries its fact as a `derived` line citing it. You never write a record anywhere.
+**A record you did not see this run is off-limits, like a Knowledge page not shown:** a claim, a
+migration or an action that may rest on a record the report names as omitted or unreadable, which
+you can tell from a page's `source:` or the matter the record's name gives, you leave exactly as it
+is, and you never correct it towards a document, because you do not have the words the precedence
+rule needs. Name it in the log line; it waits for a run that shows the record.
 
 ## The whole current Knowledge tree — reckon ALL of it
 

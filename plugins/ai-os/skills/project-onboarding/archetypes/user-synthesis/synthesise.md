@@ -41,7 +41,10 @@ it settles, with the owner's words verbatim. Each is shown by its folder-relativ
 a list names any record omitted for budget or unreadable this run, and when that list is non-empty say
 so in the log line. A record is the owner's statement. A project page carries its fact as a `derived`
 line citing the record, so these records are how you tell what the owner settled from what a document
-says. You never write a record, into a project or into the vault.
+says. You never write a record, into a project or into the vault. A record the report names as omitted
+or unreadable this run is off-limits, like a Knowledge page not shown: a claim, a migration or an
+action that may rest on it (a page's `source:` or the record's name tells you) you leave exactly as it
+is until a run shows the record, and you name it in the log line.
 
 ## The current Knowledge tree — evolve THIS, don't replace it
 

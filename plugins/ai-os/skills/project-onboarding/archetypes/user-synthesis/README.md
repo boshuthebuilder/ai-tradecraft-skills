@@ -96,6 +96,9 @@ synthesis as for a project's jobs; `synthesise.md` restates it in one bullet wit
 - a migration the owner declined in a record stays declined (the ledger holds the dismissal; the
   record is the durable copy);
 - the synthesis never writes a record, into a project or into the vault;
+- a record omitted or unreadable this run is off-limits, as a Knowledge page not shown is: a claim, a
+  migration or an action that may rest on it is left exactly as it is, in `synthesise` and in the
+  periodic `reconcile` alike, until a run shows the record;
 - the gate hashes the records, and consumes one only when the run showed its text
   ([`scheduler.md`](scheduler.md)).
 
