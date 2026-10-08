@@ -201,8 +201,8 @@ land in `02 Ideas/` through the interactive capture surfaces, never by hand in t
   project*, which the synthesis then stitches into Knowledge — never folded in directly.
 - **Incremental ⇒ a twin.** Because Knowledge is evolved not regenerated, the archetype is a
   `synthesise`/`reconcile` pair (the twin rule), exactly like file-ingest.
-- **One access rule.** The synthesis reads only the wikis the identity may access — single-homed, never
-  re-derived per surface.
+- **One access rule.** The synthesis reads only the wikis, and the owner confirmation records, of the
+  projects the identity may access — single-homed, never re-derived per surface.
 - **Every page the synthesis writes has a kind.** Its kind has one contract in `09 Schema` and either
   fixes the page's professional or delegates it to the page's `professional:` frontmatter; the synthesis
   writes the page as that professional and returns its rationale block, and a page whose kind has no row

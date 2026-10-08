@@ -50,8 +50,9 @@ that finds one files it into the wiki and logs the move.
 exist only because the owner said so: "the deposit came back in cash; no letter is coming". When the
 owner states such a fact about a matter whose documents sit in the folder, the deployment's capture
 surface writes it **into that matter's folder**, beside the documents it settles. It is a dated,
-attributed Markdown file that carries the owner's words verbatim and is named so the deployment can
-recognise it by its name alone (for example `2026-03-14 Owner confirmation - Deposit returned.md`).
+attributed Markdown file that carries the owner's words verbatim, is short (a record is a stated fact,
+not a document, and the capture surface bounds its size at capture), and is named so the deployment
+can recognise it by its name alone (for example `2026-03-14 Owner confirmation - Deposit returned.md`).
 The words are the owner's, so the record is a **source**: read and cited like any document in the
 folder. No job writes, edits, renames, moves, files or sweeps one, and an ingest never treats one as a
 stray. Only the capture surface writes them, on the owner's explicit statement. The deployment's code

@@ -3,7 +3,8 @@
 The reasoning-stage template for the `synthesise` job. Filled with the access-scoped gather report and
 the **current Knowledge tree**, it returns structured JSON a deterministic write stage applies to the
 identity's user vault. Generic starting template — `{…}` are filled by the deployment. The deployment
-guarantees the report contains **only** wikis this identity may access; the template's job is coherence
+guarantees the report contains **only** the wikis, and the owner confirmation records, of projects this
+identity may access; the template's job is coherence
 and faithful evolution, not access control. The optional `migration` field on a `needs_a_look` item
 carries a proposed cross-project migration, and the optional `rationale` field on a `wiki_pages[]`
 entry carries the page's rationale block (see the archetype's README).
@@ -24,7 +25,7 @@ links survive. Reorganise the structure only on strong signal (the `09 Schema` s
 this). Do **not** rebuild the vault wholesale — a from-scratch rewrite destroys curated structure and
 breaks links.
 
-## The sources — the project wikis this person may access
+## The sources — the project wikis this person may access, and those projects' records
 
 {gather_report}
 
@@ -46,7 +47,8 @@ line citing the record, so these records are how you tell what the owner settled
 says. You never write a record, into a project or into the vault. A record the report names as omitted
 or unreadable this run is off-limits, like a Knowledge page not shown: a claim, a migration or an
 action that may rest on it (a page's `source:` or the record's name tells you) you leave exactly as it
-is until a run shows the record, and you name it in the log line.
+is, and you propose nothing new for the matter the record's name gives, until a run shows the record;
+name it in the log line.
 
 ## The current Knowledge tree — evolve THIS, don't replace it
 

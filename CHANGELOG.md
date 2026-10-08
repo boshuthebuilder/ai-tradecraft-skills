@@ -81,8 +81,12 @@ rule, is why this is a MAJOR rather than the MINOR first planned.
 - Allow `rationale` and `kind:` in strict validation. The first run after the pin advance may rewrite pages
   into their kind's voice; the gate treats it as an ordinary change.
 - The synthesis gather reads record-named files from each accessible project's folders, under the testimony
-  budget, pending records first; the gate includes them in its hash and consumes a record only when the run
-  showed its text. No output field changes for #149, so strict validation needs nothing further.
+  budget, pending records first, and names the records omitted or unreadable this run. The gate hashes them and
+  consumes a record only when the run showed its full text; a failing read does not open the gate; a record is
+  marked blocked after repeated failed reads, or at once when it exceeds the budget on its own, raised once and
+  keyed to its hash; the orphan sweep resolves a cited record against the project's folder. On the first run
+  after the pin advance every existing record is pending: seed the seen-state from a run that shows them, or
+  expect the drain. No output field changes for #149, so strict validation needs nothing further.
 - Re-reconcile the twins of `user-synthesis/synthesise.md` and `reconcile.md`.
 
 ## v14.0.0 (2026-10-07)

@@ -99,10 +99,12 @@ record outranks, and how a document that contradicts one is handled, is `wiki-ma
 synthesis as for a project's jobs; `synthesise.md` restates it in one bullet with that pointer,
 `reconcile.md` defers to `synthesise.md`, and the archetype adds only what is the synthesis's own:
 
-- a claim that rests on a record cites it as `<project id>: <folder-relative path>`, the form the
-  `migration` field already uses for folder paths;
-- a migration the owner declined in a record stays declined (the ledger holds the dismissal; the
-  record is the durable copy);
+- a claim that rests on a record cites it as `<project id>: <folder-relative path>`, so a reader and
+  the orphan sweep know to resolve it against that project's folder, not its wiki; a migration that
+  rests on a record names the record in the item's text, since `migration.pages` is wiki-relative;
+- a migration the owner declined in a record stays declined (the ledger holds the dismissal; where
+  the owner declined by stating it to the capture surface, the record is the durable copy; a
+  dismissal made on a dashboard writes no record);
 - the synthesis never writes a record, into a project or into the vault;
 - a record omitted or unreadable this run is off-limits, as a Knowledge page not shown is: a claim, a
   migration or an action that may rest on it is left exactly as it is, in `synthesise` and in the
@@ -118,7 +120,12 @@ project whose documents the fact concerns, or, where both hold documents, the fo
 when stating it. The synthesis is the one pass that reads both projects, so it is what carries the
 fact into the other project's cross-project view, as a cited claim. The other project's wiki never
 learns it except through the owner: that is the existing rule (a project files within itself),
-restated, not changed.
+restated, not changed. Three consequences the holding project carries: its own ingest and reconcile,
+which see the record too, fold only their own project's side of it and name nothing about the other
+project, since a project wiki never names another; where both projects hold documents and the owner
+names no folder, the capture surface asks before writing, because a vault has no `manual` note to
+fall back on; and anyone who may read the holding folder reads the record, so the owner words a
+cross-project statement with that in mind.
 
 ## Proposed migrations
 

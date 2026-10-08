@@ -16,17 +16,21 @@ reactive `ingest`, but the gate watches different inputs:
   that feeds the synthesis (e.g. each wiki's declared entity domains).
 - **When the change is consumed:** record the hash as seen only **after the vault write succeeds**.
   A failed, skipped or rate-limited run leaves the change pending, so the next tick re-detects it —
-  the same consume-on-success rule the file-ingest gate follows. A record whose text the run did not
-  show, **omitted** for budget or **unreadable** when the gather reached it, is not consumed either:
-  its hash stays pending, and the gather shows pending records before the rest, so a budget that is
-  always exceeded drains in order, and a read that recovers is retried on the next tick, rather than
-  either marking an unread record seen. One record larger than the whole budget on its own can never
-  be shown, so it must not hold the queue: the gate marks it **blocked**, not seen, raises it once to
-  the owner as an item naming the file (fail loud, through the raised-item ledger so it is not raised
-  again), and takes it out of the pending set so later records drain; the passes treat it as
-  unreadable, leaving what may rest on it as it is. A record is a stated fact, not a document, so the
-  capture surface bounds a record's size at capture, and a blocked record is the exception that bound
-  should make rare.
+  the same consume-on-success rule the file-ingest gate follows. A record whose **full** text the run
+  did not show, omitted for budget, truncated, or unreadable when the gather reached it, is not
+  consumed either: consumption is per record, its hash stays pending, and the gather shows pending
+  records before the rest, so a budget that is always exceeded drains in order rather than marking an
+  unread record seen. A pending record that **fails to read** does not open the gate by itself: the
+  gate retries the read cheaply each tick and fires for that record only when the read succeeds, so a
+  record that never decodes cannot run the costliest pass every tick with nothing new to show. After a
+  bounded number of consecutive failed reads, and at once for one record larger than the whole budget
+  on its own, the gate marks the record **blocked**, not seen: it raises it once to the owner as an
+  item naming the file (fail loud, through the raised-item ledger so it is not raised again) and takes
+  it out of the pending set so later records drain; the passes treat it as unreadable, leaving what
+  may rest on it as it is. Blocked is keyed to the record's content hash and checked against the
+  budget as it stands, so an edited record, or a larger budget, returns it to pending. The capture
+  surface bounds a record's size at capture ([`wiki-maintenance`](../../../wiki-maintenance/SKILL.md#the-shape-of-a-folder)),
+  which is what should make a blocked record rare.
 - **Why a frequent tick is safe:** the gate is a cheap hash walk with no model call; the synthesis
   itself is expensive (a strong model over many wikis), which is exactly why the gate exists. A burst
   of project-wiki updates between two ticks coalesces into one synthesis.
@@ -44,6 +48,8 @@ file-ingest `reconcile`:
 - **No reactive gate.** It does not consult the `synthesise` seen-hash; it simply runs on its clock and
   reckons the whole vault against all accessible sources.
 - **Deterministic sweeps first.** Before the model call, run the mechanical health sweeps (orphan pages,
+  a Knowledge page citing a source page or record that no longer exists, where a cited record is
+  resolved against its project's folder and one the gather omitted is not shown rather than vanished;
   staleness, pages with no `kind:`, no block in `_Audit/wiki-rationale.md` or no accepted verdict in
   `_Audit/wiki-acceptance.json`, pages whose verdict was recorded under an older version of their
   kind's row in `09 Schema`, log digest) and pass their findings into the prompt as a worklist — the

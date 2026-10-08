@@ -51,7 +51,8 @@ The first archetype this repo ships is **file-ingest** (see
 
 The second is **user-synthesis** (`plugins/ai-os/skills/project-onboarding/archetypes/user-synthesis/`): a gated
 synthesis of a per-person, cross-project view (see *Tiers and identities*, below). It also shows that
-an archetype's *source* need not be the owner's files at all — its sources are other wikis. Whatever
+an archetype's *source* need not be the owner's files at all — its sources are other wikis, and the
+owner confirmation records in those wikis' project folders. Whatever
 the source, the same shape holds: gather presents the model a deterministic, access-scoped view of
 it, and only the reasoning step is a model call. Its user-tier vault is **incrementally evolved**, not
 regenerated, so — like file-ingest — it is a **pair**: an incremental, reactive `synthesise` and a
@@ -196,14 +197,20 @@ What the gate counts as "something changed", for the file-ingest archetype:
 
 For the user-synthesis archetype, the same rule over different inputs: the content of every wiki the
 identity may access, the owner confirmation records in those projects' folders (so a record reaches the
-vault on the next tick, before the project's own ingest has folded it in), plus the accessible-project
+vault once a run shows it, before the project's own ingest has folded it in), plus the accessible-project
 set itself. The more expensive the reasoning step,
 the more the gate matters — a full cross-project synthesis is the costliest pass in the system, and
 the gate is what makes running its check every few minutes free.
 
 A change is only **consumed** (recorded as seen) once the run has actually absorbed it — i.e. on a
 successful write, not merely on observing it. A failed or skipped run leaves the change pending, so
-the next gate re-detects it. This is the fail-loud rule applied to the gate itself.
+the next gate re-detects it. This is the fail-loud rule applied to the gate itself. For a user vault
+the owner confirmation records are consumed **per record**, each only when the run showed its full
+text: a record omitted for budget, truncated, unreadable or blocked stays pending, or blocked, and
+never counts as absorbed, however the run's other inputs fared; one aggregate hash over every input
+would mark an unshown record seen. The mechanics, the retry of a failing read without opening the
+gate and the blocked state, are the archetype's
+[`scheduler.md`](skills/project-onboarding/archetypes/user-synthesis/scheduler.md).
 
 ## Fail loud, never silent
 
@@ -408,8 +415,8 @@ Two concepts the archetypes above rest on:
   A **user-tier** wiki, one per identity, is the only place cross-project links live: it is
   *synthesised over* the project wikis that identity
   may access, reads them, and never writes back into them. Isolation is by construction: the
-  synthesis job's gather only ever presents the wikis the access rule allows, so a cross-tier leak
-  cannot happen downstream of it.
+  synthesis job's gather only ever presents the wikis, and the owner confirmation records, of the
+  projects the access rule allows, so a cross-tier leak cannot happen downstream of it.
 - **A cross-project migration is suggested, never made by a job.** While a folder is being prepared,
   a curation round may stage one in the migrations folder through plan rows the owner approves
   ([`folder-curation`'s staging rule](skills/folder-curation/SKILL.md#3-propose-the-only-model-step)),
