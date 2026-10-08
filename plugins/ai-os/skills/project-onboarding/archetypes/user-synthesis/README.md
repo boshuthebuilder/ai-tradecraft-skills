@@ -38,6 +38,41 @@ Ideas/`, `03 Reports/`). The deployment's write guards enforce this: an area wri
 Index/`/`01 Knowledge/`), the same `.proposed.md` human-edit guard used everywhere, and in-root
 containment. The synthesis never writes back into a project wiki.
 
+Every page the synthesis writes has a **kind** from the vault's `09 Schema`, and each kind has one
+contract and either fixes the page's professional or delegates the choice to the page
+(`user-onboarding`, *The page kinds*, under
+[the core wiki rule](../../../wiki-maintenance/SKILL.md#the-rule-in-a-user-vault)); the deployment shows
+the Schema's **Page kinds** and **Kind contracts** tables, and the professional catalogue, to the
+model with the vault's structure. The page declares `kind:` in its frontmatter, and `professional:`
+where its kind delegates, and is written as that professional's deliverable, to its kind's contract.
+A page whose kind has no row is proposed in `needs_a_look`, never written; the proposal rides the
+raised-item ledger like any item, raised once and not again while it is open or dismissed, and the
+gate re-runs the synthesis when the owner adds the row, because it hashes the kind tables, so a
+missing row cannot livelock the vault. The deployment's write guards hold the keys as they hold the
+write-fence: a `kind:` that names no row in `09 Schema`, or a `professional:` that is neither a
+catalogue row nor named for the matter in the rationale block, is refused at the write and reported,
+never written and later counted. For every page it creates,
+and every page whose kind, professional or shape it changes, the synthesis returns a **`rationale`**
+block on the `wiki_pages[]` entry (the five lines of `wiki-maintenance`'s rationale block, as five
+fields); an update that only integrates a fact omits it; the Index, which both passes re-derive each
+run from a tree that does not show it, carries a block on its first write and whenever the reconcile's
+findings name it. The deployment's write stage renders `_Audit/wiki-rationale.md` from the field,
+since the deployment owns the audit tier as it does in a project, and the write-fence stays as it is:
+the synthesis never writes `_Audit/`. The field is additive and optional: a deployment that validates
+the reply strictly allows it before advancing its pin.
+
+Acceptance in a vault is the deployment's, and its one home is
+[*The rule in a user vault*](../../../wiki-maintenance/SKILL.md#the-rule-in-a-user-vault): the
+record (`_Audit/vault-acceptance.json`, the vault's own), the verdict vocabulary, what a verdict is
+keyed to (the kind fingerprint and the anatomy, never the body) and how the states move. What the
+archetype adds is the wiring: the review runs as a deployment step after a write and on any page
+found without a verdict; the periodic sweep hands the reconcile, through `{reconcile_findings}`, the
+pages with no kind, no block (or the rationale file's headings with the structure), no accepted
+verdict, the findings of a `changes` verdict, and the pages whose verdict's kind fingerprint is older
+than the kind's rows; the reconcile corrects or restores those it can and counts the rest
+([`scheduler.md`](scheduler.md)). Nothing reaches the reactive `synthesise` this way: it has no
+findings input, so a stale-row page waits for the reconcile.
+
 Because Knowledge is incremental, the artefact can drift — hence the **`reconcile` twin**: a periodic
 whole-vault pass under the **same** write contract (still incremental, still fenced to the derived
 areas), differing only in **breadth** (the whole vault against all sources, not the changed slice) and
@@ -79,8 +114,8 @@ it before advancing its pin.
 Stamp one instance **per identity** that wants a cross-project view: copy the files, fill the
 `{placeholders}`, scaffold the type-1 skeleton, map the identity's vault in your deployment's path
 config, and wire the reactive timer (for `synthesise`) plus the periodic clock (for `reconcile`). The
-vault needs no inbox and no `wiki-onboarding` pass; it is scaffolded to the type-1 skeleton, and the
-synthesis evolves its Knowledge area from there. The full flow is the **`user-onboarding`** skill.
+vault needs no inbox and no `wiki-onboarding` pass; it is scaffolded to the type-1 skeleton with its
+page kinds agreed, and the synthesis evolves its Knowledge area from there. The full flow is the **`user-onboarding`** skill.
 
 These templates are generic by design: they name no real owner, host, or platform. The deployment
 supplies the timer, the storage, the model runner, the access rule, and the deterministic guards the

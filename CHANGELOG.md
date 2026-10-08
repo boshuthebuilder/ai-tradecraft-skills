@@ -4,6 +4,68 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## Unreleased
+
+A **MAJOR**: the second brain keeps the core wiki rule (#148; the release is closed as v15.0.0 by #149). The
+user vault was the one wiki outside `wiki-maintenance`'s core wiki rule: its `09 Schema` held stability rules
+only, `synthesise.md` named no professional, contract, rationale block or acceptance, and `reconcile` could
+not count what was missing. No skill name, archetype layout or prompt placeholder changed, but the core wiki
+rule gains an exception, and a deployment that advances its pin without the migration below has a synthesis
+that proposes every Knowledge page and writes none, because no kind has a row.
+
+### Breaking (MAJOR)
+
+- **The rule in a user vault**
+  ([`wiki-maintenance`](plugins/ai-os/skills/wiki-maintenance/SKILL.md#the-rule-in-a-user-vault)), the one
+  home for how the rule bends in a type-1 user vault: **per page kind**, because its pages are born in
+  unattended runs. A kind has one contract and either fixes the page's professional or delegates the choice to
+  the page, which the synthesis makes from the catalogue shown to it (the one place a pass chooses a
+  professional rather than proposing the page); the kind's contract questions govern and the professional
+  supplies the tone. Sections by responsibility does not apply. The canonical frontmatter gains `kind:` on
+  every page the synthesis writes and `professional:` on a page whose kind delegates; Ideas and Reports carry
+  neither. The vault's audit tier: `_Audit/wiki-rationale.md`, rendered from what the synthesis returns, and
+  **`_Audit/vault-acceptance.json`**, the vault's own record, written from the independent review's verdicts
+  in the core vocabulary (`accepted`; `changes` with findings; `refused` when the reviewer was the author),
+  each keyed to a **kind fingerprint** (the kind's rows in both Schema tables, every column) and the page's
+  anatomy, never the body. `pre-onboarding`'s `wiki.py accept`/`check` and `settings.py compile` are never run
+  on a vault. How the states move: a page with no verdict or `changes` is the review's to clear; `changes`
+  findings reach the reconcile, which corrects the page; after a bounded number of failed corrections the page
+  is raised once to the owner; `refused` is reported to the operator; a page not shown or held as `.proposed`
+  is counted and left.
+- **`user-onboarding` holds the kinds** ([step 3](plugins/ai-os/skills/user-onboarding/SKILL.md#3-scaffold-the-type-1-skeleton)):
+  a chief of staff proposes them (index, entity, matter, theme, folder note scoped to `01 Knowledge/`; a
+  deployment may add one), the owner agrees, and `09 Schema` records them in two fixed-header tables, **Page
+  kinds** and **Kind contracts**, shown to the synthesis with the vault's structure and the professional
+  catalogue. Step 6: the first synthesis's pages are accepted in both lenses through a model that did not
+  write them, into the vault's own record. `_Audit/` joins the skeleton.
+- **The `user-synthesis` archetype** writes every page as its professional, to its kind's contract: the Index
+  as the chief of staff's briefing note. `wiki_pages[]` gains an optional **`rationale`** field (the five
+  lines, as five fields), required on a create and on a change of kind, professional or shape, on the Index's
+  first write, and in `reconcile` on the rewrite of a page out of step with its kind's rows, the restoration of
+  a missing block and the correction of a page with a `changes` verdict; the reactive `synthesise` has no
+  findings input, so a stale-row page is the reconcile's. The gate hashes the `09 Schema` kind tables too.
+  `scheduler.md` says what the periodic sweep hands the reconcile (no kind, no block, no accepted verdict with
+  any `changes` findings, out-of-step fingerprint), and that a page with no verdict is never in the
+  out-of-step list.
+- **`ARCHITECTURE.md`**'s type-1 skeleton gains `_Audit/` and points at the kinds.
+
+### Migrating a deployment
+
+- Agree the page kinds with each identity's owner; write **Page kinds** and **Kind contracts** into `09 Schema`;
+  show both tables and the professional catalogue to the synthesis with the vault's structure; hash the tables in
+  the gate.
+- Scaffold `_Audit/`; render `wiki-rationale.md` from the `rationale` field, including the restore case where the
+  body is unchanged; keep `vault-acceptance.json` in the shape the rule defines, recording the kind fingerprint
+  and anatomy with each verdict and comparing the fingerprint with the live rows; run the independent review as
+  a step after a write and on any page without a verdict; feed `changes` findings, the no-kind, no-block,
+  no-verdict and out-of-step pages into `{reconcile_findings}` (or show the rationale file's headings with the
+  structure); cap consecutive failed corrections and raise the page once; report `refused` to the operator.
+  The synthesis write-fence does not change.
+- Allow `rationale`, `kind:` and `professional:` in strict validation. The first run after the pin advance may
+  rewrite pages into their kind's voice, and every page starts with no verdict; the gate treats the rewrite as
+  an ordinary change.
+- Re-reconcile the twins of `user-synthesis/synthesise.md` and `reconcile.md`.
+
 ## v14.0.0 (2026-10-07)
 
 A **MAJOR**: a documented rule changes for one class of deployment (#145). `wiki-maintenance`'s core loop told an

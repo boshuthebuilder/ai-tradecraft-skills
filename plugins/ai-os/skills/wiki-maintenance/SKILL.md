@@ -261,6 +261,52 @@ than inventing either. Changing a page's professional or contract is a Schema ch
 agrees; the page's rationale block records it and the page is accepted again. No pass blends two voices
 on one page or lets a page slide back into generic prose.
 
+### The rule in a user vault
+
+A type-1 user vault ([`ARCHITECTURE.md`](../../ARCHITECTURE.md#the-type-1-user-vault)) keeps the rule
+**per page kind**, not per page: its pages are born in unattended synthesis runs, so no owner can agree
+each page's professional before it is written. The vault's `09 Schema` names its page kinds, each with
+one contract, and for each kind either fixes the professional or delegates the choice to the page; a
+page the synthesis writes declares its kind in frontmatter (`kind:`), and a page of a delegating kind
+its professional too (`professional:`), and is written as that professional, to its kind's contract.
+For a delegating kind this replaces two sentences of the rule above: the synthesis chooses the page's
+professional from the catalogue the deployment shows it, and a later pass keeps that choice, where a
+project wiki's pass would propose the page rather than invent one; and the kind's contract questions
+govern the page, the professional supplying the tone, their catalogue questions following the
+contract's where they fit. The rule, its keys and its counts are over the pages the synthesis writes
+(`00 Index/`, `01 Knowledge/`); the owner-authored Ideas and the Reports carry no kind. Sections by
+responsibility does not apply: the vault's areas are fixed, and its Knowledge tree emerges by theme
+and entity from the project wikis it reads.
+
+**The vault's audit tier.** The rationale file is `_Audit/wiki-rationale.md`, in the shape above,
+rendered by the deployment from what the synthesis returns. The acceptance record is
+**`_Audit/vault-acceptance.json`**, the vault's own, written by the deployment from the verdicts of
+the independent review (a model that did not write the page), never from the synthesis. It is not the
+record `pre-onboarding`'s `wiki.py` keeps for a project wiki, which is keyed to the page's text hash;
+that tool's `accept` and `check` are never run on a vault, and `settings.py compile` never reads a
+vault's Schema. One entry per page and lens: the page path, the lens, the verdict in the vocabulary of
+[acceptance](#acceptance) (`accepted`; `changes`, with the findings and the responses to them;
+`refused`, when the reviewer was the author, with the reason), the models that wrote and reviewed the
+page, the date, and the **kind fingerprint** the verdict was given under: a hash of the kind's rows in
+both of the Schema's kind tables, every column, together with the page's anatomy as line 3 of its
+rationale block records it. A verdict is keyed to that fingerprint and anatomy, never to the page's
+body: an update that only integrates a fact keeps it, and a page is accepted again when its kind, its
+kind's rows or its anatomy change.
+
+**How the states move.** *Accepted* stays until the fingerprint or the anatomy changes. *Not
+recorded* (no verdict, or `changes`) is the review's to clear, not the synthesis's: the deployment
+runs the review on any page without a verdict, without a write, and the findings of a `changes`
+verdict reach the next periodic reconcile, which returns the page corrected for the review to run
+again. A page that fails that correction a bounded number of times in a row is raised once to the
+owner as a `needs_a_look` item whose `what_would_resolve` is to accept the page as it is, have it
+rewritten, or drop it, and is not corrected again until the owner acts. `refused` is a guard failure,
+the reviewer was the author: it is reported to the deployment's operator, never corrected by a
+rewrite. A page the review cannot reach, not shown for budget or held by the human-edit guard as
+`.proposed`, is counted, named and left as it is. The periodic reconcile counts the pages with no
+kind, no block and no accepted verdict where the deployment's findings show them, and says so where
+they do not. Which kinds there are, who proposes them and how the first synthesis is accepted are
+[`user-onboarding`'s](../user-onboarding/SKILL.md#3-scaffold-the-type-1-skeleton).
+
 ## Page anatomy and evidence
 
 Every page is a briefing that answers its contract. A useful briefing begins with identity, status
@@ -543,7 +589,8 @@ must never look alike:
 - **Every page carries the core rule.** Count the sections with no page contract (`fixed` sections
   aside), the pages with no single professional, and the pages with no block in
   `_Audit/wiki-rationale.md`; report acceptance as its own state. A missing contract or professional
-  is the owner's to agree, never invented by a pass to make the count zero.
+  is the owner's to agree, never invented by a pass to make the count zero (a delegating kind in a
+  user vault excepted: [the rule in a user vault](#the-rule-in-a-user-vault)).
 
 Reconcile **never flags or rewrites
 `provenance: manual` content** — that is owner-asserted and authoritative. Authored notes (ideas,
@@ -707,6 +754,8 @@ are a contract, not a style choice. The first three are **required on every deri
 | `entities` | optional | Schema-defined facet lists | hub/facet index generation |
 | `source` *(single)* / `sources` *(list)* | when file-derived | **project-root-relative** path(s) to the source file(s) — never absolute, so a folder rename or machine move is a no-op — or, for a cross-project synthesis, the source **pages** | the orphan sweep |
 | `deadline` *(single)* / `deadlines` *(list)* | when a forward date exists | `YYYY-MM-DD` (or `{date, note}`) | the Deadlines roll-up |
+| `kind` | in a user vault, on every page the synthesis writes (`00 Index/`, `01 Knowledge/`) | a page kind the vault's `09 Schema` names ([the rule in a user vault](#the-rule-in-a-user-vault)) | the reconcile count of pages with no kind or no rationale block |
+| `professional` | in a user vault, on a page whose kind delegates the choice | a catalogue row, or a professional named for the matter | the reconcile's voice check, which keeps it |
 | `recurring` *(list)* | when a date comes round every year | `{date, note}`, the date as `MM-DD`, month first (`04-05` is 5 April), or a day and a month name (`5 April`, `April 5th`, `5 Sept`: the name in full, its first three letters or `sept`, in any case); never another numeric form (`6/4` reads either way round). Prefer the day and month name, which a reader who writes the day first (a UK reader) reads as written | the Deadlines roll-up, which shows it as a day and a month name, so a date written the wrong way round is visible |
 
 (A cross-project user-tier page is `provenance: derived` with `last-updated`/`status` but need carry no
