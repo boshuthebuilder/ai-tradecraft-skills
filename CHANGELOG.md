@@ -4,6 +4,43 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## Unreleased
+
+A **MINOR**: the second brain keeps the core wiki rule (#148). The user vault was the one wiki outside
+`wiki-maintenance`'s core wiki rule: its `09 Schema` held stability rules only, `synthesise.md` named no
+professional, contract, rationale block or acceptance, and `reconcile` could not count what was missing. No
+skill name, archetype layout or prompt placeholder changed.
+
+### Added (MINOR)
+
+- **The rule in a user vault**
+  ([`wiki-maintenance`](plugins/ai-os/skills/wiki-maintenance/SKILL.md#the-rule-in-a-user-vault)): a type-1 user
+  vault keeps the rule **per page kind**, because its pages are born in unattended runs. Sections by
+  responsibility does not apply there. The rationale file and the acceptance record live in `_Audit/` at the
+  vault root, deployment-written. The canonical frontmatter gains `kind:`, in a user vault.
+- **`user-onboarding` holds the kinds** ([step 3](plugins/ai-os/skills/user-onboarding/SKILL.md#3-scaffold-the-type-1-skeleton)):
+  a chief of staff proposes them (index, entity, matter, theme, folder note; a deployment may add one), the
+  owner agrees, and `09 Schema` records them in two fixed-header tables, **Page kinds** and **Page contracts**.
+  The first synthesis's pages are accepted in both lenses through a model that did not write them; later, a
+  page is accepted again when its kind, contract or professional changes. `_Audit/` joins the skeleton.
+- **The `user-synthesis` archetype** writes every page as its kind's professional, to its contract: the Index
+  as the chief of staff's briefing note; a matter page's professional chosen from the catalogue at run time
+  and named in its rationale block. `wiki_pages[]` gains an optional **`rationale`** field (the five lines, as
+  five fields), required on a create and on a change of kind, professional or shape; the deployment renders
+  `_Audit/wiki-rationale.md` from it. `reconcile` keeps every page in its kind's voice and counts the pages
+  with no kind or no block.
+- **`ARCHITECTURE.md`**'s type-1 skeleton gains `_Audit/` and points at the kinds.
+
+### Migrating a deployment
+
+- Scaffold `_Audit/` in each vault; render `wiki-rationale.md` from the `rationale` field and record acceptance
+  in `wiki-acceptance.json`. The synthesis write-fence does not change.
+- Agree the page kinds with each identity's owner and write the two tables into `09 Schema`; show them to the
+  synthesis with the vault's structure.
+- Allow `rationale` and `kind:` in strict validation. The first run after the pin advance may rewrite pages
+  into their kind's voice; the gate treats it as an ordinary change.
+- Re-reconcile the twins of `user-synthesis/synthesise.md` and `reconcile.md`.
+
 ## v14.0.0 (2026-10-07)
 
 A **MAJOR**: a documented rule changes for one class of deployment (#145). `wiki-maintenance`'s core loop told an

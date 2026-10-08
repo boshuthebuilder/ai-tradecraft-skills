@@ -261,6 +261,18 @@ than inventing either. Changing a page's professional or contract is a Schema ch
 agrees; the page's rationale block records it and the page is accepted again. No pass blends two voices
 on one page or lets a page slide back into generic prose.
 
+### The rule in a user vault
+
+A type-1 user vault ([`ARCHITECTURE.md`](../../ARCHITECTURE.md#the-type-1-user-vault)) keeps the rule
+**per page kind**, not per page: its pages are born in unattended synthesis runs, so no owner can agree
+each page's professional before it is written. The vault's `09 Schema` names its page kinds, each with
+one professional and one contract; a page declares its kind in frontmatter (`kind:`) and is written as
+that kind's professional, to that kind's contract. Sections by responsibility does not apply: the
+vault's areas are fixed, and its Knowledge tree emerges by theme and entity from the project wikis it
+reads. The rationale file and the acceptance record live in `_Audit/` at the vault root, written by the
+deployment from what the synthesis returns. Which kinds there are, who proposes them and when a page is
+accepted are [`user-onboarding`'s](../user-onboarding/SKILL.md#3-scaffold-the-type-1-skeleton).
+
 ## Page anatomy and evidence
 
 Every page is a briefing that answers its contract. A useful briefing begins with identity, status
@@ -707,6 +719,7 @@ are a contract, not a style choice. The first three are **required on every deri
 | `entities` | optional | Schema-defined facet lists | hub/facet index generation |
 | `source` *(single)* / `sources` *(list)* | when file-derived | **project-root-relative** path(s) to the source file(s) — never absolute, so a folder rename or machine move is a no-op — or, for a cross-project synthesis, the source **pages** | the orphan sweep |
 | `deadline` *(single)* / `deadlines` *(list)* | when a forward date exists | `YYYY-MM-DD` (or `{date, note}`) | the Deadlines roll-up |
+| `kind` | in a user vault, always | a page kind the vault's `09 Schema` names ([the rule in a user vault](#the-rule-in-a-user-vault)) | the reconcile count of pages with no kind or no rationale block |
 | `recurring` *(list)* | when a date comes round every year | `{date, note}`, the date as `MM-DD`, month first (`04-05` is 5 April), or a day and a month name (`5 April`, `April 5th`, `5 Sept`: the name in full, its first three letters or `sept`, in any case); never another numeric form (`6/4` reads either way round). Prefer the day and month name, which a reader who writes the day first (a UK reader) reads as written | the Deadlines roll-up, which shows it as a day and a month name, so a date written the wrong way round is visible |
 
 (A cross-project user-tier page is `provenance: derived` with `last-updated`/`status` but need carry no

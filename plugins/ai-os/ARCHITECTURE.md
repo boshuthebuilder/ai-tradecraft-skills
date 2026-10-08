@@ -447,9 +447,17 @@ The user-synthesis archetype writes into a **single self-contained vault** — t
 ├── 02 Ideas/                    AUTHORED — flat, comprehensive, atomic idea pages captured via the
 │                                interactive surfaces (never hand-edited in the vault, never archived)
 ├── 03 Reports/                  AI-generated point-in-time documents, date-binned (03 Reports/YYYY/MM/)
-├── 09 Schema/                   the vault's constitution: organising principles + stability rules
-└── 10 Log/                      append-only run history
+├── 09 Schema/                   the vault's constitution: organising principles + stability rules,
+│                                and the page kinds (one professional and one contract each)
+├── 10 Log/                      append-only run history
+└── _Audit/                      the audit tier, deployment-written: the rationale file and the
+                                 acceptance record (the synthesis never writes it)
 ```
+
+Every page the synthesis writes is one **page kind** under the core wiki rule: one professional and one
+contract per kind, named in `09 Schema` and agreed at onboarding (`user-onboarding`, *The page kinds*).
+How the rule bends for a vault, per kind rather than per page and with no sections by responsibility,
+is [`wiki-maintenance`'s *The rule in a user vault*](skills/wiki-maintenance/SKILL.md#the-rule-in-a-user-vault).
 
 Three areas, three determinism stories: **Knowledge** is model-derived but **incrementally evolved**
 (the synthesis reads the current tree and makes minimal stable changes, preserving page paths so links

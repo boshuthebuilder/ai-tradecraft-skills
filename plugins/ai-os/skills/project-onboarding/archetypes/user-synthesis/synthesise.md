@@ -5,7 +5,8 @@ the **current Knowledge tree**, it returns structured JSON a deterministic write
 identity's user vault. Generic starting template — `{…}` are filled by the deployment. The deployment
 guarantees the report contains **only** wikis this identity may access; the template's job is coherence
 and faithful evolution, not access control. The optional `migration` field on a `needs_a_look` item
-carries a proposed cross-project migration (see the archetype's README).
+carries a proposed cross-project migration, and the optional `rationale` field on a `wiki_pages[]`
+entry carries the page's rationale block (see the archetype's README).
 
 ---
 
@@ -47,19 +48,29 @@ is**; never recreate or overwrite it from scratch. When either list is non-empty
 
 {wiki_structure}
 
+The structure carries `09 Schema`'s two tables, **Page kinds** (kind, professional, deliverable and
+tone) and **Page contracts** (kind, reader, questions in order, fields). Every page you write is one
+kind, written as that kind's professional, to that kind's contract.
+
 ## Your task
 
 Evolve the vault as a coherent whole — a second brain, not a file listing:
 
-1. **The Index** (`00 Index/`): keep the map current — the handful of things that matter most across
-   their projects right now, then a navigable map into `01 Knowledge/`.
+1. **The Index** (`00 Index/`): the chief of staff's briefing note, to the index contract — what needs
+   the owner's decision now, what falls due next, what is waiting on someone else, one line per item
+   ranked by urgency — then a navigable map into `01 Knowledge/`.
 2. **Knowledge pages** (`01 Knowledge/`): an emergent, multi-layer hierarchy organised by cross-project
    theme/entity. Where material from different projects genuinely belongs together (the same venture
    from two folders, a shared obligation, one timeline crossing projects), evolve or add a page that
    weaves it and **names which project each strand came from**, linking each claim to its source page
    (`project id` + wiki-relative path — never an absolute filesystem path). For people/organisations
    appearing in more than one project (use the backbone), a page each: what each project knows,
-   reconciled — and where projects *disagree*, say so explicitly.
+   reconciled — and where projects *disagree*, say so explicitly. Every page is **one kind** from
+   `09 Schema` (an entity, a matter, a theme, a folder note), declares it as `kind:` in its frontmatter,
+   and is written as that kind's professional's deliverable, answering its contract's questions in that
+   order, the first in its opening lines. A matter page's professional you choose from the catalogue
+   as the matter needs, and name in its rationale block. A page that fits no kind is proposed in
+   `needs_a_look`, not written.
 3. **Proposed migrations, when the sources show one** (optional; most runs propose none). A project
    files within itself (`wiki-maintenance`'s rule), so you are the one pass that sees both sides. When
    the pages shown make it plain that files one project in this report holds belong to another
@@ -115,7 +126,16 @@ Rules:
   read; never reconstruct missing identifier digits by guessing.
 - **Authored notes carry through.** Source material marked `provenance: manual` is owner-asserted and
   authoritative — represent it faithfully; never contradict it from derived material.
-- Give every page you write frontmatter: `provenance: derived`, `last-updated: {date}`, `status: current`.
+- **The voice is tone only.** A page reads as its professional's deliverable; the facts, sources,
+  identifiers, provenance, frontmatter and format rules are the same whoever it speaks as. A
+  professional adds no fact the sources do not hold except as labelled outside knowledge (a line
+  opening *General rule, not from the projects' pages:*), and no page blends two voices.
+- **A rationale block for every page you create or reshape.** Return `rationale` on a `wiki_pages[]`
+  entry when you create the page, or change its kind, professional or shape: the five lines of
+  `wiki-maintenance`'s rationale block, as five fields. An update that only integrates a fact into the
+  page's existing structure omits it.
+- Give every page you write frontmatter: `provenance: derived`, `last-updated: {date}`,
+  `status: current`, `kind: <kind>`.
 - Keep the vault navigable: a reader should reach anything in two hops from the Index.
 
 Return JSON only, matching this shape (every `wiki_pages[].path` must sit under `00 Index/` or
@@ -124,7 +144,7 @@ Return JSON only, matching this shape (every `wiki_pages[].path` must sit under 
 ```json
 {
   "verdict": "apply | skip",
-  "wiki_pages": [{"path": "01 Knowledge/...", "action": "create | update", "body": "..."}],
+  "wiki_pages": [{"path": "01 Knowledge/...", "action": "create | update", "body": "...", "rationale": {"reader_and_use": "who reads the page, and what for", "professional_lens": "<professional>; questions answered in order: 1. ... 2. ...", "shape": "the page's structure and visuals and why, or: as the Schema sets out", "changed": "first version, OR what this version changed", "left_out": "nothing, OR what was left out and why, and what was flagged"}}],
   "needs_a_look": [{"item": "...", "reason": "...", "owner_action": "null, OR one sentence naming the physical act only the owner can perform: name the exact file or place", "what_would_resolve": "one sentence: the single decision or action that closes this", "proposed_action": "optional: what you would do on a yes", "migration": {"from_project": "<project id>", "to_project": "<project id>", "paths": ["<folder-relative path the from_project's page cites>"], "pages": ["<project id>: <wiki-relative page path>"]}}],
   "log_entry": "## [{date}] synthesise | <projects read> | <short summary>",
   "notify": {"kind": "info | action", "priority": "low", "body": "..."}
@@ -132,7 +152,8 @@ Return JSON only, matching this shape (every `wiki_pages[].path` must sit under 
 ```
 
 `migration` is optional: include it only on an item that proposes a migration (task 3), and leave it
-out of every other item.
+out of every other item. `rationale` is required on a `create` and on an `update` that changes the
+page's kind, professional or shape, and omitted on an update that only integrates a fact.
 
 Every `needs_a_look` item must be **decidable in one step** — its `what_would_resolve` names the single
 decision or action that closes it. **A no-change run is silent: when you wrote no page *and* raised no
