@@ -121,11 +121,15 @@ owner agrees them before the first synthesis. The method's default kinds:
 |---|---|---|---|
 | index | `00 Index/` | chief of staff | briefing note; brisk, ranked by urgency, one line per item |
 | entity | a person or organisation known to more than one project | personal assistant | contact sheet and follow-up list; warm, efficient: what each project knows, reconciled, and where they disagree |
-| matter | one venture, obligation or timeline that spans projects | the professional of the matter, chosen from [the catalogue](../wiki-maintenance/references/professionals.md) by the synthesis as it writes the page and named in the page's rationale block | that professional's deliverable |
-| theme | how several matters fit together: the overall money picture, the year's dates across projects | the professional whose deliverable is that view (money: the financial planner; dates: the chief of staff) | that professional's deliverable |
+| matter | one venture, obligation or timeline that spans projects | delegated to the page: the professional of the matter, chosen from [the catalogue](../wiki-maintenance/references/professionals.md) by the synthesis as it writes the page and named in the page's `professional:` frontmatter and its rationale block | that professional's deliverable |
+| theme | how several matters fit together: the overall money picture, the year's dates across projects | delegated to the page: the professional whose deliverable is that view (money: the financial planner; dates: the chief of staff), named in `professional:` | that professional's deliverable |
 | folder note | each area's and sub-tree's same-name note | librarian | catalogue; orderly, neutral, complete |
 
-A deployment may add a kind; the Index's is never removed. Each kind has a **contract**: who reads it,
+Every page has exactly one professional, as the core rule says. A kind either **fixes** it (index, entity,
+folder note) or **delegates** the choice to the page (matter, theme): a page of a delegating kind carries
+`professional:` in its frontmatter, a catalogue row or a professional named for the matter, so a later
+pass keeps the voice the page was written in rather than re-choosing it. The owner agrees the delegation
+when agreeing the kind. A deployment may add a kind; the Index's is never removed. Each kind has a **contract**: who reads it,
 the questions in order, the fields every page of the kind carries. The Index's is the chief of staff's
 three questions, what needs the owner's decision now, what falls due next and what is waiting on
 someone else, then the map into Knowledge. Record both in `09 Schema` as two tables with fixed headers
@@ -158,9 +162,12 @@ page, from the projects.
 Run one `synthesise` so `00 Index/`+`01 Knowledge/` hold a real starting view. Then **accept** the pages
 it wrote, in the owner's lens and each page's professional's, through a model that did not write them,
 as [`wiki-onboarding`'s reader acceptance step](../wiki-onboarding/SKILL.md#6-reader-acceptance-the-owners-lens-and-the-professionals)
-runs it; record each verdict in `_Audit/wiki-acceptance.json`. Later runs are not accepted page by
-page: a page is accepted again when its kind, contract or professional changes, and the periodic
-reconcile counts the pages with no rationale block. Then hand off: the vault
+runs it; record each verdict in `_Audit/wiki-acceptance.json`. A page the synthesis later creates or
+reshapes is accepted the same way before the owner is told of it: the deployment runs that review as a
+step after the write, through a model other than the one that wrote the page, and records the verdict.
+A page with no verdict is reported as **not recorded**, never as accepted, and the periodic reconcile
+counts it with the pages that have no rationale block. A page is accepted again when its kind,
+contract, professional or anatomy changes. Then hand off: the vault
 now maintains itself — a project wiki the identity can access changes, the next synthesis tick evolves
 the Knowledge slice it touched; the weekly reconcile reckons the whole vault for drift. Authored ideas
 land in `02 Ideas/` through the interactive capture surfaces, never by hand in the vault.
@@ -178,6 +185,7 @@ land in `02 Ideas/` through the interactive capture surfaces, never by hand in t
   `synthesise`/`reconcile` pair (the twin rule), exactly like file-ingest.
 - **One access rule.** The synthesis reads only the wikis the identity may access — single-homed, never
   re-derived per surface.
-- **Every page has a kind.** Its kind has one professional and one contract in `09 Schema`; the
-  synthesis writes the page as that professional and returns its rationale block, and a page whose kind
-  has no row is proposed, not written.
+- **Every page the synthesis writes has a kind.** Its kind has one contract in `09 Schema` and either
+  fixes the page's professional or delegates it to the page's `professional:` frontmatter; the synthesis
+  writes the page as that professional and returns its rationale block, and a page whose kind has no row
+  is proposed, not written.
