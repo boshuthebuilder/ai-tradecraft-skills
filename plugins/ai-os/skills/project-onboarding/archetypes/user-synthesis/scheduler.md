@@ -20,7 +20,13 @@ reactive `ingest`, but the gate watches different inputs:
   show, **omitted** for budget or **unreadable** when the gather reached it, is not consumed either:
   its hash stays pending, and the gather shows pending records before the rest, so a budget that is
   always exceeded drains in order, and a read that recovers is retried on the next tick, rather than
-  either marking an unread record seen.
+  either marking an unread record seen. One record larger than the whole budget on its own can never
+  be shown, so it must not hold the queue: the gate marks it **blocked**, not seen, raises it once to
+  the owner as an item naming the file (fail loud, through the raised-item ledger so it is not raised
+  again), and takes it out of the pending set so later records drain; the passes treat it as
+  unreadable, leaving what may rest on it as it is. A record is a stated fact, not a document, so the
+  capture surface bounds a record's size at capture, and a blocked record is the exception that bound
+  should make rare.
 - **Why a frequent tick is safe:** the gate is a cheap hash walk with no model call; the synthesis
   itself is expensive (a strong model over many wikis), which is exactly why the gate exists. A burst
   of project-wiki updates between two ticks coalesces into one synthesis.

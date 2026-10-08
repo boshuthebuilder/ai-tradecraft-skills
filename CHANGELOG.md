@@ -63,7 +63,8 @@ rule, is why this is a MAJOR rather than the MINOR first planned.
   synthesis never writes a record; a fact that spans two projects has one home, the holding project's folder,
   and the synthesis is the pass that carries it into the other project's view. The gate hashes the records,
   in `ARCHITECTURE.md`'s gate section and `scheduler.md` alike, and consumes one only when the run showed its
-  text, so an omitted record stays pending; a claim may rest on a shown record as on a page, and a claim that
+  text, so an omitted or unreadable record stays pending, and one larger than the budget on its own is marked
+  blocked and raised once rather than holding the queue; a claim may rest on a shown record as on a page, and a claim that
   may rest on a record omitted or unreadable this run is left as it is, by both passes, until a run shows it.
 - **`user-onboarding`**: the access scope governs the records (step 2), and step 5 checks it; `wiki-maintenance`'s
   owner-record paragraph says a fact settled in a project folder also settles it in the second brain.
