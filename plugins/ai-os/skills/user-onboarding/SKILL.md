@@ -166,7 +166,8 @@ runs it; record each verdict in `_Audit/wiki-acceptance.json`. A page the synthe
 reshapes is accepted the same way before the owner is told of it: the deployment runs that review as a
 step after the write, through a model other than the one that wrote the page, and records the verdict.
 A page with no verdict is reported as **not recorded**, never as accepted, and the periodic reconcile
-counts it with the pages that have no rationale block. A page is accepted again when its kind,
+counts it with the pages that have no rationale block, where the deployment's sweep puts the
+acceptance state in its findings (the archetype's `scheduler.md`). A page is accepted again when its kind,
 contract, professional or anatomy changes. Then hand off: the vault
 now maintains itself — a project wiki the identity can access changes, the next synthesis tick evolves
 the Knowledge slice it touched; the weekly reconcile reckons the whole vault for drift. Authored ideas

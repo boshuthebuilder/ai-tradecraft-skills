@@ -32,8 +32,8 @@ skill name, archetype layout or prompt placeholder changed.
   run time, named in `professional:` and its rationale block, and kept on later updates. `wiki_pages[]` gains
   an optional **`rationale`** field (the five lines, as five fields), required on a create and on a change of
   kind, professional or shape; the deployment renders `_Audit/wiki-rationale.md` from it. `reconcile` keeps
-  every page in its voice and counts the pages with no kind or no block where the deployment shows the
-  coverage, saying so where it does not.
+  every page in its voice and counts the pages with no kind, no block or no accepted verdict where the
+  deployment's findings show the coverage, saying so where they do not.
 - **`ARCHITECTURE.md`**'s type-1 skeleton gains `_Audit/` and points at the kinds.
 
 ### Migrating a deployment
@@ -41,8 +41,8 @@ skill name, archetype layout or prompt placeholder changed.
 - Scaffold `_Audit/` in each vault; render `wiki-rationale.md` from the `rationale` field and record acceptance
   in `wiki-acceptance.json`, running the acceptance review of a created or reshaped page as a step after the
   write, through a model other than the one that wrote it. Show the rationale file's headings with the
-  structure, or name the pages with no block in the reconcile findings. The synthesis write-fence does not
-  change.
+  structure, or name the pages with no block in the reconcile findings, and name there the pages with no
+  accepted verdict. The synthesis write-fence does not change.
 - Agree the page kinds with each identity's owner and write the two tables into `09 Schema`; show them to the
   synthesis with the vault's structure.
 - Allow `rationale` and `kind:` in strict validation. The first run after the pin advance may rewrite pages

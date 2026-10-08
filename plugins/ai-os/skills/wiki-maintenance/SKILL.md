@@ -273,7 +273,9 @@ The rule, its keys and its counts are over the pages the synthesis writes (`00 I
 Knowledge/`); the owner-authored Ideas and the Reports carry no kind. Sections by responsibility does not apply: the
 vault's areas are fixed, and its Knowledge tree emerges by theme and entity from the project wikis it
 reads. The rationale file and the acceptance record live in `_Audit/` at the vault root, written by the
-deployment from what the synthesis returns. Which kinds there are, who proposes them and when a page is
+deployment: the rationale file from what the synthesis returns, the acceptance record from the
+verdicts of the independent review, a model that did not write the page, never from the synthesis
+itself. Which kinds there are, who proposes them and when a page is
 accepted are [`user-onboarding`'s](../user-onboarding/SKILL.md#3-scaffold-the-type-1-skeleton).
 
 ## Page anatomy and evidence
