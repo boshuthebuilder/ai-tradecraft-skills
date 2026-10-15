@@ -991,12 +991,10 @@ def parse_fm(txt):
     return fm
 
 
-CODE_SPAN = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)")  # CommonMark: a run of N backticks closes on exactly N
-
-
 def strip_code(line):
-    """`line` without its inline code spans. A span may be fenced by a longer run so that it can hold a backtick
-    (``a `b` c``), and an opening run that never meets its match is plain text."""
+    """`line` without its inline code spans, matched as `citations` matches them (`CODE_SPAN`): a span may be fenced
+    by a longer run so that it can hold a backtick (``a `b` c``), and an opening run that never meets its match is
+    plain text."""
     return CODE_SPAN.sub("", line)
 
 
