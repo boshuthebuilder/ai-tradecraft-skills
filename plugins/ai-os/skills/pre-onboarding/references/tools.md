@@ -1033,7 +1033,8 @@ them ([the card contract](cards.md#what-the-engine-is-given)).
     wiki.py check --root <folder> [--page <page> ...] [--rationale <file.md>] [--acceptance <file.json>]
                   [--out <file.json>]
 
-Reads every page under the wiki folder (dot folders skipped) and prints JSON, also to `--out`, exiting 1 when
+Reads every page under the wiki folder (dot folders, and a page's `.proposed.md` and `.superseded.md` siblings,
+skipped) and prints JSON, also to `--out`, exiting 1 when
 `problems` is not zero. `--page` (repeatable) is a drafting agent's check, the command its brief names: only those
 pages are read, a link to a page the page map plans but nobody has written yet is listed in
 `links_to_planned_pages` rather than in `dead_page_links`, `scoped_to` lists the pages read, and `documents_not_covered`, `rationale` and `acceptance`
@@ -1046,7 +1047,9 @@ default that does not exist reads as `not recorded`. Line numbers count from the
 - `wiki`, `pages`: the wiki folder and its page count.
 - `frontmatter_conforming` (such as `"12/12"`) and `frontmatter_bad`: pages carrying `provenance`, `last-updated`
   and `status`, and the pages that do not, or that write `sources:` as one value rather than a list.
-  `superseded_pages` counts pages whose `status` is `superseded` (no problem).
+  `superseded_pages` counts pages whose `status` is `superseded` (no problem). `sibling_copies` lists the
+  `.proposed.md` and `.superseded.md` siblings (no problem): a deployment's verbatim copy of a page it rewrote,
+  which keeps the old frontmatter, so it is never read as a page, nor reviewed, accepted, moved or linked.
 - `dead_source_paths`, `[page, path]`: a `sources:` entry that does not exist, or a backticked span in a page body
   holding `/` (a file or a folder; a span wrapped onto the next line reads as one) whose first segment is a live
   top-level folder, one holding a live manifest entry or copy, and which does not exist. A span that exists as
@@ -1066,7 +1069,8 @@ default that does not exist reads as `not recorded`. Line numbers count from the
   defines it) is dead until the page is written. `links_outside_page_map`, `[page, link]`: one that resolves to a
   file that is not a page of the wiki, such as the folder's `CLAUDE.md`.
 - `em_dash_lines`, and the first ten as `em_dash_where`, `[page, line]`: body lines with an em dash outside inline
-  code.
+  code. A code span follows CommonMark: a run of N backticks closes only on a run of exactly N, so a name holding a
+  backtick quoted with a longer run (``a `b` c``) is code, and an opening run that never meets its match is text.
 - `chart_blocks` and `charts_without_data_table`: chart pairing ([`chart`](#chart)). `charts_not_renderable`,
   `[page, line, type]`: every Mermaid block that does not parse as a kind `chart` emits (`pie`, `gantt`,
   `timeline`, or `xychart-beta` with exactly one `bar` or `line` series), a `flowchart` or `sequenceDiagram`

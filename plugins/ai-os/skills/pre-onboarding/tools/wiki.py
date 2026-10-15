@@ -323,15 +323,27 @@ def full_text(r):
                        for p in r.get("pages", []) if (p.get("text") or "").strip() and p.get("tier") != "photo")
 
 
-def wiki_pages(wiki):
-    """Every page under the wiki folder, relative to it with `/` separators, sorted; dot folders and files (an
-    editor's settings) are skipped, as `check` skips them."""
+def wiki_files(wiki):
+    """Every `.md` file under the wiki folder, relative to it with `/` separators, sorted; dot folders and files (an
+    editor's settings) are skipped."""
     out = []
     for d, ds, fs in os.walk(wiki):
         ds[:] = sorted(x for x in ds if not x.startswith("."))
         out += [os.path.relpath(os.path.join(d, f), wiki).replace(os.sep, "/") for f in fs
                 if f.endswith(".md") and not f.startswith(".")]
     return sorted(out)
+
+
+def wiki_pages(wiki):
+    """Every page under the wiki folder (see `wiki_files`). A `.proposed.md` or `.superseded.md` sibling is not one:
+    a deployment keeps it as a verbatim copy of a page it rewrote, frontmatter and all, so it would otherwise be read
+    as a second live page with no rationale and no review."""
+    return [p for p in wiki_files(wiki) if not p.endswith(common.SIBLING_COPIES)]
+
+
+def sibling_copies(wiki):
+    """The `.proposed.md` and `.superseded.md` siblings under the wiki folder, which `check` lists and nothing reads."""
+    return [p for p in wiki_files(wiki) if p.endswith(common.SIBLING_COPIES)]
 
 
 def is_page_path(p):
@@ -980,7 +992,10 @@ def parse_fm(txt):
 
 
 def strip_code(line):
-    return re.sub(r"`[^`]*`", "", line)
+    """`line` without its inline code spans, matched as `citations` matches them (`CODE_SPAN`): a span may be fenced
+    by a longer run so that it can hold a backtick (``a `b` c``), and an opening run that never meets its match is
+    plain text."""
+    return CODE_SPAN.sub("", line)
 
 
 def live_top_folders(man):
@@ -1506,7 +1521,7 @@ def check_result(root, rb, man, settings_dir=None, rationale_path=None, acceptan
             except common.ToolError as e:
                 no_voice.append([p, str(e)])
     res.update(frontmatter_conforming="%d/%d" % (len(pages) - len(fm_bad), len(pages)), frontmatter_bad=fm_bad,
-               superseded_pages=sup, dead_source_paths=dead_src, backticked_paths_unchecked=unchecked,
+               superseded_pages=sup, sibling_copies=sibling_copies(wiki), dead_source_paths=dead_src, backticked_paths_unchecked=unchecked,
                dead_page_links=dead_links, links_outside_page_map=outside, em_dash_lines=len(em),
                em_dash_where=em[:10], chart_blocks=charts, charts_without_data_table=unpaired,
                charts_not_renderable=unrenderable, chart_sources_bad=bad_chart_src,

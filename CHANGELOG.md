@@ -4,6 +4,25 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v15.1.1 (2026-10-15)
+
+A **PATCH**: `wiki.py check` now reads what a deployment writes into a prepared wiki the way the rest of the tools
+already do (#159). A wiki that passed at hand-off failed again once the deployment ran, on output that was correct.
+No skill name, frontmatter, archetype layout or prompt placeholder changes.
+
+### Fixed (PATCH)
+
+- **A page's `.proposed.md` and `.superseded.md` siblings are not pages** (`wiki.py`, `wiki_pages`). A deployment
+  that rewrites a page a person edited keeps the old bytes beside it, frontmatter and all. `check` read that copy as
+  a second live page with no rationale block and no review, so the deployment's own safeguard showed as a problem.
+  The roll-up and `readiness.py` already left these siblings out; every `wiki.py` command now does too, through one
+  suffix list (`common.SIBLING_COPIES`). `check` lists them under the new `sibling_copies` key, which is never a
+  problem.
+- **A code span fenced by a longer backtick run is code** (`wiki.py`, `strip_code`). A name holding a backtick is
+  quoted with a longer run (``a `b` c``), as CommonMark requires. The em-dash check stripped only single-backtick
+  spans, so it flagged an em dash inside such a name. It now follows CommonMark: a run of N backticks closes only on
+  a run of exactly N, and an opening run that never meets its match is plain text.
+
 ## v15.1.0 (2026-10-08)
 
 A **MINOR**: the editor setup travels with the wiki (#153 the convention, #154 the tool, #155 the user vault).
