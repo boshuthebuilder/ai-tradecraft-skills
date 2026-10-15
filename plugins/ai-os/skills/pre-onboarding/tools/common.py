@@ -235,6 +235,7 @@ DEFAULTS = {
 NAME_LISTS = ("reserved", "packs", "working_formats", "active", "finished", "card_categories", "exclude",
               "pack_keywords", "ocr_languages")
 SCHEMA_PAGES = ("90 Schema/90 Schema.md", "09 Schema/09 Schema.md")  # in order of precedence
+SIBLING_COPIES = (".proposed.md", ".superseded.md")  # a deployment's verbatim copy beside a page: never a page itself
 WIKI_SCHEMA_KEYS = ("version", "schema_path", "schema_sha256", "sections", "routing", "contracts", "pages")
 WIKI_SCHEMA_ROWS = {
     "sections": {"number": str, "name": str, "kind": str, "derived": bool, "pages": str, "professionals": list},

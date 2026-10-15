@@ -848,7 +848,7 @@ def read_by_roll_up(p):
     """False for a page the roll-up never reads as a source: its derived pages, and a page's `.proposed.md` and
     `.superseded.md` siblings."""
     name = posixpath.basename(p)
-    return not (name.endswith((".proposed.md", ".superseded.md")) or re.sub(r"^[0-9]{1,2}\s+", "", name).lower()
+    return not (name.endswith(common.SIBLING_COPIES) or re.sub(r"^[0-9]{1,2}\s+", "", name).lower()
                 in DERIVED_NAMES)
 
 

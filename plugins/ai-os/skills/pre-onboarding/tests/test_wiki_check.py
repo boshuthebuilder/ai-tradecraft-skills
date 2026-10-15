@@ -817,6 +817,28 @@ class CheckTest(Copy):
         res = self.check("--page", "00 Index/00 Index.md")
         self.assertEqual((res["problems"], res["frontmatter_conforming"]), (0, "1/1"))
 
+    def test_a_deployments_copy_beside_a_page_is_listed_and_never_checked_as_a_page(self):
+        """A deployment that rewrites a page a person edited keeps the old bytes beside it as `<page>.superseded.md`,
+        frontmatter and all (and an older one proposed edits as `.proposed.md`). Read as a page, the copy is a second
+        live page with no rationale block and no review."""
+        old = read(self.page(TAX)) + "\nA dash \u2014 here.\n"
+        for copy in (TAX + ".superseded.md", TAX[:-3] + ".proposed.md"):
+            write(self.page(copy), old)
+        res = self.check()
+        self.assertEqual((res["problems"], findings(res), res["pages"]), (0, {}, 12))
+        self.assertEqual(res["sibling_copies"], sorted([TAX + ".superseded.md", TAX[:-3] + ".proposed.md"]))
+        self.assertEqual(res["rationale"]["pages_without_block"], [])
+        self.assertIn("is not a page in", self.refused("check", "--page", TAX + ".superseded.md"))
+
+    def test_an_em_dash_inside_a_code_span_fenced_by_a_longer_run_is_not_counted(self):
+        """A name holding a backtick is quoted with a longer run (``a `b` c``); only a run of the same length closes
+        it, and an opening run that never meets one is plain text."""
+        write(self.page(TAX), read(self.page(TAX)) + "\nFiled ``Invoice `draft` \u2014 final.pdf`` today.\n")
+        self.assertEqual(self.check()["em_dash_lines"], 0)
+        write(self.page(TAX), read(self.page(TAX)) + "\nA ``broken` span \u2014 here.\n")
+        res = self.check()
+        self.assertEqual((res["em_dash_lines"], res["em_dash_where"][0][0]), (1, TAX))
+
     def test_a_path_given_that_does_not_exist_is_refused(self):
         for flag in ("--rationale", "--acceptance"):
             with self.subTest(flag=flag):
