@@ -10,12 +10,8 @@ _File-derived deadlines, rolled up deterministically from page frontmatter — d
 
 ## Upcoming
 
-_None._
-
-## Every year
-
-- **5 April** — Tax — Tax year ends ([20 Finance/Tax](../20%20Finance/Tax.md))
-- **7 June** — Inner — Inside a folder named like a page ([Archive.md/Inner](../Archive.md/Inner.md))
+- **5 April** (every year, next 2025-04-05) — Tax — Tax year ends ([20 Finance/Tax](../20%20Finance/Tax.md))
+- **7 June** (every year, next 2025-06-07) — Inner — Inside a folder named like a page ([Archive.md/Inner](../Archive.md/Inner.md))
 
 ## Could not read
 

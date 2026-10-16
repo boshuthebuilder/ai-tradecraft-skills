@@ -294,7 +294,8 @@ class RollUpFormsTest(unittest.TestCase):
              "10 Identity/Notes.md", "20 Finance/Notes.md"}
 
     def entry(self, line):
-        return readiness.parse_entry(line, self.PAGES)
+        got = readiness.parse_entry(line, self.PAGES)
+        return got and got[:3]  # (date, note, pages); the next date a yearly entry states is read in YearlyEntryTest
 
     def test_the_dashless_form_with_a_note(self):
         line = "- **2026-09-01**: Lease. renewal ([05 Home/Lease](../05%20Home/Lease.md))"
@@ -748,10 +749,10 @@ class ContractTest(Prepared):
 
     def test_a_recurring_date_kept_by_hand(self):
         p = self.page(DEADLINES)
-        write(p, read(p) + "\n## Every year\n\n"
-                           "- **31 January**: Self assessment return due ([Tax](../20%20Finance/Tax.md))\n")
+        write(p, read(p) + "\n- **31 January** (every year, next 2025-01-31): Self assessment return due "
+                           "([Tax](../20%20Finance/Tax.md))\n")
         self.accept_again(DEADLINES)
-        self.assertIn("1 yearly date(s) no page's recurring: list carries (line 17: 01-31)",
+        self.assertIn("1 yearly date(s) no page's recurring: list carries (line 15: 01-31)",
                       self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
 
     def add_recurring(self, entry):
@@ -760,10 +761,33 @@ class ContractTest(Prepared):
     def test_a_recurring_date_from_page_frontmatter(self):
         self.add_recurring("{date: 01-31, note: Self assessment return due}")
         p = self.page(DEADLINES)
-        write(p, read(p) + "\n## Every year\n\n"
-                           "- **31 January**: Self assessment return due ([Tax](../20%20Finance/Tax.md))\n")
+        write(p, read(p) + "\n- **31 January** (every year, next 2025-01-31): Self assessment return due "
+                           "([Tax](../20%20Finance/Tax.md))\n")
         self.accept_again(DEADLINES)
         self.readiness(code=0)
+
+    def test_a_recurring_date_with_a_wrong_next_date_is_reported(self):
+        """The next 31 January from the page's `last-updated` (2024-06-30) is 2025-01-31."""
+        self.add_recurring("{date: 01-31, note: Self assessment return due}")
+        for stated in ("2026-01-31", "2024-01-31", "2025-01-30"):
+            with self.subTest(stated=stated):
+                p = self.page(DEADLINES)
+                write(p, read(p).split("\n- **31 January**")[0] + "\n- **31 January** (every year, next %s): Self "
+                      "assessment return due ([Tax](../20%%20Finance/Tax.md))\n" % stated)
+                self.accept_again(DEADLINES)
+                detail = self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written")
+                self.assertIn("hand-written content in a derived page, 1 line(s) (line 15: - **31 January** (every "
+                              "year, next %s" % stated[:4], detail)
+
+    def test_a_recurring_date_left_under_the_old_every_year_heading_is_reported(self):
+        self.add_recurring("{date: 01-31, note: Self assessment return due}")
+        p = self.page(DEADLINES)
+        write(p, read(p) + "\n## Every year\n\n- **31 January**: Self assessment return due "
+                           "([Tax](../20%20Finance/Tax.md))\n")
+        self.accept_again(DEADLINES)
+        detail = self.one_finding("handoff_contract.derived_pages_hold_nothing_hand_written")
+        self.assertIn("hand-written content in a derived page, 2 line(s) (line 15: ## Every year; line 17: - **31 "
+                      "January**: Self assessment return...)", detail)
 
     def test_a_recurring_date_missing_from_the_roll_up(self):
         self.add_recurring("{date: 01-31, note: Self assessment return due}")
@@ -778,15 +802,16 @@ class ContractTest(Prepared):
     def test_a_recurring_date_in_words_shown_in_words(self):
         self.add_recurring("{date: 31 January, note: Self assessment return due}")
         p = self.page(DEADLINES)
-        write(p, read(p) + "\n## Every year\n\n"
-                           "- **31 January**: Self assessment return due ([Tax](../20%20Finance/Tax.md))\n")
+        write(p, read(p) + "\n- **31 January** (every year, next 2025-01-31): Self assessment return due "
+                           "([Tax](../20%20Finance/Tax.md))\n")
         self.accept_again(DEADLINES)
         self.readiness(code=0)
 
     def test_a_recurring_date_written_sept_matches_the_roll_up(self):
         self.add_recurring("{date: 5 Sept, note: School fees due}")
         p = self.page(DEADLINES)
-        write(p, read(p) + "\n## Every year\n\n- **5 September**: School fees due ([Tax](../20%20Finance/Tax.md))\n")
+        write(p, read(p) + "\n- **5 September** (every year, next 2024-09-05): School fees due "
+                           "([Tax](../20%20Finance/Tax.md))\n")
         self.accept_again(DEADLINES)
         self.readiness(code=0)
 
@@ -1126,7 +1151,8 @@ class RollUpTest(Prepared):
         self.edit_page(TAX, "{date: 02-30, note: No such day}", "{date: 02-28}")
         self.assertIn("{date: 02-28}", self.one_finding("handoff_contract.recurring_dates_in_frontmatter"))
         self.edit_page(TAX, "{date: 02-28}", "{date: 02-29, note: Leap day review}")
-        self.add_to_roll_up("\n## Every year\n\n- **29 February**: Leap day review ([Tax](../20%20Finance/Tax.md))\n")
+        self.add_to_roll_up("\n- **29 February** (every year, next 2028-02-29): Leap day review "
+                            "([Tax](../20%20Finance/Tax.md))\n")
         self.readiness(code=0)
 
     def test_a_recurring_date_is_shown_only_by_its_own_month_and_day(self):
@@ -1191,7 +1217,7 @@ class DashlessRollUpTest(Prepared):
                                                  "deadlines:\n  - 2031-02-01\n")
         self.edit_page("30 Home/30 Home.md", "deadlines:\n", "recurring:\n  - {date: 04-05, note: Tax year ends}\n"
                                                              "deadlines:\n")
-        yearly = ("\n## Every year\n\n- **5 April**: 30 Home, Tax. Tax year ends (%s, %s)\n"
+        yearly = ("\n- **5 April** (every year, next 2025-04-05): 30 Home, Tax. Tax year ends (%s, %s)\n"
                   % (self.HOME_LINK, self.TAX_LINK))
         p = self.page(DEADLINES)
         write(p, read(p).replace(self.NOTE_ONLY, self.DASHLESS.replace(

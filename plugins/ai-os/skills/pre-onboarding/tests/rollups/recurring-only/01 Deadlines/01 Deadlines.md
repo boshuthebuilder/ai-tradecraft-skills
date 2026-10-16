@@ -10,8 +10,4 @@ _File-derived deadlines, rolled up deterministically from page frontmatter — d
 
 ## Upcoming
 
-_None._
-
-## Every year
-
-- **5 April** — 30 Home, Tax — Tax year ends ([30 Home/30 Home](../30%20Home/30%20Home.md), [20 Finance/Tax](../20%20Finance/Tax.md))
+- **5 April** (every year, next 2025-04-05) — 30 Home, Tax — Tax year ends ([30 Home/30 Home](../30%20Home/30%20Home.md), [20 Finance/Tax](../20%20Finance/Tax.md))

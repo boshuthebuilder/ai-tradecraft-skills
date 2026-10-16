@@ -1338,27 +1338,28 @@ reference roll-up's own scenarios and every shape below and reads each result ba
 
     ## Upcoming
 
+    - **5 April** (every year, next 2025-04-05): 30 Home, Tax. Tax year ends ([30 Home/30 Home](../30%20Home/30%20Home.md), [20 Finance/Tax](../20%20Finance/Tax.md))
     - **2025-04-30**: 30 Home. Lease ends ([30 Home/30 Home](../30%20Home/30%20Home.md))
     - **2031-02-01**: Tax ([20 Finance/Tax](../20%20Finance/Tax.md))
-
-    ## Every year
-
-    - **5 April**: 30 Home, Tax. Tax year ends ([30 Home/30 Home](../30%20Home/30%20Home.md), [20 Finance/Tax](../20%20Finance/Tax.md))
 
     ## Past
 
     - **2024-01-31**: Tax. Paid ([20 Finance/Tax](../20%20Finance/Tax.md))
 
 - **Entries.** `- **<when>**: <titles>. <note> (<links>)`, or `- **<when>**: <titles> (<links>)` when there is no note. A
-  dated entry's `<when>` is `YYYY-MM-DD`, a yearly one's is its day and month name with no ordinal and no leading zero.
-  The titles are the linked pages' own names, each once and in the order of the links; a link's text is its page's
+  dated entry's `<when>` is `YYYY-MM-DD`. A yearly entry's is its day and month name with no ordinal and no leading
+  zero, and ` (every year, next YYYY-MM-DD)` follows the bold date: `- **5 April** (every year, next 2027-04-05):
+  <titles>. <note> (<links>)`. The titles are the linked pages' own names, each once and in the order of the links; a link's text is its page's
   path without `.md` and its target the path from the Deadlines page, percent-encoded with `/` and `&` literal
   (`../20%20Finance/Tax.md`), as the reference roll-up writes them.
-- **Order and merging.** Dated entries go under `## Upcoming` from `--today` on and under `## Past` before it, each in
-  date order; yearly ones go under `## Every year` in calendar order, whichever way the page wrote the date. Entries
-  with the same date and note, from any number of pages, are one line naming every page, ordered by title and then
-  path. `## Upcoming` is always written, with `_None._` when no page gives a date to come; `## Every year` and
-  `## Past` only over an entry.
+- **Order and merging.** `## Upcoming` lists every forward entry, soonest first: each dated entry from `--today` on, and
+  every yearly entry at its next occurrence, the first day on or after `--today` that falls on its month and day (this
+  year's, else next year's; 29 February comes round in the next leap year; a date equal to `--today` is today),
+  whichever way the page wrote the date. The entries run by the date they show, a dated one before a yearly one of
+  the same date. Dated entries before `--today` go under `## Past` in date order. There is no `## Every year`
+  heading: the roll-up no longer writes it. Entries with the same date and note, from any number of pages, are one
+  line naming every page, ordered by title and then path. `## Upcoming` is always written, with `_None._` when no page
+  gives a date to come or a yearly date; `## Past` only over an entry.
 - **Could not read.** What the roll-up could not read goes under `## Could not read`, over its own intro, one line each
   in the roll-up's wording and order (pages by path, a page's entries in order): `- <page> (malformed frontmatter)`;
   `- <page> (unreadable: <exception class>)` for a page that is not UTF-8 text, or a folder named `*.md`; and
@@ -1372,8 +1373,9 @@ reference roll-up's own scenarios and every shape below and reads each result ba
 A dry run, the default, prints the page to standard output and changes nothing. `--write` writes it, to `--out` when
 given (any path; with `--read-only-root`, one outside the folder), otherwise over the wiki's own page; `--out` without
 `--write` is refused, so nothing reads as written that was not. A summary goes to standard error either way (`deadlines:
-<n> upcoming, <n> every year, <n> past, <n> could not read; wrote <page>`). The output is deterministic: the same pages
-and day give the same bytes, and the existing page is never read as a source, so rendering again changes nothing.
+<n> upcoming, <n> every year, <n> past, <n> could not read; wrote <page>`). The counts are lines: `upcoming` the dated
+ones from the day on, `every year` the yearly ones (both are listed under `## Upcoming`), `past` the dated ones before
+it. The output is deterministic: the same pages and day give the same bytes, and the existing page is never read as a source, so rendering again changes nothing.
 
 Exit `0` when the page is whole. Exit `1` when it wrote or printed the page and something in the pages' frontmatter
 needs mending, which standard error lists and no page can mend: an entry under `## Could not read`, a `deadline` that
@@ -1695,26 +1697,31 @@ read otherwise than PyYAML reads it.
 2. The page is read line by line, against the order and the conditions the roll-up writes it in. Its frontmatter holds
    `provenance: derived`, `status: current` and a `last-updated` day, once each, and nothing else, and all three are
    required. The body is, in this order: the title `# Deadlines`, the italic intro, the empty-roll-up banner when there
-   is one, `## Upcoming` over its entries or over `_None._`, `## Every year` over its entries, `## Past` over its
-   entries, and `## Could not read` over its own intro and then its lines. A scaffold line stands only where the
+   is one, `## Upcoming` over its entries or over `_None._`, `## Past` over its entries, and `## Could not read` over
+   its own intro and then its lines. `## Every year`, which older roll-ups wrote, is not a heading the roll-up writes,
+   so it is hand-written content like any other line it does not write. A scaffold line stands only where the
    roll-up puts it: the title first, the intro directly after it, the banner directly after the intro, a heading
    after the one before it in this order, `_None._` only directly under `## Upcoming` and only while no page gives
-   a deadline to come, the list's intro once and directly under its heading. A heading with nothing under it is
+   a deadline to come or a yearly date, the list's intro once and directly under its heading. A heading with nothing under it is
    reported (the roll-up writes one only over something). An entry stands under the heading its date belongs under:
    a dated one under `## Upcoming` when it is not before the day written and under `## Past` when it is, a yearly one
-   under `## Every year`. The banner is required when every page is read and they give no entry (over the pages it
+   under `## Upcoming`, stating ` (every year, next YYYY-MM-DD)` with its next occurrence worked out from the day
+   written (the first day on or after it that falls on the month and day; when the page has no day, any real date of
+   that month and day). A yearly entry with another date, none, or under another heading is reported as an entry the
+   roll-up does not write. The order of the entries under a heading is not judged. The banner is required when every page is read and they give no entry (over the pages it
    read), and is accepted only then. Every line under `## Could not read` other than the list's own intro goes through
    the error-line grammar (`- <page> (<reason>)`, the page one the roll-up reads and the reason one of the three forms in
    step 1) and, for a page that reads, is one in the set from step 1; a roll-up line moved under the heading is
    hand-written content there. Blank lines are free; a line that appears twice is reported. The lines the roll-up
    always writes are required, and so are those its entries or list make it write: the title, the intro, `## Upcoming`;
-   `## Every year` beside a yearly entry, `## Past` beside a past one, the intro line of a list that is there, and
-   `_None._` when no page gives a forward deadline (judged only while every page is read). A missing one is reported as
+   `## Past` beside a past one, the intro line of a list that is there, and `_None._` when no page gives a forward
+   deadline or a yearly date (judged only while every page is read). A missing one is reported as
    an incomplete derived page naming it. A roll-up that writes no em dash puts a colon where the older reference
    roll-up puts the dash, in its intro and in its one-line banner as in its entries. The reference roll-up writes that
    form now, and the fixture's always did, so both intros and both one-line banners are read, the older one for a
    deployment that has not re-rendered.
-3. An entry is `- **<date>**`, then ` (<links>)` ending the line, and between them one of three layouts: `: <titles>.
+3. An entry is `- **<date>**`, then (for a yearly one) ` (every year, next YYYY-MM-DD)`, then ` (<links>)` ending the
+   line, and between them one of three layouts: `: <titles>.
    <note>`, or `: <titles>` with no note (the reference roll-up now); the titles and, when there is one, the note,
    each after a spaced em dash (the same roll-up before it dropped the dash); or `: <note>` (the fixture's roll-up).
    The links are read from the end of the line, each `[<page path without .md, or its title>](<its path from the

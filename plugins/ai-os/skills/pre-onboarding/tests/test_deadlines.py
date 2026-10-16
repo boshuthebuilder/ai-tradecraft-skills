@@ -66,23 +66,24 @@ def tree_digest(root):
 def dashless(text):
     """A captured roll-up page as the reference roll-up now writes it: a colon where the older one wrote a spaced em
     dash, in the intro, the one-line banner and each entry (`- **<when>**: <titles>. <note> (<links>)`, or
-    `- **<when>**: <titles> (<links>)` with no note)."""
+    `- **<when>**: <titles> (<links>)` with no note; a yearly entry's ` (every year, next <day>)` stays after the bold
+    date)."""
     out = []
     for line in text.split("\n"):
         if line.startswith("_File-derived"):
             line = line.replace(" " + EM + " ", ": ")
         elif line.startswith("> **Roll-up found"):
             line = line.replace(" " + EM + " likely", ": likely")
-        elif line.startswith("- **") and "** " + EM + " " in line:
-            at = line.index("** " + EM + " ")
-            when, rest = line[4:at], line[at + 5:]
+        elif re.match(r"- \*\*.*?\*\*( \(every year, next [0-9-]+\))? " + EM + " ", line):
+            m = re.match(r"- \*\*(.*?)\*\*( \(every year, next [0-9-]+\))? " + EM + " (.*)", line)
+            when, clause, rest = m.group(1), m.group(2) or "", m.group(3)
             cut = rest.rindex(" ([")
             body, links = rest[:cut], rest[cut + 1:]
             if " " + EM + " " in body:
                 titles, note = body.split(" " + EM + " ", 1)
-                line = "- **%s**: %s. %s %s" % (when, titles, note, links)
+                line = "- **%s**%s: %s. %s %s" % (when, clause, titles, note, links)
             else:
-                line = "- **%s**: %s %s" % (when, body, links)
+                line = "- **%s**%s: %s %s" % (when, clause, body, links)
         out.append(line)
     return "\n".join(out)
 
@@ -119,9 +120,9 @@ class Case(unittest.TestCase):
         self.assertEqual(printed, written, "a dry run prints the page --write writes")
         return written
 
-    def readiness(self):
+    def readiness(self, now=NOW):
         """(derived, recurring, other derived pages) as readiness reports them for this wiki, at the frozen clock."""
-        os.environ["PRE_ONBOARDING_NOW"] = NOW
+        os.environ["PRE_ONBOARDING_NOW"] = now
         try:
             return readiness.deadline_items(self.wiki, readiness.W.wiki_pages(self.wiki), None)[:3]
         finally:
@@ -226,26 +227,28 @@ class ShapeTest(Case):
                     "  - {date: 2030-06-01, note: Return due}"], "50 Work/Other.md": ["deadlines:",
                     "  - {date: 2030-06-01, note: Something else}"]})
         page = self.accepted()
-        self.assertIn("- **5 April**: Home, Tax. Tax year ends ([30 Home/Home](../30%20Home/Home.md), "
-                      "[20 Finance/Tax](../20%20Finance/Tax.md))\n", page)
+        self.assertIn("- **5 April** (every year, next 2025-04-05): Home, Tax. Tax year ends ([30 Home/Home]"
+                      "(../30%20Home/Home.md), [20 Finance/Tax](../20%20Finance/Tax.md))\n", page)
         self.assertIn("- **2030-06-01**: Home, Notes, Tax. Return due ([30 Home/Home](../30%20Home/Home.md), "
                       "[20 Finance/Notes](../20%20Finance/Notes.md), [40 Study/Notes](../40%20Study/Notes.md), "
                       "[20 Finance/Tax](../20%20Finance/Tax.md))\n", page,
                       "two pages of one title share it once; the pages are ordered by title, then path")
         self.assertLess(page.index("Return due"), page.index("Something else"), "ordered by date, then note")
 
-    def test_a_yearly_date_in_both_spellings_is_one_line_in_calendar_order(self):
+    def test_a_yearly_date_in_both_spellings_is_one_line_in_the_order_of_its_next_occurrence(self):
         self.pages({"20 Finance/Tax.md": ["recurring:", "  - {date: 04-05, note: Tax year ends}",
                                           "  - {date: 31 January, note: Return due}", "  - {date: Sept 5, note: Fees}"],
                     "30 Home/Home.md": ["recurring:", "  - {date: 5 April, note: Tax year ends}",
                                         "  - {date: 1st May, note: Rent review}",
                                         "  - {date: 12-31, note: Year end}"]})
         page = self.accepted()
-        self.assertEqual(re.findall(r"- \*\*([^*]+)\*\*", page),
-                         ["31 January", "5 April", "1 May", "5 September", "31 December"])
+        self.assertEqual(re.findall(r"- \*\*([^*]+)\*\* \(every year, next ([0-9-]+)\)", page),
+                         [("5 September", "2024-09-05"), ("31 December", "2024-12-31"), ("31 January", "2025-01-31"),
+                          ("5 April", "2025-04-05"), ("1 May", "2025-05-01")])
         self.assertEqual(page.count("Tax year ends"), 1)
-        self.assertIn("- **5 April**: Home, Tax. Tax year ends (", page)
-        self.assertIn("## Upcoming\n\n_None._\n\n## Every year\n", page)
+        self.assertIn("- **5 April** (every year, next 2025-04-05): Home, Tax. Tax year ends (", page)
+        self.assertNotIn("_None._", page)
+        self.assertNotIn("## Every year", page)
 
     def test_past_dates_go_under_past_and_a_date_on_the_day_is_upcoming(self):
         self.pages({"20 Finance/Tax.md": ["deadlines:", "  - {date: 2024-06-29, note: Yesterday}",
@@ -331,6 +334,111 @@ class ShapeTest(Case):
         self.assertIn("[20 Finance/x](y](../20%20Finance/x%5D%28y.md)", page)
         self.assertIn("[20 Finance/Bank statement (1)](../20%20Finance/Bank%20statement%20%281%29.md)", page)
         self.assertIn("(../20%20Finance/%E4%B8%AD%E6%96%87%E8%AF%BE%E7%A8%8B.md)", page)
+
+
+class NextOccurrenceTest(Case):
+    """A yearly date is listed under Upcoming at its next occurrence on or after the day the page is built."""
+
+    NOW_2026 = "1781092800"  # 2026-06-10T12:00:00Z
+
+    def on(self, day, now=NOW, noteless=False):
+        """The page built on `day`, which readiness accepts at the clock `now`; a yearly date with no note is rendered
+        and is the one fault the command and the check report in the pages' own frontmatter."""
+        self.deadlines("--today", day, "--write", now=now, code=1 if noteless else 0)
+        page = read(os.path.join(self.wiki, *PAGE.split("/")))
+        derived, yearly, other = self.readiness(now)
+        self.assertEqual((derived, other), ("ok", "ok"))
+        if noteless:
+            self.assertRegex(yearly, "^" + FRONTMATTER_FINDING.pattern + "$")
+        else:
+            self.assertEqual(yearly, "ok")
+        return page
+
+    def yearly(self, *dates):
+        self.pages({"20 Finance/Tax.md": ["recurring:"] + ["  - {date: %s, note: %s}" % d for d in dates]})
+
+    def test_a_date_earlier_in_the_year_than_today_comes_round_next_year(self):
+        self.yearly(("03-01", "Spring"))
+        self.assertIn("- **1 March** (every year, next 2025-03-01): Tax. Spring (", self.on("2024-06-30"))
+
+    def test_a_date_later_in_the_year_stays_this_year(self):
+        self.yearly(("09-05", "Fees"))
+        self.assertIn("- **5 September** (every year, next 2024-09-05): Tax. Fees (", self.on("2024-06-30"))
+
+    def test_a_date_equal_to_todays_is_today(self):
+        self.yearly(("06-30", "Today"), ("06-29", "Yesterday"))
+        page = self.on("2024-06-30")
+        self.assertIn("- **30 June** (every year, next 2024-06-30): Tax. Today (", page)
+        self.assertIn("- **29 June** (every year, next 2025-06-29): Tax. Yesterday (", page)
+        self.assertLess(page.index("Today ("), page.index("Yesterday ("))
+
+    def test_29_february_comes_round_in_the_next_leap_year(self):
+        self.yearly(("02-29", "Leap day"))
+        for day, want in (("2024-06-30", "2028-02-29"), ("2024-03-01", "2028-02-29"), ("2024-02-29", "2024-02-29"),
+                          ("2024-02-28", "2024-02-29"), ("2023-03-01", "2024-02-29"), ("2021-01-01", "2024-02-29")):
+            with self.subTest(today=day):
+                self.assertIn("- **29 February** (every year, next %s): Tax. Leap day (" % want, self.on(day))
+
+    def test_dated_and_yearly_entries_interleave_by_the_date_shown(self):
+        self.pages({"20 Finance/Tax.md": ["deadlines:", "  - {date: 2024-08-01, note: Rent}",
+                                          "  - {date: 2025-02-01, note: Insurance}", "recurring:",
+                                          "  - {date: 03-01, note: Spring}", "  - {date: 12-25, note: Holiday}",
+                                          "  - {date: 07-04, note: Summer}"]})
+        page = self.on("2024-06-30")
+        shown = re.findall(r"- \*\*([^*]+)\*\*( \(every year, next ([0-9-]+)\))?: Tax\. ([A-Za-z]+)", page)
+        self.assertEqual([(w, n or None, note) for w, _c, n, note in shown],
+                         [("4 July", "2024-07-04", "Summer"), ("2024-08-01", None, "Rent"),
+                          ("25 December", "2024-12-25", "Holiday"), ("2025-02-01", None, "Insurance"),
+                          ("1 March", "2025-03-01", "Spring")])
+
+    def test_a_dated_entry_comes_before_a_yearly_one_on_the_same_date(self):
+        self.pages({"20 Finance/Tax.md": ["recurring:", "  - {date: 12-25, note: Holiday}"],
+                    "30 Home/Home.md": ["deadlines:", "  - {date: 2024-12-25, note: Dinner}"]})
+        page = self.on("2024-06-30")
+        self.assertLess(page.index("- **2024-12-25**: Home. Dinner"), page.index("- **25 December** (every year, next "))
+        self.assertEqual(page.count("## "), 1)
+
+    def test_the_counts_keep_their_meaning(self):
+        self.pages({"20 Finance/Tax.md": ["deadlines:", "  - {date: 2024-08-01, note: Rent}",
+                                          "  - {date: 2020-01-01, note: Old}", "recurring:",
+                                          "  - {date: 03-01, note: Spring}", "  - {date: 12-25, note: Holiday}"]})
+        _out, err = self.deadlines("--today", "2024-06-30")
+        self.assertIn("deadlines: 1 upcoming, 2 every year, 1 past, 0 could not read;", err)
+
+    def test_the_rendered_page_for_the_cross_check_input(self):
+        """The input the reference deployment's renderer was run on, built 2026-06-10: the same lines, in the order this
+        renderer keeps within a date (two notes of one date by note, where the reference deployment's differ)."""
+        self.pages({
+            "04 Finance/Tax.md": ["deadlines:", "  - {date: 2026-06-20, note: file return}",
+                                  "  - {date: 2026-03-01, note: paid}", "recurring:",
+                                  "  - {date: 04-05, note: Tax year ends}", "  - {date: 01-31, note: Filing deadline}"],
+            "04 Finance/Payroll.md": ["deadlines:", "  - {date: 2026-06-20, note: file return}", "recurring:",
+                                      "  - {date: 04-05, note: Tax year ends}", "  - {date: 02-29}",
+                                      "  - {date: 06-04, note: read month first}"],
+            "05 Home/Lease.md": ["deadlines:", "  - {date: 2026-09-01, note: renewal}",
+                                 "  - {date: 2026-09-01, note: notice window opens}"]})
+        page = self.on("2026-06-10", self.NOW_2026, noteless=True)
+        upcoming, past = page.split("## Upcoming\n\n")[1].split("\n\n## Past\n\n")
+        lines = ["- **2026-06-20**: Payroll, Tax. file return ([04 Finance/Payroll](../04%20Finance/Payroll.md), "
+                 "[04 Finance/Tax](../04%20Finance/Tax.md))",
+                 "- **2026-09-01**: Lease. renewal ([05 Home/Lease](../05%20Home/Lease.md))",
+                 "- **2026-09-01**: Lease. notice window opens ([05 Home/Lease](../05%20Home/Lease.md))",
+                 "- **31 January** (every year, next 2027-01-31): Tax. Filing deadline "
+                 "([04 Finance/Tax](../04%20Finance/Tax.md))",
+                 "- **5 April** (every year, next 2027-04-05): Payroll, Tax. Tax year ends "
+                 "([04 Finance/Payroll](../04%20Finance/Payroll.md), [04 Finance/Tax](../04%20Finance/Tax.md))",
+                 "- **4 June** (every year, next 2027-06-04): Payroll. read month first "
+                 "([04 Finance/Payroll](../04%20Finance/Payroll.md))",
+                 "- **29 February** (every year, next 2028-02-29): Payroll ([04 Finance/Payroll](../04%20Finance/Payroll.md))"]
+        got = upcoming.split("\n")
+        self.assertEqual(sorted(got), sorted(lines))
+        self.assertEqual(got[0], lines[0])
+        self.assertEqual(got[3:], lines[3:])
+        self.assertEqual(sorted(got[1:3]), sorted(lines[1:3]))
+        self.assertEqual(past, "- **2026-03-01**: Tax. paid ([04 Finance/Tax](../04%20Finance/Tax.md))\n")
+        self.assertNotIn("## Every year", page)
+        _out, err = self.deadlines("--today", "2026-06-10", now=self.NOW_2026, code=1)
+        self.assertIn("deadlines: 3 upcoming, 4 every year, 1 past, 0 could not read;", err)
 
 
 class FixtureTest(unittest.TestCase):

@@ -2252,24 +2252,26 @@ def drift(a):
 
 # ------------------------------------------------------------------------------------ deadlines
 
-def deadline_lines(r, groups, when):
-    """The roll-up's lines for `groups`, {(date, note): [pages]} in order: `- **<when>**: <titles>. <note> (<links>)`,
-    or `- **<when>**: <titles> (<links>)` with no note. The titles are the linked pages' own, each once, in the order
-    of the links; a link's text is its page's path without `.md` and its target the path from the Deadlines page,
-    percent-encoded with `/` and `&` literal, so the line reads back as `parse_entry` reads it."""
+def deadline_lines(r, rows):
+    """The roll-up's lines for `rows`, (bold date and what follows it, note, [pages]) in order: `- <date>: <titles>.
+    <note> (<links>)`, or `- <date>: <titles> (<links>)` with no note. The titles are the linked pages' own, each once,
+    in the order of the links; a link's text is its page's path without `.md` and its target the path from the
+    Deadlines page, percent-encoded with `/` and `&` literal, so the line reads back as `parse_entry` reads it."""
     lines = []
-    for (key, note), pages in groups:
+    for date, note, pages in rows:
         titles = ", ".join(dict.fromkeys(posixpath.basename(p)[:-3] for p in pages))
         links = ", ".join("[%s](%s)" % (p[:-3], link_to(r.DEADLINES, p)) for p in pages)
-        lines.append("- **%s**: %s%s (%s)" % (when(key), titles, ". " + note if note else "", links))
+        lines.append("- %s: %s%s (%s)" % (date, titles, ". " + note if note else "", links))
     return lines
 
 
 def render_deadlines(r, src, today):
     """The derived Deadlines page for what `readiness.read_sources` read (`src`), built on the day `today`. Dated
-    entries go under Upcoming from `today` on and under Past before it, yearly ones under Every year in calendar order,
-    a line apart for each (date, note) with every page that gives it named in the one line, ordered by title; what
-    could not be read goes under Could not read, and a wiki whose readable pages give no date says so in the banner."""
+    entries go under Upcoming from `today` on and under Past before it, and every yearly entry goes under Upcoming at
+    its next occurrence on or after `today` (`**5 April** (every year, next 2027-04-05)`), the entries there running by
+    the date shown, a dated one before a yearly one of the same date; a line apart for each (date, note) with every
+    page that gives it named in the one line, ordered by title; what could not be read goes under Could not read, and
+    a wiki whose readable pages give no date says so in the banner."""
     groups = collections.defaultdict(list)
     for key, note, page in src.entries:
         groups[(key, note)].append(page)
@@ -2278,13 +2280,18 @@ def render_deadlines(r, src, today):
     upcoming = [g for g in dated if g[0][0] >= today]
     past = [g for g in dated if g[0][0] < today]
     yearly = [g for g in ordered if not r.ISO_DAY.fullmatch(g[0][0])]
+    forward = [(key, 0, n, "**%s**" % key, note, pages) for n, ((key, note), pages) in enumerate(upcoming)]
+    for n, ((key, note), pages) in enumerate(yearly):
+        nxt = r.next_occurrence(key, today)
+        forward.append((nxt, 1, n, "**%s** (every year, next %s)" % (r.rendered_month_day(key), nxt), note, pages))
+    forward.sort(key=lambda f: f[:3])  # by the date shown, a dated entry before a yearly one, then as ordered above
     blocks = ["---\nprovenance: derived\nlast-updated: %s\nstatus: current\n---" % today, r.TITLE, r.INTRO_FIXTURE]
     if not src.entries and src.scanned:
         blocks.append((r.BANNER_LINE % ":").replace("{}", str(src.scanned)))
-    blocks.append("\n\n".join([r.UPCOMING] + ["\n".join(deadline_lines(r, upcoming, lambda d: d)) or r.NOTHING]))
-    for heading, rows, when in ((r.EVERY_YEAR, yearly, r.rendered_month_day), (r.PAST, past, lambda d: d)):
-        if rows:
-            blocks.append("\n\n".join([heading, "\n".join(deadline_lines(r, rows, when))]))
+    blocks.append("\n\n".join([r.UPCOMING, "\n".join(deadline_lines(r, [f[3:] for f in forward])) or r.NOTHING]))
+    if past:
+        blocks.append("\n\n".join([r.PAST, "\n".join(deadline_lines(
+            r, [("**%s**" % key, note, pages) for (key, note), pages in past]))]))
     if src.unread_lines:
         blocks.append("\n\n".join([r.UNREAD, r.UNREAD_INTRO, "\n".join(src.unread_lines)]))
     return "\n\n".join(blocks) + "\n", (len(upcoming), len(yearly), len(past))
