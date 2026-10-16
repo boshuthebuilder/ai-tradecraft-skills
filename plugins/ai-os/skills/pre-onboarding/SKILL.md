@@ -819,7 +819,8 @@ What a deployment relies on when it onboards a prepared folder, and what `readin
   from a page's frontmatter, superseded pages left out, its own `last-updated` (a build stamp, never after today)
   aside; it shows every deadline of the pages the roll-up reads that is not before that stamp; a date that recurs is
   a `recurring:` entry, `{date, note}` with the date as `MM-DD` (month first) or a day and a month name
-  (`5 April`), in its page's frontmatter, and the roll-up shows it by its day and month name; the page holds only
+  (`5 April`), in its page's frontmatter, and the roll-up shows it under `## Upcoming` by its day and month name with
+  its next occurrence (`(every year, next YYYY-MM-DD)`); the page holds only
   what the roll-up renders from the pages' frontmatter (each entry's date, note and page link), and every other
   line is reported; and a roll-up with nothing to show says why (`wiki.py deadlines` renders the page in exactly
   this form). Any other derived page, such as an open-questions list, is reported as not verified.

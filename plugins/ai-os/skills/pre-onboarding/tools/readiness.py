@@ -113,7 +113,9 @@ MONTH_NUMBER = dict([(m.lower(), n) for n, m in enumerate(MONTHS, 1)]
 ORDINAL = r"(?:st|nd|rd|th)?"
 EM = "\u2014"  # the older roll-up's separator, as data: `- **5 April** \u2014 Tax \u2014 note (links)`
 UNREAD = "## Could not read"
-UPCOMING, EVERY_YEAR, PAST, NOTHING = "## Upcoming", "## Every year", "## Past", "_None._"
+UPCOMING, PAST, NOTHING = "## Upcoming", "## Past", "_None._"
+EVERY_YEAR = "## Every year"  # the heading older roll-ups wrote over their yearly entries: the roll-up writes none now
+YEARLY_NEXT = re.compile(r" \(every year, next ([0-9]{4}-[0-9]{2}-[0-9]{2})\)")  # after a yearly entry's date
 TITLE, MARKER = "# Deadlines", "> [!warning]"
 INTRO = ("_File-derived deadlines, rolled up deterministically from page frontmatter " + EM + " do not hand-edit, "
          "regenerated each run. (Calendar events live in `Coming Events`.)_")
@@ -123,8 +125,7 @@ INTRO_FIXTURE = INTRO.replace(" " + EM + " ", ": ")
 UNREAD_INTRO = "_These pages, or entries on them, were skipped. Fix their frontmatter so any deadline is picked up:_"
 # What the roll-up writes besides its entries, exactly: its headings, its intro, the line for an empty section, the
 # line over its list of what it could not read and the marker of a callout.
-ROLL_UP_LINES = frozenset((TITLE, UPCOMING, EVERY_YEAR, PAST, UNREAD, NOTHING, MARKER, INTRO, INTRO_FIXTURE,
-                           UNREAD_INTRO))
+ROLL_UP_LINES = frozenset((TITLE, UPCOMING, PAST, UNREAD, NOTHING, MARKER, INTRO, INTRO_FIXTURE, UNREAD_INTRO))
 # The banner an empty roll-up carries over a wiki that has pages, with `{}` for the count of pages it read: a callout
 # of two lines (the marker, then the text) or one line, the one line written with a colon (the form of a roll-up that
 # writes no em dash) or with a spaced em dash (the older one).
@@ -174,6 +175,21 @@ def rendered_month_day(md):
     return "%d %s" % (int(md[3:]), MONTHS[int(md[:2]) - 1])
 
 
+def next_occurrence(md, today):
+    """The `YYYY-MM-DD` of the first day on or after `today` (that form) that falls on the yearly date `md` (`MM-DD`):
+    this year's, else next year's, and so on, so 29 February comes round in the next leap year and a date equal to
+    today's is today."""
+    month, day = int(md[:2]), int(md[3:])
+    for year in range(int(today[:4]), min(int(today[:4]) + 9, 10000)):
+        try:
+            found = datetime.date(year, month, day).isoformat()
+        except ValueError:  # 29 February in a year that is not a leap year
+            continue
+        if found >= today:
+            return found
+    raise ValueError("no %s on or after %s" % (md, today))
+
+
 def banner(line):
     """0 for the callout text of an empty roll-up, 1 for its one-line banner in either of its two forms (see BANNERS),
     else None; the count of pages in any is one number."""
@@ -198,8 +214,10 @@ def says_nothing(line):
 
 
 def parse_entry(line, pages):
-    """(the date as written, the note, the pages linked) for a line laid out as a roll-up lays out an entry, else
-    None: `- **<date>**`, then the titles and the note, then ` (<links>)` ending the line. Three layouts are read:
+    """(the date as written, the note, the pages linked, the next date a yearly entry states or None) for a line laid
+    out as a roll-up lays out an entry, else None: `- **<date>**`, then the titles and the note, then ` (<links>)`
+    ending the line. A yearly entry has ` (every year, next YYYY-MM-DD)` after its bold date, in any layout, and that
+    date is the fourth value. Three layouts are read:
 
     - `- **<date>**: <titles>. <note> (<links>)`, or `- **<date>**: <titles> (<links>)` with no note (the reference
       roll-up, which writes no em dash);
@@ -224,10 +242,14 @@ def parse_entry(line, pages):
     close = line.find("**", 4)
     if close < 0:
         return None
-    if line.startswith(" " + EM + " ", close + 2):
-        body, dash = close + 5, True
-    elif line.startswith(": ", close + 2):
-        body, dash = close + 4, False
+    after, nxt = close + 2, None
+    stated = YEARLY_NEXT.match(line, after)
+    if stated:
+        after, nxt = stated.end(), stated.group(1)
+    if line.startswith(" " + EM + " ", after):
+        body, dash = after + 3, True
+    elif line.startswith(": ", after):
+        body, dash = after + 2, False
     else:
         return None
     here, linked, taken, pos = posixpath.dirname(DEADLINES), [], set(), len(line) - 1
@@ -258,12 +280,12 @@ def parse_entry(line, pages):
     middle = line[body:cut]
     when, titles = line[4:close], ", ".join(dict.fromkeys(posixpath.basename(x)[:-3] for x in linked))
     if middle == titles:
-        return when, "", linked
+        return when, "", linked, nxt
     if dash:
-        return (when, middle[len(titles) + 3:], linked) if middle.startswith(titles + " " + EM + " ") else None
+        return (when, middle[len(titles) + 3:], linked, nxt) if middle.startswith(titles + " " + EM + " ") else None
     if middle.startswith(titles + ". ") and len(middle) > len(titles) + 2:
-        return when, middle[len(titles) + 2:], linked
-    return when, middle, linked
+        return when, middle[len(titles) + 2:], linked, nxt
+    return when, middle, linked, nxt
 
 
 def excerpt(line):
@@ -957,16 +979,18 @@ def deadline_items(wiki, pages, ws):
     BANNERS and `parse_entry`): its frontmatter, which holds `provenance: derived`, `status: current` and a
     `last-updated` day, once each, all three required; then the title, the intro, the empty-roll-up banner (required
     when every page is read and gives no entry, accepted only then, directly after the intro), `## Upcoming` over its
-    entries or `_None._` (only while no page gives a deadline to come), `## Every year`, `## Past`, and `## Could not
+    entries or `_None._` (only while no page gives a deadline to come or a yearly date), `## Past`, and `## Could not
     read` over its own intro, once and directly under it, and its lines. A scaffold line out of place, or out of order,
-    is hand-written content; a heading with nothing under it is reported, since the roll-up writes one only over
-    something; and an entry must stand under the heading its date belongs under (a dated one under `## Upcoming` when
-    it is not before the `last-updated` day and under `## Past` when it is, a yearly one under `## Every year`). Every
-    line under `## Could not read` bar the list's own intro goes through `could_not_read`, the roll-up's error-line
-    grammar, and, for a page that reads, is one the pages give. The lines it always writes are required, and so are
-    those its entries or list make it write (the title, the intro, `## Upcoming`; `## Every year` beside a yearly
-    entry, `## Past` beside a past one, the intro of a list that is there, `_None._` when no page gives a deadline to
-    come, the banner), and a missing one is an incomplete derived page naming it. An entry is split by plain string
+    is hand-written content, and so is `## Every year`, a heading the roll-up no longer writes; a heading with nothing
+    under it is reported, since the roll-up writes one only over something; and an entry must stand under the heading
+    its date belongs under (a dated one under `## Upcoming` when it is not before the `last-updated` day and under
+    `## Past` when it is, a yearly one under `## Upcoming` with its next occurrence, worked out from the
+    `last-updated` day, stated as ` (every year, next YYYY-MM-DD)`). The order of the entries under a heading is not
+    judged. Every line under `## Could not read` bar the list's own intro goes through `could_not_read`, the roll-up's
+    error-line grammar, and, for a page that reads, is one the pages give. The lines it always writes are required, and
+    so are those its entries or list make it write (the title, the intro, `## Upcoming`; `## Past` beside a past one,
+    the intro of a list that is there, `_None._` when no page gives a deadline to come or a yearly date, the banner),
+    and a missing one is an incomplete derived page naming it. An entry is split by plain string
     handling into date, note and page links, and is clean only when its date is in the form the roll-up writes (`5
     April`, `YYYY-MM-DD`) and its `(date, note, page)` is in that set, the dated ones by their full date and the
     recurring ones by month and day. An entry whose date no page carries is reported as that date (a YYYY-MM-DD no
@@ -1025,7 +1049,7 @@ def deadline_items(wiki, pages, ws):
         if good:
             given.add(key)
         keys.add(key)
-    order = {TITLE: 0, INTRO: 1, INTRO_FIXTURE: 1, UPCOMING: 3, EVERY_YEAR: 4, PAST: 5, UNREAD: 6}  # as it writes them
+    order = {TITLE: 0, INTRO: 1, INTRO_FIXTURE: 1, UPCOMING: 3, PAST: 5, UNREAD: 6}  # as it writes them
     last, entered, none_under, banner_seen = -1, collections.Counter(), False, False
     for n, line in enumerate(body.splitlines(), offset + 1):
         if not line.strip():
@@ -1049,7 +1073,11 @@ def deadline_items(wiki, pages, ws):
             written.append(where)
             continue
         seen.add(line)
-        if line in (UPCOMING, EVERY_YEAR, PAST, UNREAD, TITLE, INTRO, INTRO_FIXTURE):
+        if line == EVERY_YEAR:  # a heading the roll-up no longer writes: nothing under it is where it writes it
+            written.append(where)
+            section = line
+            continue
+        if line in (UPCOMING, PAST, UNREAD, TITLE, INTRO, INTRO_FIXTURE):
             ok = order[line] > last and (before is None if line == TITLE else
                                          before == TITLE if line in (INTRO, INTRO_FIXTURE) else True)
             if ok:
@@ -1063,7 +1091,7 @@ def deadline_items(wiki, pages, ws):
                 written.append(where)
             continue
         if line == NOTHING:  # only where it writes it, and only while no page gives a deadline to come
-            if not (section == UPCOMING and not entered[UPCOMING] and not forward):
+            if not (section == UPCOMING and not entered[UPCOMING] and not forward and not swept_yearly):
                 written.append(where)
             entered[UPCOMING] += 1
             none_under = True
@@ -1082,20 +1110,22 @@ def deadline_items(wiki, pages, ws):
                 hand += ["line %d: %s" % (n, m.group(0)) for m in DAY.finditer(line)
                          if m.group(0) not in days and m.group(0) != stamp]
             continue
-        when, note, linked = entry
+        when, note, linked, stated = entry
         entered[section] += 1
         if DAY.fullmatch(when):  # under Upcoming when it is not before the build, under Past when it is
             shown_days.add(when)
             key = when
-            placed = (section == UPCOMING and not none_under and (stamp is None or when >= stamp)
-                      or section == PAST and (stamp is None or when < stamp))
+            placed = stated is None and (section == UPCOMING and not none_under and (stamp is None or when >= stamp)
+                                         or section == PAST and (stamp is None or when < stamp))
         elif month_day(when):
             key = month_day(when)
             if when != rendered_month_day(key):  # a spelling the roll-up does not write: hand-edited
                 written.append(where)
                 continue
             shown_yearly.add(key)
-            placed = section == EVERY_YEAR
+            due = next_occurrence(key, stamp) if stamp else None  # from the build day, as the roll-up works it out
+            placed = (section == UPCOMING and not none_under and stated is not None
+                      and (stated == due if stamp else real_day(stated) and stated[5:] == key))
         else:
             unreadable.append("line %d: %s" % (n, excerpt(when)))
             continue
@@ -1109,8 +1139,9 @@ def deadline_items(wiki, pages, ws):
             written.append(where)
     # what the roll-up writes whatever the pages hold, and what it writes with the entries or the list shown
     required = [TITLE, INTRO_FIXTURE if INTRO_FIXTURE in seen else INTRO, UPCOMING] \
-        + ([EVERY_YEAR] if shown_yearly else []) + ([PAST] if stamp and any(d < stamp for d in shown_days) else []) \
-        + ([UNREAD_INTRO] if UNREAD in seen else []) + ([NOTHING] if verified and not forward else [])
+        + ([PAST] if stamp and any(d < stamp for d in shown_days) else []) \
+        + ([UNREAD_INTRO] if UNREAD in seen else []) \
+        + ([NOTHING] if verified and not forward and not swept_yearly else [])
     lacking = [x for x in required if x not in seen]
     if verified and not entries and scanned and not banner_seen:  # it says why there is nothing, over the pages it read
         lacking.append("the empty-roll-up banner")
@@ -1119,7 +1150,7 @@ def deadline_items(wiki, pages, ws):
                 for k in ("provenance", "status", "last-updated") if k not in given]
     if lacking:  # a line the roll-up always writes was deleted: the page is not what it renders
         derived.append("%s lacks %d line(s) the roll-up writes (%s)" % (DEADLINES, len(lacking), sample(lacking)))
-    bare = [heading for heading in (UPCOMING, EVERY_YEAR, PAST, UNREAD) if heading in seen and not entered[heading]]
+    bare = [heading for heading in (UPCOMING, PAST, UNREAD) if heading in seen and not entered[heading]]
     if bare:  # it writes a heading only over something
         derived.append("%s holds %d heading(s) with nothing under them (%s)" % (DEADLINES, len(bare), sample(bare)))
     absent = sorted(line[2:] for line, count in unread.items() if count > 0)

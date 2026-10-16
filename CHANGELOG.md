@@ -4,6 +4,21 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v15.1.2 (2026-10-16)
+
+A **PATCH**: the Deadlines roll-up lists every forward date soonest first (#161). No skill name, frontmatter, archetype
+layout or prompt placeholder changes.
+
+### Fixed (PATCH)
+
+- **A yearly date sits among the dated ones, at its next occurrence** (`wiki.py deadlines`, `readiness.py`). Yearly
+  entries had their own `## Every year` section in calendar order, after the dated ones, so on a wiki whose only dated
+  entry was years away the nearest real deadline came last, against the page contract. A yearly entry is now listed
+  under `## Upcoming` as `**5 April** (every year, next 2027-04-05)`, by the date shown, after a dated entry of the
+  same date; 29 February waits for a leap year. `## Every year` is no longer written, and `readiness.py` reads a page
+  that still has it as hand-written content. Readiness checks each yearly line's next date against the page's own
+  stamp. The reference deployment renders the same lines (family-ai-os #1163).
+
 ## v15.1.1 (2026-10-15)
 
 A **PATCH**: `wiki.py check` now reads what a deployment writes into a prepared wiki the way the rest of the tools

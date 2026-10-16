@@ -32,6 +32,7 @@ EM = "\u2014"
 HAND = "hand-written content in a derived page"
 TAX, HOME = "[20 Finance/Tax](../20%20Finance/Tax.md)", "[30 Home/30 Home](../30%20Home/30%20Home.md)"
 INSURANCE = "[30 Home/Insurance](../30%20Home/Insurance.md)"
+MAY = "**12 May** (every year, next 2025-05-12)"  # a yearly entry as the roll-up writes it on 2024-06-30
 
 
 def read(path):
@@ -40,6 +41,7 @@ def read(path):
 
 
 def write(path, text):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8", newline="") as f:
         f.write(text)
 
@@ -115,7 +117,9 @@ class RealOutputTest(Scenario):
         self.assertIn("## Could not read", read(os.path.join(ROLLUPS, "could-not-read", PAGE)))  # (d)
         self.assertIn("Roll-up found no frontmatter deadlines across 3 readable pages",
                       read(os.path.join(ROLLUPS, "banner", PAGE)))
-        self.assertIn("_None._", read(os.path.join(ROLLUPS, "recurring-only", PAGE)))
+        self.assertIn("_None._", read(os.path.join(ROLLUPS, "banner", PAGE)))
+        self.assertNotIn("_None._", read(os.path.join(ROLLUPS, "recurring-only", PAGE)))  # a yearly date is forward
+        self.assertNotIn("## Every year", plain)
         paths = read(os.path.join(ROLLUPS, "paths", PAGE))
         for text in ("Tax [Q1](final) %s Quarter one" % EM, "[20 Finance/x](y](../20%20Finance/x%5D%28y.md)",
                      "Fees%20&%20100%25%20done.md"):  # page names holding brackets, `](` and `%`
@@ -163,7 +167,8 @@ class RealOutputTest(Scenario):
         """`yes` is written `True`, `12:30` is written 750: the check does not read what it cannot give back."""
         page = read(os.path.join(ROLLUPS, "coerced", PAGE))
         for text in ("Yes %s True (" % EM, "Number %s 5 (" % EM, "Time %s 750 (" % EM, "Date %s 2025-01-31 (" % EM,
-                     "- **6 April** %s Null (" % EM, "- **10 April** %s Tilde (" % EM):
+                     "- **6 April** (every year, next 2025-04-06) %s Null (" % EM,
+                     "- **10 April** (every year, next 2025-04-10) %s Tilde (" % EM):
             self.assertIn(text, page)
         dated, recurring, other, outside = self.full(self.wiki("coerced"))
         self.assertEqual((dated, recurring, other), ("ok", "ok", "ok"))
@@ -202,9 +207,10 @@ class RealOutputTest(Scenario):
             self.assertIn(text, page)
 
     def test_a_date_only_a_page_of_another_provenance_holds_is_expected(self):
-        for old, want in (("- **6 April** %s Manual %s Owner asserted ([30 Home/Manual](../30%%20Home/Manual.md))\n"
-                           % (EM, EM), "lacks 1 recurring date(s) (04-06 (30 Home/Manual.md))"),
-                          ("- **7 April** %s Calendar %s From the calendar "
+        for old, want in (("- **6 April** (every year, next 2025-04-06) %s Manual %s Owner asserted "
+                           "([30 Home/Manual](../30%%20Home/Manual.md))\n" % (EM, EM),
+                           "lacks 1 recurring date(s) (04-06 (30 Home/Manual.md))"),
+                          ("- **7 April** (every year, next 2025-04-07) %s Calendar %s From the calendar "
                            "([30 Home/Calendar](../30%%20Home/Calendar.md))\n" % (EM, EM),
                            "lacks 1 recurring date(s) (04-07 (30 Home/Calendar.md))")):
             with self.subTest(want=want):
@@ -294,7 +300,7 @@ class ChangedOutputTest(Scenario):
 
     def test_a_date_no_page_carries_is_reported_as_one(self):
         text = read(os.path.join(ROLLUPS, "plain", PAGE))
-        _dated, recurring = self.reported(self.replace("**12 May**", "**13 May**"))
+        _dated, recurring = self.reported(self.replace(MAY, "**13 May** (every year, next 2025-05-13)"))
         self.assertIn("1 yearly date(s) no page's recurring: list carries (line %d: 05-13)" % line_of(text, "12 May"),
                       recurring)
         dated, _recurring = self.reported(self.replace("**2030-05-01**", "**2030-05-02**"))
@@ -303,8 +309,8 @@ class ChangedOutputTest(Scenario):
 
     def test_a_date_that_is_a_date_but_another_entrys_is_hand_written_content(self):
         """12 May is carried, but not with this note."""
-        self.assert_hand(self.replace("**12 May** %s Insurance %s Ask Alex" % (EM, EM),
-                                      "**12 May** %s Insurance %s Ask Robin" % (EM, EM)))
+        self.assert_hand(self.replace("%s %s Insurance %s Ask Alex" % (MAY, EM, EM),
+                                      "%s %s Insurance %s Ask Robin" % (MAY, EM, EM)))
 
     def test_a_date_the_contract_cannot_read_is_reported_as_unreadable(self):
         text = read(os.path.join(ROLLUPS, "plain", PAGE))
@@ -316,7 +322,7 @@ class ChangedOutputTest(Scenario):
 
     def test_an_entry_missing_from_the_roll_up_is_reported_as_missing(self):
         _dated, recurring = self.reported(self.replace(
-            "- **12 May** %s Insurance %s Ask Alex & Sam about 3 policies (%s)\n" % (EM, EM, INSURANCE), ""))
+            "- %s %s Insurance %s Ask Alex & Sam about 3 policies (%s)\n" % (MAY, EM, EM, INSURANCE), ""))
         self.assertIn("lacks 1 recurring date(s) (05-12 (30 Home/Insurance.md))", recurring)
 
 
@@ -375,7 +381,8 @@ class GrammarTest(unittest.TestCase):
     PAGES = {"20 Finance/Tax.md", "30 Home/30 Home.md", "20 Finance/Bank statement (1).md"}
 
     def entry(self, line):
-        return readiness.parse_entry(line, self.PAGES)
+        got = readiness.parse_entry(line, self.PAGES)
+        return got and got[:3]  # (date, note, pages); the next date a yearly entry states is read in YearlyEntryTest
 
     def test_an_entry_is_its_date_its_note_and_its_pages(self):
         self.assertEqual(self.entry("- **5 April** %s Tax %s Pay 2 instalments (%s)" % (EM, EM, TAX)),
@@ -408,13 +415,45 @@ class GrammarTest(unittest.TestCase):
             with self.subTest(line=line):
                 self.assertIsNone(self.entry(line))
 
+    def test_a_yearly_entry_states_its_next_date_after_its_bold_date_in_every_layout(self):
+        for line in ("- **5 April** (every year, next 2025-04-05) %s Tax %s Pay (%s)" % (EM, EM, TAX),
+                     "- **5 April** (every year, next 2025-04-05): Tax. Pay (%s)" % TAX,
+                     "- **5 April** (every year, next 2025-04-05): Pay (%s)" % TAX):
+            with self.subTest(line=line):
+                self.assertEqual(readiness.parse_entry(line, self.PAGES), ("5 April", "Pay", ["20 Finance/Tax.md"], "2025-04-05"))
+        self.assertEqual(readiness.parse_entry("- **5 April** (every year, next 2025-04-05): Tax (%s)" % TAX, self.PAGES),
+                         ("5 April", "", ["20 Finance/Tax.md"], "2025-04-05"))
+        self.assertEqual(readiness.parse_entry("- **2025-04-05**: Tax (%s)" % TAX, self.PAGES)[3], None)
+        for line in ("- **5 April** (every year, next soon): Tax (%s)" % TAX,
+                     "- **5 April** (every year, next 2025-04-05) : Tax (%s)" % TAX,
+                     "- **5 April** (every year,next 2025-04-05): Tax (%s)" % TAX,
+                     "- **5 April**  (every year, next 2025-04-05): Tax (%s)" % TAX,
+                     "- **5 April (every year, next 2025-04-05)**: Tax (%s)" % TAX,
+                     "- **5 April** (Every year, next 2025-04-05): Tax (%s)" % TAX,
+                     "- **5 April** (every year, next 2025-4-5): Tax (%s)" % TAX):
+            with self.subTest(line=line):
+                got = readiness.parse_entry(line, self.PAGES)
+                self.assertTrue(got is None or got[3] is None, got)
+
+    def test_the_next_occurrence_is_the_first_day_on_or_after_today(self):
+        for md, today, want in (("04-05", "2024-03-01", "2024-04-05"), ("04-05", "2024-04-05", "2024-04-05"),
+                                ("04-05", "2024-04-06", "2025-04-05"), ("12-31", "2024-12-31", "2024-12-31"),
+                                ("01-01", "2024-12-31", "2025-01-01"), ("02-29", "2024-02-28", "2024-02-29"),
+                                ("02-29", "2024-02-29", "2024-02-29"), ("02-29", "2024-03-01", "2028-02-29"),
+                                ("02-29", "2096-03-01", "2104-02-29"), ("02-29", "2097-01-01", "2104-02-29")):
+            with self.subTest(md=md, today=today):
+                self.assertEqual(readiness.next_occurrence(md, today), want)
+
+    def test_a_page_outside_the_subset_withholds_nothing_of_the_next_date(self):
+        self.assertEqual(readiness.YEARLY_NEXT.pattern, r" \(every year, next ([0-9]{4}-[0-9]{2}-[0-9]{2})\)")
+
     def test_a_page_name_holding_brackets_or_a_long_target_is_read_by_its_own_text(self):
         pages = {"20 Finance/Tax [Q1](final).md", "20 Finance/x](y.md", "20 Finance/" + "\u4e2d" * 80 + ".md"}
         for page in sorted(pages):
             target = "../" + urllib.parse.quote(page, safe="/&")
             title = page[:-3].split("/")[1]
             line = "- **5 April** %s %s %s Note ([%s](%s))" % (EM, title, EM, page[:-3], target)
-            self.assertEqual(readiness.parse_entry(line, pages), ("5 April", "Note", [page]), line)
+            self.assertEqual(readiness.parse_entry(line, pages), ("5 April", "Note", [page], None), line)
 
     def test_the_banner_is_the_roll_ups_with_a_count(self):
         self.assertEqual(readiness.banner("> The roll-up found no frontmatter deadlines across 11 pages."), 0)
@@ -962,7 +1001,7 @@ class EntryFormTest(Scenario):
                 self.assert_hand(self.replace("**12 May**", "**%s**" % lead))
 
     def test_an_entry_written_twice_is_reported(self):
-        line = "- **12 May** %s Insurance %s Ask Alex & Sam about 3 policies (%s)\n" % (EM, EM, INSURANCE)
+        line = "- %s %s Insurance %s Ask Alex & Sam about 3 policies (%s)\n" % (MAY, EM, EM, INSURANCE)
         self.assert_hand(self.replace(line, line + line))
         self.assert_hand(self.replace("## Past\n", "## Past\n\n## Past\n"))
         self.assert_hand(self.replace("_File-derived", "_File-derived deadlines, rolled up deterministically from page "
@@ -1042,8 +1081,8 @@ class OutOfScopeTest(Scenario):
         self.assertEqual(outside, self.named("an anchor"))
         dated = self.outside("a: &x b", change=self.append("| 5 | April |"))[0]
         self.assertIn("hand-written content in a derived page, 1 line(s)", dated)
-        dated = self.outside("a: &x b", change=self.replace("**12 May** %s Insurance %s Ask Alex" % (EM, EM),
-                                                          "**12 May** %s Insurance %s Ask Robin" % (EM, EM)))[0]
+        dated = self.outside("a: &x b", change=self.replace("%s %s Insurance %s Ask Alex" % (MAY, EM, EM),
+                                                          "%s %s Insurance %s Ask Robin" % (MAY, EM, EM)))[0]
         self.assertEqual(dated, "ok")  # whether an entry is backed needs the page, so it is withheld
         _d, recurring, _o, _out = self.outside("a: &x b", change=self.replace("**12 May**", "**13 May**"))
         self.assertEqual(recurring, "ok")
@@ -1145,12 +1184,13 @@ class HiddenPageTest(Scenario):
 
     def test_a_page_under_a_dot_folder_is_a_source(self):
         dated, recurring = self.reported(self.replace(
-            "- **6 April** %s Old %s Deleted note ([.trash/Old](../.trash/Old.md))\n" % (EM, EM), ""), "hidden")
+            "- **6 April** (every year, next 2025-04-06) %s Old %s Deleted note ([.trash/Old](../.trash/Old.md))\n"
+            % (EM, EM), ""), "hidden")
         self.assertIn("lacks 1 recurring date(s) (04-06 (.trash/Old.md))", recurring)
 
     def test_a_sibling_is_not_a_source(self):
-        entry = "- **9 September** %s Tax %s Before the edit ([20 Finance/Tax](../20%%20Finance/Tax.md))\n" % (EM, EM)
-        _dated, recurring = self.reported(self.replace("## Every year\n\n", "## Every year\n\n" + entry), "hidden")
+        entry = ("- **9 September** (every year, next 2024-09-09) %s Tax %s Before the edit (%s)\n" % (EM, EM, TAX))
+        _dated, recurring = self.reported(self.replace("## Upcoming\n\n", "## Upcoming\n\n" + entry), "hidden")
         self.assertIn("no page's recurring: list carries (line", recurring)
 
     def test_a_date_only_a_sibling_holds_is_not_a_page_deadline(self):
@@ -1198,27 +1238,30 @@ class ScaffoldTest(Scenario):
                     self.lacks(scenario, line)
 
     def test_a_heading_written_for_what_the_pages_give_is_required_beside_their_entries(self):
-        self.lacks("plain", "## Every year")
         self.lacks("plain", "## Past")
         self.lacks("could-not-read", readiness.UNREAD_INTRO)
 
     def test_the_line_for_an_empty_upcoming_section_is_required(self):
-        for scenario in ("recurring-only", "banner", "could-not-read"):
+        self.lacks("banner", "_None._")
+
+    def test_the_line_for_an_empty_upcoming_section_is_not_written_beside_a_yearly_date(self):
+        """Every yearly date is forward, so a page that gives one has entries under Upcoming and never `_None._`."""
+        for scenario in ("recurring-only", "could-not-read"):
             with self.subTest(scenario=scenario):
-                self.lacks(scenario, "_None._")
+                self.assertIn(HAND, self.page(scenario, self.replace("## Upcoming\n\n", "## Upcoming\n\n_None._\n\n"))[0])
 
     def test_the_whole_section_gone_is_the_entries_that_are_missing_not_a_heading_alone(self):
-        dated, recurring = self.reported(lambda page: page.split("## Every year")[0], "recurring-only")
+        dated, recurring = self.reported(lambda page: page.split("- **5 April**")[0], "recurring-only")
         self.assertIn("lacks 1 recurring date(s)", recurring)
-        self.assertNotIn("## Every year", dated)  # no entry shows, so no heading is owed
+        self.assertIn("holds 1 heading(s) with nothing under them (## Upcoming)", dated)
 
     def test_a_page_outside_the_subset_withholds_only_what_needs_it(self):
         """The always-written lines are known whatever a page holds; `_None._` is not: that page may give a date."""
-        for line in ("# Deadlines", readiness.INTRO, "## Upcoming", "## Every year", "## Past"):
+        for line in ("# Deadlines", readiness.INTRO, "## Upcoming", "## Past"):
             with self.subTest(line=line[:20]):
                 dated = self.deleted("plain", line, block="a: &x b")[0]
                 self.assertIn("lacks 1 line(s) the roll-up writes (%s)" % line, dated)
-        dated = self.deleted("recurring-only", "_None._", block="a: &x b")[0]
+        dated = self.deleted("banner", "_None._", block="a: &x b")[0]
         self.assertIn("holds 1 heading(s) with nothing under them (## Upcoming)", dated)  # it never writes one bare
         self.assertNotIn("lacks", dated)  # and whether `_None._` is owed depends on pages that are not read
 
@@ -1303,7 +1346,7 @@ class PlaceTest(Scenario):
                     self.assertIn("_None._", dated)
 
     def test_a_heading_the_roll_up_writes_only_over_something_is_reported_bare(self):
-        for heading, name in (("## Past", "Past"), ("## Every year", "Every year"),
+        for heading, name in (("## Past", "Past"),
                               ("## Could not read\n\n" + readiness.UNREAD_INTRO, "Could not read")):
             with self.subTest(heading=name):
                 dated = self.page("upcoming-only", self.append(heading))[0]
@@ -1324,7 +1367,7 @@ class PlaceTest(Scenario):
         swapped = lambda t: t.replace(up, "@@").replace(past, up).replace("@@", past)
         dated, _recurring = self.reported(swapped)
         self.assertIn(HAND, dated)  # a forward date listed as past, and a past one as forward
-        self.assertIn(HAND, self.reported(lambda t: t.replace("## Every year", "## Past\n\n## Every year"))[0])
+        self.assertIn(HAND, self.reported(lambda t: t.replace("## Upcoming", "## Past\n\n## Upcoming"))[0])
 
     def test_an_entry_stands_under_the_heading_its_date_belongs_under(self):
         text = read(os.path.join(ROLLUPS, "plain", PAGE))
@@ -1332,9 +1375,7 @@ class PlaceTest(Scenario):
                                  for needle in ("**2024-01-31**", "**2030-05-01**", "**31 January**"))
         moves = (("a past date under Upcoming", "## Upcoming\n\n", past),
                  ("a forward date under Past", "## Past\n\n", forward),
-                 ("a yearly date under Upcoming", "## Upcoming\n\n", yearly),
-                 ("a yearly date under Past", "## Past\n\n", yearly),
-                 ("a dated one under Every year", "## Every year\n\n", forward))
+                 ("a yearly date under Past", "## Past\n\n", yearly))
         for name, heading, entry in moves:
             with self.subTest(name):
                 self.assertIn(HAND, self.page("plain", lambda t: t.replace(heading, heading + entry + "\n"))[0])
@@ -1399,6 +1440,123 @@ class PlaceTest(Scenario):
         self.assertIsNotNone(readiness.could_not_read(item % ("x" * 60, readiness.DATE_HINT), pages, 20))
         self.assertIsNone(readiness.could_not_read(item % ("x" * 61, readiness.DATE_HINT), pages, 20))
         self.assertIsNone(readiness.could_not_read(item % ("", readiness.DATE_HINT), pages, 20))
+
+
+class YearlyEntryTest(Scenario):
+    """A yearly entry stands under Upcoming, in date order with the dated ones, stating its next occurrence worked out
+    from the `last-updated` day of the page itself."""
+
+    TAX_PAGE = "recurring:\n  - {date: 04-05, note: Tax year ends}"
+    LEAP_PAGE = "recurring:\n  - {date: 02-29, note: Leap day}"
+    TAX_LINE = "- **5 April** (every year, next 2024-04-05): Tax. Tax year ends (%s)" % TAX
+    LEAP_LINE = "- **29 February** (every year, next 2028-02-29): Leap. Leap day ([30 Home/Leap](../30%20Home/Leap.md))"
+
+    @staticmethod
+    def dated(day):
+        return "- **%s**: Dated ([30 Home/Dated](../30%%20Home/Dated.md))" % day
+
+    def small(self, lines, stamp="2024-03-01", **pages):
+        """What readiness reports for a wiki holding `pages` ({file name: frontmatter}, in `20 Finance` for Tax and in
+        `30 Home` for the rest) whose roll-up, stamped `stamp` (none when None), holds `lines` under Upcoming."""
+        wiki = tempfile.mkdtemp(dir=self.tmp)
+        for name, block in (pages or {"Tax": self.TAX_PAGE}).items():
+            write(os.path.join(wiki, "20 Finance" if name == "Tax" else "30 Home", name + ".md"),
+                  "---\n%s\n---\n# Page\n" % block)
+        stamped = "last-updated: %s\n" % stamp if stamp else ""
+        write(os.path.join(wiki, PAGE), "---\nprovenance: derived\n%sstatus: current\n---\n\n# Deadlines\n\n%s\n\n"
+              "## Upcoming\n\n%s\n" % (stamped, readiness.INTRO_FIXTURE, "\n".join(lines)))
+        return self.check(wiki)
+
+    def test_the_next_date_is_worked_out_from_the_stamp(self):
+        for stamp, want in (("2024-03-01", "2024-04-05"), ("2024-04-04", "2024-04-05"), ("2024-04-05", "2024-04-05"),
+                            ("2024-04-06", "2025-04-05"), ("2023-12-31", "2024-04-05")):
+            with self.subTest(stamp=stamp):
+                self.assertEqual(self.small([self.TAX_LINE.replace("2024-04-05", want)], stamp), ("ok", "ok", "ok"))
+                other = "2025-04-05" if want == "2024-04-05" else "2024-04-05"
+                self.assertIn(HAND, self.small([self.TAX_LINE.replace("2024-04-05", other)], stamp)[0])
+
+    def test_29_february_comes_round_in_the_next_leap_year(self):
+        for stamp, want in (("2024-02-28", "2024-02-29"), ("2024-02-29", "2024-02-29"), ("2024-03-01", "2028-02-29"),
+                            ("2023-03-01", "2024-02-29")):
+            with self.subTest(stamp=stamp):
+                line = self.LEAP_LINE.replace("2028-02-29", want)
+                self.assertEqual(self.small([line], stamp, Leap=self.LEAP_PAGE), ("ok", "ok", "ok"))
+        for wrong in ("2025-02-28", "2025-03-01", "2029-02-29", "2024-02-29", "2032-02-29"):
+            with self.subTest(wrong=wrong):
+                line = self.LEAP_LINE.replace("2028-02-29", wrong)
+                self.assertIn(HAND, self.small([line], "2024-03-01", Leap=self.LEAP_PAGE)[0])
+
+    def test_a_wrong_or_missing_next_date_is_reported_as_a_misplaced_entry(self):
+        for name, line in (("a later year", self.TAX_LINE.replace("2024-04-05", "2025-04-05")),
+                           ("another day", self.TAX_LINE.replace("2024-04-05", "2024-04-06")),
+                           ("a date no calendar has", self.TAX_LINE.replace("2024-04-05", "2024-02-31")),
+                           ("none", self.TAX_LINE.replace(" (every year, next 2024-04-05)", "")),
+                           ("a word", self.TAX_LINE.replace("2024-04-05", "soon")),
+                           ("a short date", self.TAX_LINE.replace("2024-04-05", "2024-4-5"))):
+            with self.subTest(name):
+                dated, recurring, _other = self.small([line])
+                self.assertIn(HAND, dated)
+                self.assertIn("line 13: - **5 April**", dated)
+
+    def test_no_stamp_leaves_the_next_date_to_be_a_real_day_of_the_entrys_own_date(self):
+        dated = self.small([self.TAX_LINE], None)[0]
+        self.assertIn("lacks 1 line(s) the roll-up writes (last-updated", dated)  # and nothing else is wrong with it
+        self.assertNotIn(HAND, dated)
+        self.assertIn(HAND, self.small([self.TAX_LINE.replace("2024-04-05", "2024-04-06")], None)[0])
+        self.assertIn(HAND, self.small([self.TAX_LINE.replace("2024-04-05", "2024-02-31")], None)[0])
+
+    def test_a_yearly_entry_under_any_other_heading_is_reported(self):
+        for name, page in (("under Past", "## Past\n\n%s\n\n## Upcoming\n\n"),
+                           ("under Every year", "## Every year\n\n%s\n\n## Upcoming\n\n"),
+                           ("under Could not read", "## Could not read\n\n" + readiness.UNREAD_INTRO + "\n\n%s\n\n"
+                            "## Upcoming\n\n"),
+                           ("before every heading", "%s\n\n## Upcoming\n\n")):
+            with self.subTest(name):
+                wiki = self.wiki("recurring-only")
+                path = os.path.join(wiki, PAGE)
+                moved = read(path).replace("\n## Upcoming\n\n", "\n" + page % self.TAX_LINE, 1)
+                write(path, moved)
+                dated = self.check(wiki)[0]
+                self.assertIn(HAND, dated)
+                self.assertIn("- **5 April** (every year, next 2024-04-05)", moved)
+                self.assertRegex(dated, r"line [0-9]+: - \*\*5 April\*\* \(every year")  # the entry itself is named
+
+    def test_a_heading_the_roll_up_no_longer_writes_is_hand_written_content(self):
+        """A page from before the change holds `## Every year` over its yearly entries: the heading is reported, and so
+        is the entry under it, which the roll-up writes under Upcoming now."""
+        wiki = self.wiki("recurring-only")
+        path = os.path.join(wiki, PAGE)
+        write(path, read(path).replace("## Upcoming\n\n- **5 April** (every year, next 2025-04-05)",
+                                       "## Upcoming\n\n_None._\n\n## Every year\n\n- **5 April**"))
+        dated = self.check(wiki)[0]
+        self.assertIn("hand-written content in a derived page, 3 line(s) (line 13: _None._; line 15: ## Every year; "
+                      "line 17: - **5 April** %s 30 Home, Tax" % EM, dated)
+        self.assertNotIn("(## Every year)", dated)  # a heading nothing under it is bare is one the roll-up writes
+        self.assertEqual(readiness.EVERY_YEAR, "## Every year")
+        self.assertNotIn(readiness.EVERY_YEAR, readiness.ROLL_UP_LINES)
+
+    def test_dated_and_yearly_entries_interleave_in_the_order_the_roll_up_writes_them(self):
+        pages = {"Tax": self.TAX_PAGE, "Dated": "deadline: 2024-05-01", "Leap": self.LEAP_PAGE}
+        tax, dated, leap = self.TAX_LINE, self.dated("2024-05-01"), self.LEAP_LINE
+        self.assertEqual(self.small([tax, dated, leap], **pages), ("ok", "ok", "ok"))
+        same = {"Tax": self.TAX_PAGE, "Dated": "deadline: 2024-04-05"}
+        self.assertEqual(self.small([self.dated("2024-04-05"), tax], **same), ("ok", "ok", "ok"))  # dated first
+
+    def test_the_order_of_the_entries_is_not_judged_only_what_each_one_states(self):
+        """The renderer sorts them; a line that is right on its own stays right wherever it stands under Upcoming."""
+        pages = {"Tax": self.TAX_PAGE, "Dated": "deadline: 2024-05-01", "Leap": self.LEAP_PAGE}
+        tax, dated, leap = self.TAX_LINE, self.dated("2024-05-01"), self.LEAP_LINE
+        for order in ((dated, tax, leap), (leap, dated, tax)):
+            self.assertEqual(self.small(list(order), **pages), ("ok", "ok", "ok"))
+
+    def test_a_dated_entry_never_states_a_next_date(self):
+        pages = {"Dated": "deadline: 2024-04-05"}
+        self.assertEqual(self.small([self.dated("2024-04-05")], **pages), ("ok", "ok", "ok"))
+        stated = "- **2024-04-05** (every year, next 2024-04-05): Dated ([30 Home/Dated](../30%20Home/Dated.md))"
+        self.assertIn(HAND, self.small([stated], **pages)[0])
+
+    def test_none_is_not_written_beside_a_yearly_date(self):
+        self.assertIn(HAND, self.small(["_None._", self.TAX_LINE])[0])
 
 
 class SpeedTest(Scenario):
