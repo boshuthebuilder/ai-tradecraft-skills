@@ -88,6 +88,11 @@ every wiki creation writes it, never the owner by hand.
   a relative link to a document outside the wiki folder opens it. The second is desktop-only: on a phone
   the link is dead and the page's `source:` path still names the file. The pinned version of each, its
   release assets and their hashes, and each plugin's `data.json` live in the manifest, never in prose.
+- **Properties are hidden.** A page's front matter (`source:`, `last-updated:`, `status:`, `provenance:` and the
+  rest) is the system's bookkeeping, not the reader's, so `app.json` sets `propertiesInDocument` to `"hidden"` and
+  a page opens on its content. The Properties view still shows a page's properties to anyone who wants them.
+  Obsidian has no setting that starts the block folded: folding is a per-note command, and Obsidian keeps the fold
+  in its own app storage, not in the vault. An owner who sets the option otherwise keeps that choice.
 - **The manifest.** The method ships it:
   [`obsidian-profile.json`](../pre-onboarding/tools/obsidian-profile.json), beside the tool that reads it,
   [`obsidian.py`](../pre-onboarding/references/tools.md#obsidianpy). The tool builds the profile from the

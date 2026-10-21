@@ -4,6 +4,21 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v15.2.0 (2026-10-21)
+
+A **MINOR**: the editor setup hides properties, so a wiki page opens on its content (#163). No skill name,
+frontmatter, archetype layout or prompt placeholder changes.
+
+### Added (MINOR)
+
+- **`propertiesInDocument: "hidden"` in the editor setup** (`pre-onboarding/tools/obsidian-profile.json`,
+  `wiki-maintenance` *The editor setup*). A page's front matter is the system's bookkeeping, and Obsidian showed it
+  above every page's content. Obsidian has no setting that starts the block folded (folding is a per-note command,
+  and Obsidian keeps the fold in its app storage, not in the vault), so the profile hides it; the Properties view
+  still shows it. `obsidian.py write` adds the key only where `app.json` lacks it, so an owner's own choice stands,
+  and `obsidian.py check` reports an existing vault without it until `write` runs there. The test fixture's
+  manifest and wiki carry the same key, and a test keeps the fixture's `app` in step with the shipped one.
+
 ## v15.1.2 (2026-10-16)
 
 A **PATCH**: the Deadlines roll-up lists every forward date soonest first (#161). No skill name, frontmatter, archetype

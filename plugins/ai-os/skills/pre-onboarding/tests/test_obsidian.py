@@ -333,6 +333,25 @@ class ObsidianTest(unittest.TestCase):
         for word in ("/users/", "/home/", "@", "boshu"):
             self.assertNotIn(word, text)
 
+    def test_the_shipped_profile_hides_properties_and_the_fixture_keeps_in_step(self):
+        # a page's front matter is the system's bookkeeping, so a note opens on its content; Obsidian has no setting
+        # that starts the block folded (the fold is per note, in its app storage), so hidden is the one that exists
+        shipped = obsidian.load_manifest(obsidian.DEFAULT_MANIFEST)
+        self.assertEqual(shipped["app"].get("propertiesInDocument"), "hidden")
+        self.assertEqual(obsidian.load_manifest(FIXTURE_MANIFEST)["app"], shipped["app"])
+
+    def test_an_owner_who_shows_properties_keeps_that_choice(self):
+        self.manifest["app"] = {"alwaysUpdateLinks": True, "propertiesInDocument": "hidden"}
+        self.write_manifest()
+        os.makedirs(self.ob())
+        with open(self.ob("app.json"), "w", encoding="utf-8") as f:
+            json.dump({"propertiesInDocument": "visible"}, f)
+        actions, failures = self.write()
+        self.assertEqual(failures, [])
+        self.assertEqual(json.loads(read(self.ob("app.json"))), {"propertiesInDocument": "visible",
+                                                                 "alwaysUpdateLinks": True})
+        self.assertTrue(self.check()["complete"])
+
     def test_the_fixture_wiki_is_complete_under_the_fixture_manifest(self):
         report = obsidian.check_report(FIXTURE_WIKI, obsidian.load_manifest(FIXTURE_MANIFEST))
         self.assertEqual(report["findings"], [])
