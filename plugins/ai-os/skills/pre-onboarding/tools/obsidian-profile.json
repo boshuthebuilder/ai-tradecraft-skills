@@ -25,7 +25,8 @@
     "bases"
   ],
   "app": {
-    "alwaysUpdateLinks": true
+    "alwaysUpdateLinks": true,
+    "propertiesInDocument": "hidden"
   },
   "appearance": {},
   "never": [
