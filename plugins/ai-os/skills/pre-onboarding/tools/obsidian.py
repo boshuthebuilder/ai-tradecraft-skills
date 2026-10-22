@@ -34,6 +34,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_MANIFEST = os.path.join(HERE, "obsidian-profile.json")
 PROFILE_VERSION = 1
 ASSETS = ("main.js", "manifest.json", "styles.css")
+THEME_ASSETS = ("theme.css", "manifest.json")    # what a theme's GitHub release carries, as Obsidian installs it
 NOSOURCEMAP = b"\n/* nosourcemap */"  # what Obsidian's own installer appends to a main.js it installs
 RELEASE_URL = "https://github.com/%s/releases/download/%s/%s"
 USER_AGENT = "ai-os-obsidian/1"
@@ -65,8 +66,9 @@ def load_manifest(path):
         raise common.ToolError("%s: %s" % (path, what))
     if m.get("profile_version") != PROFILE_VERSION:
         bad("unsupported profile_version %r" % m.get("profile_version"))
+    m.setdefault("themes", [])
     for key, kind in (("core_plugins", list), ("app", dict), ("appearance", dict), ("never", list),
-                      ("plugins", list)):
+                      ("plugins", list), ("themes", list)):
         if not isinstance(m.get(key), kind):
             bad("%s must be a %s" % (key, kind.__name__))
     for key in ("core_plugins", "never"):
@@ -87,7 +89,29 @@ def load_manifest(path):
         if p["id"] in seen:
             bad("plugins[%d]: id %r appears twice" % (i, p["id"]))
         seen.add(p["id"])
+    names = set()
+    for i, t in enumerate(m["themes"]):
+        ok = (isinstance(t, dict) and all(isinstance(t.get(k), str) and t[k] for k in ("name", "repo", "version"))
+              and isinstance(t.get("assets"), dict) and set(t["assets"]) == set(THEME_ASSETS)
+              and all(common.is_sha256(v) for v in t["assets"].values()))
+        if not ok:
+            bad("themes[%d] must have name, repo, version and assets {%s: sha256}" % (i, ", ".join(THEME_ASSETS)))
+        if not (NAME.fullmatch(t["name"]) and NAME.fullmatch(t["version"]) and REPO.fullmatch(t["repo"])):
+            bad("themes[%d]: name %r and version %r must be plain names and repo %r an owner/name pair"
+                % (i, t["name"], t["version"], t["repo"]))
+        if t["name"] in names:
+            bad("themes[%d]: name %r appears twice" % (i, t["name"]))
+        names.add(t["name"])
+    css_theme = m["appearance"].get("cssTheme")
+    if css_theme is not None and css_theme not in names:
+        bad("appearance.cssTheme %r names no theme in themes" % css_theme)
     return m
+
+
+def _release(theme):
+    """A theme as `asset_bytes` reads a release: its cache folder stands where a plugin's id does."""
+    return {"id": "themes/%s" % theme["name"], "repo": theme["repo"], "version": theme["version"],
+            "assets": theme["assets"]}
 
 
 # ---- fetching ---------------------------------------------------------------------------------------------------
@@ -231,10 +255,26 @@ def plugin_state(root, plugin):
             "data": os.path.isfile(os.path.join(folder, "data.json"))}
 
 
+def theme_state(root, theme):
+    """One theme's state in the vault: installed version and each asset ok|missing|mismatch."""
+    folder = os.path.join(root, ".obsidian", "themes", theme["name"])
+    try:
+        installed = read_json_file(os.path.join(folder, "manifest.json")) if os.path.isdir(folder) else None
+    except common.ToolError:
+        installed = None
+    assets = {}
+    for name in THEME_ASSETS:
+        p = os.path.join(folder, name)
+        assets[name] = ("missing" if not os.path.isfile(p)
+                        else "ok" if sha256_bytes(read_bytes(p)) == theme["assets"][name] else "mismatch")
+    return {"installed": os.path.isdir(folder), "assets": assets,
+            "version": installed.get("version") if isinstance(installed, dict) else None}
+
+
 def check_report(root, m):
     """The editor setup against the manifest, as a dict with a `findings` list and a `complete` flag."""
     ob = os.path.join(root, ".obsidian")
-    report = {"root": root, "present": os.path.isdir(ob), "plugins": {}, "findings": []}
+    report = {"root": root, "present": os.path.isdir(ob), "plugins": {}, "themes": {}, "findings": []}
     enabled = read_json_file(os.path.join(ob, "community-plugins.json")) or []
     if not isinstance(enabled, list):
         enabled = []
@@ -256,6 +296,19 @@ def check_report(root, m):
                 report["findings"].append("plugin %s: data.json is missing" % plugin["id"])
             if not st["enabled"]:
                 report["findings"].append("plugin %s is not listed in community-plugins.json" % plugin["id"])
+    for theme in m["themes"]:
+        st = theme_state(root, theme)
+        st["complete"] = all(v == "ok" for v in st["assets"].values())
+        report["themes"][theme["name"]] = st
+        if not st["installed"]:
+            report["findings"].append("theme %s is not installed" % theme["name"])
+        else:
+            for name, state in st["assets"].items():
+                if state != "ok":
+                    report["findings"].append("theme %s: %s is %s%s" % (
+                        theme["name"], name, state,
+                        " (installed version %s, the manifest pins %s)" % (st["version"], theme["version"])
+                        if st["version"] and st["version"] != theme["version"] else ""))
     core = read_json_file(os.path.join(ob, "core-plugins.json"))
     if core is None:
         report["core"] = "missing"
@@ -327,6 +380,31 @@ def write_profile(root, m, cache, upgrade=False, fetch_fn=fetch, release_url=REL
         if not st["data"]:
             w.json(os.path.join(folder, "data.json"), plugin["data"], indent=2)
             actions.append("plugin %s: wrote data.json" % pid)
+    for theme in m["themes"]:
+        name, folder = theme["name"], os.path.join(ob, "themes", theme["name"])
+        st = theme_state(root, theme)
+        if st["installed"] and st["version"] and st["version"] != theme["version"] and not upgrade:
+            actions.append("theme %s: left at version %s (the manifest pins %s; --upgrade replaces it)"
+                           % (name, st["version"], theme["version"]))
+            continue
+        if all(v == "ok" for v in st["assets"].values()):
+            actions.append("theme %s: assets present at the manifest's hashes" % name)
+            continue
+        try:
+            data = {a: asset_bytes(_release(theme), a, cache, release_url, fetch_fn) for a in THEME_ASSETS}
+        except FetchError as e:
+            failures.append(("theme %s" % name, str(e)))
+            actions.append("theme %s: not written (%s)" % (name, e))
+            continue
+        os.makedirs(folder, exist_ok=True)
+        for a in THEME_ASSETS:
+            if st["assets"][a] != "ok":
+                tmp = os.path.join(folder, "%s.tmp%d" % (a, os.getpid()))
+                with open(tmp, "wb") as f:
+                    f.write(data[a])
+                os.replace(tmp, os.path.join(folder, a))
+        actions.append("theme %s: wrote %s at version %s" % (
+            name, ", ".join(a for a in THEME_ASSETS if st["assets"][a] != "ok"), theme["version"]))
     # the settings files: merge, keep what the manifest does not name, never clobber a key that is present
     ids = [p["id"] for p in m["plugins"] if p["id"] not in [f[0] for f in failures]]
     listed = list(have) if have else []

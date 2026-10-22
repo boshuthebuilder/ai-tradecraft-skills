@@ -1472,7 +1472,11 @@ rendered with `--kind pie --title "Planned monthly spending (GBP)"`:
 owner opens as the vault: a project's wiki folder, or a user vault's root. Both commands read the **manifest**,
 [`obsidian-profile.json`](../tools/obsidian-profile.json) beside the tool unless `--manifest` names another: the
 required plugins, each with its id, GitHub repo, pinned version, the sha256 of its three release assets and its
-`data.json`; the core-plugin list; the `app.json` keys; and the device-state names the tool never touches.
+`data.json`; the themes, each with its name, repo, version and the sha256 of its two release assets (`theme.css`,
+`manifest.json`); the core-plugin list; the `app.json` and `appearance.json` keys (`appearance.cssTheme` must name a
+listed theme); and the device-state names the tool never touches. `write` installs a theme into
+`.obsidian/themes/<name>/` exactly as it installs a plugin (cached, hash-checked, left at another version unless
+`--upgrade`), and `check` reports it.
 
 `write` builds `.obsidian/` in the root. For each plugin it takes the three assets from the cache
 (`<cache>/<id>/<version>/`), or downloads them from `https://github.com/<repo>/releases/download/<version>/<asset>`

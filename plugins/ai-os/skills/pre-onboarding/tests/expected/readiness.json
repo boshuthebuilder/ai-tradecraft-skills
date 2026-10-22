@@ -163,7 +163,11 @@
   "complete": true,
   "plugins": {
    "folder-notes": "complete",
-   "external-file-embed-and-link": "complete"
+   "external-file-embed-and-link": "complete",
+   "obsidian-minimal-settings": "complete"
+  },
+  "themes": {
+   "Minimal": "complete"
   },
   "core": "ok",
   "device_state": [],

@@ -4,6 +4,27 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v15.3.0 (2026-10-22)
+
+A **MINOR**: the editor setup ships the Minimal theme and its settings plugin, and portable-markdown records the
+formats a page may use that Typora does not break (#167). No skill name, frontmatter, archetype layout or prompt
+placeholder changes.
+
+### Added (MINOR)
+
+- **The Minimal theme in the editor setup** (`pre-onboarding/tools/obsidian-profile.json`, `obsidian.py`,
+  `wiki-maintenance` *The editor setup*). An owner compared five themes and chose Minimal: its rich formats (table
+  styles, list cards, image grids) are switched on by a `cssclasses:` line in a page's front matter, which Typora
+  ignores. The manifest gains a `themes` list (name, repo, version, the sha256 of `theme.css` and `manifest.json`),
+  `appearance.cssTheme`, and the `obsidian-minimal-settings` plugin. `obsidian.py write` installs a theme into
+  `.obsidian/themes/<name>/` the way it installs a plugin: cached, hash-checked, written atomically, left at another
+  version unless `--upgrade`, and never over an owner's own `cssTheme`. `check` and `readiness.py` report it.
+  Minimal needs Obsidian 1.14.0 or later.
+- **Theme classes and rich inline formats** (`productivity:portable-markdown`): the Minimal classes a page may set
+  (`row-alt`, `table-tabular`, `table-wide`, `table-lines`), the inline formats safe in both editors, the two that
+  need a Typora setting (highlight, inline math), the tag rule (never at the start of a line), and the formats a
+  page never uses because Typora prints them raw. From documentation; confirmed by a probe page in both apps.
+
 ## v15.2.0 (2026-10-21)
 
 A **MINOR**: the editor setup hides properties, so a wiki page opens on its content (#163). No skill name,

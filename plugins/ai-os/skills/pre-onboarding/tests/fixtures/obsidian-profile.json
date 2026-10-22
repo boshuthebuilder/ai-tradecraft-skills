@@ -28,7 +28,9 @@
     "alwaysUpdateLinks": true,
     "propertiesInDocument": "hidden"
   },
-  "appearance": {},
+  "appearance": {
+    "cssTheme": "Minimal"
+  },
   "never": [
     "workspace.json",
     "workspaces.json",
@@ -65,6 +67,30 @@
         "styles.css": "7e739ff33137dd6742eb663172650cd6f04e4429290b06dc69467a7fdd6d72e1"
       },
       "data": {}
+    },
+    {
+      "id": "obsidian-minimal-settings",
+      "name": "Minimal Theme Settings",
+      "repo": "kepano/obsidian-minimal-settings",
+      "version": "9.0.0",
+      "desktop_only": false,
+      "assets": {
+        "main.js": "edbf3c7a97281848ec42537699e9b093d72bf608d37eaaf4033635b609825752",
+        "manifest.json": "62483a077feaa283049683d4f28ef58dad3d7811e4c343593b87bbd8bb4a2957",
+        "styles.css": "33258afcd002718bc1a941b1024f3c2b1fcff73d62a93411e9e0ceea4117879a"
+      },
+      "data": {}
+    }
+  ],
+  "themes": [
+    {
+      "name": "Minimal",
+      "repo": "kepano/obsidian-minimal",
+      "version": "9.1.4",
+      "assets": {
+        "theme.css": "89b59c38fc25dfc51f7318a5bbfff423208d77e961a7f5a6cb1ae1048d301982",
+        "manifest.json": "259e21c5f541d8449c14c5930c4bc1f4130f1fea40877a4c818673b3c497145d"
+      }
     }
   ]
 }

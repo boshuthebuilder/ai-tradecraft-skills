@@ -72,22 +72,30 @@ so a fact settled in a project folder also settles it in the second brain.
 
 A wiki is read in Obsidian, and two of its conventions need plugins that Obsidian does not carry: a
 folder opens its same-name note (every skeleton's `00 Index/00 Index.md`), and a page's relative link to
-a document outside the wiki folder opens the document. So the **editor setup** is part of the wiki, and
-every wiki creation writes it, never the owner by hand.
+a document outside the wiki folder opens the document. Its pages also read better in a theme that can show
+rich formats. So the **editor setup** is part of the wiki, and every wiki creation writes it, never the
+owner by hand.
 
 - **Where.** `.obsidian/` sits in the **wiki folder** of a project, which the owner opens as the vault,
   so the owner's documents stay outside Obsidian's index and a page's `../` link reaches them through the
   external-link plugin; and at the **root** of a user vault, which is folder-is-vault. It is system-owned,
   like `_Audit/`.
-- **The profile.** `app.json`, `appearance.json`, `core-plugins.json`, `community-plugins.json`, and
+- **The profile.** `app.json`, `appearance.json`, `core-plugins.json`, `community-plugins.json`,
   `plugins/<id>/` holding `main.js`, `manifest.json`, `styles.css` and `data.json` for each required
-  plugin. **Device state is never part of it**, neither written nor read: `workspace.json`,
+  plugin, and `themes/<name>/` holding `theme.css` and `manifest.json` for the theme. **Device state is never part of it**, neither written nor read: `workspace.json`,
   `workspaces.json`, `graph.json`, `page-preview.json`.
 - **The required plugins**, by id: `folder-notes`, so a folder opens its note, with the method's default
   settings (the note hidden inside its folder, opened by a click); and `external-file-embed-and-link`, so
   a relative link to a document outside the wiki folder opens it. The second is desktop-only: on a phone
-  the link is dead and the page's `source:` path still names the file. The pinned version of each, its
+  the link is dead and the page's `source:` path still names the file. A third, `obsidian-minimal-settings`,
+  sets the theme's fonts, colours and widths from Obsidian's own settings. The pinned version of each, its
   release assets and their hashes, and each plugin's `data.json` live in the manifest, never in prose.
+- **The theme is Minimal**, and `appearance.json` selects it (`cssTheme`). It was chosen because its rich
+  formats (table styles, list cards, image grids) are switched on by a `cssclasses:` line in a page's front
+  matter, and Typora ignores that line, so a page that uses them still reads in Typora. A theme feature that
+  needs custom callout syntax (an infobox, columns) prints as raw text in Typora, and a page never uses one.
+  Which classes a page may set is recorded once in `productivity:portable-markdown`. Minimal needs Obsidian
+  1.14.0 or later on every device. An owner who chose another theme keeps that choice.
 - **Properties are hidden.** A page's front matter (`source:`, `last-updated:`, `status:`, `provenance:` and the
   rest) is the system's bookkeeping, not the reader's, so `app.json` sets `propertiesInDocument` to `"hidden"` and
   a page opens on its content. The Properties view still shows a page's properties to anyone who wants them.
@@ -105,9 +113,9 @@ every wiki creation writes it, never the owner by hand.
   follows. That answer is Obsidian's own, kept in its app storage and not in the vault, so no file the
   tool writes can give it. The check therefore reports the setup as **installed**, and the owner opens
   the wiki folder as a vault once and answers the question.
-- **Upgrading** a plugin is a manifest change (new version, new hashes) and a MINOR release; a vault
-  whose plugin is at another version is reported, not overwritten, until the operator asks for the
-  upgrade. A `main.js` Obsidian itself installed carries an appended `/* nosourcemap */` line, which the
+- **Upgrading** a plugin or the theme is a manifest change (new version, new hashes) and a MINOR release;
+  a vault whose plugin or theme is at another version is reported, not overwritten, until the operator asks
+  for the upgrade. A `main.js` Obsidian itself installed carries an appended `/* nosourcemap */` line, which the
   check allows.
 
 ## The recommended layout (an example — the Schema is the law)

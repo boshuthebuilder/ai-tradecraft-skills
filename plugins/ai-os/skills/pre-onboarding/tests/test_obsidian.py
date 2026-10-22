@@ -46,7 +46,7 @@ class Server:
     """Serves `<repo>/releases/download/<version>/<asset>` from a dict, counting hits; a path it lacks is a 404."""
 
     def __init__(self, files):
-        files_ = files
+        files_ = self.files = files      # the same dict the handler reads, so a test can add a release to it
         hits = self.hits = []
 
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -323,11 +323,71 @@ class ObsidianTest(unittest.TestCase):
                 self.assertIn("exists but is not a folder", err)
         self.assertEqual(read(self.ob()), "not a folder\n")
 
+    # ---- themes ----
+
+    def with_theme(self, version="1.0.0", body=b".neat {}\n"):
+        files = {"theme.css": body, "manifest.json": json.dumps({"name": "Neat", "version": version}).encode()}
+        self.manifest["themes"] = [{"name": "Neat", "repo": "someone/obsidian-neat", "version": version,
+                                    "assets": {n: sha(d) for n, d in files.items()}}]
+        self.manifest["appearance"] = {"cssTheme": "Neat"}
+        self.write_manifest()
+        for name, data in files.items():
+            self.server.files["/someone/obsidian-neat/releases/download/%s/%s" % (version, name)] = data
+        return files
+
+    def test_a_theme_is_installed_and_checked_like_a_plugin(self):
+        files = self.with_theme()
+        actions, failures = self.write()
+        self.assertEqual(failures, [])
+        for name, data in files.items():
+            self.assertEqual(read(self.ob("themes", "Neat", name), "rb"), data)
+        self.assertEqual(json.loads(read(self.ob("appearance.json"))), {"cssTheme": "Neat"})
+        report = self.check()
+        self.assertTrue(report["complete"], report["findings"])
+        self.assertTrue(report["themes"]["Neat"]["complete"])
+        os.remove(self.ob("themes", "Neat", "theme.css"))
+        self.assertIn("theme Neat: theme.css is missing", self.check()["findings"])
+
+    def test_an_owners_own_theme_choice_is_kept(self):
+        self.with_theme()
+        os.makedirs(self.ob())
+        with open(self.ob("appearance.json"), "w", encoding="utf-8") as f:
+            json.dump({"cssTheme": "Their Own"}, f)
+        self.write()
+        self.assertEqual(json.loads(read(self.ob("appearance.json"))), {"cssTheme": "Their Own"})
+
+    def test_a_theme_whose_hash_does_not_match_is_refused_and_named(self):
+        self.with_theme()
+        self.server.files["/someone/obsidian-neat/releases/download/1.0.0/theme.css"] = b"tampered\n"
+        actions, failures = self.write()
+        self.assertEqual([f[0] for f in failures], ["theme Neat"])
+        self.assertFalse(os.path.exists(self.ob("themes", "Neat")))
+        self.assertIn("theme Neat is not installed", self.check()["findings"])
+
+    def test_a_theme_at_another_version_is_left_unless_upgrade_is_given(self):
+        self.with_theme(version="0.9.0", body=b".old {}\n")
+        self.write()
+        self.with_theme(version="1.0.0")
+        actions, _ = self.write()
+        self.assertTrue(any("theme Neat: left at version 0.9.0" in a for a in actions), actions)
+        self.assertEqual(read(self.ob("themes", "Neat", "theme.css"), "rb"), b".old {}\n")
+        self.write(upgrade=True)
+        self.assertEqual(read(self.ob("themes", "Neat", "theme.css"), "rb"), b".neat {}\n")
+
+    def test_a_cssTheme_that_names_no_pinned_theme_is_a_bad_manifest(self):
+        self.manifest["appearance"] = {"cssTheme": "Nowhere"}
+        self.write_manifest()
+        with self.assertRaises(common.ToolError):
+            obsidian.load_manifest(self.manifest_path)
+
     # ---- the shipped manifest and the fixture ----
 
     def test_the_shipped_manifest_is_valid_and_names_no_one(self):
         m = obsidian.load_manifest(obsidian.DEFAULT_MANIFEST)
-        self.assertEqual([p["id"] for p in m["plugins"]], ["folder-notes", "external-file-embed-and-link"])
+        self.assertEqual([p["id"] for p in m["plugins"]],
+                         ["folder-notes", "external-file-embed-and-link", "obsidian-minimal-settings"])
+        self.assertEqual([t["name"] for t in m["themes"]], ["Minimal"])
+        self.assertEqual(m["appearance"], {"cssTheme": "Minimal"})
         self.assertTrue(m["plugins"][0]["data"].get("hideFolderNote"))
         text = read(obsidian.DEFAULT_MANIFEST).lower()
         for word in ("/users/", "/home/", "@", "boshu"):
@@ -339,6 +399,7 @@ class ObsidianTest(unittest.TestCase):
         shipped = obsidian.load_manifest(obsidian.DEFAULT_MANIFEST)
         self.assertEqual(shipped["app"].get("propertiesInDocument"), "hidden")
         self.assertEqual(obsidian.load_manifest(FIXTURE_MANIFEST)["app"], shipped["app"])
+        self.assertEqual(obsidian.load_manifest(FIXTURE_MANIFEST)["appearance"], shipped["appearance"])
 
     def test_an_owner_who_shows_properties_keeps_that_choice(self):
         self.manifest["app"] = {"alwaysUpdateLinks": True, "propertiesInDocument": "hidden"}

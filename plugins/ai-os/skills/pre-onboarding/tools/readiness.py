@@ -101,6 +101,8 @@ def editor_setup(wiki, manifest_path):
         ("present", r["present"]), ("complete", r["complete"]),
         ("plugins", collections.OrderedDict((pid, "complete" if st["complete"] else "incomplete")
                                             for pid, st in r["plugins"].items())),
+        ("themes", collections.OrderedDict((name, "complete" if st["complete"] else "incomplete")
+                                           for name, st in r["themes"].items())),
         ("core", r.get("core")), ("device_state", r["device_state"]), ("findings", r["findings"])])
 CANARY_ENGINES = ("agy", "codex")  # isolation.py canary --engine
 FRONTMATTER = re.compile(r"---\n(.*?)\n---\n", re.S)  # as wiki.py check reads it
