@@ -101,6 +101,9 @@ owner by hand.
   a page opens on its content. The Properties view still shows a page's properties to anyone who wants them.
   Obsidian has no setting that starts the block folded: folding is a per-note command, and Obsidian keeps the fold
   in its own app storage, not in the vault. An owner who sets the option otherwise keeps that choice.
+- **Readable line length is off.** `app.json` sets `readableLineLength` to `false`, so a page uses the
+  window's full width. With it on, Obsidian narrows every page to a reading column, and a table of figures wraps
+  or scrolls inside it. An owner who sets it otherwise keeps that choice.
 - **The manifest.** The method ships it:
   [`obsidian-profile.json`](../pre-onboarding/tools/obsidian-profile.json), beside the tool that reads it,
   [`obsidian.py`](../pre-onboarding/references/tools.md#obsidianpy). The tool builds the profile from the

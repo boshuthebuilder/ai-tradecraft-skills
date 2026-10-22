@@ -4,6 +4,18 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v15.4.0 (2026-10-22)
+
+A **MINOR**: the editor setup turns readable line length off, so a table of figures uses the full width. No skill
+name, frontmatter, archetype layout or prompt placeholder changes.
+
+### Added (MINOR)
+
+- **`readableLineLength: false` in the editor setup** (`pre-onboarding/tools/obsidian-profile.json`,
+  `wiki-maintenance` *The editor setup*). With it on, Obsidian narrows every page to a reading column, and the wide
+  tables the method writes wrap or scroll inside it; the owner found this a problem. `obsidian.py write` adds the
+  key only where `app.json` lacks it, so an owner's own choice stands. The test fixture carries the same key.
+
 ## v15.3.0 (2026-10-22)
 
 A **MINOR**: the editor setup ships the Minimal theme and its settings plugin, and portable-markdown records the

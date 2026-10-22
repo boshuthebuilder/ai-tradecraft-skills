@@ -398,6 +398,7 @@ class ObsidianTest(unittest.TestCase):
         # that starts the block folded (the fold is per note, in its app storage), so hidden is the one that exists
         shipped = obsidian.load_manifest(obsidian.DEFAULT_MANIFEST)
         self.assertEqual(shipped["app"].get("propertiesInDocument"), "hidden")
+        self.assertIs(shipped["app"].get("readableLineLength"), False)   # a wide table needs the full width
         self.assertEqual(obsidian.load_manifest(FIXTURE_MANIFEST)["app"], shipped["app"])
         self.assertEqual(obsidian.load_manifest(FIXTURE_MANIFEST)["appearance"], shipped["appearance"])
 
