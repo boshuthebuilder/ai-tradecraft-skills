@@ -230,6 +230,30 @@ Generate chart blocks with a renderer rather than by hand, so the same data alwa
 block. Whenever either editor moves a major version, reopen the probe page in both apps, the method below,
 which also settles what this pass could only infer from each editor's library and source.
 
+## Theme classes and rich inline formats
+
+A page may ask its theme for richer formats, and stay readable in Typora, through **front matter only**:
+a `cssclasses:` list. Obsidian applies the classes, and Typora ignores the key (it shows the front matter as a
+metadata block, which it does anyway). For the Minimal theme (the ai-os editor setup), a page may set these:
+`row-alt` (striped table rows), `table-tabular` (figures aligned in columns), `table-wide` (a wide table may use
+the full width) and `table-lines` (cell borders). Use no class outside that list.
+
+Inline formats, as each editor treats them:
+
+- **Safe in both:** bold, italic, `~~strikethrough~~`, inline code, bulleted and numbered lists, `- [ ]` and
+  `- [x]` tasks, GFM tables with alignment, `[^1]` footnotes, `$$` math blocks, fenced code.
+- **Safe with a Typora setting:** `==highlight==` needs Typora's Highlight syntax, and `$x$` its Inline Math. With
+  either off, Typora shows the raw marks. Keep highlight rare.
+- **A tag** (`#tag`): mid-sentence, or in front matter `tags:`. Never at the start of a line. Typora reads a
+  line-start `#tag` as a heading unless its Strict Mode is on.
+- **Never:** `%% comments %%` (Typora shows them), `![[embeds]]`, image sizes `![alt|300](x.png)`, a callout title,
+  metadata (`[!note|wide]`) or fold marker (`[!note]-`) on the marker line, callout types other than the five
+  above, alternate checkboxes (`- [>]`), definition lists, and `<details>` blocks (Typora shows their Markdown
+  raw).
+
+This list comes from each editor's documentation and issue tracker (checked 2026-10 for Typora 1.14 and Obsidian
+1.14); a format is confirmed by opening a probe page in both apps, as for the charts above.
+
 ## Keep the render a pure function
 
 If the document is regenerated — an audit, an index, a dashboard page — make the renderer a pure function
