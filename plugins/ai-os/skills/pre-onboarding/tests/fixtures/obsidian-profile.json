@@ -26,7 +26,8 @@
   ],
   "app": {
     "alwaysUpdateLinks": true,
-    "propertiesInDocument": "hidden"
+    "propertiesInDocument": "hidden",
+    "readableLineLength": false
   },
   "appearance": {
     "cssTheme": "Minimal"
