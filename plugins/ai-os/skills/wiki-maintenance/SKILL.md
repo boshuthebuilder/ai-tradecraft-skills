@@ -104,6 +104,11 @@ owner by hand.
 - **Readable line length is off.** `app.json` sets `readableLineLength` to `false`, so a page uses the
   window's full width. With it on, Obsidian narrows every page to a reading column, and a table of figures wraps
   or scrolls inside it. An owner who sets it otherwise keeps that choice.
+- **The text font is Palatino.** `appearance.json` sets `textFontFamily` to `Palatino, Palatino Linotype, Georgia,
+  serif`, an editorial serif that reads more easily at length than the theme's interface font. It is the font
+  Typora's Whitey theme shows on a Mac, so a page reads the same in both editors. Palatino ships with macOS and iOS,
+  and Palatino Linotype is its Windows name. Obsidian applies the setting through `--font-text-override`, which the
+  Minimal theme honours. An owner who sets another font keeps that choice.
 - **The manifest.** The method ships it:
   [`obsidian-profile.json`](../pre-onboarding/tools/obsidian-profile.json), beside the tool that reads it,
   [`obsidian.py`](../pre-onboarding/references/tools.md#obsidianpy). The tool builds the profile from the
