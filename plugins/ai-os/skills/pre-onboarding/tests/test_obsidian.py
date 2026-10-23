@@ -387,7 +387,8 @@ class ObsidianTest(unittest.TestCase):
         self.assertEqual([p["id"] for p in m["plugins"]],
                          ["folder-notes", "external-file-embed-and-link", "obsidian-minimal-settings"])
         self.assertEqual([t["name"] for t in m["themes"]], ["Minimal"])
-        self.assertEqual(m["appearance"], {"cssTheme": "Minimal"})
+        self.assertEqual(m["appearance"], {"cssTheme": "Minimal",
+                                           "textFontFamily": "Palatino, Palatino Linotype, Georgia, serif"})
         self.assertTrue(m["plugins"][0]["data"].get("hideFolderNote"))
         text = read(obsidian.DEFAULT_MANIFEST).lower()
         for word in ("/users/", "/home/", "@", "boshu"):
@@ -399,6 +400,8 @@ class ObsidianTest(unittest.TestCase):
         shipped = obsidian.load_manifest(obsidian.DEFAULT_MANIFEST)
         self.assertEqual(shipped["app"].get("propertiesInDocument"), "hidden")
         self.assertIs(shipped["app"].get("readableLineLength"), False)   # a wide table needs the full width
+        # the text font Typora's Whitey theme shows on a Mac, then its Windows name and a common fallback
+        self.assertEqual(shipped["appearance"].get("textFontFamily"), "Palatino, Palatino Linotype, Georgia, serif")
         self.assertEqual(obsidian.load_manifest(FIXTURE_MANIFEST)["app"], shipped["app"])
         self.assertEqual(obsidian.load_manifest(FIXTURE_MANIFEST)["appearance"], shipped["appearance"])
 
