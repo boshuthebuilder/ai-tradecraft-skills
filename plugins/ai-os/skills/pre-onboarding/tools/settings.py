@@ -319,6 +319,9 @@ def check_cmd(a):
         for pack in rb["packs"]:
             if pack not in text:
                 findings.append("the rulebook does not mention pack %r" % pack)
+        for st in rb["staging"]:
+            if st not in text:
+                findings.append("the rulebook does not mention staging folder %r" % st)
 
     missing = [n for n, p in (("CLAUDE.md", claude), ("AGENTS.md", agents)) if not os.path.exists(p)]
     if not missing:

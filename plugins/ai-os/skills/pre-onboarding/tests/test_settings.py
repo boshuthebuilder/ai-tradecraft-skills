@@ -646,6 +646,8 @@ class CheckTest(FixtureCopy):
             ("a pack not named", lambda r: self.rulebook_json(r, packs=["01 Identity/Passport renewal 2021",
                                                                          "02 Finance/Loan 2022"]),
              "pack '02 Finance/Loan 2022'"),
+            ("a staging folder not named", lambda r: self.rulebook_json(r, staging=["Scanner drop"]),
+             "the rulebook does not mention staging folder 'Scanner drop'"),
             ("a wiki folder not named after the folder",
              lambda r: self.rulebook_json(r, wiki_dir="Alex Personal Vault"), "wiki_dir 'Alex Personal Vault'"),
             ("a wiki folder really named otherwise", wiki_misnamed, "wiki_dir 'Alex Personal Vault'"),

@@ -233,17 +233,23 @@ class CopyKindsTest(AuditCase):
                          {"canonical": 6, "pack": 1, "redundant": 4, "working_copy": 2})
 
     def test_the_canonical_copy(self):
-        """A name marked as a copy loses, then the shallower path, then the shorter, then the first by name."""
+        """A generic name loses, then a name marked as a copy, then the shallower path, then the shorter, then the
+        first by name. A real name ending in a bracketed number reads as a copy mark, so it must still beat a raw
+        timestamp."""
         m = self.audit(self.folder({
             "Report copy.pdf": "one", "Deep/Deeper/Report.pdf": "one",
+            "Downloads/Scans/20260729105920.pdf": "six", "Legal/IP research/IPO - Guidance Note.pdf": "six",
             "Top/Letter.pdf": "two", "Top/Sub/Letter.pdf": "two",
             "Longer name/Note.txt": "three", "Short/Note.txt": "three",
             "B/Same.txt": "four", "A/Same.txt": "four",
             "Scan (2).pdf": "five", "Folder/Scan.pdf": "five",
+            "Tax/Tax Return (2024).pdf": "seven", "Tax/20261001093000.pdf": "seven",
+            "Statements/2024-03-15.pdf": "eight", "Statements/2024-03-15 copy.pdf": "eight",
         }))
         canon = {c["path"] for c in kinds_list(m) if c["kind"] == "canonical"}
         self.assertEqual(canon, {"Deep/Deeper/Report.pdf", "Top/Letter.pdf", "Short/Note.txt", "A/Same.txt",
-                                 "Folder/Scan.pdf"})
+                                 "Folder/Scan.pdf", "Legal/IP research/IPO - Guidance Note.pdf",
+                                 "Tax/Tax Return (2024).pdf", "Statements/2024-03-15.pdf"})
         self.assertEqual({e["current_path"] for e in m["entries"].values()}, canon)
 
     def test_redundant_by_folder_similarity(self):
@@ -341,12 +347,13 @@ class GenericNameTest(AuditCase):
     def test_generic_stems(self):
         for stem in ("IMG_0001", "IMG_0001 (1)", "DSC01234", "Screenshot 2024-01-02 at 10.11.12",
                      "Screen Shot 2019-03-04 at 1.02.03 PM", "Scan", "Scanned Document 3", "Document (2)", "untitled",
-                     "Photo 12 copy", "12345", "2024-01-02", "微信图片_20240101",
+                     "Photo 12 copy", "12345", "2024-01-02", "2024-01-02 copy", "2024-01-02 copy 2", "12 (1)",
+                     "微信图片_20240101",
                      "WhatsApp Image 2024-01-02 at 10.11.12"):
             with self.subTest(stem):
                 self.assertTrue(audit.is_generic(stem))
         for stem in ("Imagine", "Scanned tax return", "Photo of Robin", "Passport scan", "Document final",
-                     "Bank statement 2024-03", "12"):
+                     "Bank statement 2024-03", "12", "12 copy", "Report copy"):
             with self.subTest(stem):
                 self.assertFalse(audit.is_generic(stem))
 
@@ -445,6 +452,40 @@ class HygieneTest(AuditCase):
         self.assertEqual((e["A/" + long_name]["look_reason"], e["A/" + long_name]["flags"]),
                          ("component_over_255_bytes", ["hygiene"]))
         self.assertEqual(self.summary(root)["hygiene"], {"component_over_255_bytes": 1})
+
+
+class StagingTest(AuditCase):
+    def test_a_staged_copy_never_wins_and_is_redundant_once_filed(self):
+        """A copy in a listed staging folder loses canonical to a deeper, longer copy outside it, and is redundant
+        whatever the folders share, so the light plan proposes deleting it; a document only in staging stays."""
+        files = self.pinned(staging=["Downloads"])
+        files.update({
+            "Downloads/Scans/2022-05-01 letter.pdf": "filed",
+            "02 Legal/Trademark/Research/IPO - Guidance Note 2022-05-01.pdf": "filed",
+            "Downloads/Scans/2022-06-01 only here.pdf": "unfiled",
+            "Downloads/Scans/2022-07-01 twice.pdf": "staged twice", "Downloads/Other/2022-07-01 twice.pdf": "staged twice",
+        })
+        root = self.folder(files, parent="st")
+        k = kinds(self.audit(root))
+        self.assertEqual(k["02 Legal/Trademark/Research/IPO - Guidance Note 2022-05-01.pdf"], "canonical")
+        self.assertEqual(k["Downloads/Scans/2022-05-01 letter.pdf"], "redundant")
+        self.assertNotIn("Downloads/Scans/2022-06-01 only here.pdf", k)
+        self.assertEqual({k["Downloads/Scans/2022-07-01 twice.pdf"], k["Downloads/Other/2022-07-01 twice.pdf"]},
+                         {"canonical", "working_copy"})           # both staged: the ordinary rules apply
+        plan_dir = os.path.join(self.tmp, "st", "plan")
+        code, _o, err = run("plan.py", "light", "--root", root, "--manifest",
+                            os.path.join(self.out(root), "manifest.json"), "--out", plan_dir)
+        self.assertEqual(code, 0, err)
+        with open(os.path.join(plan_dir, "move-plan.csv"), encoding="utf-8", newline="") as f:
+            deletes = sorted(r["from"] for r in csv.DictReader(f) if r["action"] == "delete")
+        self.assertEqual(deletes, ["Downloads/Scans/2022-05-01 letter.pdf"])
+
+    def test_a_staging_entry_must_exist(self):
+        root = self.folder(self.pinned(staging=["Nowhere"]), parent="st2")
+        code, _o, err = run("audit.py", "--root", root, "--work", os.path.join(self.tmp, "st2", "work"),
+                            "--out", self.out(root), "--read-only-root")
+        self.assertEqual(code, 2)
+        self.assertIn("staging entry 'Nowhere'", err)
 
 
 class PackSettingsTest(AuditCase):

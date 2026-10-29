@@ -28,6 +28,7 @@ An unknown version, an unknown key or a value of the wrong shape fails loud.
 | `reserved` | list of names | `[]` | top-level names reserved beyond the fixed set below; the audit never walks one, so nothing in a reserved folder is extracted, carded or sent (it also skips `Outbox`, `Wiki` and any top-level folder whose name begins with `_` but the migrations folder, whatever the rulebook says) |
 | `depth` | `light`, `medium` or `full` | `light` | how far the owner is open to a re-organisation: `light` for none beyond the default tidy, `medium` for named folders, `full` only if they ask for a new shape for most of the folder ([`folder-curation`'s ladder](../../folder-curation/SKILL.md#the-depth-ladder)). It is not a depth to choose up front: [the structure assessment](../SKILL.md#7-assess-the-structure) decides what is proposed, folder by folder, and the owner approves each. `plan.py reorg` refuses to run when it is `light` (or absent, which is `light`) |
 | `packs` | list of folder paths | `[]` | submission records, whose copies are never deleted, in addition to the folders the audit's pack keywords match; each an existing folder, relative and named exactly, or the tools refuse to run. Audit again after changing `packs`, `pack_keywords` or `reserved`, before any plan is proposed |
+| `staging` | list of folder paths | `[]` | dump folders the owner has not filed from yet (a downloads folder, a scanner drop, a "not processed" pile): a copy inside one never wins canonical over a copy outside, and, unless it sits in a pack, is `redundant` whenever the same content exists outside staging, whatever the two folders share, so a light round proposes deleting what the owner has already filed; each an existing folder, relative and named exactly, named in the rulebook, or the audit refuses to run (`settings.py check` reports one the rulebook does not name). Audit again after changing it |
 | `working_formats` | list of extensions | `[]` | formats the owner keeps working in, such as `.pages` |
 | `active`, `finished` | lists of folder paths | `[]` | live matters, and closed matters ingested once as history |
 | `people` | list of `{name, also, who}` | `[]` | each person or organisation: canonical name, every other name or script it appears under, and one line on who they are |
@@ -188,8 +189,8 @@ defect gives one finding. It checks:
 - both twins are present and fresh (`status.rulebook_json`, `status.wiki_schema_json`: `fresh`, `stale`,
   `unpinned`, `missing` or `invalid`);
 - `wiki_dir` is `<folder name> Wiki`;
-- the rulebook's text (valid UTF-8) names every reserved name, with the wiki folder as `<folder name> Wiki`, and
-  every pack path;
+- the rulebook's text (valid UTF-8) names every reserved name, with the wiki folder as `<folder name> Wiki`, every
+  pack path and every staging folder;
 - `CLAUDE.md` and `AGENTS.md` are byte-identical;
 - the twin was compiled from a Schema inside the wiki folder;
 - the Page contracts table has its Reader column;
