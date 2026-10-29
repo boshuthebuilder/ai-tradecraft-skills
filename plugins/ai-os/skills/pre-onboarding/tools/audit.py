@@ -58,8 +58,10 @@ MODIFIERS = re.compile(r"(final|signed|updated|exported|export|copy|v\d+|version
 
 
 def is_generic(stem):
+    # a copy mark does not make a name real: "2024-01-02 copy" is as generic as "Scan copy", whose prefix branch
+    # already reads past it
     s = stem.strip()
-    if re.fullmatch(r"[\d\s_\-().]{3,}", s):
+    if any(re.fullmatch(r"[\d\s_\-().]{3,}", t) for t in (s, COPY_RX.sub("", s))):
         return True
     m = GEN_PREFIX.match(s)
     return bool(m) and GEN_REST.fullmatch(s[m.end():]) is not None

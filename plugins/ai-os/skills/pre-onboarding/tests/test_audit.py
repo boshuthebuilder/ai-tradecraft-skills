@@ -244,11 +244,12 @@ class CopyKindsTest(AuditCase):
             "B/Same.txt": "four", "A/Same.txt": "four",
             "Scan (2).pdf": "five", "Folder/Scan.pdf": "five",
             "Tax/Tax Return (2024).pdf": "seven", "Tax/20261001093000.pdf": "seven",
+            "Statements/2024-03-15.pdf": "eight", "Statements/2024-03-15 copy.pdf": "eight",
         }))
         canon = {c["path"] for c in kinds_list(m) if c["kind"] == "canonical"}
         self.assertEqual(canon, {"Deep/Deeper/Report.pdf", "Top/Letter.pdf", "Short/Note.txt", "A/Same.txt",
                                  "Folder/Scan.pdf", "Legal/IP research/IPO - Guidance Note.pdf",
-                                 "Tax/Tax Return (2024).pdf"})
+                                 "Tax/Tax Return (2024).pdf", "Statements/2024-03-15.pdf"})
         self.assertEqual({e["current_path"] for e in m["entries"].values()}, canon)
 
     def test_redundant_by_folder_similarity(self):
@@ -346,12 +347,13 @@ class GenericNameTest(AuditCase):
     def test_generic_stems(self):
         for stem in ("IMG_0001", "IMG_0001 (1)", "DSC01234", "Screenshot 2024-01-02 at 10.11.12",
                      "Screen Shot 2019-03-04 at 1.02.03 PM", "Scan", "Scanned Document 3", "Document (2)", "untitled",
-                     "Photo 12 copy", "12345", "2024-01-02", "微信图片_20240101",
+                     "Photo 12 copy", "12345", "2024-01-02", "2024-01-02 copy", "2024-01-02 copy 2", "12 (1)",
+                     "微信图片_20240101",
                      "WhatsApp Image 2024-01-02 at 10.11.12"):
             with self.subTest(stem):
                 self.assertTrue(audit.is_generic(stem))
         for stem in ("Imagine", "Scanned tax return", "Photo of Robin", "Passport scan", "Document final",
-                     "Bank statement 2024-03", "12"):
+                     "Bank statement 2024-03", "12", "12 copy", "Report copy"):
             with self.subTest(stem):
                 self.assertFalse(audit.is_generic(stem))
 
