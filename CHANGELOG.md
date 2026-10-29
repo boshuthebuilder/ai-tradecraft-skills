@@ -4,6 +4,24 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v15.6.0 (2026-10-29)
+
+A **MINOR**: the pre-onboarding audit learns two rules about which copy of a document is canonical, and the rulebook
+twin gains an optional `staging` list. No skill name, frontmatter, archetype layout or prompt placeholder changes.
+
+### Added (MINOR)
+
+- **`staging` in the rulebook twin** (`pre-onboarding/references/settings.md`, `tools/common.py`): a list of dump
+  folders the owner has not filed from yet (a downloads folder, a scanner drop, a not-processed pile). A copy inside
+  one never wins canonical over a copy outside, and is `redundant` whenever the same content exists outside staging.
+  `settings.py check` requires the rulebook to name each staging folder, and the loader refuses one that is not an
+  existing folder. An empty list, the default, changes nothing. A consumer that validates the twin's keys must accept
+  `staging`: the tools that wrote a twin carrying it, and every tool that reads it back (the editor setup among them),
+  now do.
+- **A generically named copy never wins canonical** (`tools/audit.py`): a bare number, `IMG_` or `Scanned Document`
+  sorts after a real name, before depth and length. Found on a folder where a raw scanner file named by its timestamp
+  outranked the named copy filed from it, so half of a light round's proposed deletions pointed the wrong way.
+
 ## v15.5.0 (2026-10-23)
 
 A **MINOR**: the editor setup sets the text font to Palatino. No skill name, frontmatter, archetype layout or prompt
