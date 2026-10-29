@@ -15,13 +15,23 @@ twin gains an optional `staging` list. No skill name, frontmatter, archetype lay
   folders the owner has not filed from yet (a downloads folder, a scanner drop, a not-processed pile). A copy inside
   one never wins canonical over a copy outside, and is `redundant` whenever the same content exists outside staging.
   `settings.py check` requires the rulebook to name each staging folder, and the audit refuses one that is not an
-  existing folder (the other tools do not look for it). An empty list, the default, changes nothing. A consumer that validates the twin's keys must accept
-  `staging`: the tools that wrote a twin carrying it, and every tool that reads it back (the editor setup among them),
-  now do.
+  existing folder (the other tools do not look for it). An empty list, the default, changes nothing. A consumer that
+  validates the twin's keys must accept `staging`: the tools that wrote a twin carrying it, and every tool that reads
+  it back (the editor setup among them), now do.
 - **A generically named copy never wins canonical** (`tools/audit.py`): a bare number, `IMG_` or `Scanned Document`
-  sorts after a real name, including one that ends in a bracketed number such as `(2024)`, and before a name
-  marked as a copy, depth and length. Found on a folder where a raw scanner file named by its timestamp
-  outranked the named copy filed from it, so half of a light round's proposed deletions pointed the wrong way.
+  sorts after a real name, including one that ends in a bracketed number such as `(2024)`, and before a name marked
+  as a copy, depth and length. Found on a folder where a raw scanner file named by its timestamp outranked the named
+  copy filed from it, so half of a light round's proposed deletions pointed the wrong way.
+
+### Changed (MINOR)
+
+- **A bare date or number with a copy mark is a generic name** (`tools/audit.py` `is_generic`): `2024-03-15 copy` and
+  `2024-03-15 copy 2` now read as generic, as `Scan copy` already did, so the dated original beats its Finder
+  duplicate. `is_generic` has more readers than the canonical order, so such a file also gains `generic_name` in the
+  manifest, counts in the summary's `generic_names` and `generic_by_folder`, and can tip a folder's `generic_names`
+  flag in `structure.py`, which the structure assessment shows the owner. No tool turns the flag or `generic_name`
+  into a plan row, so no rename, move or deletion row changes because of it.
+  `12 copy` stays a real name: what is left without the copy mark is under three characters.
 
 ## v15.5.0 (2026-10-23)
 
