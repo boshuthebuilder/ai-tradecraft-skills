@@ -233,8 +233,9 @@ class CopyKindsTest(AuditCase):
                          {"canonical": 6, "pack": 1, "redundant": 4, "working_copy": 2})
 
     def test_the_canonical_copy(self):
-        """A name marked as a copy loses, then a generic name, then the shallower path, then the shorter, then the
-        first by name."""
+        """A generic name loses, then a name marked as a copy, then the shallower path, then the shorter, then the
+        first by name. A real name ending in a bracketed number reads as a copy mark, so it must still beat a raw
+        timestamp."""
         m = self.audit(self.folder({
             "Report copy.pdf": "one", "Deep/Deeper/Report.pdf": "one",
             "Downloads/Scans/20260729105920.pdf": "six", "Legal/IP research/IPO - Guidance Note.pdf": "six",
@@ -242,10 +243,12 @@ class CopyKindsTest(AuditCase):
             "Longer name/Note.txt": "three", "Short/Note.txt": "three",
             "B/Same.txt": "four", "A/Same.txt": "four",
             "Scan (2).pdf": "five", "Folder/Scan.pdf": "five",
+            "Tax/Tax Return (2024).pdf": "seven", "Tax/20261001093000.pdf": "seven",
         }))
         canon = {c["path"] for c in kinds_list(m) if c["kind"] == "canonical"}
         self.assertEqual(canon, {"Deep/Deeper/Report.pdf", "Top/Letter.pdf", "Short/Note.txt", "A/Same.txt",
-                                 "Folder/Scan.pdf", "Legal/IP research/IPO - Guidance Note.pdf"})
+                                 "Folder/Scan.pdf", "Legal/IP research/IPO - Guidance Note.pdf",
+                                 "Tax/Tax Return (2024).pdf"})
         self.assertEqual({e["current_path"] for e in m["entries"].values()}, canon)
 
     def test_redundant_by_folder_similarity(self):

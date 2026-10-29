@@ -14,12 +14,13 @@ twin gains an optional `staging` list. No skill name, frontmatter, archetype lay
 - **`staging` in the rulebook twin** (`pre-onboarding/references/settings.md`, `tools/common.py`): a list of dump
   folders the owner has not filed from yet (a downloads folder, a scanner drop, a not-processed pile). A copy inside
   one never wins canonical over a copy outside, and is `redundant` whenever the same content exists outside staging.
-  `settings.py check` requires the rulebook to name each staging folder, and the loader refuses one that is not an
-  existing folder. An empty list, the default, changes nothing. A consumer that validates the twin's keys must accept
+  `settings.py check` requires the rulebook to name each staging folder, and the audit refuses one that is not an
+  existing folder (the other tools do not look for it). An empty list, the default, changes nothing. A consumer that validates the twin's keys must accept
   `staging`: the tools that wrote a twin carrying it, and every tool that reads it back (the editor setup among them),
   now do.
 - **A generically named copy never wins canonical** (`tools/audit.py`): a bare number, `IMG_` or `Scanned Document`
-  sorts after a real name, before depth and length. Found on a folder where a raw scanner file named by its timestamp
+  sorts after a real name, including one that ends in a bracketed number such as `(2024)`, and before a name
+  marked as a copy, depth and length. Found on a folder where a raw scanner file named by its timestamp
   outranked the named copy filed from it, so half of a light round's proposed deletions pointed the wrong way.
 
 ## v15.5.0 (2026-10-23)
