@@ -4,6 +4,31 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v15.8.0 (2026-11-01)
+
+A **MINOR**: the `adversarial-review` skill gains a cadence rule, a note on model choice, a rule on running the whole
+suite between rounds, and a warning about `agy` argument order. No skill name, frontmatter, archetype layout or prompt
+placeholder changes. Under the single-version-stream rule, all three direction manifests bump to 15.8.0. The skill
+names no model as a default: catalogues and quotas are per account.
+
+### Added (MINOR)
+
+- **Cadence** (*Quota-aware reviewer selection*): among eligible different-model legs, iterate on the leg with the most
+  quota headroom (often a lighter Antigravity-pool model chosen with `--model`), and keep the scarcest high-value leg,
+  commonly Codex, for the final pass before merge. It is an ordering heuristic and never overrides model diversity.
+- **Model choice is a lever** (same section): a per-user default model belongs in the user's own config, not in the
+  skill. Check headroom with one real one-line print call per candidate model, because `agy models` still lists a
+  model whose quota is exhausted.
+- **Rule 11, run the whole suite between rounds.** A fix in round 1 broke three unrelated tests on one project; the
+  next six rounds ran only the tests near their own fix, and the regression passed through unseen.
+- **`agy` argument order** (same section): `agy -p --model X "prompt"` makes `-p` take `--model` as its prompt. The safe
+  raw form is `agy --model X -p='prompt'`. `tools/agy-review` was checked and already passes `--model` first, so the
+  harness is unchanged.
+
+### Changed (PATCH)
+
+- The Codex wall estimate in the fallback chain now reads "roughly 7 to a dozen rounds in a session".
+
 ## v15.7.0 (2026-11-01)
 
 A **MINOR**: the marketplace lists its first upstream plugin, `reading-vocab`, hosted in another repository and

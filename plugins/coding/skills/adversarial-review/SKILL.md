@@ -87,6 +87,12 @@ When in doubt, it applies.
    of the chain reads this page, name the lens when you delegate — a label/prompt line such as:
    "also flag, by reading the diff, any hunk that does not trace to the PR's stated intent, and any
    abstraction or error handling the change does not need".
+11. **Run the whole test suite between rounds — not only the tests near the fix.** Each round's
+   verification is the full suite, or the repo's own full gate. On one private project's PR, round 1's
+   fix broke three unrelated tests. Rounds 2 to 7 each ran only the tests near their own fix, so the
+   regression passed through six rounds unseen. A reviewer cannot catch it: it reads the diff, and the
+   diff does not show a test it never touched. Fix-induced breakage (rule 6) is exactly what a narrow
+   run hides.
 
 ## The fallback chain
 
@@ -168,7 +174,7 @@ eligibility gate; subscription windows only decide the order among eligible revi
    a numeric or engineering contract* — use the `codex exec` form in *Bounding a review CLI* instead.
    Codex doesn't post to the PR itself: relay its findings with `gh pr comment`. Run it bounded and in
    the background (see *Bounding a review CLI* below); expect a subscription rate wall after
-   roughly a dozen rounds in a session — the wall locks the shared bucket for days, which is why
+   roughly 7 to a dozen rounds in a session — the wall locks the shared bucket for days, which is why
    it sits last among the different-model legs. Its review quality has earned its place in the
    chain (it has caught data-loss-class bugs the author's own tests missed); reach for it when it is
    the next eligible path after another reviewer dies typed, or when a second independent model is
@@ -332,6 +338,23 @@ you plan the review:
   without spending the primary Claude plan — but that is same-family review (weaker diversity, older
   generation). Prefer a genuinely different family first; reach for same-family-via-pool to preserve
   quota, and disclose it on the PR like any weaker gate.
+- **Cadence: iterate on headroom, finish on the scarcest leg.** Among the *eligible* different-model
+  legs, run the iterating rounds on the leg with the most quota headroom — often a lighter model in
+  the Antigravity pool, chosen with `--model`. Keep the scarcest high-value leg for the final
+  cross-model pass before merge. That leg is commonly Codex: its shared bucket walls for days after
+  about 7 rounds in one sitting, and its findings are worth most at the last gate. This is an ordering
+  heuristic among eligible legs. It never overrides rule 1: a leg that serves the author's model
+  family is not eligible, however much headroom it has.
+- **Model choice is a lever.** The strongest model is not needed for every round; careful reading of
+  a diff is within reach of a lighter one. Model catalogues and quotas are per account and change
+  week to week, so this skill names no default model. A per-user default belongs in the user's own
+  config (for example a line in a global `CLAUDE.md`). To check headroom, make one real one-line
+  print call per candidate model, for example `agy --model "<label>" -p='Reply with the word ok'`.
+  Do not trust `agy models`: it still lists a model whose quota is exhausted.
+- **Put `--model` before `-p` in a raw `agy` call.** `agy -p --model X "prompt"` makes `-p` take
+  `--model` as its prompt: agy errors, and the real prompt is ignored. Write `agy --model X -p='prompt'`.
+  The bundled harness is already safe: it passes `--model` first, and `-p` is the last flag, followed
+  directly by the prompt.
 - **Older pool models are fine for this job.** Adversarial review is careful *reading*; a
   previous-generation model with the diff in front of it catches real defects (the reference
   deployment's gate history is largely a mid-tier model finding genuine bugs).
