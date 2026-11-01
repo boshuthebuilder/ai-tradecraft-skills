@@ -31,6 +31,14 @@ format, so they work in any agent that reads it — install only the direction y
 /plugin install productivity@ai-tradecraft-skills
 ```
 
+The marketplace also lists `reading-vocab`, a plugin hosted in its own repository (see
+[*Upstream plugins*](#upstream-plugins)). That repository is private, so installing it needs read
+access and git credentials Claude Code can use without a prompt: an SSH key, or `gh auth setup-git`.
+
+```
+/plugin install reading-vocab@ai-tradecraft-skills
+```
+
 ### ChatGPT (Codex CLI)
 
 Codex CLI reads the Claude Code marketplace format, so the same repo installs as a Codex plugin —
@@ -229,6 +237,26 @@ behalf, rather than the code or the folder, and the formats that help you unders
   Edition with a free local voice, timed beat by beat) that was rendered end to end and then
   reproduced by a second agent from the page alone.
 
+## Upstream plugins
+
+The marketplace may list a plugin that lives in another repository. Its entry in
+[`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json) is a `github` source pinned to an
+upstream release tag and that tag's commit, so nothing upstream reaches a consumer until the pin moves
+here. Such a plugin is not a direction: its skills are not copied into this repository, and its own
+repository holds their text, licence and versioning.
+
+- **`reading-vocab`** ([chenspc/reading-vocab](https://github.com/chenspc/reading-vocab), private, MIT)
+  — two skills for a reader who keeps an Anki deck. `reading-vocab` turns the words jotted while reading
+  (Apple Notes, Bear, Obsidian or a text file) plus the book file into dictionary-grounded cards: each
+  carries the book's own sentence, one to four authored senses with a short Simplified Chinese gloss each,
+  and the macOS dictionary entry. `compare-words` keeps a second deck of near-synonym groups, with a map
+  card and a fit card per word. The skills are the procedure; the code they drive (an MCP server, the
+  sentence finder, the card composer) runs from the user's own clone of that repository, which its
+  `docs/SETUP.md` installs.
+
+To take a newer upstream release, change the entry's `ref` and `sha` to the new tag and its commit, in a
+PR here. That is a MINOR release of this repository.
+
 ## How updates propagate
 
 - **Cowork / interactive** — you get the latest each session (the marketplace tracks this repo).
@@ -252,6 +280,9 @@ Three extension points:
 - **A direction** — a new plugin under `plugins/<direction>/` (own
   `.claude-plugin/plugin.json` + `skills/`), plus a marketplace entry, created together with its
   first skill. A new direction is a MINOR release.
+- **An upstream plugin** — a marketplace entry whose `github` source pins another repository's
+  release tag and commit (see [*Upstream plugins*](#upstream-plugins)). Adding one, or moving its pin,
+  is a MINOR release.
 - **An archetype** — a new job family (its prompt templates, job declarations, and write
   contract) lives under `plugins/ai-os/skills/project-onboarding/archetypes/<name>/`, following
   the shape of `file-ingest`. See

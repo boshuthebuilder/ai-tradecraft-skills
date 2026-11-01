@@ -4,6 +4,40 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v15.7.0 (2026-11-01)
+
+A **MINOR**: the marketplace lists its first upstream plugin, `reading-vocab`, hosted in another repository and
+pinned here to a release. No skill name, frontmatter, archetype layout or prompt placeholder changes. Under the
+single-version-stream rule, all three direction manifests bump to 15.7.0. The upstream plugin keeps its own
+version.
+
+### Added (MINOR)
+
+- **`reading-vocab`**, a marketplace entry whose source is
+  [chenspc/reading-vocab](https://github.com/chenspc/reading-vocab), pinned to its `v1.0.0` tag and that tag's
+  commit. The repository became a Claude Code plugin for this (chenspc/reading-vocab#1): its `plugin.json` names
+  `skill/` as the skills folder. Its two skills:
+  - `reading-vocab` turns the words a reader jots while reading, plus the book file, into dictionary-grounded
+    Anki cards. Each card carries the book's own sentence, one to four authored senses with a short Simplified
+    Chinese gloss each, and the macOS dictionary entry.
+  - `compare-words` keeps a second Anki deck of near-synonym groups, with a map card and a fit card per word.
+  - The skills drive the `reading-vocab` MCP server in the user's own clone of that repository. The plugin
+    carries only the skills.
+  - The repository is private and MIT-licensed. Installing the plugin needs read access and git credentials
+    Claude Code can use without a prompt.
+- **Upstream plugins** as an extension point (README *Upstream plugins*, AGENTS.md). Such a plugin is referenced,
+  never copied, and its entry pins a release tag and that tag's full commit `sha`. Adding one or moving its pin is
+  a MINOR release. Repo-level files may name its repository.
+
+### Verified
+
+- `python3 scripts/lint_skills.py`: OK, 17 skills, v15.7.0. The linter checks local plugins only, so it does not
+  read the upstream entry.
+- `claude plugin validate .`: passed.
+- In an isolated Claude config, `/plugin install reading-vocab@ai-tradecraft-skills` from this branch installed
+  `reading-vocab` 1.0.0 with both skills.
+- Not run: the skills against a real workspace, MCP server and Anki, and the Codex CLI install of this entry.
+
 ## v15.6.0 (2026-10-29)
 
 A **MINOR**: the pre-onboarding audit learns two rules about which copy of a document is canonical, and the rulebook

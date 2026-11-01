@@ -4,7 +4,7 @@
     "name": "Boshu Zhang"
   },
   "metadata": {
-    "description": "A method library of Agent Skills for AI-agent-driven work, organised by direction: coding (development-process discipline for coding agents — plan, build, gate), ai-os (the headless AI assisting system — job archetypes, wiki onboarding and maintenance), and productivity (individual AI-assisted work — writing, markdown and explainers a person can understand). Shared by interactive Claude Code / Cowork sessions and automated pipelines."
+    "description": "A method library of Agent Skills for AI-agent-driven work, organised by direction: coding (development-process discipline for coding agents — plan, build, gate), ai-os (the headless AI assisting system — job archetypes, wiki onboarding and maintenance), and productivity (individual AI-assisted work — writing, markdown and explainers a person can understand), plus reading-vocab, an upstream plugin pinned to a release (reading notes into Anki cards). Shared by interactive Claude Code / Cowork sessions and automated pipelines."
   },
   "plugins": [
     {
@@ -24,6 +24,16 @@
       "displayName": "AI Productivity",
       "source": "./plugins/productivity",
       "description": "Skills for individual AI-assisted knowledge work: ai-writing-audit (check a draft for the signs of AI authorship and rewrite so it reads as human), portable-markdown (write .md a person will open in Typora or Obsidian, so the links land and no raw markup shows), controlled-writing (explain in ASD-STE100-style controlled language so output is fast to read and check) and bespoke-explainers (choose and build a diagram, interactive page or narrated video explainer)."
+    },
+    {
+      "name": "reading-vocab",
+      "displayName": "Reading Vocabulary",
+      "source": {
+        "source": "github",
+        "repo": "chenspc/reading-vocab",
+        "sha": "2e2ae0c22fab314ee6bab7e590656969164248a5"
+      },
+      "description": "Hosted upstream in chenspc/reading-vocab (private; install needs access) and pinned here to a release. reading-vocab: turn the words a reader jots while reading, plus the book file, into dictionary-grounded Anki cards carrying the book's own sentences and a Chinese gloss per sense. compare-words: a second Anki deck of near-synonym groups. The skills drive the reading-vocab MCP server in the user's own clone of that repository."
     }
   ],
   "renames": {
