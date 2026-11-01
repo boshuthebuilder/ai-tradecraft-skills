@@ -39,7 +39,8 @@ has replied.
 - **The person**: who wants access and has no GitHub account.
 - **The owner**: an admin of the private repository. A collaborator with write access cannot add deploy
   keys; only an admin can.
-- **The repository**: `<owner>/<name>` on GitHub. `<name>` below is the part after the slash.
+- **The repository**: `<owner>/<name>` on GitHub. `<name>` below is the part after the slash. Key files
+  and host aliases carry both parts, so two repositories with the same name never share a key.
 
 ## Safety rules
 
@@ -54,16 +55,17 @@ has replied.
 ## Part 1 — make the key and the message
 
 1. **Find the repository.** If the person names it, use it. If they name a plugin listed under *Upstream
-   plugins* in this marketplace's `README.md`, take the repository from that entry (the marketplace's local copy is under
-   `~/.claude/plugins/marketplaces/`). Confirm `<owner>/<name>`
+   plugins* in this marketplace's `README.md`, take the repository from that entry (the marketplace's
+   local copy is under `~/.claude/plugins/marketplaces/`). Confirm `<owner>/<name>`
    with the person before going on.
 2. **Check for git.** Run `git --version`. On a Mac without it, macOS offers to install Apple's command line
    developer tools: tell the person to click **Install** in that dialog, and wait until it finishes.
-3. **Make the key, unless it already exists.** The key file is `~/.ssh/<name>_deploy`.
+3. **Make the key, unless it already exists.** The key file is `~/.ssh/<owner>-<name>_deploy`.
 
    ```bash
    mkdir -p ~/.ssh && chmod 700 ~/.ssh
-   test -e ~/.ssh/<name>_deploy || test -e ~/.ssh/<name>_deploy.pub || ssh-keygen -t ed25519 -f ~/.ssh/<name>_deploy -N "" -C "<name> deploy key"
+   K=~/.ssh/<owner>-<name>_deploy
+   test -e "$K" || test -e "$K.pub" || ssh-keygen -t ed25519 -f "$K" -N "" -C "<owner>/<name> deploy key"
    ```
 
    If only the `.pub` file exists (a setup that stopped half-way), the command makes nothing: tell the person,
@@ -76,7 +78,7 @@ has replied.
 
    ```text
    Host github.com
-     IdentityFile ~/.ssh/<name>_deploy
+     IdentityFile ~/.ssh/<owner>-<name>_deploy
      IdentitiesOnly yes
    ```
 
@@ -87,7 +89,7 @@ has replied.
    expected. The command's purpose is to store GitHub's host key in `~/.ssh/known_hosts`: Claude Code's own
    SSH check refuses unknown hosts, and without the stored key it would fall back to HTTPS, which cannot
    read a private repository without an account.
-6. **Copy the public key.** `pbcopy < ~/.ssh/<name>_deploy.pub` on macOS (`xclip -selection clipboard`
+6. **Copy the public key.** `pbcopy < ~/.ssh/<owner>-<name>_deploy.pub` on macOS (`xclip -selection clipboard`
    or `wl-copy` on Linux). Also show the one line in the chat. It starts with `ssh-ed25519`.
 7. **Write the message to the owner.** Fill in the template below and show it in the chat, ready to paste
    into an email or a text. The person sends it; Claude does not.
@@ -164,14 +166,14 @@ Thanks!
   entry as it is, and append:
 
   ```text
-  Host github-<name>
+  Host github-<owner>-<name>
     HostName github.com
-    IdentityFile ~/.ssh/<name>_deploy
+    IdentityFile ~/.ssh/<owner>-<name>_deploy
     IdentitiesOnly yes
   ```
 
-  Then test with `ssh -T git@github-<name>` and clone from `git@github-<name>:<owner>/<name>.git`. Later
-  `git pull` uses the alias by itself. Claude Code's plugin installer connects to `git@github.com` only,
+  Then test with `ssh -T git@github-<owner>-<name>`, and clone from
+  `git@github-<owner>-<name>:<owner>/<name>.git`. Later `git pull` uses the alias by itself. Claude Code's plugin installer connects to `git@github.com` only,
   so it cannot install a plugin from this second repository: install its skills the way the repository's
   guide describes for a manual setup.
 
