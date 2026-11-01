@@ -23,7 +23,7 @@
       "name": "productivity",
       "displayName": "AI Productivity",
       "source": "./plugins/productivity",
-      "description": "Skills for individual AI-assisted knowledge work: ai-writing-audit (check a draft for the signs of AI authorship and rewrite so it reads as human), portable-markdown (write .md a person will open in Typora or Obsidian, so the links land and no raw markup shows), controlled-writing (explain in ASD-STE100-style controlled language so output is fast to read and check) and bespoke-explainers (choose and build a diagram, interactive page or narrated video explainer)."
+      "description": "Skills for individual AI-assisted knowledge work: ai-writing-audit (check a draft for the signs of AI authorship and rewrite so it reads as human), portable-markdown (write .md a person will open in Typora or Obsidian, so the links land and no raw markup shows), controlled-writing (explain in ASD-STE100-style controlled language so output is fast to read and check), bespoke-explainers (choose and build a diagram, interactive page or narrated video explainer) and private-repo-access (read access to a private repository, such as an upstream plugin's, for a person with no GitHub account, through a deploy key)."
     },
     {
       "name": "reading-vocab",

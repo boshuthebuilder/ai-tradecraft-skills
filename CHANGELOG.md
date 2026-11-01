@@ -4,6 +4,37 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v15.9.0 (2026-11-01)
+
+A **MINOR**: a new `productivity` skill, `private-repo-access`. No existing skill name, frontmatter, archetype layout or
+prompt placeholder changes. Under the single-version-stream rule, all three direction manifests bump to 15.9.0.
+
+### Added (MINOR)
+
+- **`private-repo-access`** gets a person with no GitHub account read access to one private repository, such as an
+  upstream plugin's, through a read-only deploy key. Run once in Claude Code (the Code tab of the Claude desktop app),
+  it makes an SSH key on the person's computer, records GitHub's host key, writes the message the person sends to the
+  repository's owner, then tests the key, clones the repository and hands over to that repository's own setup guide.
+  It is written for a person with no coding background: Claude runs and explains every command, and asks before
+  installing anything.
+  - It does not run in Cowork. Cowork's sandbox has no SSH to GitHub (observed 2026-11-01), and a key made there
+    would not reach the person's computer.
+  - Only an admin of the repository can add a deploy key. A collaborator with write access cannot.
+- **README**: the skill under *The `productivity` direction*, and a "No GitHub account?" note under *Upstream
+  plugins*. The `productivity` descriptions in `plugin.json` and `marketplace.json` name the skill.
+
+### Verified
+
+- `python3 scripts/lint_skills.py` and `claude plugin validate .` pass.
+- With no GitHub login (no credential helper, no token, an empty `HOME`), `claude plugin marketplace add` of this
+  marketplace and `claude plugin install productivity@ai-tradecraft-skills` succeeded, both over HTTPS
+  (ai-tradecraft-skills#175).
+- Claude Code 2.1.294's SSH check, read from the shipped program: it runs `ssh -T git@github.com` with
+  `StrictHostKeyChecking=yes`, treats "successfully authenticated" as configured, and retries a failed marketplace
+  clone over the other protocol (ai-tradecraft-skills#176).
+- **Not run end to end:** an owner adding a real deploy key, then the test, the clone and a plugin install over SSH.
+  The first real use is that test.
+
 ## v15.8.0 (2026-11-01)
 
 A **MINOR**: the `adversarial-review` skill gains a cadence rule, a note on model choice, a rule on running the whole
