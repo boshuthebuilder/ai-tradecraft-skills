@@ -144,15 +144,31 @@ Thanks!
 
 ## When something is different
 
-- **A `Host github.com` entry already exists.** The person probably has used GitHub before. Do not edit it.
-  Explain that this skill is for a computer with no GitHub setup, and ask whether they have an account
-  after all; if they do, the owner can add them as a collaborator instead.
+- **A `Host github.com` entry already exists.** Do not edit it. If its `IdentityFile` is a
+  `~/.ssh/<other>_deploy` key, this skill made it for another repository: follow *A second private
+  repository* below. Otherwise the person has probably used GitHub before. Explain that this skill is for
+  a computer with no GitHub setup, and ask whether they have an account after all; if they do, the owner
+  can add them as a collaborator instead.
 - **The key file already exists.** Use it. If the owner never received it, send its `.pub` line again.
-- **GitHub says "Key is already in use"** when the owner adds it: the same key is a deploy key on another
-  repository. Make a second key named for this repository, and add a second `IdentityFile` line under the
-  same `Host github.com` entry.
-- **The person needs a second private repository.** Each repository needs its own key. With two
-  `IdentityFile` lines, SSH tries both; `ssh -T` reports whichever repository answered first.
+- **GitHub says "Key is already in use"** when the owner adds it: the key is already a deploy key on
+  another repository, and GitHub accepts a deploy key on one repository only. Make a new key named for
+  this repository, and set it up as in *A second private repository*.
+- **A second private repository.** Give it its own key and its own host alias, as GitHub's deploy-key
+  guide prescribes. Do not add a second `IdentityFile` line under `Host github.com`: SSH would sign in
+  with the first key GitHub accepts, and that key cannot read the other repository. Leave the first
+  entry as it is, and append:
+
+  ```text
+  Host github-<name>
+    HostName github.com
+    IdentityFile ~/.ssh/<name>_deploy
+    IdentitiesOnly yes
+  ```
+
+  Then test with `ssh -T git@github-<name>` and clone from `git@github-<name>:<owner>/<name>.git`. Later
+  `git pull` uses the alias by itself. Claude Code's plugin installer connects to `git@github.com` only,
+  so it cannot install a plugin from this second repository: install its skills the way the repository's
+  guide describes for a manual setup.
 
 ## Limits
 
