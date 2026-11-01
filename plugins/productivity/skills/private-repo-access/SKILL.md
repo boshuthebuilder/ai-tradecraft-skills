@@ -173,7 +173,8 @@ Thanks!
   ```
 
   Then test with `ssh -T git@github-<owner>-<name>`, and clone from
-  `git@github-<owner>-<name>:<owner>/<name>.git`. Later `git pull` uses the alias by itself. Claude Code's plugin installer connects to `git@github.com` only,
+  `git@github-<owner>-<name>:<owner>/<name>.git`. Later `git pull` uses the alias by itself. Claude
+  Code's plugin installer connects to `git@github.com` only,
   so it cannot install a plugin from this second repository: install its skills the way the repository's
   guide describes for a manual setup.
 
