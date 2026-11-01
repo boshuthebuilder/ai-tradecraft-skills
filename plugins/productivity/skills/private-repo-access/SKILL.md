@@ -63,8 +63,11 @@ has replied.
 
    ```bash
    mkdir -p ~/.ssh && chmod 700 ~/.ssh
-   test -e ~/.ssh/<name>_deploy || ssh-keygen -t ed25519 -f ~/.ssh/<name>_deploy -N "" -C "<name> deploy key"
+   test -e ~/.ssh/<name>_deploy || test -e ~/.ssh/<name>_deploy.pub || ssh-keygen -t ed25519 -f ~/.ssh/<name>_deploy -N "" -C "<name> deploy key"
    ```
+
+   If only the `.pub` file exists (a setup that stopped half-way), the command makes nothing: tell the person,
+   and remove that stray `.pub` file only with their approval before running it again.
 
    The key has no passphrase, so nothing prompts for one later. Say so to the person: anyone who can use
    their computer account can read the repository.
@@ -136,9 +139,11 @@ Thanks!
    first. For a step only the person can do (install an app, click a setting, upload a file in the Claude
    app), say exactly what to click, then wait for them to confirm.
 4. **A plugin from a marketplace.** If the repository is a plugin listed in a marketplace the person
-   already added, `/plugin install <plugin>@<marketplace>` now works over SSH. Follow the repository's
-   guide if it says to install the skills another way (for example, uploading them in the Claude app for
-   Cowork).
+   already added, run `claude plugin install <plugin>@<marketplace>` in the shell (in the chat, the same
+   thing is the `/plugin install` command, which the person types). It should now clone over SSH, but this
+   has not been run end to end (see *Limits*). If it fails, install the skills the way the repository's
+   guide describes for a manual setup. Follow the repository's guide if it says to install the skills
+   another way (for example, uploading them in the Claude app for Cowork).
 5. **Close.** Tell the person which app to use from now on, how updates arrive, and that the owner can
    remove the key at any time.
 
