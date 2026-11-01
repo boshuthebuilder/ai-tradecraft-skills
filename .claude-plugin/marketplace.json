@@ -31,7 +31,8 @@
       "source": {
         "source": "github",
         "repo": "chenspc/reading-vocab",
-        "sha": "2e2ae0c22fab314ee6bab7e590656969164248a5"
+        "ref": "v1.0.0",
+        "sha": "c68d90357eaccb95635e05802f0cec83869af1b6"
       },
       "description": "Hosted upstream in chenspc/reading-vocab (private; install needs access) and pinned here to a release. reading-vocab: turn the words a reader jots while reading, plus the book file, into dictionary-grounded Anki cards carrying the book's own sentences and a Chinese gloss per sense. compare-words: a second Anki deck of near-synonym groups. The skills drive the reading-vocab MCP server in the user's own clone of that repository."
     }

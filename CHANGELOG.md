@@ -21,8 +21,9 @@ version.
     Anki cards. Each card carries the book's own sentence, one to four authored senses with a short Simplified
     Chinese gloss each, and the macOS dictionary entry.
   - `compare-words` keeps a second Anki deck of near-synonym groups, with a map card and a fit card per word.
-  - The skills drive the `reading-vocab` MCP server in the user's own clone of that repository. The plugin
-    carries only the skills.
+  - The skills drive the `reading-vocab` MCP server in the user's own clone of that repository. Installing the
+    plugin copies the whole repository into Claude Code's plugin cache, but registers only the two skills: it
+    starts no MCP server, and the cached copy is not the user's workspace.
   - The repository is private and MIT-licensed. Installing the plugin needs read access and git credentials
     Claude Code can use without a prompt.
 - **Upstream plugins** as an extension point (README *Upstream plugins*, AGENTS.md). Such a plugin is referenced,
