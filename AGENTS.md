@@ -18,7 +18,12 @@ this file — one source of truth, two filenames.
   "an always-on machine"), never as one household's configuration. If an example needs a name,
   invent an obviously fictional one. The one deliberate exception: repo-level docs (this file,
   `README.md`, `plugins/ai-os/ARCHITECTURE.md`) may link the reference deployment by name, as
-  they already do.
+  they already do; and `.claude-plugin/marketplace.json`, `README.md` and `CHANGELOG.md` name the
+  repository of an upstream plugin, because its entry must point there.
+- **Upstream plugins are referenced, never copied.** The marketplace may list a plugin hosted in
+  another repository, as a `github` source pinned to a release tag and that tag's full commit
+  `sha`. Its skills stay in their own repository, outside this repo's lint and versioned
+  interface; adding one or moving its pin is a MINOR release here (README *Upstream plugins*).
 - **Skills are conventions, not code.** Enforcement (write guards, path checks, locks) belongs
   in a deployment's code; a skill *describes* intent. Don't write a rule into a skill that only
   code can hold — point to the three-layer model in `plugins/ai-os/ARCHITECTURE.md` instead.
