@@ -237,6 +237,13 @@ behalf, rather than the code or the folder, and the formats that help you unders
   Edition with a free local voice, timed beat by beat) that was rendered end to end and then
   reproduced by a second agent from the page alone.
 
+- **`private-repo-access`** — get a person with no GitHub account read access to one private
+  repository, such as an upstream plugin's, through a read-only deploy key. Run once in Claude Code
+  (the Code tab of the Claude desktop app, not Cowork, whose sandbox has no SSH), it makes the key,
+  writes the message the person sends to the repository's owner, then tests the key, clones the
+  repository and hands over to that repository's own setup guide. Written for a person with no
+  coding background: Claude runs and explains every command.
+
 ## Upstream plugins
 
 The marketplace may list a plugin that lives in another repository. Its entry in
@@ -253,6 +260,11 @@ repository holds their text, licence and versioning.
   card and a fit card per word. The skills are the procedure; the code they drive (an MCP server, the
   sentence finder, the card composer) runs from the user's own clone of that repository, which its
   `docs/SETUP.md` installs.
+
+**No GitHub account?** Install the `productivity` plugin, which needs no login, then in the Code tab
+of the Claude desktop app ask Claude for access to the upstream plugin. Its `private-repo-access`
+skill makes a key, writes the request to the repository's owner, and clones the repository once the
+owner adds the key.
 
 To take a newer upstream release, change the entry's `ref` and `sha` to the new tag and its commit, in a
 PR here. That is a MINOR release of this repository.
