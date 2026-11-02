@@ -11,7 +11,7 @@
 # primary Claude/ChatGPT plans, so reviews can run without spending primary headroom.
 # agy itself fails loud (rc=1, valid labels listed) on an unknown label. Every result
 # line carries the run's conversation id: interrogate any run afterwards with
-#   agy --conversation <id> -p "your follow-up"     (--conversation BEFORE -p)
+#   agy [--model <label>] --conversation <id> -p "your follow-up"     (--conversation BEFORE -p)
 #
 # --repo defaults to the checkout's GitHub remote (gh repo view). The reviewer reads files
 # from an ISOLATED detached worktree at the PR head (not the caller's live tree — see class 5),
@@ -338,7 +338,7 @@ fi
 # ---- verify by artifact --------------------------------------------------------------
 AFTER="$(count_marker_comments)"
 # the conversation id makes any run interrogable after the fact:
-#   agy --conversation <id> -p "your follow-up"   (--conversation BEFORE -p)
+#   agy [--model <label>] --conversation <id> -p "your follow-up"   (--conversation BEFORE -p)
 CONV="$(grep -oE "Created conversation [0-9a-f-]{36}" "$OUT.log" 2>/dev/null | head -1 | awk '{print $3}')"
 if [[ "$AFTER" =~ ^[0-9]+$ ]] && [ "$AFTER" -gt "$BEFORE" ]; then
   echo "agy-review: ok — review comment posted on $REPO#$PR${CONV:+ · conversation: $CONV}"
@@ -350,7 +350,7 @@ fi
 # checked FIRST (a killed run's captured output may echo reviewed content containing the
 # denial phrase); the denial/auth greps then match only jetski's own final stderr line,
 # not review content quoted in the narration.
-echo "agy-review: FAILED — no new review comment on $REPO#$PR (debug log kept at $OUT.log${CONV:+; interrogate it: agy --conversation $CONV -p \"...\"}). Narration tail:" >&2
+echo "agy-review: FAILED — no new review comment on $REPO#$PR (debug log kept at $OUT.log${CONV:+; interrogate it: agy ${MODEL:+--model $MODEL }--conversation $CONV -p \"...\"}). Narration tail:" >&2
 tail -6 "$OUT" >&2
 
 # Class 6 (window-burn) presents as EITHER exit 4 or exit 5 — whichever fired first, the watchdog or
@@ -390,7 +390,7 @@ attempt_relay_salvage() {
   [ -n "$CONV" ] || return 1
   echo "agy-review: attempting relay salvage from conversation $CONV" >&2
   SALVAGE="$(mktemp "/tmp/agy-review-salvage-${PR}.XXXXXX")"
-  ( cd "$REVIEW_ROOT" && exec agy --conversation "$CONV" --print-timeout "$SALVAGE_PRINT_TIMEOUT" \
+  ( cd "$REVIEW_ROOT" && exec agy ${MODEL:+--model "$MODEL"} --conversation "$CONV" --print-timeout "$SALVAGE_PRINT_TIMEOUT" \
       -p "You were unable to post your review and it was never captured. Do NOT run any command or tool — every one will be denied. Print the composed review verbatim and complete, as plain text. Then stop." \
     ) >"$SALVAGE" 2>&1 &
   SALVAGE_PID=$!

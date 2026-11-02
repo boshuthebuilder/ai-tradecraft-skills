@@ -367,7 +367,7 @@ including prior findings and author replies. Native conversation resume is NOT t
 mechanism (it cannot cross providers, exactly when the chain switches). It is, however, a superb
 *diagnostic*: every `tools/agy-review` result line carries the run's `conversation: <id>`, and
 
-    agy --conversation <id> -p "your follow-up"      # --conversation BEFORE -p; headless works
+    agy [--model <label>] --conversation <id> -p "your follow-up"   # --conversation BEFORE -p; pass the review run's --model
 
 reopens that run with full context. Use it to ask a reviewer why it judged a finding as it did — or
 to perform an autopsy on a dead run: a run killed by a denied tool can be *asked what it was trying
@@ -389,7 +389,7 @@ relayed. (Automated for exit 3 on 2026-08-15, after the trap fired twice in one 
 procedure recovered both; extended to exit 5 the same day, once an audit of family-ai-os turned up
 at least 9 prior PRs the exit-3 shape had hit going back to 2026-07-22, plus the one that landed on
 exit 5 instead.) The manual procedure remains the fallback — for a failed self-salvage, or when
-driving agy raw: ask the resumed run to print the composed review; if a verdict comes back,
+driving agy raw: resume with the **same `--model` the review used** (`agy --model <label> --conversation <id> -p "…"`; without it the resume falls to agy's default model, which may be quota-walled and fail with `RESOURCE_EXHAUSTED`), and ask the resumed run to print the composed review; if a verdict comes back,
 **relay it yourself**: post the reviewer's verdict verbatim with `gh pr comment`,
 naming the reviewer, noting the relay, and including the conversation id — the same pattern the
 Claude and Codex legs (which post nothing themselves) use routinely. The gate's requirement is an
