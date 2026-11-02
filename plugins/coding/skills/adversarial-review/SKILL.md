@@ -389,7 +389,7 @@ relayed. (Automated for exit 3 on 2026-08-15, after the trap fired twice in one 
 procedure recovered both; extended to exit 5 the same day, once an audit of family-ai-os turned up
 at least 9 prior PRs the exit-3 shape had hit going back to 2026-07-22, plus the one that landed on
 exit 5 instead.) The manual procedure remains the fallback — for a failed self-salvage, or when
-driving agy raw: ask the resumed run to print the composed review; if a verdict comes back,
+driving agy raw: resume with the **same `--model` the review used** (`agy --model <label> --conversation <id> -p "…"`; without it the resume falls to agy's default model, which may be quota-walled and fail with `RESOURCE_EXHAUSTED`), and ask the resumed run to print the composed review; if a verdict comes back,
 **relay it yourself**: post the reviewer's verdict verbatim with `gh pr comment`,
 naming the reviewer, noting the relay, and including the conversation id — the same pattern the
 Claude and Codex legs (which post nothing themselves) use routinely. The gate's requirement is an

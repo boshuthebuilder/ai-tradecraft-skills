@@ -4,6 +4,29 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v15.9.1 (2026-11-02)
+
+A **PATCH**: a fix to the `agy-review` harness. No skill name, frontmatter, archetype layout or prompt placeholder
+changes. All three direction manifests bump to 15.9.1.
+
+### Fixed
+
+- **`agy-review` relay salvage now resumes on the review's `--model`.** `attempt_relay_salvage()` called
+  `agy --conversation …` without the model the run was started with, so a run made with `--model <label>` that died at
+  the posting step was resumed on agy's default model. When that model's quota was walled, the resume failed with
+  `RESOURCE_EXHAUSTED (code 429)` and the harness reported "relay salvage found no verdict" although the composed review
+  existed. The salvage now passes `--model` before `--conversation`, as the main call does, and passes none when
+  `--model` was not given. No other `agy` invocation in the harness was missing it.
+- **`adversarial-review` SKILL.md**: the manual salvage in *Follow-ups* says to resume with the same `--model`.
+
+### Added
+
+- `tools/test_salvage_model.sh` checks the salvage's `agy` arguments against a stub, with and without `--model`.
+
+### Verified
+
+- The test passes on the fix and fails on the unfixed script.
+
 ## v15.9.0 (2026-11-01)
 
 A **MINOR**: a new `productivity` skill, `private-repo-access`. No existing skill name, frontmatter, archetype layout or

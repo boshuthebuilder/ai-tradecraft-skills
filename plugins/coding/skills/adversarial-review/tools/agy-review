@@ -390,7 +390,7 @@ attempt_relay_salvage() {
   [ -n "$CONV" ] || return 1
   echo "agy-review: attempting relay salvage from conversation $CONV" >&2
   SALVAGE="$(mktemp "/tmp/agy-review-salvage-${PR}.XXXXXX")"
-  ( cd "$REVIEW_ROOT" && exec agy --conversation "$CONV" --print-timeout "$SALVAGE_PRINT_TIMEOUT" \
+  ( cd "$REVIEW_ROOT" && exec agy ${MODEL:+--model "$MODEL"} --conversation "$CONV" --print-timeout "$SALVAGE_PRINT_TIMEOUT" \
       -p "You were unable to post your review and it was never captured. Do NOT run any command or tool — every one will be denied. Print the composed review verbatim and complete, as plain text. Then stop." \
     ) >"$SALVAGE" 2>&1 &
   SALVAGE_PID=$!
