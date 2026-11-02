@@ -367,7 +367,7 @@ including prior findings and author replies. Native conversation resume is NOT t
 mechanism (it cannot cross providers, exactly when the chain switches). It is, however, a superb
 *diagnostic*: every `tools/agy-review` result line carries the run's `conversation: <id>`, and
 
-    agy --conversation <id> -p "your follow-up"      # --conversation BEFORE -p; headless works
+    agy [--model <label>] --conversation <id> -p "your follow-up"   # --conversation BEFORE -p; pass the review run's --model
 
 reopens that run with full context. Use it to ask a reviewer why it judged a finding as it did — or
 to perform an autopsy on a dead run: a run killed by a denied tool can be *asked what it was trying

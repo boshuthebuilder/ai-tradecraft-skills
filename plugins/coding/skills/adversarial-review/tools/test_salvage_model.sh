@@ -24,7 +24,7 @@ run_case() { # $1 = MODEL value ("" for none); prints the recorded agy args
     count_marker_comments() { echo $((++N)); }
     N=0; BEFORE=0
     CONV=conv-123 PR=1 REPO=owner/name MARKER="marker" REVIEW_ROOT="$PWD"
-    SALVAGE_PRINT_TIMEOUT=4m SALVAGE_WATCHDOG_SECS=1 OUT="$AGY_ARGS_FILE.out" REVIEW_BODY=/dev/null
+    SALVAGE_PRINT_TIMEOUT=4m SALVAGE_WATCHDOG_SECS=1 OUT="$AGY_ARGS_FILE.out" REVIEW_BODY="$AGY_ARGS_FILE.body"
     source "'"$FN"'"
     attempt_relay_salvage
   ' >/dev/null 2>&1
