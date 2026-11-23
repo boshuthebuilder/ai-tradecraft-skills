@@ -26,6 +26,11 @@ changes, and every record `extract.py` and `vision.py` wrote before stays valid.
 - `references/tools.md`, *The record*: names the schema, states that a record is keyed by content hash and that its
   `path` may be stale, and lists `vision_done_at` and the optional keys.
 
+### Fixed
+
+- CI: the pre-onboarding tools job runs on `ubuntu-24.04`. `ubuntu-latest` is now 26.04, where `setup-python` has no
+  Python 3.9, so the 3.9 leg failed before any test ran. 3.9 stays the floor the tools keep.
+
 ### Tests
 
 - `test_extract.py` validates every record the fixture runs write against the schema, pins what the schema accepts
