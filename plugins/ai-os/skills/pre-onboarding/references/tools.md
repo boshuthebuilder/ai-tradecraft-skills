@@ -476,16 +476,42 @@ confidence of at least 0.45.
 
 ### The record
 
+A record is one document's full read, at `_Audit/extract/<id>.json`. Its schema is
+[`tools/schemas/extract.json`](../tools/schemas/extract.json), and it is the one contract for a record whichever tool
+writes it: `extract.py` and `vision.py` here, or a deployment that reads its documents with its own readers and writes
+records in this format. Each writer's tests validate its records against the schema; this skill's tests do so for
+`extract.py` and `vision.py` (`test_extract.py`, `test_vision.py`).
+
+- **A record is keyed by content hash.** Its `id`, and its file name, is the document's id in the manifest: the sha256
+  of a file, or `sha256_package` of a package. Look a record up by that id only.
+- **Its `path` may be stale.** `path` is where the document was when it was read. A move or a re-organisation leaves it
+  behind until `repath` runs, so never find a record by its `path`, and never trust `path` to name the file now.
+- **`extractor` names the writer and its format version**, as `<writer>/<N>`: this skill writes
+  `ai-os-pre-onboarding-extract/1`. A reader accepts a record from any writer whose record meets the schema. A change
+  to the format raises `N` and changes the schema in the same release.
+- **The schema allows no key it does not list**, on the record or on a page. A writer that needs a new key adds it to
+  the schema first, as an optional key; a record without it stays valid.
+- The schema uses only `type`, `properties`, `required`, `items`, `additionalProperties`, `enum`, `pattern` and
+  `minimum`, so a small validator reads it: the tests use `cards.schema_problems`, which also checks cards.
+
 | Key | What it holds |
 | --- | --- |
-| `id`, `path`, `class` | the manifest entry's id, current path and class |
+| `id`, `path`, `class` | the manifest entry's id, its path when the document was read, and its class: `document`, `image`, `iwork`, `archive`, `email`, `other`, or `audio` (written by a deployment's reader; this skill has none) |
 | `status` | `ok`, `partial` (a page not read, or an iWork file read from its preview), `blank`, `photo`, `listed` (an archive), `no_reader`, `needs_vision` (pages queued for the vision lane) or `failed` |
 | `page_count`, `chars` | pages, and characters of text in all |
 | `tiers` | how many pages each tier read |
-| `pages` | `[{n, text, tier, ...}]`; `tier` is `text_layer`, `local_ocr` (with `engine` `vision` or `tesseract`, and `conf` from Vision), `pending_vision` (with `queued`, the image's name), `blank`, `none` (with a `note`: the page could not be rendered), `photo` or `listing`, and after the vision lane `vision` or `unread`; `via` names an indirect reader (`iwa`, `preview_image`, `textutil`, `libreoffice`) |
-| `extractor`, `extracted_at` | the tool's version and the time |
+| `pages` | `[{n, text, tier, ...}]`; `tier` is `text_layer`, `local_ocr` (with `engine` `vision` or `tesseract`, and `conf` from Vision), `pending_vision` (with `queued`, the image's name), `blank`, `none` (with a `note`: the page could not be rendered), `photo` or `listing`, and after the vision lane `vision` (with `engine` and `local_text`, the local OCR text it replaced) or `unread` (with a `note`); `speech` is a page of audio transcribed by a deployment's reader (`engine` names it); `via` names an indirect reader (`iwa`, `preview_image`, `textutil`, `libreoffice`) |
+| page `sheet`, `rows`, `cols` | optional, for a spreadsheet page: the sheet's name and its size. `extract.py` does not write them |
+| `extractor`, `extracted_at` | the writer and its format version (`<writer>/<N>`), and the time |
+| `vision_done_at` | the time the vision lane finished the record's pages: written by `vision.py` when no page is left queued |
 | `notes` | a local OCR tool that was missing where a page needed it, a photo included (`local OCR tier not available here: page-ocr, tesseract`, naming each tier missing), or an iWork read that failed |
 | `error` | on a `failed` record, why |
+| `partial` | optional: why a read is incomplete, in words, when the writer cut it or a reader stopped short |
+| `ocr_faults`, `ocr_note` | optional: counts of OCR faults by kind (`{"reader_stalled": 1}`), and a note on how OCR went |
+| `encoding`, `language` | optional: the text encoding guessed, set only when it is not UTF-8, and the document's language |
+
+`extract.py` and `vision.py` write none of the optional keys; they are there so that a deployment's records meet the
+same schema.
 
 ### `repath`
 

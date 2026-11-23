@@ -16,7 +16,8 @@ jobs:
   pre-onboarding-tools:
     # The pre-onboarding tools are standard-library Python 3.9+, so nothing is installed. Tiers that need a tool the
     # runner lacks (macOS OCR, textutil, tesseract) skip, and -v prints each skip reason, naming its tier.
-    runs-on: ubuntu-latest
+    # Pinned to 24.04: setup-python has no 3.9 build for ubuntu-latest (26.04), and 3.9 is the floor the tools keep.
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:

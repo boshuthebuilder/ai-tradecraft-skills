@@ -26,8 +26,10 @@ TOOLS = os.path.join(HERE, "..", "tools")
 TIMEOUT = 600  # seconds: a tool that hangs fails its test instead of the run
 FIXTURE = os.path.join(HERE, "fixture", "Alex Personal")
 EXPECTED = os.path.join(HERE, "expected", "extract.json")
+EXTRACT_SCHEMA_PATH = os.path.join(TOOLS, "schemas", "extract.json")
 NOW = 1719748800
 sys.path.insert(0, TOOLS)
+import cards  # noqa: E402
 import common  # noqa: E402
 import extract  # noqa: E402
 import iwa  # noqa: E402
@@ -519,9 +521,13 @@ class FixtureRun:
 
     @staticmethod
     def load(out):
-        recs = {}
+        """The records in `out` by path; each must meet tools/schemas/extract.json."""
+        schema, recs = json.loads(read(EXTRACT_SCHEMA_PATH)), {}
         for f in sorted(os.listdir(out)):
             r = json.loads(read(os.path.join(out, f)))
+            problems = cards.schema_problems(r, schema, f)
+            if problems:
+                raise AssertionError("a record breaks the extract schema: %s" % "; ".join(problems))
             recs[r["path"]] = r
         return recs
 
@@ -865,8 +871,7 @@ class StatusTest(unittest.TestCase):
         for lane in ("main", "apps"):
             run("extract.py", "--root", cls.root, "--work", work, "--manifest", manifest, "--out", cls.out,
                 "--lane", lane, "--read-only-root")
-        cls.records = {r["path"]: r for r in (json.loads(read(os.path.join(cls.out, f)))
-                                              for f in os.listdir(cls.out))}
+        cls.records = FixtureRun.load(cls.out)
         cls.work = work
 
     @classmethod
@@ -922,6 +927,83 @@ class StatusTest(unittest.TestCase):
         self.assertEqual(sorted(self.records), ["Docs/Blank.pages", "Docs/Broken.docx", "Docs/Empty.numbers",
                                                 "Docs/Letter.docx", "Docs/Notes.md", "Mail/Bundle.zip", "Misc/blob.bin",
                                                 "Misc/server.log"])
+
+
+class ExtractSchemaTest(unittest.TestCase):
+    """tools/schemas/extract.json: the one contract for a record, whichever tool writes it. The fixture runs above
+    check every record extract.py writes against it; these pin what it accepts and refuses."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.schema = json.loads(read(EXTRACT_SCHEMA_PATH))
+
+    def problems(self, rec):
+        return cards.schema_problems(rec, self.schema, "record")
+
+    def record(self, **over):
+        """A record as `ai-os-pre-onboarding-extract/1` writes one after the vision lane."""
+        rec = {"id": "a" * 64, "path": "01 Identity/Scan.pdf", "class": "document", "status": "ok", "page_count": 2,
+               "chars": 21, "tiers": {"vision": 1, "text_layer": 1},
+               "extractor": "ai-os-pre-onboarding-extract/1", "extracted_at": "2024-06-30T13:00:00+0100",
+               "vision_done_at": "2024-06-30T13:05:00+0100",
+               "pages": [{"n": 1, "tier": "vision", "text": "transcribed", "local_text": "local", "engine": "agy"},
+                         {"n": 2, "tier": "text_layer", "text": "typed page", "via": "textutil"}]}
+        rec.update(over)
+        return rec
+
+    def test_a_current_record_and_a_failed_one_are_valid(self):
+        self.assertEqual(self.problems(self.record()), [])
+        self.assertEqual(self.problems(self.record(status="failed", error="pdftotext/pdfinfo not available", pages=[],
+                                                   page_count=0, chars=0, tiers={})), [])
+
+    def test_the_optional_keys_another_writer_adds_are_valid(self):
+        rec = self.record(class_="audio")
+        rec.pop("class_")
+        rec.update({"class": "audio", "extractor": "example-gather/3", "partial": "cut at 16384 characters",
+                    "ocr_faults": {"reader_stalled": 1}, "ocr_note": "read by the vision model",
+                    "encoding": "latin-1", "language": "fr",
+                    "pages": [{"n": 1, "tier": "speech", "text": "spoken words", "engine": "speech"},
+                              {"n": 2, "tier": "text_layer", "text": "a\tb", "sheet": "Budget", "rows": 1, "cols": 2}]})
+        self.assertEqual(self.problems(rec), [])
+
+    def test_what_it_refuses(self):
+        page = {"n": 1, "tier": "text_layer", "text": "x"}
+        cases = {
+            "an unknown key": (self.record(extra=1), "record.extra is not a key the schema allows"),
+            "an unknown page key": (self.record(pages=[dict(page, colour="red")]),
+                                    "record.pages[0].colour is not a key the schema allows"),
+            "a page without text": (self.record(pages=[{"n": 1, "tier": "text_layer"}]),
+                                    "record.pages[0].text is missing"),
+            "an extractor with no format version": (self.record(extractor="example-gather"),
+                                                     "record.extractor does not match"),
+            "an id that is not a sha256": (self.record(id="A" * 64), "record.id does not match"),
+            "an unknown class": (self.record(**{"class": "video"}), "record.class is not one of"),
+            "an unknown status": (self.record(status="done"), "record.status is not one of"),
+            "an unknown tier": (self.record(pages=[dict(page, tier="magic")]), "record.pages[0].tier is not one of"),
+            "a boolean for a count": (self.record(chars=True), "record.chars is not integer"),
+            "a negative count": (self.record(page_count=-1), "record.page_count is below 0"),
+            "a tier count that is not a number": (self.record(tiers={"vision": "1"}),
+                                                  "record.tiers.vision is not integer"),
+            "no extracted_at": ({k: v for k, v in self.record().items() if k != "extracted_at"},
+                                "record.extracted_at is missing"),
+        }
+        for name, (rec, want) in cases.items():
+            with self.subTest(name):
+                self.assertTrue(any(p.startswith(want) for p in self.problems(rec)), self.problems(rec))
+
+    def test_every_tier_and_status_the_tools_write_is_in_the_schema(self):
+        page = self.schema["properties"]["pages"]["items"]["properties"]
+        src = "".join(read(os.path.join(TOOLS, n)) for n in ("extract.py", "vision.py"))
+        tiers = set(re.findall(r'"tier"\]? *[:=] *"(\w+)"', src))
+        statuses = (set(re.findall(r'(?:"status"\]? *[:=]|\bstatus = ) *"(\w+)"', src))
+                    | set(re.findall(r'pages, status = \[.*\], "(\w+)"', src)))
+        self.assertGreaterEqual(statuses, {"ok", "failed", "photo", "listed", "no_reader", "partial"}, statuses)
+        self.assertGreaterEqual(len(tiers), 9, tiers)
+        self.assertLessEqual(tiers, set(page["tier"]["enum"]))
+        self.assertLessEqual(statuses, set(self.schema["properties"]["status"]["enum"]))
+        audit = read(os.path.join(TOOLS, "audit.py"))
+        classes = set(re.findall(r'"(\w+)" if ext in', audit)) | {"other"}
+        self.assertEqual(classes - set(self.schema["properties"]["class"]["enum"]), set())
 
 
 if __name__ == "__main__":

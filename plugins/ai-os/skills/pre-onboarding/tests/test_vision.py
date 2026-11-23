@@ -8,6 +8,7 @@ engine raise a run-stopping error, which it does by replacing the adapter's call
 
     python3 -m unittest discover plugins/ai-os/skills/pre-onboarding/tests
 """
+import collections
 import hashlib
 import json
 import os
@@ -23,6 +24,11 @@ TOOLS = os.path.join(HERE, "..", "tools")
 VISION = os.path.join(TOOLS, "vision.py")
 sys.path.insert(0, HERE)
 from fake_engines import SECRETS, Fakes, tool_env  # noqa: E402
+sys.path.insert(0, TOOLS)
+import cards  # noqa: E402
+
+with open(os.path.join(TOOLS, "schemas", "extract.json"), encoding="utf-8") as _f:
+    EXTRACT_SCHEMA = json.load(_f)
 
 RUNNER = ("import os, runpy, sys, time\n"
           "time.sleep = lambda seconds: None\n"
@@ -68,10 +74,20 @@ def write(path, data):
         f.write(data)
 
 
+def seed(eid, path, pages):
+    """A record as extract.py leaves one with pages queued for the vision lane; `pages` is [(n, tier, text)]."""
+    ps = [dict({"n": n, "tier": t, "text": x}, **({"queued": "%s_%05d.png" % (eid, n)} if t == "pending_vision" else {}))
+          for n, t, x in pages]
+    return {"id": eid, "path": path, "class": "document", "status": "needs_vision", "page_count": len(ps),
+            "tiers": dict(collections.Counter(p["tier"] for p in ps)), "chars": sum(len(p["text"]) for p in ps),
+            "extractor": "ai-os-pre-onboarding-extract/1", "extracted_at": "2024-06-30T13:00:00+0100", "pages": ps}
+
+
 class VisionTest(unittest.TestCase):
     def setUp(self):
         self.tmp = os.path.realpath(tempfile.mkdtemp(prefix="vision_test_"))
         self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.addCleanup(self.assert_records_meet_the_schema)
         self.root = os.path.join(self.tmp, "Alex Personal")
         os.makedirs(self.root)
         self.work = os.path.join(self.tmp, "work")
@@ -83,11 +99,8 @@ class VisionTest(unittest.TestCase):
         self.queue = os.path.join(self.work, "vision_queue")
         for n in (1, 2):
             write(os.path.join(self.queue, "%s_%05d.png" % (self.eid, n)), b"\x89PNG fake page %d" % n)
-        rec = {"id": self.eid, "path": "01 Identity/Scan.pdf", "class": "document", "status": "needs_vision",
-               "page_count": 3, "tiers": {"pending_vision": 2, "text_layer": 1},
-               "pages": [{"n": 1, "tier": "pending_vision", "text": "local one", "queued": True},
-                         {"n": 2, "tier": "pending_vision", "text": "local two", "queued": True},
-                         {"n": 3, "tier": "text_layer", "text": "typed page"}]}
+        rec = seed(self.eid, "01 Identity/Scan.pdf", [(1, "pending_vision", "local one"),
+                                                       (2, "pending_vision", "local two"), (3, "text_layer", "typed page")])
         write(os.path.join(self.out, self.eid + ".json"), json.dumps(rec))
         self.entries = {}
         self.stage(self.eid, "01 Identity/Scan.pdf")
@@ -108,6 +121,12 @@ class VisionTest(unittest.TestCase):
 
     def record(self):
         return json.loads(read(os.path.join(self.out, self.eid + ".json")))
+
+    def assert_records_meet_the_schema(self):
+        """Every record the lane leaves meets tools/schemas/extract.json, whatever the test did to it."""
+        for f in sorted(os.listdir(self.out)) if os.path.isdir(self.out) else []:
+            r = json.loads(read(os.path.join(self.out, f)))
+            self.assertEqual(cards.schema_problems(r, EXTRACT_SCHEMA, f), [])
 
     def test_a_good_reply_replaces_the_local_text(self):
         # the model opening its images shows as a tool step (the shape agy 1.2.16 streams); only the vision lane
@@ -213,10 +232,8 @@ class VisionTest(unittest.TestCase):
     def test_staged_and_excluded_documents_are_counted_apart(self):
         other = hashlib.sha256(b"02 Finance/Statement.pdf").hexdigest()
         write(os.path.join(self.queue, "%s_%05d.png" % (other, 1)), b"\x89PNG fake statement")
-        write(os.path.join(self.out, other + ".json"), json.dumps({
-            "id": other, "path": "02 Finance/Statement.pdf", "class": "document", "status": "needs_vision",
-            "page_count": 1, "tiers": {"pending_vision": 1},
-            "pages": [{"n": 1, "tier": "pending_vision", "text": "local statement", "queued": True}]}))
+        write(os.path.join(self.out, other + ".json"), json.dumps(
+            seed(other, "02 Finance/Statement.pdf", [(1, "pending_vision", "local statement")])))
         self.stage(other, self.STAGED)
         self.exclude("01 Identity")
         code, _out, err = self.vision()
@@ -247,9 +264,7 @@ class VisionTest(unittest.TestCase):
     def test_only_the_document_that_is_not_held_is_sent(self):
         other = hashlib.sha256(b"02 Finance/Statement.pdf").hexdigest()
         write(os.path.join(self.queue, "%s_%05d.png" % (other, 1)), b"\x89PNG fake statement")
-        rec = {"id": other, "path": "02 Finance/Statement.pdf", "class": "document", "status": "needs_vision",
-               "page_count": 1, "tiers": {"pending_vision": 1},
-               "pages": [{"n": 1, "tier": "pending_vision", "text": "local statement", "queued": True}]}
+        rec = seed(other, "02 Finance/Statement.pdf", [(1, "pending_vision", "local statement")])
         write(os.path.join(self.out, other + ".json"), json.dumps(rec))
         self.stage(other, "02 Finance/Statement.pdf")
         self.stage(self.eid, self.STAGED, ["migrating"])
@@ -268,10 +283,7 @@ class VisionTest(unittest.TestCase):
         many = hashlib.sha256(b"02 Finance/Long.pdf").hexdigest()
         for n in range(1, 9):
             write(os.path.join(self.queue, "%s_%05d.png" % (many, n)), b"\x89PNG fake page %d" % n)
-        rec = {"id": many, "path": "02 Finance/Long.pdf", "class": "document", "status": "needs_vision",
-               "page_count": 8, "tiers": {"pending_vision": 8},
-               "pages": [{"n": n, "tier": "pending_vision", "text": "local %d" % n, "queued": True}
-                         for n in range(1, 9)]}
+        rec = seed(many, "02 Finance/Long.pdf", [(n, "pending_vision", "local %d" % n) for n in range(1, 9)])
         write(os.path.join(self.out, many + ".json"), json.dumps(rec))
         self.stage(many, "02 Finance/Long.pdf")
         self.stage(self.eid, self.STAGED, ["migrating"])
@@ -296,11 +308,8 @@ class VisionTest(unittest.TestCase):
         eid = hashlib.sha256(path.encode()).hexdigest()
         for n in range(1, pages + 1):
             write(os.path.join(self.queue, "%s_%05d.png" % (eid, n)), b"\x89PNG fake page %d" % n)
-        write(os.path.join(self.out, eid + ".json"), json.dumps({
-            "id": eid, "path": path, "class": "document", "status": "needs_vision", "page_count": pages,
-            "tiers": {"pending_vision": pages},
-            "pages": [{"n": n, "tier": "pending_vision", "text": "local %d" % n, "queued": True}
-                      for n in range(1, pages + 1)]}))
+        write(os.path.join(self.out, eid + ".json"), json.dumps(
+            seed(eid, path, [(n, "pending_vision", "local %d" % n) for n in range(1, pages + 1)])))
         self.stage(eid, path)
         return eid
 
