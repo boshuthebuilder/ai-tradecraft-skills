@@ -1,0 +1,52 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "pre-onboarding extract record",
+ "description": "One document's full read, at _Audit/extract/<id>.json. Keyed by content hash; path may be stale. See references/tools.md, The record.",
+ "type": "object",
+ "properties": {
+  "id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+  "path": {"type": "string"},
+  "class": {"type": "string", "enum": ["document", "image", "iwork", "archive", "email", "other", "audio"]},
+  "status": {"type": "string",
+             "enum": ["ok", "partial", "blank", "photo", "listed", "no_reader", "needs_vision", "failed"]},
+  "page_count": {"type": "integer", "minimum": 0},
+  "chars": {"type": "integer", "minimum": 0},
+  "tiers": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+  "pages": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "n": {"type": "integer", "minimum": 1},
+     "tier": {"type": "string",
+              "enum": ["text_layer", "local_ocr", "pending_vision", "blank", "none", "photo", "listing", "vision",
+                       "unread", "speech"]},
+     "text": {"type": "string"},
+     "engine": {"type": "string"},
+     "conf": {"type": "number"},
+     "queued": {"type": "string"},
+     "note": {"type": "string"},
+     "via": {"type": "string"},
+     "local_text": {"type": "string"},
+     "sheet": {"type": "string"},
+     "rows": {"type": "integer", "minimum": 0},
+     "cols": {"type": "integer", "minimum": 0}
+    },
+    "required": ["n", "tier", "text"],
+    "additionalProperties": false
+   }
+  },
+  "extractor": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*/[1-9][0-9]*$"},
+  "extracted_at": {"type": "string"},
+  "vision_done_at": {"type": "string"},
+  "notes": {"type": "array", "items": {"type": "string"}},
+  "error": {"type": "string"},
+  "partial": {"type": "string"},
+  "ocr_faults": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+  "ocr_note": {"type": "string"},
+  "encoding": {"type": "string"},
+  "language": {"type": "string"}
+ },
+ "required": ["id", "path", "class", "status", "page_count", "chars", "tiers", "pages", "extractor", "extracted_at"],
+ "additionalProperties": false
+}

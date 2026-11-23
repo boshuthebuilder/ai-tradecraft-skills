@@ -4,6 +4,34 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v15.10.0 (2026-11-23)
+
+A **MINOR**: pre-onboarding's extract record gets a JSON Schema, so that a deployment can write records in the same
+format and check them against the same contract. No skill name, frontmatter, archetype layout or prompt placeholder
+changes, and every record `extract.py` and `vision.py` wrote before stays valid. All three direction manifests bump to
+15.10.0.
+
+### Added (MINOR)
+
+- **`tools/schemas/extract.json`**, beside `card.json`: the schema of the record at `_Audit/extract/<id>.json`. It
+  lists every key `extract.py` and `vision.py` write, including `vision_done_at`, which real records carry but the
+  reference did not list. It also has optional keys for a writer with other readers: per page `sheet`, `rows` and
+  `cols`; class `audio` and tier `speech`; and `partial`, `ocr_faults`, `ocr_note`, `encoding` and `language`.
+  `extractor` must read `<writer>/<N>`. The schema allows no key it does not list.
+- `cards.schema_problems` now also checks `integer`, `number`, `enum`, `pattern`, `minimum` and `additionalProperties`,
+  so it reads the new schema. The card schemas use none of these, so card validation is unchanged.
+
+### Changed
+
+- `references/tools.md`, *The record*: names the schema, states that a record is keyed by content hash and that its
+  `path` may be stale, and lists `vision_done_at` and the optional keys.
+
+### Tests
+
+- `test_extract.py` validates every record the fixture runs write against the schema, pins what the schema accepts
+  and refuses, and checks that every tier, status and class the tools write is in it. `test_vision.py` validates every
+  record the vision lane leaves, and its seeded records now have the shape `extract.py` writes.
+
 ## v15.9.1 (2026-11-02)
 
 A **PATCH**: a fix to the `agy-review` harness. No skill name, frontmatter, archetype layout or prompt placeholder

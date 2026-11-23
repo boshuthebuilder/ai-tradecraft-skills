@@ -93,7 +93,7 @@ LIGHT_EFFORT = "low"  # the effort a codex `--light-model` reads section notes a
 # is two bytes) are not in that figure, and four-byte characters can still fill a section; both fail closed
 # (refused before the call, then halved or left uncarded).
 AGY_BUDGET_CHARS = 50_000
-TYPES = {"object": dict, "array": list, "string": str, "boolean": bool}
+TYPES = {"object": dict, "array": list, "string": str, "boolean": bool, "integer": int, "number": (int, float)}
 RUN = re.compile(r"\d+(?:[ ,./\-]\d+)*")  # digits, and the single separators that may sit inside one number
 YEAR = re.compile(r"(?:19|20)\d\d$")
 SECTION_PROMPT = """You are reading one section of a long document from a private archive, to help write a
@@ -284,16 +284,28 @@ def build(a):
 
 
 def schema_problems(value, schema, where="card"):
-    """How `value` breaks `schema`, in the subset of JSON Schema the card schemas use (type, properties, required,
-    items)."""
+    """How `value` breaks `schema`, in the subset of JSON Schema the tool schemas use (type, properties, required,
+    items, additionalProperties, enum, pattern, minimum)."""
     want = TYPES.get(schema.get("type"))
-    if want and not isinstance(value, want):
+    if want and (not isinstance(value, want) or isinstance(value, bool) and schema["type"] != "boolean"):
         return ["%s is not %s" % (where, schema["type"])]
     out = []
+    if "enum" in schema and value not in schema["enum"]:
+        out.append("%s is not one of %s" % (where, ", ".join(map(str, schema["enum"]))))
+    if "pattern" in schema and isinstance(value, str) and not re.search(schema["pattern"], value):
+        out.append("%s does not match %s" % (where, schema["pattern"]))
+    if "minimum" in schema and isinstance(value, (int, float)) and value < schema["minimum"]:
+        out.append("%s is below %s" % (where, schema["minimum"]))
     if isinstance(value, dict):
+        props, extra = schema.get("properties", {}), schema.get("additionalProperties", True)
         out += ["%s.%s is missing" % (where, k) for k in schema.get("required", []) if k not in value]
-        out += [p for k, sub in schema.get("properties", {}).items() if k in value
+        out += [p for k, sub in props.items() if k in value
                 for p in schema_problems(value[k], sub, "%s.%s" % (where, k))]
+        for k in value:
+            if k in props or extra is True:
+                continue
+            out += (["%s.%s is not a key the schema allows" % (where, k)] if extra is False
+                    else schema_problems(value[k], extra, "%s.%s" % (where, k)))
     if isinstance(value, list) and "items" in schema:
         out += [p for i, x in enumerate(value) for p in schema_problems(x, schema["items"], "%s[%d]" % (where, i))]
     return out
