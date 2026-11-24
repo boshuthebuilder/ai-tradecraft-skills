@@ -1869,8 +1869,6 @@ class SplitSectionsTest(unittest.TestCase):
         self.assertTrue(all(c.startswith(("[page 1]\nP", "\n\nP")) for c in chunks), "a paragraph was cut")
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class MinimalManifestTest(CardsCliCase):
@@ -1898,3 +1896,7 @@ class MinimalManifestTest(CardsCliCase):
         self.assertEqual(set(self.written()), {a, b})
         self.assertEqual(self.written()[a]["card_meta"]["path"], "03 Home/Rent.pdf")
         self.assertEqual(read(own), before, "the folder's own manifest is the audit's file")
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -560,8 +560,6 @@ class EveryToolIsWiredTest(unittest.TestCase):
         self.assertIn("        run.refresh()\n", cards)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class PartialManifestTest(PurgeCase):
@@ -600,3 +598,7 @@ class PartialManifestTest(PurgeCase):
         manifest withholds what a partial one does not list."""
         listed = {i: e for i, e in self.entries.items() if e["current_path"] == self.OK}
         self.assertNotEqual(common.withheld_digest(RB, self.entries), common.withheld_digest(RB, listed))
+
+
+if __name__ == "__main__":
+    unittest.main()
