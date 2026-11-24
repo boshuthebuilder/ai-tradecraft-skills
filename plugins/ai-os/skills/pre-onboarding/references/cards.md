@@ -25,8 +25,9 @@ not the manifest.
 1. Write the manifest in the caller's own work folder, never over `<folder>/_Audit/manifest.json`, which stays the
    audit's file.
 2. Pass the caller's own `--work` as well. The purge at every start judges bundles and rendered files by a digest of
-   what the manifest withholds, so a partial manifest run against the folder's default work folder would discard
-   the bundles and rendered files the full manifest built there.
+   what the manifest withholds. When the full manifest withholds documents the partial one does not list, the two
+   digests differ, and a run against the folder's default work folder discards the bundles and rendered files the
+   full manifest built there.
 3. An id the manifest does not list is not carded, and its extract record, card, cached notes, queued page images and
    card error are left as they are. Only what a listed entry withholds, or what records a withheld path itself, is
    purged ([withheld means purged](tools.md#common-flags)).
