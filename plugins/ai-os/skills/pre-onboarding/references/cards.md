@@ -18,8 +18,9 @@ A document that has a card is not carded again unless its id is listed for `--re
 A caller that cards only the documents it has just read, not the whole folder, passes `cards.py build` and `work` a
 manifest of those documents with `--manifest <file>`. The smallest one they accept is
 [`tools/schemas/manifest-minimal.json`](../tools/schemas/manifest-minimal.json): an `entries` object keyed by each
-document's id, where an entry needs only its `current_path`. `flags` (a `departed` document is not carded) and
-`copies` are read when present; a card's `class` comes from the extract record, not the manifest.
+document's id, where an entry needs only its `current_path`. `flags` (a `departed` document is not carded),
+`copies[].path` and `rename_history[].path` are read when present; a card's `class` comes from the extract record,
+not the manifest.
 
 1. Write the manifest in the caller's own work folder, never over `<folder>/_Audit/manifest.json`, which stays the
    audit's file.

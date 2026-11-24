@@ -13,7 +13,8 @@ changes. All three direction manifests bump to 15.11.0.
 ### Added (MINOR)
 
 - **`tools/schemas/manifest-minimal.json`** (#181): an `entries` object keyed by id, where an entry needs only its
-  `current_path`; `flags` and `copies` are read when present. `references/cards.md` *Carding some documents* says how a
+  `current_path`; `flags`, `copies[].path` and `rename_history[].path` are read when present, and the schema lists
+  exactly those keys. `references/cards.md` *Carding some documents* says how a
   caller uses it: in its own work folder, never over `<folder>/_Audit/manifest.json`, and with its own `--work`.
 - A test runs `cards.py build` and `work` against a minimal manifest of two documents out of three, and only those two
   are carded.

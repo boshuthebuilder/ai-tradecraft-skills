@@ -1,22 +1,21 @@
 {
  "$schema": "https://json-schema.org/draft/2020-12/schema",
  "title": "pre-onboarding minimal manifest",
- "description": "The smallest manifest cards.py build and work accept: a caller that cards only the documents it has just read writes it in its own work folder and passes it as --manifest, never over <folder>/_Audit/manifest.json. An id it does not list is not carded and its artefacts are left as they are. See references/cards.md, Carding some documents.",
+ "description": "The smallest manifest cards.py build and work accept, listing exactly the keys they read: an entry is keyed by the document's id and needs only current_path; flags, copies[].path and rename_history[].path are read when present. A caller that cards only the documents it has just read writes it in its own work folder and passes it as --manifest, with its own --work, never over <folder>/_Audit/manifest.json. An id it does not list is not carded and its artefacts are left as they are. See references/cards.md, Carding some documents.",
  "type": "object",
  "required": ["entries"],
  "properties": {
-  "schema": {"type": "string"},
   "entries": {
    "type": "object",
    "additionalProperties": {
     "type": "object",
     "required": ["current_path"],
     "properties": {
-     "id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
      "current_path": {"type": "string", "pattern": "."},
      "flags": {"type": "array", "items": {"type": "string"}},
      "copies": {"type": "array", "items": {"type": "object", "required": ["path"],
-                                           "properties": {"path": {"type": "string"}, "kind": {"type": "string"}}}}
+                                           "properties": {"path": {"type": "string"}}}},
+     "rename_history": {"type": "array", "items": {"type": "object", "properties": {"path": {"type": "string"}}}}
     }
    }
   }
