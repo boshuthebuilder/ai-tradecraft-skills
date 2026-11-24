@@ -1869,5 +1869,72 @@ class SplitSectionsTest(unittest.TestCase):
         self.assertTrue(all(c.startswith(("[page 1]\nP", "\n\nP")) for c in chunks), "a paragraph was cut")
 
 
+
+
+class MinimalManifestTest(CardsCliCase):
+    """A caller that cards only the documents it has just read passes a manifest of those documents, in its own work
+    folder (`tools/schemas/manifest-minimal.json`): build and work card those, and only those."""
+
+    def test_build_and_work_card_only_what_a_minimal_manifest_lists(self):
+        a = self.record("03 Home/Rent.pdf", ["Rent for the flat."])
+        b = self.record("03 Home/Council tax.pdf", ["Council tax bill."])
+        self.record("02 Finance/Statement.pdf", ["A statement."])
+        own = os.path.join(self.root, "_Audit", "manifest.json")
+        before = read(own)
+        minimal = {"entries": {a: {"current_path": "03 Home/Rent.pdf"}, b: {"current_path": "03 Home/Council tax.pdf"}}}
+        with open(os.path.join(TOOLS, "schemas", "manifest-minimal.json"), encoding="utf-8") as f:
+            schema = json.load(f)
+        self.assertEqual(cards.schema_problems(minimal, schema, "manifest"), [])
+        self.assertTrue(cards.schema_problems({"entries": {a: {"flags": []}}}, schema, "manifest"))
+        path = os.path.join(self.tmp, "caller", "manifest.json")
+        write(path, json.dumps(minimal))
+        code, out, err = self.cards_py("build", "--manifest", path)
+        self.assertEqual(code, 0, err)
+        self.fakes.script("codex", default={"kind": "text"})
+        code, _out, err = self.work_run("codex", "--terms", self.terms, "--manifest", path)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(set(self.written()), {a, b})
+        self.assertEqual(self.written()[a]["card_meta"]["path"], "03 Home/Rent.pdf")
+        self.assertEqual(read(own), before, "the folder's own manifest is the audit's file")
+
+    def test_the_schema_lists_exactly_the_keys_read_and_their_shapes(self):
+        """The entry keys `common` reads (`manifest_view`, `withheld_paths`, `prior_paths`, `live_document_paths`),
+        named here so a schema that drops or adds one fails."""
+        with open(os.path.join(TOOLS, "schemas", "manifest-minimal.json"), encoding="utf-8") as f:
+            schema = json.load(f)
+        self.assertEqual({k: schema[k] for k in ("type", "required", "properties")}, {
+            "type": "object", "required": ["entries"], "properties": {"entries": {
+                "type": "object", "additionalProperties": {
+                    "type": "object", "required": ["current_path"], "properties": {
+                        "current_path": {"type": "string", "pattern": "."},
+                        "flags": {"type": "array", "items": {"type": "string"}},
+                        "copies": {"type": "array", "items": {"type": "object", "required": ["path"],
+                                                              "properties": {"path": {"type": "string"}}}},
+                        "rename_history": {"type": "array", "items": {"type": "object",
+                                                                      "properties": {"path": {"type": "string"}}}}}}}}})
+        full = {"entries": {"a" * 64: {"current_path": "x.pdf", "flags": ["departed"],
+                                       "copies": [{"path": "y.pdf"}], "rename_history": [{"path": "old.pdf"}]}}}
+        self.assertEqual(cards.schema_problems(full, schema, "manifest"), [])
+        for bad in ({"copies": [{"kind": "x"}]}, {"rename_history": "old.pdf"}, {"rename_history": [{"path": 3}]}):
+            entry_bad = {"entries": {"a" * 64: {"current_path": "x.pdf", **bad}}}
+            self.assertTrue(cards.schema_problems(entry_bad, schema, "manifest"), bad)
+
+    def test_work_cards_only_what_its_own_minimal_manifest_lists(self):
+        """`work` honours `--manifest` itself: batches built from the full manifest still card only what the minimal
+        one lists."""
+        a = self.record("03 Home/Rent.pdf", ["Rent for the flat."])
+        b = self.record("03 Home/Council tax.pdf", ["Council tax bill."])
+        self.record("02 Finance/Statement.pdf", ["A statement."])
+        code, _out, err = self.cards_py("build")
+        self.assertEqual(code, 0, err)
+        path = os.path.join(self.tmp, "caller", "manifest.json")
+        write(path, json.dumps({"entries": {a: {"current_path": "03 Home/Rent.pdf"},
+                                            b: {"current_path": "03 Home/Council tax.pdf"}}}))
+        self.fakes.script("codex", default={"kind": "text"})
+        code, _out, err = self.work_run("codex", "--terms", self.terms, "--manifest", path)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(set(self.written()), {a, b})
+
+
 if __name__ == "__main__":
     unittest.main()

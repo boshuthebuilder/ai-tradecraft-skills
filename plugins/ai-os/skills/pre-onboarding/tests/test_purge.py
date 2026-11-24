@@ -560,5 +560,45 @@ class EveryToolIsWiredTest(unittest.TestCase):
         self.assertIn("        run.refresh()\n", cards)
 
 
+
+
+class PartialManifestTest(PurgeCase):
+    """A caller that cards only some documents passes a manifest that lists only those: an id it omits is not withheld
+    by the omission, and what that id left stays as it is."""
+
+    def snapshot(self):
+        out = {}
+        for top in (self.audit, self.work):
+            for d, _ds, fs in os.walk(top):
+                for n in fs:
+                    with open(os.path.join(d, n), "rb") as f:
+                        out[os.path.join(d, n)] = f.read()
+        return out
+
+    def test_an_id_the_manifest_omits_keeps_every_artefact_byte_for_byte(self):
+        ids = {}
+        for path in ("Public/a.pdf", "Public/b.pdf", "Public/c.pdf"):
+            i = self.add(path)
+            ids[i] = path
+            self.record(i, path)
+            self.card(i, path)
+            self.note(i, path)
+            write(os.path.join(self.work, "vision_queue", "%s_00001.png" % i), b"\x89PNG")
+            write(os.path.join(self.work, "state", "card_err_%s.txt" % i), "failed\n")
+        listed = next(iter(ids))
+        partial = os.path.join(self.tmp, "caller", "manifest.json")
+        write(partial, json.dumps({"entries": {listed: {"current_path": ids[listed]}}}))
+        before = self.snapshot()
+        counts, _err = self.purge(manifest=partial)
+        self.assertEqual(counts, {})
+        self.assertEqual(self.snapshot(), before)
+
+    def test_a_partial_manifest_has_another_withheld_digest_so_it_takes_its_own_work_folder(self):
+        """Why the caller passes its own `--work`: bundles and rendered files are judged by this digest, and the full
+        manifest withholds what a partial one does not list."""
+        listed = {i: e for i, e in self.entries.items() if e["current_path"] == self.OK}
+        self.assertNotEqual(common.withheld_digest(RB, self.entries), common.withheld_digest(RB, listed))
+
+
 if __name__ == "__main__":
     unittest.main()
