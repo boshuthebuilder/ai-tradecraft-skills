@@ -10,6 +10,12 @@ description: >-
   project-onboarding. Ships the tools that do the deterministic work. Use when a person wants a folder they already
   keep made ready for the system; for a folder that is already tidy and has no wiki, project-onboarding alone is
   enough.
+compatibility: >-
+  Needs a shell on the operator's own machine and Python 3.9 or later (standard library only) for its
+  bundled tools. Reading every document also needs macOS 13 or later (swiftc builds the Apple Vision OCR
+  helper), poppler for PDFs, and the agy and codex CLIs, signed in, for the vision lane and the cards.
+  tesseract and LibreOffice are used when installed. A tool that is missing is named in the records it
+  would have read.
 ---
 
 # pre-onboarding

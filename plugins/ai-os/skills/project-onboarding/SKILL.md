@@ -16,6 +16,10 @@ description: >-
   For a lived-in folder that needs tidying before a wiki can route it, start at pre-onboarding, which
   runs folder-curation. For just the wiki skeleton use wiki-onboarding, and for the ongoing loop use
   wiki-maintenance.
+compatibility: >-
+  Validating a prepared folder runs pre-onboarding's readiness.py, which needs a shell and Python 3.9 or
+  later on the machine that holds the folder. Scheduled jobs need a deployment that runs them; a person
+  driving a session by hand needs neither.
 ---
 
 # project-onboarding

@@ -150,6 +150,15 @@ def main() -> int:
         desc = fm.get("description")
         if not isinstance(desc, str) or not desc.strip():
             problems.append(f"{rel}: frontmatter needs a non-empty `description`")
+        # `compatibility` is the Agent Skills field for what the runtime must provide (1-500 characters). A
+        # skill that ships its own `tools/` cannot run them everywhere (a sandboxed agent may have no host
+        # CLIs, no macOS, no network), so it must say what it needs; a prose-only skill leaves the field out.
+        compat = fm.get("compatibility")
+        if compat is not None and (not isinstance(compat, str) or not 1 <= len(compat.strip()) <= 500):
+            problems.append(f"{rel}: `compatibility` must be 1 to 500 characters of text")
+        if compat is None and (f.parent / "tools").is_dir():
+            problems.append(f"{rel}: a skill that bundles `tools/` must state its runtime needs in "
+                            "`compatibility`")
 
     accounted_for = set(all_skill_files)
     for stray in sorted(ROOT.rglob("SKILL.md")):

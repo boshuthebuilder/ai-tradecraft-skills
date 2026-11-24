@@ -4,6 +4,22 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v15.12.0 (2026-11-24)
+
+A **MINOR**: six skills say what their runtime must provide (#187). A skill that bundles tools assumed a shell on the
+person's own computer and did not say so, so an agent in a sandbox (no host CLIs, no macOS, sometimes no network)
+found out only when a tool failed. The `compatibility` frontmatter field of the Agent Skills specification now states
+those needs, in plain words, for `pre-onboarding`, `adversarial-review`, `ai-writing-audit`, `folder-curation`,
+`project-onboarding` and `private-repo-access`. Each text is taken from that skill's own tool reference. Prose-only
+skills leave the field out, as the specification advises.
+
+- `scripts/lint_skills.py` fails a skill that has its own `tools/` folder and no `compatibility`, and a
+  `compatibility` that is empty or longer than 500 characters.
+- `AGENTS.md` adds the field to the versioned interface.
+
+No skill name, description, archetype layout or prompt placeholder changes, and no tool's behaviour changes. All
+three direction manifests bump to 15.12.0.
+
 ## v15.11.0 (2026-11-24)
 
 A **MINOR**: pre-onboarding states the smallest manifest `cards.py` accepts, so a deployment can card only the documents
