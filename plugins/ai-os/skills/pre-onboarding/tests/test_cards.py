@@ -1902,8 +1902,16 @@ class MinimalManifestTest(CardsCliCase):
         named here so a schema that drops or adds one fails."""
         with open(os.path.join(TOOLS, "schemas", "manifest-minimal.json"), encoding="utf-8") as f:
             schema = json.load(f)
-        entry = schema["properties"]["entries"]["additionalProperties"]
-        self.assertEqual(set(entry["properties"]), {"current_path", "flags", "copies", "rename_history"})
+        self.assertEqual({k: schema[k] for k in ("type", "required", "properties")}, {
+            "type": "object", "required": ["entries"], "properties": {"entries": {
+                "type": "object", "additionalProperties": {
+                    "type": "object", "required": ["current_path"], "properties": {
+                        "current_path": {"type": "string", "pattern": "."},
+                        "flags": {"type": "array", "items": {"type": "string"}},
+                        "copies": {"type": "array", "items": {"type": "object", "required": ["path"],
+                                                              "properties": {"path": {"type": "string"}}}},
+                        "rename_history": {"type": "array", "items": {"type": "object",
+                                                                      "properties": {"path": {"type": "string"}}}}}}}}})
         full = {"entries": {"a" * 64: {"current_path": "x.pdf", "flags": ["departed"],
                                        "copies": [{"path": "y.pdf"}], "rename_history": [{"path": "old.pdf"}]}}}
         self.assertEqual(cards.schema_problems(full, schema, "manifest"), [])
