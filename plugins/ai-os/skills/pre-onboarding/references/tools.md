@@ -71,6 +71,10 @@ that could carry such a document or its path:
   current path, its copies', the placements in its `rename_history`, and for a document staged for another project the path
   it was staged from, unless a live document that is not withheld holds that path now.
 
+A manifest that omits an id withholds nothing by that omission: the id's extract record, card, cached notes, queued
+page images and card error are left as they are, unless an artefact records a withheld path itself. A caller that
+passes a partial manifest passes its own `--work` too ([carding some documents](cards.md#carding-some-documents)).
+
 What it purges in a work directory is the one the tool resolved (`--work`, else the default for the folder), `plan.py`
 included, and never another's.
 

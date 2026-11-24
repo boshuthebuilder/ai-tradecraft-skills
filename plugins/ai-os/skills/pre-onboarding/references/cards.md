@@ -13,6 +13,23 @@ the commands are in [the tool reference](tools.md#cardspy).
 entry id, its content hash, so a card follows its document through renames and moves and serves every copy of it.
 A document that has a card is not carded again unless its id is listed for `--redo`.
 
+## Carding some documents
+
+A caller that cards only the documents it has just read, not the whole folder, passes `cards.py build` and `work` a
+manifest of those documents with `--manifest <file>`. The smallest one they accept is
+[`tools/schemas/manifest-minimal.json`](../tools/schemas/manifest-minimal.json): an `entries` object keyed by each
+document's id, where an entry needs only its `current_path`. `flags` (a `departed` document is not carded) and
+`copies` are read when present; a card's `class` comes from the extract record, not the manifest.
+
+1. Write the manifest in the caller's own work folder, never over `<folder>/_Audit/manifest.json`, which stays the
+   audit's file.
+2. Pass the caller's own `--work` as well. The purge at every start judges bundles and rendered files by a digest of
+   what the manifest withholds, so a partial manifest run against the folder's default work folder would discard
+   the bundles and rendered files the full manifest built there.
+3. An id the manifest does not list is not carded, and its extract record, card, cached notes, queued page images and
+   card error are left as they are. Only what a listed entry withholds, or what records a withheld path itself, is
+   purged ([withheld means purged](tools.md#common-flags)).
+
 ## What a card holds
 
 The engine writes fourteen fields, as [`card-instructions.md`](../tools/templates/card-instructions.md) asks and the
@@ -61,7 +78,7 @@ One prompt per call, in three parts:
 | --- | --- |
 | `id` | a short id the call issues: `d1`, `d2` and so on |
 | `path` | the document's path in the folder, from the manifest (`current_path`), never from its extract record; shielded |
-| `class` | its manifest class |
+| `class` | its extract record's class |
 | `page_count` | its page count |
 | `read` | how its text was obtained: `text_layer`, `local_ocr`, `vision`, `mixed`, `sectioned` or `none` |
 | `text` | every page's text, each after a `[page N]` marker; pages read only as a photo are left out; shielded |

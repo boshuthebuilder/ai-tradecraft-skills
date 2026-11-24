@@ -1871,3 +1871,30 @@ class SplitSectionsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MinimalManifestTest(CardsCliCase):
+    """A caller that cards only the documents it has just read passes a manifest of those documents, in its own work
+    folder (`tools/schemas/manifest-minimal.json`): build and work card those, and only those."""
+
+    def test_build_and_work_card_only_what_a_minimal_manifest_lists(self):
+        a = self.record("03 Home/Rent.pdf", ["Rent for the flat."])
+        b = self.record("03 Home/Council tax.pdf", ["Council tax bill."])
+        self.record("02 Finance/Statement.pdf", ["A statement."])
+        own = os.path.join(self.root, "_Audit", "manifest.json")
+        before = read(own)
+        minimal = {"entries": {a: {"current_path": "03 Home/Rent.pdf"}, b: {"current_path": "03 Home/Council tax.pdf"}}}
+        with open(os.path.join(TOOLS, "schemas", "manifest-minimal.json"), encoding="utf-8") as f:
+            schema = json.load(f)
+        self.assertEqual(cards.schema_problems(minimal, schema, "manifest"), [])
+        self.assertTrue(cards.schema_problems({"entries": {a: {"flags": []}}}, schema, "manifest"))
+        path = os.path.join(self.tmp, "caller", "manifest.json")
+        write(path, json.dumps(minimal))
+        code, out, err = self.cards_py("build", "--manifest", path)
+        self.assertEqual(code, 0, err)
+        self.fakes.script("codex", default={"kind": "text"})
+        code, _out, err = self.work_run("codex", "--terms", self.terms, "--manifest", path)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(set(self.written()), {a, b})
+        self.assertEqual(self.written()[a]["card_meta"]["path"], "03 Home/Rent.pdf")
+        self.assertEqual(read(own), before, "the folder's own manifest is the audit's file")

@@ -4,6 +4,31 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v15.11.0 (2026-11-24)
+
+A **MINOR**: pre-onboarding states the smallest manifest `cards.py` accepts, so a deployment can card only the documents
+it has just read. No skill name, frontmatter, archetype layout or prompt placeholder changes, and no tool's behaviour
+changes. All three direction manifests bump to 15.11.0.
+
+### Added (MINOR)
+
+- **`tools/schemas/manifest-minimal.json`** (#181): an `entries` object keyed by id, where an entry needs only its
+  `current_path`; `flags` and `copies` are read when present. `references/cards.md` *Carding some documents* says how a
+  caller uses it: in its own work folder, never over `<folder>/_Audit/manifest.json`, and with its own `--work`.
+- A test runs `cards.py build` and `work` against a minimal manifest of two documents out of three, and only those two
+  are carded.
+
+### Changed
+
+- The rule for an id a manifest omits is stated and pinned (#182): it is not withheld by the omission, and its extract
+  record, card, cached notes, queued page images and card error are left as they are. `common.purge_withheld` already
+  behaved this way; `references/tools.md` (*Common flags*) and `references/cards.md` now say so, and a test in
+  `tests/test_purge.py` checks those artefacts are byte-identical after a purge with a partial manifest. A partial
+  manifest has another withheld digest, so a caller passes its own `--work` and the bundles and rendered files in the
+  folder's default work folder are not discarded.
+- `references/cards.md`: a card's `class` comes from the document's extract record, not from its manifest entry, as
+  the code has always read it.
+
 ## v15.10.0 (2026-11-23)
 
 A **MINOR**: pre-onboarding's extract record gets a JSON Schema, so that a deployment can write records in the same
