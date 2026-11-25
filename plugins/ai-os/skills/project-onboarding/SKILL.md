@@ -239,24 +239,24 @@ one-time; maintenance is ongoing.
 
 ## Without the tools
 
-A sandboxed agent (Cowork, or a chat app that runs a skill in a container) gives a skill a Linux container: no host command-line tools, no macOS helpers, and by default no outbound network. Two things
-in this flow need more than a container has. Validating a folder that claims to be prepared is done by
-`pre-onboarding`'s `readiness.py`, on the machine that holds the folder. And the folder itself is usually on that
-machine, not in the container. Telling prepared from cold needs no tool: a folder with `rulebook.json` in its
-settings folder claims to be prepared ([step 1](#1-scope-the-folder-and-tell-its-starting-state-read-only)).
+A sandboxed agent (Cowork, or a chat app that runs a skill in a container) gives a skill a Linux container: no host command-line tools, no macOS helpers, and by default no outbound network. What
+this flow lacks there is the folder: it is usually on the operator's machine, not in the container. Telling
+prepared from cold is read from the folder itself
+([step 1](#1-scope-the-folder-and-tell-its-starting-state-read-only)). Validating a folder that claims to be
+prepared is done by `pre-onboarding`'s `readiness.py`, which needs only Python, but must run where the folder
+is, and from an install that has `pre-onboarding` (an upload of this skill alone does not carry it).
 
-1. **You cannot see the folder.** Say so first. Ask the person whether the settings folder holds
-   `rulebook.json`; do not guess the starting state from a description. Plan the onboarding with them, and write
-   nothing.
+1. **You cannot see the folder.** Say so first. The starting state is told from what is on disk, never from a
+   description, so it is not known here. Plan the onboarding with the person, and write nothing.
 2. **The folder claims to be prepared.** Say first that the hand-off contract was not checked by the tool. Do not
    treat the folder as prepared on the strength of what it looks like: a folder that only resembles a prepared
    one is the case the check exists for. You may read the contract with the person and list what a check would
    look at, marked as read, not checked. Stamp no jobs and seed no state until `readiness.py`, or the
    deployment's own check of the same contract, has run. Tell the person to run it from a shell agent on the
    machine that holds the folder.
-3. **The folder is cold.** No readiness check applies to a cold folder, so none is missing. Where the session can
-   reach the folder, the flow goes on as this skill describes. Scheduled jobs still need a deployment that runs
-   them.
+3. **The folder is cold, and the session can reach it.** No readiness check applies to a cold folder, so none
+   is missing. Step 1 still decides: a cold and messy folder stops and goes to `pre-onboarding`, and a cold and
+   tidy one goes on as this skill describes. Scheduled jobs still need a deployment that runs them.
 
 **Never report that a tool ran when it did not.** Say what is missing before anything else, and mark every result that came from reading alone as read, not checked by a tool.
 

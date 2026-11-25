@@ -872,9 +872,10 @@ The flags every tool shares, its exit codes and the files it keeps outside the f
 
 A sandboxed agent (Cowork, or a chat app that runs a skill in a container) gives a skill a Linux container: no host command-line tools, no macOS helpers, and by default no outbound network. This skill's work is done
 by its tools, on the operator's own machine, against the folder itself. `audit.py` hashes every file, `extract.py`
-and `cards.py` read the documents, `structure.py` and `plan.py` assess and move, `wiki.py` checks and accepts the
-pages, and `settings.py`, `isolation.py`, `obsidian.py` and `readiness.py` decide the hand-off. None of that can be
-done by reading in a sandbox, so **a folder cannot be prepared there**.
+reads the documents, `cards.py` writes a card from each extract, `structure.py` assesses the structure, `plan.py`
+checks and runs the moves, `wiki.py` checks the pages and records the owner's acceptance, and `readiness.py`
+checks the hand-off contract. None of that can be done by reading in a sandbox, so **a folder cannot be prepared
+there**.
 
 1. Say so first, and name what is missing. Python itself is usually present in a container, so it is not the
    gap. The gaps are:

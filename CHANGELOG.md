@@ -17,9 +17,9 @@ network.
   same-model review is recorded as same-model, never as a cross-model pass.
 - **`scripts/package_skills.py`** builds `dist/<skill>.zip` for an agent that takes a skill by upload: one top-level
   folder with one `SKILL.md`, at most 500 files, no file over 25 MB, the zip at most 50 MB, the same bytes for the same
-  commit. A bundle holds what git tracks (the file list and the execute bit come from the index), less tests and
-  housekeeping files; a tracked symbolic link fails the run. Every zip is built in a temporary folder and reaches
-  `dist/` only when all passed. `--check` writes nothing, and CI runs it. A link from a skill to a sibling skill is listed as a note.
+  commit. A bundle holds what the commit holds (names, bytes and the execute bit are read from HEAD, never from
+  the disk), less tests and housekeeping files; a symbolic link fails the run. A passing run replaces `dist/`
+  whole, and a failing run removes it. `--check` writes nothing, and CI runs it. A link from a skill to a sibling skill is listed as a note.
 - **README**: how to upload to ChatGPT, what a sandboxed agent can run, and how to try an unreleased skill in each
   agent. **`AGENTS.md`**: the release protocol attaches the zips and adds a check by hand in each sandboxed agent.
 

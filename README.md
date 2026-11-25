@@ -63,7 +63,8 @@ ChatGPT takes a skill as an uploaded folder or zip, not from this marketplace. B
 python scripts/package_skills.py
 ```
 
-That writes `dist/<skill>.zip` for every skill, from the files git tracks (so it needs a git checkout). Each zip holds one top-level folder, named for the skill,
+That writes `dist/<skill>.zip` for every skill, from the last commit (so it needs a git checkout, and it
+replaces `dist/` whole). Each zip holds one top-level folder, named for the skill,
 with its `SKILL.md` at the top: the layout OpenAI's skills upload states, with its limits checked (at most
 500 files, no file over 25 MB, the zip at most 50 MB). Each release also carries the zips as release assets.
 Upload the one you want from the Skills area of the app.
@@ -352,8 +353,10 @@ A change to a skill reaches each agent a different way. Before a release, load t
 - **Claude Code**: `claude --plugin-dir ./plugins/<direction>` loads that plugin from the folder for one
   session (checked on Claude Code 2.1.294). The installed plugin is not touched.
 - **Codex CLI**: add the working tree as a local marketplace, `codex plugin marketplace add <path to this
-  checkout>`, then `codex plugin add <direction>@ai-tradecraft-skills`.
-- **ChatGPT (the chat app)**: `python scripts/package_skills.py`, then upload `dist/<skill>.zip`.
+  checkout>`, then `codex plugin add <direction>@<the name that command reports>` (not tested from this
+  repository).
+- **ChatGPT (the chat app)**: commit the change, run `python scripts/package_skills.py`, then upload
+  `dist/<skill>.zip`. The zips hold the last commit, not uncommitted edits.
 - **Cowork**: it installs this marketplace from GitHub. Whether it can be pointed at an unreleased branch has
   not been tested from this repository ([#186](https://github.com/boshuthebuilder/ai-tradecraft-skills/issues/186)).
   Until it has, try a skill in Cowork only after it is merged.

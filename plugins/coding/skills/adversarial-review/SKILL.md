@@ -204,9 +204,10 @@ may be reported as run.
    last resort does not apply yet. Tell them to run the gate from a shell agent inside a checkout of the
    repository.
 3. Where they have no such machine, the **same-model last resort** above is what is left: a fresh agent with no
-   shared context, given only the diff and the PR description. It is the gate's floor only when it is disclosed
-   on the PR as same-model. Label it as same-model in the first line. Without `gh`, give the findings as text
-   for the person to post on the PR.
+   shared context, given only the diff and the PR description. The session that wrote the change cannot be that
+   agent. If this session wrote it, tell the person to start a new one and to give it only those two things. It
+   is the gate's floor only when it is disclosed on the PR as same-model. Label it as same-model in the first
+   line. Without `gh`, give the findings as text for the person to post on the PR.
 
 **Never report that a tool ran when it did not.** Say what is missing before anything else, and mark every result that came from reading alone as read, not checked by a tool. A read by the session that wrote the change is never the gate. A same-model review is recorded as
 same-model, never as a cross-model pass.

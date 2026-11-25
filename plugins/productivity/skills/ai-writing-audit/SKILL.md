@@ -119,13 +119,15 @@ Full detail and examples live in REFERENCE.md. In brief:
 A sandboxed agent (Cowork, or a chat app that runs a skill in a container) gives a skill a Linux container: no host command-line tools, no macOS helpers, and by default no outbound network. The method here
 needs only reading, so the audit itself is always possible. The two tools are optional.
 
-- **`tools/audit.py`** is standard-library Python and runs wherever `python3` exists. If there is no `python3`,
+- **`tools/audit.py`** is standard-library Python for text and Markdown input, and runs wherever `python3`
+  exists. If there is no `python3`,
   do the audit by reading the draft against [`REFERENCE.md`](REFERENCE.md). Steps 1 and 5 of the workflow, and
   item 3 of the output, then become one line each: the scan was not run, and why.
 - **PDF input** needs `pypdf`. Without it, do not try to install it: ask the person for the text, or for the
   file as Markdown or plain text.
-- **`tools/sync_check.py`** needs the network. Without it, say that the catalogue's currency against the source
-  essay was not checked. Never assume it is in sync.
+- **`tools/sync_check.py`** is a maintenance check on the catalogue, not a step of an audit, and it needs the
+  network. Do not run it for an audit. If the person asks whether the catalogue is current and it cannot run,
+  say that this was not checked.
 
 **Never report that a tool ran when it did not.** Say what is missing before anything else, and mark every result that came from reading alone as read, not checked by a tool.
 

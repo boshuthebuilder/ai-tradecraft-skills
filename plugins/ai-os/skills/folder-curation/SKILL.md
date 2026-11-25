@@ -408,20 +408,20 @@ so a photograph folder that doubles overnight is visible.
 
 ## Without the tools
 
-A sandboxed agent (Cowork, or a chat app that runs a skill in a container) gives a skill a Linux container: no host command-line tools, no macOS helpers, and by default no outbound network. Every checked
-step of this skill is a tool in [`pre-onboarding/tools/`](../pre-onboarding/tools/): `audit.py` hashes the files,
-`structure.py` measures whether the structure needs a re-organisation, and `plan.py` writes each plan, checks it
-(`check`), runs it (`execute`) and proves the result (`prove`). Without them nothing has hashed a file, so
-duplicates, staleness and safe moves are not established, and no plan can be checked, run or proved.
+A sandboxed agent (Cowork, or a chat app that runs a skill in a container) gives a skill a Linux container: no host command-line tools, no macOS helpers, and by default no outbound network. The checked
+steps of this skill are tools in [`pre-onboarding/tools/`](../pre-onboarding/tools/): `audit.py` hashes the
+files, and `plan.py` checks a plan (`check`), runs it (`execute`) and proves the result (`prove`). Without them
+nothing has hashed a file, so duplicates, staleness and safe moves are not established, and no plan can be
+checked, run or proved.
 
 1. Say so first: the audit was not run, and nothing here is a checked plan.
 2. From a listing the person provides, you may name what looks out of place **inside the owner's own shape**: a
-   likely duplicate, a stray at the root, one subject with two homes. Propose no new structure. "Never invent a
-   taxonomy" holds here as everywhere, and a listing of names cannot support even the re-organisation the
-   structure assessment allows. Mark every line as a guess from names alone.
-3. Move nothing, and do not write a move plan in the tools' format: a plan in that format reads as checked.
-4. Tell the person to run the audit, and every step after it (the structure assessment, and each plan's check,
-   run and proof), from a shell agent on the machine that holds the folder.
+   likely duplicate, a stray at the root, one subject with two homes. Propose no new structure: "Never invent a
+   taxonomy" holds here as everywhere. Mark every line as a guess from names alone.
+3. Move nothing, and write no move plan. A plan row carries the file's hash as its evidence, and names alone
+   give none.
+4. Tell the person to run the audit, and each plan's check, run and proof, from a shell agent on the machine
+   that holds the folder.
 
 **Never report that a tool ran when it did not.** Say what is missing before anything else, and mark every result that came from reading alone as read, not checked by a tool.
 
