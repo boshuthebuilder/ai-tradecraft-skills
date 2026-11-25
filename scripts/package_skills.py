@@ -12,14 +12,23 @@ A zip holds one skill and nothing beside it. A link from that skill to a SIBLING
 no target after an upload, so each such link is listed as a note: the skill still loads, and the reader of that
 link needs the other skill installed too.
 
-The output is the same bytes for the same tree: entries are sorted and carry one fixed timestamp.
+A bundle holds what git tracks, and nothing else: the file list and each file's mode come from the git index,
+not from the disk. So a cache, an editor's backup file or an untracked draft is never packaged, and the execute
+bit is the one the repository records, on any machine. A tracked symbolic link fails the run, by name: a zip
+entry cannot stand in for it. The output is the same bytes for the same commit: entries are sorted and carry
+one fixed timestamp.
 
-Standard library only.
+Nothing is left behind by a failed run: every zip is built in a temporary folder, and the zips reach `dist/`
+only when all of them passed.
+
+Standard library only; needs `git` on PATH and a checkout (not an archive download).
 """
 from __future__ import annotations
 
 import argparse
 import re
+import shutil
+import subprocess
 import sys
 import tempfile
 import zipfile
@@ -30,9 +39,12 @@ MAX_FILES = 500
 MAX_FILE_BYTES = 25 * 1024 * 1024
 MAX_ZIP_BYTES = 50 * 1024 * 1024
 FIXED_TIME = (2026, 1, 1, 0, 0, 0)
-# Not part of what an agent loads: a skill's own test suite, caches, and editor litter.
-SKIP_DIRS = {"tests", "__pycache__"}
-SKIP_FILES = {".DS_Store"}
+# Tracked, but not part of what an agent loads: a skill's own tests and the repository's own housekeeping.
+SKIP_DIRS = {"tests"}
+SKIP_FILES = {".gitignore", ".gitattributes"}
+SKIP_PREFIXES = ("test_",)
+SYMLINK_MODE = "120000"
+EXECUTABLE_MODE = "100755"
 SIBLING_LINK = re.compile(r"\]\((\.\./[^)#\s]+)")
 
 
@@ -40,27 +52,47 @@ def skill_dirs() -> list[Path]:
     return sorted(p.parent for p in ROOT.glob("plugins/*/skills/*/SKILL.md"))
 
 
-def bundle_files(skill: Path) -> list[Path]:
-    files = []
-    for path in sorted(skill.rglob("*")):
-        relative = path.relative_to(skill)
-        if not path.is_file() or path.is_symlink():
-            continue
-        if any(part in SKIP_DIRS for part in relative.parts) or path.name in SKIP_FILES or path.suffix == ".pyc":
-            continue
-        files.append(path)
-    return files
+def tracked(skill: Path) -> dict[Path, str]:
+    """Every file git tracks under the skill, with the mode the index records for it."""
+    listing = subprocess.run(
+        ["git", "ls-files", "-s", "-z", "--", str(skill.relative_to(ROOT))],
+        cwd=ROOT, check=True, capture_output=True, text=True,
+    ).stdout
+    entries = {}
+    for record in filter(None, listing.split("\0")):
+        meta, name = record.split("\t", 1)
+        entries[ROOT / name] = meta.split()[0]
+    return entries
 
 
-def problems_for(skill: Path, files: list[Path]) -> list[str]:
+def skipped(relative: Path) -> bool:
+    return (
+        any(part in SKIP_DIRS for part in relative.parts[:-1])
+        or relative.name in SKIP_FILES
+        or relative.name.startswith(SKIP_PREFIXES)
+    )
+
+
+def bundle_files(skill: Path, modes: dict[Path, str]) -> list[Path]:
+    return sorted(f for f in modes if not skipped(f.relative_to(skill)))
+
+
+def problems_for(skill: Path, files: list[Path], modes: dict[Path, str]) -> list[str]:
     name, problems = skill.name, []
+    for f in files:
+        if modes[f] == SYMLINK_MODE:
+            problems.append(f"{name}: {f.relative_to(skill)} is a symbolic link, which a bundle cannot carry")
+    files = [f for f in files if modes[f] != SYMLINK_MODE]
     manifests = [f for f in files if f.name.lower() == "skill.md"]
-    if len(manifests) != 1 or manifests[0].parent != skill:
-        problems.append(f"{name}: a bundle holds exactly one SKILL.md, at its top; found {len(manifests)}")
+    if [f.relative_to(skill).as_posix() for f in manifests] != ["SKILL.md"]:
+        found = ", ".join(f.relative_to(skill).as_posix() for f in manifests) or "none"
+        problems.append(f"{name}: a bundle holds exactly one SKILL.md, spelt so, at its top; found {found}")
     if len(files) > MAX_FILES:
         problems.append(f"{name}: {len(files)} files, over the limit of {MAX_FILES}")
     for f in files:
-        if f.stat().st_size > MAX_FILE_BYTES:
+        if not f.is_file():
+            problems.append(f"{name}: {f.relative_to(skill)} is tracked but missing from the working tree")
+        elif f.stat().st_size > MAX_FILE_BYTES:
             problems.append(f"{name}: {f.relative_to(skill)} is {f.stat().st_size} bytes, over {MAX_FILE_BYTES}")
     return problems
 
@@ -79,13 +111,13 @@ def sibling_links(skill: Path, files: list[Path]) -> list[str]:
     return sorted(found)
 
 
-def write_zip(skill: Path, files: list[Path], destination: Path) -> Path:
+def write_zip(skill: Path, files: list[Path], modes: dict[Path, str], destination: Path) -> Path:
     target = destination / f"{skill.name}.zip"
     with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as bundle:
         for f in files:
             info = zipfile.ZipInfo(f"{skill.name}/{f.relative_to(skill).as_posix()}", FIXED_TIME)
             info.compress_type = zipfile.ZIP_DEFLATED
-            info.external_attr = (0o755 if f.stat().st_mode & 0o111 else 0o644) << 16
+            info.external_attr = (0o755 if modes[f] == EXECUTABLE_MODE else 0o644) << 16
             bundle.writestr(info, f.read_bytes())
     return target
 
@@ -101,27 +133,36 @@ def main(argv: list[str] | None = None) -> int:
         print("no plugins/*/skills/*/SKILL.md found", file=sys.stderr)
         return 1
     problems: list[str] = []
+    lines: list[str] = []
     with tempfile.TemporaryDirectory() as scratch:
-        destination = Path(scratch) if args.check else Path(args.out)
-        destination.mkdir(parents=True, exist_ok=True)
+        built = []
         for skill in skills:
-            files = bundle_files(skill)
-            found = problems_for(skill, files)
+            modes = tracked(skill)
+            files = bundle_files(skill, modes)
+            found = problems_for(skill, files, modes)
             problems += found
             if found:
                 continue
-            target = write_zip(skill, files, destination)
+            target = write_zip(skill, files, modes, Path(scratch))
             size = target.stat().st_size
             if size > MAX_ZIP_BYTES:
                 problems.append(f"{skill.name}: the zip is {size} bytes, over the limit of {MAX_ZIP_BYTES}")
+                continue
+            built.append(target)
             links = sibling_links(skill, files)
             note = f" · note: {len(links)} link(s) to a sibling skill have no target in a single-skill upload" if links else ""
-            print(f"{skill.name}.zip  {len(files)} file(s), {size} bytes{note}")
-    if problems:
-        print("Packaging FAILED:", file=sys.stderr)
-        for line in problems:
-            print(f"  - {line}", file=sys.stderr)
-        return 1
+            lines.append(f"{skill.name}.zip  {len(files)} file(s), {size} bytes{note}")
+        if problems:
+            print("Packaging FAILED, and nothing was written:", file=sys.stderr)
+            for line in problems:
+                print(f"  - {line}", file=sys.stderr)
+            return 1
+        if not args.check:
+            out = Path(args.out)
+            out.mkdir(parents=True, exist_ok=True)
+            for target in built:
+                shutil.move(str(target), out / target.name)
+    print("\n".join(lines))
     print(f"OK — {len(skills)} skill(s) " + ("checked" if args.check else f"packaged into {args.out}"))
     return 0
 

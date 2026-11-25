@@ -870,11 +870,18 @@ The flags every tool shares, its exit codes and the files it keeps outside the f
 
 ## Without the tools
 
-A sandboxed agent (Cowork, or a chat app that runs a skill in a container) gives a skill a Linux container: no host command-line tools, no macOS helpers, and by default no outbound network. This skill's work is done by its tools, on the operator's own machine, against the folder itself: the
-audit hashes every file, the readers and engines extract the text, and the checks decide the hand-off. None
-of that can be done by reading in a sandbox, so **a folder cannot be prepared there**.
+A sandboxed agent (Cowork, or a chat app that runs a skill in a container) gives a skill a Linux container: no host command-line tools, no macOS helpers, and by default no outbound network. This skill's work is done
+by its tools, on the operator's own machine, against the folder itself. `audit.py` hashes every file, `extract.py`
+and `cards.py` read the documents, `structure.py` and `plan.py` assess and move, `wiki.py` checks and accepts the
+pages, and `settings.py`, `isolation.py`, `obsidian.py` and `readiness.py` decide the hand-off. None of that can be
+done by reading in a sandbox, so **a folder cannot be prepared there**.
 
-1. Say so first: name what is missing (a shell on the machine that holds the folder, Python, the engines).
+1. Say so first, and name what is missing. Python itself is usually present in a container, so it is not the
+   gap. The gaps are:
+   - the folder, which is on the operator's machine and not in the container;
+   - the local readers: poppler for PDFs, and tesseract and LibreOffice where the run would use them;
+   - the macOS helpers: the Apple Vision OCR helper that `swiftc` builds, `textutil` and `sips`;
+   - the signed-in engine CLIs (`agy`, `codex`) and the network they and the editor-setup download need.
 2. Tell the person to run the preparation from a shell agent on that machine.
 3. What a sandboxed session can still do: explain the method and plan the rounds; read a report, a plan or a
    page the person brings and comment on it. It writes nothing into the folder.

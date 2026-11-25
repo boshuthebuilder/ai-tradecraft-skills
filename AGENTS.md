@@ -82,7 +82,7 @@ contract change.
    same PR or a follow-up commit.
 3. Tag: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 4. Build the upload zips at the tag and attach them to the release: `python scripts/package_skills.py`, then
-   `gh release create vX.Y.Z dist/*.zip --notes-from-tag` (or `gh release upload` when the release exists). An
+   `gh release create vX.Y.Z dist/*.zip --notes-from-tag` (or `gh release upload vX.Y.Z dist/*.zip` when the release exists). An
    agent that takes a skill by upload, not from the marketplace, gets it from there.
 5. Check one skill by hand in each sandboxed agent the README names: it installs (Cowork) or uploads (ChatGPT),
    and it appears. CI cannot reach those agents, so a release that skips this step has not been checked there.

@@ -13,11 +13,13 @@ network.
 - **A "Without the tools" section** in the six skills that run tools: `pre-onboarding`, `folder-curation`,
   `project-onboarding`, `user-onboarding`, `adversarial-review` and `ai-writing-audit`. Each names what is missing,
   what to tell the person, and what can still be done by reading. One rule is in all six: never report that a tool
-  ran when it did not. `adversarial-review` says the cross-model gate cannot run in a sandbox, and that a same-model
-  read there is never recorded as the gate having passed.
+  ran when it did not. `adversarial-review` says that no different-model leg can run in a sandbox, and that a
+  same-model review is recorded as same-model, never as a cross-model pass.
 - **`scripts/package_skills.py`** builds `dist/<skill>.zip` for an agent that takes a skill by upload: one top-level
-  folder with one `SKILL.md`, at most 500 files, no file over 25 MB, the zip at most 50 MB, the same bytes on each
-  build. `--check` writes nothing, and CI runs it. A link from a skill to a sibling skill is listed as a note.
+  folder with one `SKILL.md`, at most 500 files, no file over 25 MB, the zip at most 50 MB, the same bytes for the same
+  commit. A bundle holds what git tracks (the file list and the execute bit come from the index), less tests and
+  housekeeping files; a tracked symbolic link fails the run. Every zip is built in a temporary folder and reaches
+  `dist/` only when all passed. `--check` writes nothing, and CI runs it. A link from a skill to a sibling skill is listed as a note.
 - **README**: how to upload to ChatGPT, what a sandboxed agent can run, and how to try an unreleased skill in each
   agent. **`AGENTS.md`**: the release protocol attaches the zips and adds a check by hand in each sandboxed agent.
 

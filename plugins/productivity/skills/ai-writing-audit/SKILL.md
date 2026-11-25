@@ -116,10 +116,12 @@ Full detail and examples live in REFERENCE.md. In brief:
 
 ## Without the tools
 
-A sandboxed agent (Cowork, or a chat app that runs a skill in a container) gives a skill a Linux container: no host command-line tools, no macOS helpers, and by default no outbound network. The method here needs only reading, so the audit itself is always possible. The two tools are optional.
+A sandboxed agent (Cowork, or a chat app that runs a skill in a container) gives a skill a Linux container: no host command-line tools, no macOS helpers, and by default no outbound network. The method here
+needs only reading, so the audit itself is always possible. The two tools are optional.
 
 - **`tools/audit.py`** is standard-library Python and runs wherever `python3` exists. If there is no `python3`,
-  do the audit by reading the draft against [`REFERENCE.md`](REFERENCE.md), and say that the scan was not run.
+  do the audit by reading the draft against [`REFERENCE.md`](REFERENCE.md). Steps 1 and 5 of the workflow, and
+  item 3 of the output, then become one line each: the scan was not run, and why.
 - **PDF input** needs `pypdf`. Without it, do not try to install it: ask the person for the text, or for the
   file as Markdown or plain text.
 - **`tools/sync_check.py`** needs the network. Without it, say that the catalogue's currency against the source
@@ -133,7 +135,8 @@ When asked for an audit, produce:
 
 1. A short summary: which tells appeared, in which evidence band, and the cluster verdict.
 2. The rewritten document, or a list of suggested rewrites if the user only wants a review.
-3. The post-rewrite scan.
+3. The post-rewrite scan, or one line saying that the scanner could not run and why
+   ([Without the tools](#without-the-tools)).
 
 Do not narrate the rationale sentence by sentence. The user can read the diff.
 

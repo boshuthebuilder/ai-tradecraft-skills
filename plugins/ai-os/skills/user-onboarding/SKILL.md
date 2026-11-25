@@ -213,14 +213,20 @@ land in `02 Ideas/` through the interactive capture surfaces, never by hand in t
 
 ## Without the tools
 
-A sandboxed agent (Cowork, or a chat app that runs a skill in a container) gives a skill a Linux container: no host command-line tools, no macOS helpers, and by default no outbound network. The vault's editor setup is written and checked by `pre-onboarding`'s `obsidian.py`, which also
-downloads the pinned plugin releases. Without a shell, Python or the network, that step cannot run.
+A sandboxed agent (Cowork, or a chat app that runs a skill in a container) gives a skill a Linux container: no host command-line tools, no macOS helpers, and by default no outbound network. The vault's
+editor setup is written and checked by `pre-onboarding`'s `obsidian.py`, on the machine that holds the vault.
+`obsidian.py write` downloads each pinned release asset that is not yet in its cache, so it needs the network.
+`obsidian.py check` reads local files only and needs none.
 
 1. Say so first: the editor setup was not written, or was not checked.
 2. Carry on with the rest: the vault skeleton and the schema do not need the tool, and a vault works without
    its editor setup.
-3. Do not write plugin files from memory. The manifest pins each release by hash, and only the tool verifies
-   it. Tell the person to run `obsidian.py write` later from a shell agent on the machine that holds the vault.
+3. Building the setup by hand from the manifest is allowed, as [the skeleton](#3-scaffold-the-type-1-skeleton)
+   says, and it has two parts. The settings the manifest states in full (the core plugins, the app and
+   appearance settings, each plugin's data) may be written from the manifest. A plugin's or theme's release
+   assets may not be written from memory: each is the real file, fetched at the pinned version and verified
+   against the hash the manifest records. Where the assets cannot be fetched and verified, leave them out, say
+   which are missing, and tell the person to run `obsidian.py write` later from a shell agent on that machine.
 
 **Never report that a tool ran when it did not.** Say what is missing before anything else, and mark every result that came from reading alone as read, not checked by a tool.
 

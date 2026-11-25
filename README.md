@@ -63,7 +63,7 @@ ChatGPT takes a skill as an uploaded folder or zip, not from this marketplace. B
 python scripts/package_skills.py
 ```
 
-That writes `dist/<skill>.zip` for every skill. Each zip holds one top-level folder, named for the skill,
+That writes `dist/<skill>.zip` for every skill, from the files git tracks (so it needs a git checkout). Each zip holds one top-level folder, named for the skill,
 with its `SKILL.md` at the top: the layout OpenAI's skills upload states, with its limits checked (at most
 500 files, no file over 25 MB, the zip at most 50 MB). Each release also carries the zips as release assets.
 Upload the one you want from the Skills area of the app.
@@ -81,16 +81,21 @@ to do when a need is missing.
 
 | | Cowork | ChatGPT (chat app) |
 |---|---|---|
-| Install | this marketplace, as above | upload a zip from `dist/` |
+| Install | this marketplace, as above (not tested from this repository) | upload a zip from `dist/` (not tested) |
 | Where a skill runs | an isolated Linux sandbox | a hosted container |
 | Host CLIs (`agy`, `codex`, `claude`, `gh`), macOS helpers | none | none |
-| Outbound network | only hosts on an allow-list; SSH to GitHub did not connect | off by default in the hosted shell |
+| Outbound network | only hosts on an allow-list; SSH to GitHub did not connect | off by default in the hosted container, per the API documentation |
 | Standard-library Python tools | expected to run; not tested | expected to run; not tested |
 
-So in either, the prose-only skills work as they are, `ai-writing-audit`'s scan should run, and the skills
-that need the operator's own machine (`pre-onboarding`, `folder-curation`, `adversarial-review`,
-`private-repo-access`) do not: each says so and names what is missing. The rows marked "not tested" wait
-for a real install ([#186](https://github.com/boshuthebuilder/ai-tradecraft-skills/issues/186)).
+So in either, the prose-only skills should work as they are, and `ai-writing-audit`'s scan should run. The
+skills whose work is done on the operator's own machine (`pre-onboarding`, `folder-curation`,
+`adversarial-review`, `private-repo-access`) do not run there. `project-onboarding` and `user-onboarding` run in
+part: each has one step that needs that machine (the check of a prepared folder; the editor setup). Each of
+these says so and names what is missing.
+
+**No row of this table has been checked by a real install from this repository.** The rows come from the
+vendors' documentation and from what this repository has observed in other work. They wait for a real install
+in each agent ([#186](https://github.com/boshuthebuilder/ai-tradecraft-skills/issues/186)).
 
 **claude.ai** is best effort and untested: a skill there gets its `compatibility` text and no other support.
 
@@ -349,8 +354,9 @@ A change to a skill reaches each agent a different way. Before a release, load t
 - **Codex CLI**: add the working tree as a local marketplace, `codex plugin marketplace add <path to this
   checkout>`, then `codex plugin add <direction>@ai-tradecraft-skills`.
 - **ChatGPT (the chat app)**: `python scripts/package_skills.py`, then upload `dist/<skill>.zip`.
-- **Cowork**: it installs from the marketplace, which follows this repository's default branch, so an
-  unreleased skill is tried there only once it is on a branch the marketplace entry points at.
+- **Cowork**: it installs this marketplace from GitHub. Whether it can be pointed at an unreleased branch has
+  not been tested from this repository ([#186](https://github.com/boshuthebuilder/ai-tradecraft-skills/issues/186)).
+  Until it has, try a skill in Cowork only after it is merged.
 - **A deployment that pins a release** reads skills from a clone at a tag. To try an unreleased skill against
   it, point its skills-path override at this checkout's `plugins/ai-os/skills` (the reference deployment's is
   `FAMILY_AI_SKILLS_DIR`). Check which branch that checkout is on first: a stale one answers without saying so.
