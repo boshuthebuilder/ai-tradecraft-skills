@@ -51,8 +51,8 @@ The versioned *interface* is everything a consumer may depend on:
   `wiki-maintenance`, `project-onboarding`, `pre-onboarding`, `ai-writing-audit`), and the
   `plugins/<direction>/skills/<name>/SKILL.md` layout. The frontmatter fields are `name`, `description` and,
   where a skill needs more than reading, `compatibility` (the Agent Skills field, 1 to 500 characters): what the
-  runtime must provide. A skill that bundles `tools/` must have it (the lint checks); a prose-only skill leaves
-  it out. Adding the field to a skill is MINOR; a new REQUIREMENT stated in it (a tool the skill now needs) is
+  runtime must provide. A skill that bundles `tools/` must have it, and so must the four the lint names
+  that run a sibling skill's tools or need a shell; a skill that needs nothing beyond reading leaves it out. Adding the field to a skill is MINOR; a new REQUIREMENT stated in it (a tool the skill now needs) is
   judged like any other change to what the skill demands;
 - **archetype directory layout** under
   `plugins/ai-os/skills/project-onboarding/archetypes/<archetype>/`

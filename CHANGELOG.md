@@ -6,15 +6,17 @@ deliberately.
 
 ## v15.12.0 (2026-11-24)
 
-A **MINOR**: six skills say what their runtime must provide (#187). A skill that bundles tools assumed a shell on the
+A **MINOR**: seven skills say what their runtime must provide (#187). A skill that bundles tools assumed a shell on the
 person's own computer and did not say so, so an agent in a sandbox (no host CLIs, no macOS, sometimes no network)
 found out only when a tool failed. The `compatibility` frontmatter field of the Agent Skills specification now states
 those needs, in plain words, for `pre-onboarding`, `adversarial-review`, `ai-writing-audit`, `folder-curation`,
-`project-onboarding` and `private-repo-access`. Each text is taken from that skill's own tool reference. Prose-only
-skills leave the field out, as the specification advises.
+`project-onboarding`, `user-onboarding` and `private-repo-access`. Three of them bundle their own tools. The other
+four run `pre-onboarding`'s tools or need a shell on the person's own computer. Each text is taken from the skill's
+own SKILL.md and from the reference of the tools it runs. A skill that needs nothing beyond reading leaves the field
+out, as the specification advises.
 
-- `scripts/lint_skills.py` fails a skill that has its own `tools/` folder and no `compatibility`, and a
-  `compatibility` that is empty or longer than 500 characters.
+- `scripts/lint_skills.py` fails a skill that has its own `tools/` folder and no `compatibility`, the four named
+  skills when they lose theirs, and a `compatibility` key that is empty or longer than 500 characters.
 - `AGENTS.md` adds the field to the versioned interface.
 
 No skill name, description, archetype layout or prompt placeholder changes, and no tool's behaviour changes. All

@@ -29,6 +29,12 @@ CHANGELOG = ROOT / "CHANGELOG.md"
 RELEASE_RE = re.compile(r"^## v(\d+\.\d+\.\d+)", re.M)
 
 
+# Skills with no `tools/` folder of their own that still need more than reading: they run a sibling skill's
+# tools, or need a shell on the person's own computer. The folder check cannot see that, so they are named.
+NEEDS_MORE_THAN_READING = frozenset({"folder-curation", "project-onboarding", "user-onboarding",
+                                     "private-repo-access"})
+
+
 def frontmatter(text: str) -> dict | None:
     if not text.startswith("---"):
         return None
@@ -152,13 +158,19 @@ def main() -> int:
             problems.append(f"{rel}: frontmatter needs a non-empty `description`")
         # `compatibility` is the Agent Skills field for what the runtime must provide (1-500 characters). A
         # skill that ships its own `tools/` cannot run them everywhere (a sandboxed agent may have no host
-        # CLIs, no macOS, no network), so it must say what it needs; a prose-only skill leaves the field out.
-        compat = fm.get("compatibility")
-        if compat is not None and (not isinstance(compat, str) or not 1 <= len(compat.strip()) <= 500):
-            problems.append(f"{rel}: `compatibility` must be 1 to 500 characters of text")
-        if compat is None and (f.parent / "tools").is_dir():
+        # CLIs, no macOS, no network), so it must say what it needs. A skill that needs nothing beyond reading
+        # leaves the field out; one that carries the key must give it real text (`compatibility:` alone parses
+        # to nothing, and would read as "declared" while declaring nothing).
+        if "compatibility" in fm:
+            compat = fm["compatibility"]
+            if not isinstance(compat, str) or not 1 <= len(compat.strip()) <= 500:
+                problems.append(f"{rel}: `compatibility` must be 1 to 500 characters of text")
+        elif (f.parent / "tools").is_dir():
             problems.append(f"{rel}: a skill that bundles `tools/` must state its runtime needs in "
                             "`compatibility`")
+        elif f.parent.name in NEEDS_MORE_THAN_READING:
+            problems.append(f"{rel}: this skill runs another skill's tools or needs a shell, so it must keep "
+                            "its `compatibility` (see NEEDS_MORE_THAN_READING)")
 
     accounted_for = set(all_skill_files)
     for stray in sorted(ROOT.rglob("SKILL.md")):

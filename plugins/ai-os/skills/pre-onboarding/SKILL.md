@@ -13,9 +13,9 @@ description: >-
 compatibility: >-
   Needs a shell on the operator's own machine and Python 3.9 or later (standard library only) for its
   bundled tools. Reading every document also needs macOS 13 or later (swiftc builds the Apple Vision OCR
-  helper), poppler for PDFs, and the agy and codex CLIs, signed in, for the vision lane and the cards.
-  tesseract and LibreOffice are used when installed. A tool that is missing is named in the records it
-  would have read.
+  helper), poppler for PDFs, the agy CLI, signed in, for the vision lane, and agy or codex, signed in, for
+  the cards. Those engines and the editor-setup download need network access. tesseract and LibreOffice
+  are used when installed. A missing tool is named in the records it would have read.
 ---
 
 # pre-onboarding

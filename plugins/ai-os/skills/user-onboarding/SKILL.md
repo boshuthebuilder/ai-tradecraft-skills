@@ -11,6 +11,11 @@ description: >-
   `reconcile` twin), which also suggests cross-project migrations for the owner to make by hand. For a document
   folder use project-onboarding (after pre-onboarding for a lived-in one); for the synthesis archetype
   details see project-onboarding/archetypes/user-synthesis.
+compatibility: >-
+  Writing and checking the vault's editor setup runs pre-onboarding's obsidian.py, which needs a shell and
+  Python 3.9 or later on the machine that holds the vault, and network access to download the pinned
+  plugin releases. The same files can be built by hand from the manifest. Scheduled synthesis needs a
+  deployment that runs it.
 ---
 
 # user-onboarding
