@@ -67,12 +67,16 @@ That writes `dist/<skill>.zip` for every skill, from the last commit (so it need
 replaces `dist/` whole). Each zip holds one top-level folder, named for the skill,
 with its `SKILL.md` at the top: the layout OpenAI's skills upload states, with its limits checked (at most
 500 files, no file over 25 MB, the zip at most 50 MB). Each release also carries the zips as release assets.
-Upload the one you want from the Skills area of the app.
+Upload the one you want in the app: **Customize**, then **Skills**, then **Add**, then **Upload from your
+computer**. The dialog takes a `.zip`, a `.skill` file or a `SKILL.md`.
 
-Two limits to know. **A zip holds one skill.** A link from it to a sibling skill has no target after an
-upload; the script lists those links, so upload the sibling too when you need it. **The upload flow in the
-app has not been tested from this repository.** The layout and the limits come from OpenAI's API
-documentation; the menu path comes from third-party guides ([#186](https://github.com/boshuthebuilder/ai-tradecraft-skills/issues/186)).
+Three things to know. **A zip holds one skill.** A link from it to a sibling skill has no target after an
+upload; the script lists those links, so upload the sibling too when you need it. **The limits the script
+checks are the API's.** The app's dialog states a larger one (780 MiB per file), so a zip that passes the
+script passes both. **The upload was tested once**, on 2026-11-25 in the web app, with `ai-writing-audit.zip`
+from the v15.13.0 release: it was accepted as it is, and the skill page showed every bundled file. The skill
+page shows the name and the description, not the `compatibility` text. Whether a bundled tool runs is not
+settled yet ([#186](https://github.com/boshuthebuilder/ai-tradecraft-skills/issues/186)).
 
 ### What a sandboxed agent can run
 
@@ -82,11 +86,13 @@ to do when a need is missing.
 
 | | Cowork | ChatGPT (chat app) |
 |---|---|---|
-| Install | this marketplace, as above (not tested from this repository) | upload a zip from `dist/` (not tested) |
+| Install | this marketplace, as above (not tested from this repository) | upload a zip from `dist/` (tested 2026-11-25: accepted) |
 | Where a skill runs | an isolated Linux sandbox | a hosted container |
 | Host CLIs (`agy`, `codex`, `claude`, `gh`), macOS helpers | none | none |
 | Outbound network | only hosts on an allow-list; SSH to GitHub did not connect | off by default in the hosted container, per the API documentation |
-| Standard-library Python tools | expected to run; not tested | expected to run; not tested |
+| `python3` | not tested | Python 3.13.5 in a chat (2026-11-25) |
+| Standard-library Python tools | expected to run; not tested | not run yet: a chat in Chat mode could not reach the skill's files; Work mode, which the skill page opens, is not tested |
+| Shows the `compatibility` text | not tested | no |
 
 So in either, the prose-only skills should work as they are, and `ai-writing-audit`'s scan should run. The
 skills whose work is done on the operator's own machine (`pre-onboarding`, `folder-curation`,
@@ -94,9 +100,10 @@ skills whose work is done on the operator's own machine (`pre-onboarding`, `fold
 part: each has one step that needs that machine (the check of a prepared folder; the editor setup). Each of
 these says so and names what is missing.
 
-**No row of this table has been checked by a real install from this repository.** The rows come from the
-vendors' documentation and from what this repository has observed in other work. They wait for a real install
-in each agent ([#186](https://github.com/boshuthebuilder/ai-tradecraft-skills/issues/186)).
+**Only the cells that carry a date have been checked by a real install from this repository.** The other
+cells come from the vendors' documentation and from what this repository has observed in other work. They wait
+for a real install ([#186](https://github.com/boshuthebuilder/ai-tradecraft-skills/issues/186)): all of Cowork, and a
+bundled tool run in ChatGPT.
 
 **claude.ai** is best effort and untested: a skill there gets its `compatibility` text and no other support.
 
