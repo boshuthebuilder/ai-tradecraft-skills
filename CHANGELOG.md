@@ -4,6 +4,27 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v15.13.0 (2026-11-25)
+
+A **MINOR**: the skills work, or say plainly why they cannot, in a sandboxed agent (#188, #189, #190). Cowork and
+ChatGPT run a skill in a container with no host command-line tools, no macOS helpers and, by default, no outbound
+network.
+
+- **A "Without the tools" section** in the six skills that run tools: `pre-onboarding`, `folder-curation`,
+  `project-onboarding`, `user-onboarding`, `adversarial-review` and `ai-writing-audit`. Each names what is missing,
+  what to tell the person, and what can still be done by reading. One rule is in all six: never report that a tool
+  ran when it did not. `adversarial-review` says the cross-model gate cannot run in a sandbox, and that a same-model
+  read there is never recorded as the gate having passed.
+- **`scripts/package_skills.py`** builds `dist/<skill>.zip` for an agent that takes a skill by upload: one top-level
+  folder with one `SKILL.md`, at most 500 files, no file over 25 MB, the zip at most 50 MB, the same bytes on each
+  build. `--check` writes nothing, and CI runs it. A link from a skill to a sibling skill is listed as a note.
+- **README**: how to upload to ChatGPT, what a sandboxed agent can run, and how to try an unreleased skill in each
+  agent. **`AGENTS.md`**: the release protocol attaches the zips and adds a check by hand in each sandboxed agent.
+
+What rests on documentation and not on a test is marked as such: no skill has yet been installed in Cowork or uploaded
+to ChatGPT from this repository (#186). No skill name, description, archetype layout or prompt placeholder changes,
+and no tool's behaviour changes. All three direction manifests bump to 15.13.0.
+
 ## v15.12.0 (2026-11-24)
 
 A **MINOR**: seven skills say what their runtime must provide (#187). A skill that bundles tools assumed a shell on the

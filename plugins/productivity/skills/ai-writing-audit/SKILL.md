@@ -114,6 +114,19 @@ Full detail and examples live in REFERENCE.md. In brief:
 5. **Re-scan and confirm.** Run the scanner again. Confirm the near-decisive band is empty (no leaked
    markup, no chat-mode leakage), the cluster count dropped, and no band is stacked. Report what changed.
 
+## Without the tools
+
+A sandboxed agent (Cowork, or a chat app that runs a skill in a container) gives a skill a Linux container: no host command-line tools, no macOS helpers, and by default no outbound network. The method here needs only reading, so the audit itself is always possible. The two tools are optional.
+
+- **`tools/audit.py`** is standard-library Python and runs wherever `python3` exists. If there is no `python3`,
+  do the audit by reading the draft against [`REFERENCE.md`](REFERENCE.md), and say that the scan was not run.
+- **PDF input** needs `pypdf`. Without it, do not try to install it: ask the person for the text, or for the
+  file as Markdown or plain text.
+- **`tools/sync_check.py`** needs the network. Without it, say that the catalogue's currency against the source
+  essay was not checked. Never assume it is in sync.
+
+**Never report that a tool ran when it did not.** Say what is missing before anything else, and mark every result that came from reading alone as read, not checked by a tool.
+
 ## Output
 
 When asked for an audit, produce:

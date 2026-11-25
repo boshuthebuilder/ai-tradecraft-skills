@@ -211,6 +211,19 @@ record lands in one of its folders, and the next synthesis tick evolves the Know
 touched; the weekly reconcile reckons the whole vault for drift. Authored ideas
 land in `02 Ideas/` through the interactive capture surfaces, never by hand in the vault.
 
+## Without the tools
+
+A sandboxed agent (Cowork, or a chat app that runs a skill in a container) gives a skill a Linux container: no host command-line tools, no macOS helpers, and by default no outbound network. The vault's editor setup is written and checked by `pre-onboarding`'s `obsidian.py`, which also
+downloads the pinned plugin releases. Without a shell, Python or the network, that step cannot run.
+
+1. Say so first: the editor setup was not written, or was not checked.
+2. Carry on with the rest: the vault skeleton and the schema do not need the tool, and a vault works without
+   its editor setup.
+3. Do not write plugin files from memory. The manifest pins each release by hash, and only the tool verifies
+   it. Tell the person to run `obsidian.py write` later from a shell agent on the machine that holds the vault.
+
+**Never report that a tool ran when it did not.** Say what is missing before anything else, and mark every result that came from reading alone as read, not checked by a tool.
+
 ## Principles
 
 - **Storage stays with the user.** Created in their account, shared into the worker — always (step 1).

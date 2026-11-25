@@ -406,6 +406,19 @@ A class decides cost as much as safety: a folder that is mostly photographs must
 walk of the photographs every tick. Count-only classes are still **counted**, per folder, every pass,
 so a photograph folder that doubles overnight is visible.
 
+## Without the tools
+
+A sandboxed agent (Cowork, or a chat app that runs a skill in a container) gives a skill a Linux container: no host command-line tools, no macOS helpers, and by default no outbound network. The audit and the move plans come from [`pre-onboarding/tools/`](../pre-onboarding/tools/). Without
+them nothing has hashed a file, so duplicates, staleness and safe moves are not established.
+
+1. Say so first: the audit was not run, and no plan here is a checked plan.
+2. From a listing the person provides, you may propose a structure and name what looks misplaced. Mark every
+   line as a proposal from names alone.
+3. Move nothing, and do not write a move plan in the tools' format: a plan in that format reads as checked.
+4. Tell the person to run the audit from a shell agent on the machine that holds the folder.
+
+**Never report that a tool ran when it did not.** Say what is missing before anything else, and mark every result that came from reading alone as read, not checked by a tool.
+
 ## Principles
 
 - **Audit first, always.** Nothing moves without a baseline manifest to reverse against.

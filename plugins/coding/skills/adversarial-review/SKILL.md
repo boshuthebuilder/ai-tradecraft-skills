@@ -191,6 +191,20 @@ model's CLI missing or walled), run a same-model reviewer: a fresh agent of the 
 Disclose on the PR that the gate ran same-model, so the weaker diversity is visible. This is the floor,
 never a substitute for an available different-model leg.
 
+## Without the tools
+
+A sandboxed agent (Cowork, or a chat app that runs a skill in a container) gives a skill a Linux container: no host command-line tools, no macOS helpers, and by default no outbound network. Every different-model leg of this gate is a signed-in CLI on a person's own machine (`agy`, `claude`,
+`codex`) plus `gh` and a git checkout. None of them exists in a sandbox, so **the cross-model gate cannot run
+there**, and it must not be reported as run.
+
+1. Say so first: name the legs that are unavailable, and that no reviewer of another model can be reached.
+2. Tell the person the gate still has to run, from a shell agent inside a checkout of the repository.
+3. If they want a review now, the only one possible is the **same-model last resort** above: a fresh agent
+   with no shared context, given only the diff and the PR description. Label it as same-model in the first
+   line. Without `gh`, give the findings as text for the person to post on the PR.
+
+**Never report that a tool ran when it did not.** Say what is missing before anything else, and mark every result that came from reading alone as read, not checked by a tool. A same-model read is never recorded as the gate having passed.
+
 ## Prerequisites — what each leg needs before you pick it
 
 The **Antigravity** leg self-enforces: `tools/agy-review` pre-flights its prerequisites at runtime and fails

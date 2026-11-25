@@ -237,6 +237,21 @@ fixture can verify the runtime without migrating a live wiki.
 From here the project runs itself: **wiki-maintenance** is the loop both jobs follow. Onboarding is
 one-time; maintenance is ongoing.
 
+## Without the tools
+
+A sandboxed agent (Cowork, or a chat app that runs a skill in a container) gives a skill a Linux container: no host command-line tools, no macOS helpers, and by default no outbound network. Telling a prepared folder from a cold one, and validating a prepared one, is done by `pre-onboarding`'s
+`readiness.py`. Without it the hand-off contract is **unchecked**.
+
+1. Say so first: the contract was not checked by the tool.
+2. Do not treat the folder as prepared on the strength of what it looks like. A folder that only resembles a
+   prepared one is the case the check exists for.
+3. You may read the contract with the person and list what a check would look at. Mark the list as read, not
+   checked.
+4. Stamp no jobs and seed no state from an unchecked folder. Tell the person to run the check from a shell
+   agent on the machine that holds the folder.
+
+**Never report that a tool ran when it did not.** Say what is missing before anything else, and mark every result that came from reading alone as read, not checked by a tool.
+
 ## Principles
 
 - **Wiki first, then jobs.** There is nothing to maintain until a Schema exists: a cold folder gets
