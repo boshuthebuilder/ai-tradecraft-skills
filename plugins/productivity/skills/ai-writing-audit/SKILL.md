@@ -114,13 +114,31 @@ Full detail and examples live in REFERENCE.md. In brief:
 5. **Re-scan and confirm.** Run the scanner again. Confirm the near-decisive band is empty (no leaked
    markup, no chat-mode leakage), the cluster count dropped, and no band is stacked. Report what changed.
 
+## Without the tools
+
+A sandboxed agent (Cowork, or a chat app that runs a skill in a container) gives a skill a Linux container: no host command-line tools, no macOS helpers, and by default no outbound network. The method here
+needs only reading, so the audit itself is always possible. The two tools are optional.
+
+- **`tools/audit.py`** is standard-library Python for text and Markdown input, and runs wherever `python3`
+  exists. If there is no `python3`,
+  do the audit by reading the draft against [`REFERENCE.md`](REFERENCE.md). Steps 1 and 5 of the workflow, and
+  item 3 of the output, then become one line each: the scan was not run, and why.
+- **PDF input** needs `pypdf`. Without it, do not try to install it: ask the person for the text, or for the
+  file as Markdown or plain text.
+- **`tools/sync_check.py`** is a maintenance check on the catalogue, not a step of an audit, and it needs the
+  network. Do not run it for an audit. If the person asks whether the catalogue is current and it cannot run,
+  say that this was not checked.
+
+**Never report that a tool ran when it did not.** Say what is missing before anything else, and mark every result that came from reading alone as read, not checked by a tool.
+
 ## Output
 
 When asked for an audit, produce:
 
 1. A short summary: which tells appeared, in which evidence band, and the cluster verdict.
 2. The rewritten document, or a list of suggested rewrites if the user only wants a review.
-3. The post-rewrite scan.
+3. The post-rewrite scan, or one line saying that the scanner could not run and why
+   ([Without the tools](#without-the-tools)).
 
 Do not narrate the rationale sentence by sentence. The user can read the diff.
 

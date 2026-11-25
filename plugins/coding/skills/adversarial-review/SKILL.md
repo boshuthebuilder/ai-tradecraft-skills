@@ -191,6 +191,27 @@ model's CLI missing or walled), run a same-model reviewer: a fresh agent of the 
 Disclose on the PR that the gate ran same-model, so the weaker diversity is visible. This is the floor,
 never a substitute for an available different-model leg.
 
+## Without the tools
+
+A sandboxed agent (Cowork, or a chat app that runs a skill in a container) gives a skill a Linux container: no host command-line tools, no macOS helpers, and by default no outbound network. Every
+different-model leg of this gate is a signed-in CLI on a person's own machine (`agy`, `claude`, `codex`) plus
+`gh` and a git checkout. None of them exists in a sandbox, so **no different-model leg can run there**, and none
+may be reported as run.
+
+1. Say so first: name the legs that are unavailable, and that no reviewer of another model can be reached from
+   this session.
+2. Where the person has a machine with those CLIs, a different-model leg is still available to them, so the
+   last resort does not apply yet. Tell them to run the gate from a shell agent inside a checkout of the
+   repository.
+3. Where they have no such machine, the **same-model last resort** above is what is left: a fresh agent with no
+   shared context, given only the diff and the PR description. The session that wrote the change cannot be that
+   agent. If this session wrote it, tell the person to start a new one and to give it only those two things. It
+   is the gate's floor only when it is disclosed on the PR as same-model. Label it as same-model in the first
+   line. Without `gh`, give the findings as text for the person to post on the PR.
+
+**Never report that a tool ran when it did not.** Say what is missing before anything else, and mark every result that came from reading alone as read, not checked by a tool. A read by the session that wrote the change is never the gate. A same-model review is recorded as
+same-model, never as a cross-model pass.
+
 ## Prerequisites — what each leg needs before you pick it
 
 The **Antigravity** leg self-enforces: `tools/agy-review` pre-flights its prerequisites at runtime and fails

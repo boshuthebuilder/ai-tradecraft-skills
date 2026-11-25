@@ -55,6 +55,51 @@ Start a new Codex session; each plugin's bundled skills load on demand — invok
 (e.g. `$adversarial-review`), or let Codex select automatically. Needs a Codex CLI with plugin
 support (`codex plugin --help`); verified against `codex-cli 0.144.1`.
 
+### ChatGPT (the chat app)
+
+ChatGPT takes a skill as an uploaded folder or zip, not from this marketplace. Build the zips:
+
+```
+python scripts/package_skills.py
+```
+
+That writes `dist/<skill>.zip` for every skill, from the last commit (so it needs a git checkout, and it
+replaces `dist/` whole). Each zip holds one top-level folder, named for the skill,
+with its `SKILL.md` at the top: the layout OpenAI's skills upload states, with its limits checked (at most
+500 files, no file over 25 MB, the zip at most 50 MB). Each release also carries the zips as release assets.
+Upload the one you want from the Skills area of the app.
+
+Two limits to know. **A zip holds one skill.** A link from it to a sibling skill has no target after an
+upload; the script lists those links, so upload the sibling too when you need it. **The upload flow in the
+app has not been tested from this repository.** The layout and the limits come from OpenAI's API
+documentation; the menu path comes from third-party guides ([#186](https://github.com/boshuthebuilder/ai-tradecraft-skills/issues/186)).
+
+### What a sandboxed agent can run
+
+Cowork and ChatGPT run a skill in a container, not on your own computer. A skill that needs more than
+reading says so in its `compatibility` frontmatter, and has a **Without the tools** section that says what
+to do when a need is missing.
+
+| | Cowork | ChatGPT (chat app) |
+|---|---|---|
+| Install | this marketplace, as above (not tested from this repository) | upload a zip from `dist/` (not tested) |
+| Where a skill runs | an isolated Linux sandbox | a hosted container |
+| Host CLIs (`agy`, `codex`, `claude`, `gh`), macOS helpers | none | none |
+| Outbound network | only hosts on an allow-list; SSH to GitHub did not connect | off by default in the hosted container, per the API documentation |
+| Standard-library Python tools | expected to run; not tested | expected to run; not tested |
+
+So in either, the prose-only skills should work as they are, and `ai-writing-audit`'s scan should run. The
+skills whose work is done on the operator's own machine (`pre-onboarding`, `folder-curation`,
+`adversarial-review`, `private-repo-access`) do not run there. `project-onboarding` and `user-onboarding` run in
+part: each has one step that needs that machine (the check of a prepared folder; the editor setup). Each of
+these says so and names what is missing.
+
+**No row of this table has been checked by a real install from this repository.** The rows come from the
+vendors' documentation and from what this repository has observed in other work. They wait for a real install
+in each agent ([#186](https://github.com/boshuthebuilder/ai-tradecraft-skills/issues/186)).
+
+**claude.ai** is best effort and untested: a skill there gets its `compatibility` text and no other support.
+
 Any other agent that reads the open [`SKILL.md`](https://learn.chatgpt.com/docs/build-skills) format
 from a skills directory can instead symlink the skill folders it wants —
 `plugins/coding/skills/*`, `plugins/ai-os/skills/*`, and `plugins/productivity/skills/*` — into
@@ -300,6 +345,24 @@ Three extension points:
   the shape of `file-ingest`. See
   [`plugins/ai-os/ARCHITECTURE.md`](plugins/ai-os/ARCHITECTURE.md) for what an archetype must
   define.
+
+### Try an unreleased skill
+
+A change to a skill reaches each agent a different way. Before a release, load the working tree directly:
+
+- **Claude Code**: `claude --plugin-dir ./plugins/<direction>` loads that plugin from the folder for one
+  session (checked on Claude Code 2.1.294). The installed plugin is not touched.
+- **Codex CLI**: add the working tree as a local marketplace, `codex plugin marketplace add <path to this
+  checkout>`, then `codex plugin add <direction>@<the name that command reports>` (not tested from this
+  repository).
+- **ChatGPT (the chat app)**: commit the change, run `python scripts/package_skills.py`, then upload
+  `dist/<skill>.zip`. The zips hold the last commit, not uncommitted edits.
+- **Cowork**: it installs this marketplace from GitHub. Whether it can be pointed at an unreleased branch has
+  not been tested from this repository ([#186](https://github.com/boshuthebuilder/ai-tradecraft-skills/issues/186)).
+  Until it has, try a skill in Cowork only after it is merged.
+- **A deployment that pins a release** reads skills from a clone at a tag. To try an unreleased skill against
+  it, point its skills-path override at this checkout's `plugins/ai-os/skills` (the reference deployment's is
+  `FAMILY_AI_SKILLS_DIR`). Check which branch that checkout is on first: a stale one answers without saying so.
 
 ### Local checks
 

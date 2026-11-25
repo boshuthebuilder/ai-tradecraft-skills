@@ -237,6 +237,29 @@ fixture can verify the runtime without migrating a live wiki.
 From here the project runs itself: **wiki-maintenance** is the loop both jobs follow. Onboarding is
 one-time; maintenance is ongoing.
 
+## Without the tools
+
+A sandboxed agent (Cowork, or a chat app that runs a skill in a container) gives a skill a Linux container: no host command-line tools, no macOS helpers, and by default no outbound network. What
+this flow lacks there is the folder: it is usually on the operator's machine, not in the container. Telling
+prepared from cold is read from the folder itself
+([step 1](#1-scope-the-folder-and-tell-its-starting-state-read-only)). Validating a folder that claims to be
+prepared is done by `pre-onboarding`'s `readiness.py`, which needs only Python, but must run where the folder
+is, and from an install that has `pre-onboarding` (an upload of this skill alone does not carry it).
+
+1. **You cannot see the folder.** Say so first. The starting state is told from what is on disk, never from a
+   description, so it is not known here. Plan the onboarding with the person, and write nothing.
+2. **The folder claims to be prepared.** Say first that the hand-off contract was not checked by the tool. Do not
+   treat the folder as prepared on the strength of what it looks like: a folder that only resembles a prepared
+   one is the case the check exists for. You may read the contract with the person and list what a check would
+   look at, marked as read, not checked. Stamp no jobs and seed no state until `readiness.py`, or the
+   deployment's own check of the same contract, has run. Tell the person to run it from a shell agent on the
+   machine that holds the folder.
+3. **The folder is cold, and the session can reach it.** No readiness check applies to a cold folder, so none
+   is missing. Step 1 still decides: a cold and messy folder stops and goes to `pre-onboarding`, and a cold and
+   tidy one goes on as this skill describes. Scheduled jobs still need a deployment that runs them.
+
+**Never report that a tool ran when it did not.** Say what is missing before anything else, and mark every result that came from reading alone as read, not checked by a tool.
+
 ## Principles
 
 - **Wiki first, then jobs.** There is nothing to maintain until a Schema exists: a cold folder gets

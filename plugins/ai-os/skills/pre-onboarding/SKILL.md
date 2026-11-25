@@ -868,6 +868,27 @@ How `readiness.py` reports each is in [the tool reference](references/tools.md#r
 The flags every tool shares, its exit codes and the files it keeps outside the folder:
 [the tool reference](references/tools.md#common-flags) and [its working files](references/tools.md#working-files).
 
+## Without the tools
+
+A sandboxed agent (Cowork, or a chat app that runs a skill in a container) gives a skill a Linux container: no host command-line tools, no macOS helpers, and by default no outbound network. This skill's work is done
+by its tools, on the operator's own machine, against the folder itself. `audit.py` hashes every file, `extract.py`
+reads the documents, `cards.py` writes a card from each extract, `structure.py` assesses the structure, `plan.py`
+checks and runs the moves, `wiki.py` checks the pages and records the owner's acceptance, and `readiness.py`
+checks the hand-off contract. None of that can be done by reading in a sandbox, so **a folder cannot be prepared
+there**.
+
+1. Say so first, and name what is missing. Python itself is usually present in a container, so it is not the
+   gap. The gaps are:
+   - the folder, which is on the operator's machine and not in the container;
+   - the local readers: poppler for PDFs, and tesseract and LibreOffice where the run would use them;
+   - the macOS helpers: the Apple Vision OCR helper that `swiftc` builds, `textutil` and `sips`;
+   - the signed-in engine CLIs (`agy`, `codex`) and the network they and the editor-setup download need.
+2. Tell the person to run the preparation from a shell agent on that machine.
+3. What a sandboxed session can still do: explain the method and plan the rounds; read a report, a plan or a
+   page the person brings and comment on it. It writes nothing into the folder.
+
+**Never report that a tool ran when it did not.** Say what is missing before anything else, and mark every result that came from reading alone as read, not checked by a tool. No file is called read, extracted, hashed or accepted unless a tool's record says so.
+
 ## Principles
 
 - **The owner decides; the tools carry it out.** Nothing in the owner's material moves without an approved row,
