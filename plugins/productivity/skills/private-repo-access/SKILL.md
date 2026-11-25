@@ -9,6 +9,11 @@ description: >-
   someone says "I don't have a GitHub account" for a private repository or an upstream plugin such as one
   listed under this marketplace's "Upstream plugins", or asks "how do I get access without GitHub",
   "set up a deploy key", "I can't install this plugin, the repo is private".
+compatibility: >-
+  Needs an agent with a shell on the person's own computer (Claude Code), with ssh, ssh-keygen and git,
+  and network access to GitHub over SSH. Written for macOS; on Linux only the clipboard command differs;
+  Windows is not covered. It does not work in a sandboxed agent such as Cowork, where SSH to GitHub does
+  not connect.
 ---
 
 # Private repository access without a GitHub account

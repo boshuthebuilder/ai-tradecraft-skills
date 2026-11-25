@@ -11,6 +11,11 @@ description: >-
   counterexample becomes a permanent test vector. Use for any complex change — more than one layer
   touched, a new pattern introduced, or unattended/production consequences — in any repo, driven by
   any coding agent (Claude Code, Codex, or another CLI agent).
+compatibility: >-
+  Needs a shell inside a git checkout of the repository under review, the gh CLI signed in, and network
+  access. Each reviewer leg needs its own CLI, signed in: agy (with python3 and its one-time grants) for
+  the bundled tools/agy-review harness, or claude, or codex. With none of them, only the disclosed
+  same-model last resort is possible.
 ---
 
 # adversarial-review

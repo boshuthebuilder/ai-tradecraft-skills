@@ -14,6 +14,10 @@ description: >-
   one-time scan and a live drift record without moving anything, or to stage an approved migration
   while a folder is being prepared. For a drop folder of files that belong to no project yet use
   file-preprocessing; for a folder that is already tidy use project-onboarding directly.
+compatibility: >-
+  Its audit and move plans are made by pre-onboarding's bundled tools, which need a shell and Python 3.9
+  or later on the machine that holds the folder. See pre-onboarding's compatibility for what reading every
+  document needs.
 ---
 
 # folder-curation

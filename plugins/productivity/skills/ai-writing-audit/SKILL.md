@@ -10,6 +10,10 @@ description: >-
   Triggers include "audit for AI tells", "remove the signs of AI writing", "make this sound less like AI",
   "de-slop this", "proofread for AI patterns", references to the Wikipedia "Signs of AI writing" essay,
   and checking this catalogue is still current against that essay (tools/sync_check.py).
+compatibility: >-
+  The method needs only reading. Its optional tools need a shell and python3 (standard library):
+  tools/audit.py scans a file, and reads a PDF only when pypdf is installed; tools/sync_check.py needs
+  network access to fetch the source essay.
 ---
 
 # AI writing audit
