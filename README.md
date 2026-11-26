@@ -94,24 +94,25 @@ to do when a need is missing.
 
 | | Cowork | ChatGPT (chat app) |
 |---|---|---|
-| Install | this marketplace, as above (not tested from this repository) | upload a zip from `dist/` (tested 2026-11-25: accepted, then held by the app's review until approved) |
+| Install | this marketplace, as above (observed 2026-11-26: installed, and at 15.13.0 on the day of that release) | upload a zip from `dist/` (tested 2026-11-25: accepted, then held by the app's review until approved) |
 | Where a skill runs | an isolated Linux sandbox | a hosted container |
 | Host CLIs (`agy`, `codex`, `claude`, `gh`), macOS helpers | none | none |
 | Outbound network | only hosts on an allow-list; SSH to GitHub did not connect | off by default in the hosted container, per the API documentation |
-| `python3` | not tested | Python 3.12.14 in Work mode (2026-11-26); 3.13.5 in Chat mode (2026-11-25) |
-| Standard-library Python tools | expected to run; not tested | `ai-writing-audit`'s `tools/audit.py` ran in Work mode (2026-11-26); in Chat mode the skill's files were not reachable |
-| Shows the `compatibility` text | not tested | not on the skill page; the agent can read it (2026-11-26) |
+| `python3` | Python 3.13.18 (2026-11-26) | Python 3.12.14 in Work mode (2026-11-26); 3.13.5 in Chat mode (2026-11-25) |
+| Standard-library Python tools | `ai-writing-audit`'s `tools/audit.py` ran, exit code 0 (2026-11-26) | `ai-writing-audit`'s `tools/audit.py` ran in Work mode (2026-11-26); in Chat mode the skill's files were not reachable |
+| Shows the `compatibility` text | the skill loader gives it to the agent (2026-11-26) | not on the skill page; the agent can read it (2026-11-26) |
 
-So in either, the prose-only skills should work as they are, and `ai-writing-audit`'s scan should run. The
+So in either, the prose-only skills should work as they are, and `ai-writing-audit`'s scan runs: it gave the
+same output in both. The
 skills whose work is done on the operator's own machine (`pre-onboarding`, `folder-curation`,
 `adversarial-review`, `private-repo-access`) do not run there. `project-onboarding` and `user-onboarding` run in
 part: each has one step that needs that machine (the check of a prepared folder; the editor setup). Each of
 these says so and names what is missing.
 
-**Only the cells that carry a date have been checked by a real install from this repository.** The other
-cells come from the vendors' documentation and from what this repository has observed in other work. They wait
-for a real install ([#186](https://github.com/boshuthebuilder/ai-tradecraft-skills/issues/186)): all of Cowork, and in
-ChatGPT the network row.
+**The cells that carry a date were checked by a real install from this repository**, with one skill,
+`ai-writing-audit` ([#186](https://github.com/boshuthebuilder/ai-tradecraft-skills/issues/186)). The other cells
+come from the vendors' documentation and from what this repository has observed in other work. Not tested in
+either agent: outbound network from the container, PDF input, and any other skill.
 
 **claude.ai** is best effort and untested: a skill there gets its `compatibility` text and no other support.
 
