@@ -73,10 +73,18 @@ computer**. The dialog takes a `.zip`, a `.skill` file or a `SKILL.md`.
 Three things to know. **A zip holds one skill.** A link from it to a sibling skill has no target after an
 upload; the script lists those links, so upload the sibling too when you need it. **The limits the script
 checks are the API's.** The app's dialog states a larger one (780 MiB per file), so a zip that passes the
-script passes both. **The upload was tested once**, on 2026-11-25 in the web app, with `ai-writing-audit.zip`
-from the v15.13.0 release: it was accepted as it is, and the skill page showed every bundled file. The skill
-page shows the name and the description, not the `compatibility` text. Whether a bundled tool runs is not
-settled yet ([#186](https://github.com/boshuthebuilder/ai-tradecraft-skills/issues/186)).
+script passes both. **The upload was tested once**, on 2026-11-25 and 2026-11-26 in the web app, with `ai-writing-audit.zip`
+from the v15.13.0 release ([#186](https://github.com/boshuthebuilder/ai-tradecraft-skills/issues/186)). What that
+test showed:
+
+1. The zip was accepted as it is, and the skill page listed every bundled file.
+2. **The app reviews a skill after the upload.** This one was flagged ("may bypass approval, logging,
+   verification, or other safety controls") and switched off until its owner pressed **Approve skill** on the
+   skill's page. Another skill may pass; the decision is the account owner's.
+3. **A skill's files reach the agent in Work mode**, which "Try in chat" on the skill page opens. A chat in
+   Chat mode could not find the skill.
+4. In Work mode `tools/audit.py` ran, and the agent could quote the `compatibility` text. The skill page shows
+   the name and the description, not that text.
 
 ### What a sandboxed agent can run
 
@@ -86,13 +94,13 @@ to do when a need is missing.
 
 | | Cowork | ChatGPT (chat app) |
 |---|---|---|
-| Install | this marketplace, as above (not tested from this repository) | upload a zip from `dist/` (tested 2026-11-25: accepted) |
+| Install | this marketplace, as above (not tested from this repository) | upload a zip from `dist/` (tested 2026-11-25: accepted, then held by the app's review until approved) |
 | Where a skill runs | an isolated Linux sandbox | a hosted container |
 | Host CLIs (`agy`, `codex`, `claude`, `gh`), macOS helpers | none | none |
 | Outbound network | only hosts on an allow-list; SSH to GitHub did not connect | off by default in the hosted container, per the API documentation |
-| `python3` | not tested | Python 3.13.5 in a chat (2026-11-25) |
-| Standard-library Python tools | expected to run; not tested | not run yet: a chat in Chat mode could not reach the skill's files; Work mode, which the skill page opens, is not tested |
-| Shows the `compatibility` text | not tested | no |
+| `python3` | not tested | Python 3.12.14 in Work mode (2026-11-26); 3.13.5 in Chat mode (2026-11-25) |
+| Standard-library Python tools | expected to run; not tested | `ai-writing-audit`'s `tools/audit.py` ran in Work mode (2026-11-26); in Chat mode the skill's files were not reachable |
+| Shows the `compatibility` text | not tested | not on the skill page; the agent can read it (2026-11-26) |
 
 So in either, the prose-only skills should work as they are, and `ai-writing-audit`'s scan should run. The
 skills whose work is done on the operator's own machine (`pre-onboarding`, `folder-curation`,
@@ -102,8 +110,8 @@ these says so and names what is missing.
 
 **Only the cells that carry a date have been checked by a real install from this repository.** The other
 cells come from the vendors' documentation and from what this repository has observed in other work. They wait
-for a real install ([#186](https://github.com/boshuthebuilder/ai-tradecraft-skills/issues/186)): all of Cowork, and a
-bundled tool run in ChatGPT.
+for a real install ([#186](https://github.com/boshuthebuilder/ai-tradecraft-skills/issues/186)): all of Cowork, and in
+ChatGPT the network row.
 
 **claude.ai** is best effort and untested: a skill there gets its `compatibility` text and no other support.
 
