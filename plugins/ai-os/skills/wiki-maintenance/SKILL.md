@@ -665,7 +665,9 @@ must never look alike:
   date, an empty note or a generic one ("Payment due") never makes two entries the same event. Report the
   candidates and the confirmed folds separately. Fold each confirmed group into one entry on the page that
   owns the fact, keeping the most exact note (amounts, references, the condition). Never fold away a
-  `provenance: manual` entry or one an owner confirmation record backs: report those instead. A roll-up
+  `provenance: manual` entry or one an owner confirmation record backs: report those instead. A `recurring:`
+  day with a dated entry for one year that differs from it or adds to it (the pair the ingest rule keeps) is
+  not a duplicate: leave both. A roll-up
   line that repeats an event is a finding here, never something to fix on the derived page by hand.
 - **The Schema matches reality.** Diff the Schema's declared layout (the top-level files and folders it
   names) against a directory listing; an undeclared folder or a described-but-missing page is a finding.
