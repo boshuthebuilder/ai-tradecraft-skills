@@ -4,7 +4,9 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
-## Unreleased
+## v15.14.0 (2026-11-27)
+
+A **MINOR**: `wiki-maintenance` keeps one deadline entry per event (#197).
 
 - **`wiki-maintenance`: one deadline entry per event.** The ingest step now reads a page's current `deadline:`,
   `deadlines:` and `recurring:` entries before adding a date, updates a matching entry in place instead of adding another, replaces
@@ -17,6 +19,9 @@ deliberately.
   for 16 events because each restating note appended another. A new rule and a new reconcile check, so MINOR.
   Enforcement stays with the deployment: a frontmatter writer that appends without reading the list needs its own
   guard in code.
+
+No skill name, description, archetype layout or prompt placeholder changes. All three direction manifests bump to
+15.14.0.
 
 ## v15.13.0 (2026-11-25)
 
