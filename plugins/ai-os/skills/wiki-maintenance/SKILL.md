@@ -582,7 +582,14 @@ This is the spine. For **each** item in the inbox / drop folder:
    land at a page's end is accretion by construction. Add a provenance link down to the source file. **If the source carries a forward-looking
    date** (renewal, payment, expiry, deadline), record it as `deadline: YYYY-MM-DD` (or a `deadlines:`
    list) in **that page's** frontmatter, and a date that comes round every year (a renewal day, a
-   filing date) in its `recurring:` list. If your setup has a deterministic step that rolls those dates
+   filing date) in its `recurring:` list. **One entry per event.** Before adding a date, read the
+   page's existing `deadlines:` and `recurring:` entries: when one already covers the same event (the
+   same renewal, payment, expiry or task, whatever its wording), update that entry in place, its date
+   or its note, and add nothing; a source that only restates a known date changes nothing. A moved
+   date replaces the old entry, never sits beside it. A section-level addition that sets frontmatter
+   writes the whole list back, deduplicated, and never appends to a list it has not read. A deadline
+   lives on one page only: the page that owns the fact, never its section overview as well. If your
+   setup has a deterministic step that rolls those dates
    into a Deadlines page, don't hand-write that page — let the roll-up build it; otherwise update the
    Deadlines list yourself from the page dates. One item typically touches a handful of pages — and the
    Index counts among them whenever the item changes anything the Index carries (the urgent list, a key
@@ -643,6 +650,11 @@ must never look alike:
   the canonical keys each run, so the wiki converges instead of staying invisible forever.
 - **Paths resolve.** Check that referenced paths exist — frontmatter `source:` keys, body-level
   backticked paths, and claims of the form "file X exists at Y" — and report the dead count.
+- **Deadlines are unique.** Count frontmatter `deadlines:` and `recurring:` entries that repeat an
+  event already listed on the same page, or on another page in the same section, and report the count.
+  Fold each group into one entry, keeping the most exact note (amounts, references, the condition),
+  on the page that owns the fact. A roll-up line that repeats an event is a finding here, never
+  something to fix on the derived page by hand.
 - **The Schema matches reality.** Diff the Schema's declared layout (the top-level files and folders it
   names) against a directory listing; an undeclared folder or a described-but-missing page is a finding.
 - **The Index is the freshest page.** If any page's `last-updated` is newer than the Index's, refresh
