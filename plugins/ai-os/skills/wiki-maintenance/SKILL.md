@@ -583,12 +583,18 @@ This is the spine. For **each** item in the inbox / drop folder:
    date** (renewal, payment, expiry, deadline), record it as `deadline: YYYY-MM-DD` (or a `deadlines:`
    list) in **that page's** frontmatter, and a date that comes round every year (a renewal day, a
    filing date) in its `recurring:` list. **One entry per event.** Before adding a date, read the
-   page's existing `deadlines:` and `recurring:` entries: when one already covers the same event (the
+   page's current `deadlines:` and `recurring:` entries: when one already covers the same event (the
    same renewal, payment, expiry or task, whatever its wording), update that entry in place, its date
-   or its note, and add nothing; a source that only restates a known date changes nothing. A moved
-   date replaces the old entry, never sits beside it. A section-level addition that sets frontmatter
-   writes the whole list back, deduplicated, and never appends to a list it has not read. A deadline
-   lives on one page only: the page that owns the fact, never its section overview as well. If your
+   or its note, and add no entry; a source that only restates a known date adds no entry, though it
+   still earns its provenance link. A moved date replaces the old entry, never sits beside it. A
+   `recurring:` day and this year's `deadlines:` date for the same renewal are one event: keep the
+   `recurring:` entry, and add a dated entry only when this year's date differs from it or carries
+   something the recurring note does not (an amount, a condition). A deadline lives on one page only:
+   the page that owns the fact, never its section overview as well. A deployment that offers a
+   section-level addition shows the page's current `deadlines:` and `recurring:` lists alongside its
+   headings, and a frontmatter list is written back whole, never appended to; where the deployment
+   cannot show those lists, the ingest sets no date on that page and says so in its Log line, and the
+   guard against appending blind belongs in the deployment's code. If your
    setup has a deterministic step that rolls those dates
    into a Deadlines page, don't hand-write that page — let the roll-up build it; otherwise update the
    Deadlines list yourself from the page dates. One item typically touches a handful of pages — and the
@@ -650,11 +656,14 @@ must never look alike:
   the canonical keys each run, so the wiki converges instead of staying invisible forever.
 - **Paths resolve.** Check that referenced paths exist — frontmatter `source:` keys, body-level
   backticked paths, and claims of the form "file X exists at Y" — and report the dead count.
-- **Deadlines are unique.** Count frontmatter `deadlines:` and `recurring:` entries that repeat an
-  event already listed on the same page, or on another page in the same section, and report the count.
-  Fold each group into one entry, keeping the most exact note (amounts, references, the condition),
-  on the page that owns the fact. A roll-up line that repeats an event is a finding here, never
-  something to fix on the derived page by hand.
+- **Deadlines are unique.** Count frontmatter `deadlines:` and `recurring:` entries that repeat
+  another entry exactly (the same date with the same or an empty note), across the whole wiki, and
+  report the count. That count is the deterministic part. Then, as a judgement step, group entries
+  that describe the same event in different words, on any page, and fold each group into one entry on
+  the page that owns the fact, keeping the most exact note (amounts, references, the condition). Never
+  fold away a `provenance: manual` entry or one an owner confirmation record backs: report those
+  instead. A roll-up line that repeats an event is a finding here, never something to fix on the
+  derived page by hand.
 - **The Schema matches reality.** Diff the Schema's declared layout (the top-level files and folders it
   names) against a directory listing; an undeclared folder or a described-but-missing page is a finding.
 - **The Index is the freshest page.** If any page's `last-updated` is newer than the Index's, refresh
