@@ -4,6 +4,25 @@ Releases are semver tags (`vMAJOR.MINOR.PATCH`); what counts as a breaking chang
 the versioned interface in [`AGENTS.md`](AGENTS.md). Consumers pin a tag and advance it
 deliberately.
 
+## v15.14.0 (2026-11-27)
+
+A **MINOR**: `wiki-maintenance` keeps one deadline entry per event (#197).
+
+- **`wiki-maintenance`: one deadline entry per event.** The ingest step now reads a page's current `deadline:`,
+  `deadlines:` and `recurring:` entries before adding a date, updates a matching entry in place instead of adding another, replaces
+  an entry when its date moves, treats a `recurring:` day and the same year's dated entry as one event, and keeps
+  each date on the one page that owns it. A deployment that offers a section-level addition shows those lists with
+  the headings and writes a list back whole; where it cannot, the ingest sets no date on that page and logs why.
+  The reconcile gains a **Deadlines are unique** check: a deterministic count of exact repeats on one page,
+  reported even when clean, then a judgement step that confirms wiki-wide candidates are one event before folding them, never a
+  `provenance: manual` or owner-confirmed one. Seen in a live wiki, where a finance page held 41 deadline entries
+  for 16 events because each restating note appended another. A new rule and a new reconcile check, so MINOR.
+  Enforcement stays with the deployment: a frontmatter writer that appends without reading the list needs its own
+  guard in code.
+
+No skill name, description, archetype layout or prompt placeholder changes. All three direction manifests bump to
+15.14.0.
+
 ## v15.13.0 (2026-11-25)
 
 A **MINOR**: the skills work, or say plainly why they cannot, in a sandboxed agent (#188, #189, #190). Cowork and
