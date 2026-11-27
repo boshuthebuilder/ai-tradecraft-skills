@@ -657,14 +657,16 @@ must never look alike:
   the canonical keys each run, so the wiki converges instead of staying invisible forever.
 - **Paths resolve.** Check that referenced paths exist — frontmatter `source:` keys, body-level
   backticked paths, and claims of the form "file X exists at Y" — and report the dead count.
-- **Deadlines are unique.** Count frontmatter `deadline:`, `deadlines:` and `recurring:` entries that repeat
-  another entry exactly (the same date with the same or an empty note), across the whole wiki, and
-  report the count. That count is the deterministic part. Then, as a judgement step, group entries
-  that describe the same event in different words, on any page, and fold each group into one entry on
-  the page that owns the fact, keeping the most exact note (amounts, references, the condition). Never
-  fold away a `provenance: manual` entry or one an owner confirmation record backs: report those
-  instead. A roll-up line that repeats an event is a finding here, never something to fix on the
-  derived page by hand.
+- **Deadlines are unique.** Count, page by page, the `deadline:`, `deadlines:` and `recurring:` entries that
+  repeat another entry on the same page exactly (the same date and the same note), and report that count:
+  it is the deterministic part, and each such repeat is removed. Then, as a judgement step, look across the
+  whole wiki at entries that share a date or describe a similar event, treat each as a candidate only, and
+  confirm from the pages and their sources that two entries are one event before folding them: a shared
+  date, an empty note or a generic one ("Payment due") never makes two entries the same event. Report the
+  candidates and the confirmed folds separately. Fold each confirmed group into one entry on the page that
+  owns the fact, keeping the most exact note (amounts, references, the condition). Never fold away a
+  `provenance: manual` entry or one an owner confirmation record backs: report those instead. A roll-up
+  line that repeats an event is a finding here, never something to fix on the derived page by hand.
 - **The Schema matches reality.** Diff the Schema's declared layout (the top-level files and folders it
   names) against a directory listing; an undeclared folder or a described-but-missing page is a finding.
 - **The Index is the freshest page.** If any page's `last-updated` is newer than the Index's, refresh

@@ -11,8 +11,8 @@ deliberately.
   an entry when its date moves, treats a `recurring:` day and the same year's dated entry as one event, and keeps
   each date on the one page that owns it. A deployment that offers a section-level addition shows those lists with
   the headings and writes a list back whole; where it cannot, the ingest sets no date on that page and logs why.
-  The reconcile gains a **Deadlines are unique** check: a deterministic count of exact repeats across the wiki,
-  reported even when clean, then a judgement step that folds differently worded entries for one event, never a
+  The reconcile gains a **Deadlines are unique** check: a deterministic count of exact repeats on one page,
+  reported even when clean, then a judgement step that confirms wiki-wide candidates are one event before folding them, never a
   `provenance: manual` or owner-confirmed one. Seen in a live wiki, where a finance page held 41 deadline entries
   for 16 events because each restating note appended another. A new rule and a new reconcile check, so MINOR.
   Enforcement stays with the deployment: a frontmatter writer that appends without reading the list needs its own
