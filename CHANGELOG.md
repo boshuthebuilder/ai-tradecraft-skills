@@ -6,8 +6,8 @@ deliberately.
 
 ## Unreleased
 
-- **`wiki-maintenance`: one deadline entry per event.** The ingest step now reads a page's current `deadlines:` and
-  `recurring:` entries before adding a date, updates a matching entry in place instead of adding another, replaces
+- **`wiki-maintenance`: one deadline entry per event.** The ingest step now reads a page's current `deadline:`,
+  `deadlines:` and `recurring:` entries before adding a date, updates a matching entry in place instead of adding another, replaces
   an entry when its date moves, treats a `recurring:` day and the same year's dated entry as one event, and keeps
   each date on the one page that owns it. A deployment that offers a section-level addition shows those lists with
   the headings and writes a list back whole; where it cannot, the ingest sets no date on that page and logs why.

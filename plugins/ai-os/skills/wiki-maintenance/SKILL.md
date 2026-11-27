@@ -583,15 +583,16 @@ This is the spine. For **each** item in the inbox / drop folder:
    date** (renewal, payment, expiry, deadline), record it as `deadline: YYYY-MM-DD` (or a `deadlines:`
    list) in **that page's** frontmatter, and a date that comes round every year (a renewal day, a
    filing date) in its `recurring:` list. **One entry per event.** Before adding a date, read the
-   page's current `deadlines:` and `recurring:` entries: when one already covers the same event (the
+   page's current `deadline:`, `deadlines:` and `recurring:` entries: when one already covers the same event (the
    same renewal, payment, expiry or task, whatever its wording), update that entry in place, its date
    or its note, and add no entry; a source that only restates a known date adds no entry, though it
-   still earns its provenance link. A moved date replaces the old entry, never sits beside it. A
+   still earns its provenance link. A moved date replaces the old entry, never sits beside it, and a single `deadline:` that gains a
+   second event becomes a `deadlines:` list holding both, never a key beside a list. A
    `recurring:` day and this year's `deadlines:` date for the same renewal are one event: keep the
    `recurring:` entry, and add a dated entry only when this year's date differs from it or carries
    something the recurring note does not (an amount, a condition). A deadline lives on one page only:
    the page that owns the fact, never its section overview as well. A deployment that offers a
-   section-level addition shows the page's current `deadlines:` and `recurring:` lists alongside its
+   section-level addition shows the page's current `deadline:`, `deadlines:` and `recurring:` entries alongside its
    headings, and a frontmatter list is written back whole, never appended to; where the deployment
    cannot show those lists, the ingest sets no date on that page and says so in its Log line, and the
    guard against appending blind belongs in the deployment's code. If your
@@ -656,7 +657,7 @@ must never look alike:
   the canonical keys each run, so the wiki converges instead of staying invisible forever.
 - **Paths resolve.** Check that referenced paths exist — frontmatter `source:` keys, body-level
   backticked paths, and claims of the form "file X exists at Y" — and report the dead count.
-- **Deadlines are unique.** Count frontmatter `deadlines:` and `recurring:` entries that repeat
+- **Deadlines are unique.** Count frontmatter `deadline:`, `deadlines:` and `recurring:` entries that repeat
   another entry exactly (the same date with the same or an empty note), across the whole wiki, and
   report the count. That count is the deterministic part. Then, as a judgement step, group entries
   that describe the same event in different words, on any page, and fold each group into one entry on
